@@ -1,0 +1,147 @@
+{
+    "activeMotion": "rotation",
+    "angles": {
+        "omega": 60.68575668334961,
+        "phi": 41.834110260009766,
+        "psi": 41.629119873046875
+    },
+    "background": {
+        "code": "// 1. FUNZIONI DI SUPPORTO (Noise & Random)\nfloat random (in vec2 st) {\n    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);\n}\n\nfloat noise (in vec2 st) {\n    vec2 i = floor(st);\n    vec2 f = fract(st);\n    vec2 u = f * f * (3.0 - 2.0 * f);\n    float a = random(i);\n    float b = random(i + vec2(1.0, 0.0));\n    float c = random(i + vec2(0.0, 1.0));\n    float d = random(i + vec2(1.0, 1.0));\n    return mix(a, b, u.x) + (c - a)* u.y * (1.0 - u.x) + (d - b) * u.x * u.y;\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord.xy / iResolution.xy;\n    float u = uv.x;\n    float v = uv.y;\n\n    float scale = 4.0;\n    int octaves = 5;\n    float cloudCover = 0.0; \n\n    float u_fix = abs(u * 2.0 - 1.0);\n    float v_fix = abs(v * 2.0 - 1.0);\n    vec2 st = vec2(u_fix, v_fix) * scale;\n\n    float value = 0.0;\n    float amplitude = 0.5;\n    float totalAmplitude = 0.0;\n\n    for (int i = 0; i < 5; i++) {\n        if (i >= octaves) break; \n        value += amplitude * noise(st);\n        st *= 2.0;       \n        totalAmplitude += amplitude;\n        amplitude *= 0.5; \n    }\n    \n    value /= totalAmplitude;\n    float n = smoothstep(cloudCover + 0.2, cloudCover + 0.8, value);\n\n    // FIX: Leggiamo i colori direttamente dal buffer UBO bypassando il conflitto!\n    vec3 color = mix(ubuf.u_col1, ubuf.u_col2, n);\n    \n    fragColor = vec4(color, 1.0);\n}",
+        "col1": "#336933",
+        "col2": "#ffffff",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "libName": "Soft Clouds",
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "skyMode": "cylinder",
+        "zoom": 0.16252802312374115
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": -26.060009002685547,
+        "rot_w": -0.929446816444397,
+        "rot_x": 0.054235152900218964,
+        "rot_y": -0.062139950692653656,
+        "rot_z": -0.35961902141571045,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4.079999923706055
+    },
+    "cameraFov": 45,
+    "colors": {
+        "alpha": 0.61,
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 0.8999999761581421,
+        "B": 0.3499999940395355,
+        "C": 0.20000000298023224,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0.699999988079071
+    },
+    "crossSectionEquation": "0.5*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 - 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2) = 0.0",
+    "crossSectionP": 0,
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "(0.8 + 0.3*cos(v))*cos(u)",
+        "y": "(0.8 + 0.3*cos(v))*sin(u)",
+        "z": "0.3*sin(v)"
+    },
+    "fillLight": 0,
+    "fov3D": 45,
+    "fov4D": 45,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "hintSeconds": 7,
+    "hintText": "Sliders\nA: radius of the main ring\nB: thickness of the inner tube\nC: thickness of the outer tube",
+    "hybridMarcher": true,
+    "implicitEquation": "x^2 + y^2 + z^2 = 1.0",
+    "implicitUsesCrossSection": true,
+    "isImplicitMode": true,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "meshScopeAll": true,
+    "name": "Glass 3-Torus",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "pathMode3D": 0,
+    "projectionMode": 1,
+    "renderMode": 0,
+    "shellThickness": 0.004999999888241291,
+    "speeds": {
+        "nutation": 0.5,
+        "omega": 0.20000000298023224,
+        "path3D": 10,
+        "path4D": 1,
+        "phi": 0.30000001192092896,
+        "precession": 0.5,
+        "psi": 0.30000001192092896,
+        "spin": 0.5
+    },
+    "steps": 600,
+    "texture": {
+        "code": "textureCol = 0.5 + 0.5 * cos(ubuf.u_time + n_model.xyz + vec3(0, 2, 4));",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "displacement": "",
+        "enabled": true,
+        "libName": "Normal Iridescence",
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
+}

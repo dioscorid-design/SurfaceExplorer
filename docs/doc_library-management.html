@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Surface Explorer &mdash; Library, Presets &amp; Saving Your Work</title>
+
+    <style>
+        body { background-color: #1e1e1e; color: #d4d4d4;
+               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        p, li, td, th { color: #d4d4d4; }
+        strong { color: #007acc; }
+        code { background-color: #101010; color: #ce9178;
+               font-family: 'Consolas', 'Courier New', monospace; }
+        pre  { background-color: #101010; color: #dcdcaa; }
+        a { color: #569cd6; }
+    </style>
+</head>
+<body>
+
+<table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 24px; color: #ffffff; margin: 0;"><b>Library, Presets &amp; Saving Your Work</b></p></td></tr></table>
+<hr>
+<p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_scripting.html">&larr; Script Dock &amp; Advanced Scripting</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_modular-controls.html">Modular Activation &amp; Master Controls &rarr;</a></p>
+<hr>
+<p>The Library dock organizes your work into four tabs, each storing one kind of file.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>1. Shapes (*.json)</b></p></td></tr></table>
+            <p>Saving a Shape captures the mathematical definition and the base visual style of your 3D/4D object. It is ideal for storing pure geometry without linking it to a specific animation or texture.</p>
+            <ul>
+                <li><strong>What it saves:</strong> the geometry (equations or surface script, constraints, constants A&ndash;F and S, U/V/W limits, Steps, 4D rotation state), the visual style (color, transparency, render mode, lighting, background color) and the framing (camera, projection, field of view). Equations or a script that use the time <em>t</em> are saved with their animation, which starts again when the Shape is opened.</li>
+                <li><strong>Multi-mesh surfaces:</strong> the appearance and the domain of every grid you customized are saved too, with the domain of the All scope and the active All/Mesh scope.</li>
+                <li><strong>What it ignores:</strong> Textures, the background texture, 3D/4D paths, and rotation and path speeds. To store a scene complete with textures, background texture and motions, save a <em>Record</em> instead.</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>2. Textures (*.json)</b></p></td></tr></table>
+            <p>Saving a Texture isolates the visual pattern or image. It can be applied interchangeably to the object's surface or the background.</p>
+            <ul>
+                <li><strong>What it saves:</strong> The GLSL texture scripts or the absolute path of the loaded image, the two active colors in the interface (Color 1 and Color 2), and 2D transformations applied via mouse or 2D View (Zoom, Pan X/Y, Rotation).</li>
+                <li><strong>What it ignores:</strong> The 3D geometry it is mapped onto. You can safely load a saved texture onto any new surface of the same mode. A texture made for the other mode is refused with a warning and nothing changes; Ray Marching textures can't go on the background or the border either. Images work everywhere.</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>3. Sounds (*.json, *.mp3, *.wav, *.ogg)</b></p></td></tr></table>
+            <p>The Sounds tab stores audio configurations, which can be procedural mathematical synths or based on external files.</p>
+            <ul>
+                <li><strong>What it saves:</strong> Purely procedural audio scripts (using the <code>//SYNTH:</code> directive) or absolute paths to local audio files (<code>//MUSIC:</code> directive).</li>
+                <li><strong>How to use it:</strong> click a sound in the tree to add its directive to the current script and play it.</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>4. Records / Motions (*.json)</b></p></td></tr></table>
+            <p>A Record save is an <strong>absolute and complete snapshot</strong> of your entire workspace. It is the most powerful format, designed for animations and final renders.</p>
+            <ul>
+                <li><strong>What it saves:</strong> <em>Absolutely everything.</em> The surface geometry in a complete composite form, customized colors, applied textures (both surface and background), active sounds, all mathematical constants, 4D lighting configuration, 3D/4D path tracking data, and all continuous rotation speeds (Spin, Nutation, Precession, Omega, Phi, Psi).</li>
+                <li><strong>Camera and Observer:</strong> when you reopen a Record, the framing and audio resume as you left them, while the animation restarts from the beginning.</li>
+                <li><strong>Sync Focused Texture:</strong> Right-click the Record loaded in the scene and choose <em>Sync Focused Texture</em> to bring in the current code of the Library textures it uses &mdash; surface, background or both &mdash; while keeping the Record's colors, constants A&ndash;F and zoom, pan and rotation. It does not save: save the Record again to keep the result.</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Workflow & Organization</b></p></td></tr></table>
+            <ul>
+                <li><strong>Context Menu:</strong> Right-click an item or an empty spot in the Library tree (long-press on touch devices) to open a context menu with the operations on files and folders.</li>
+                <li><strong>Drag &amp; Drop:</strong> on desktop, files and folders can be dragged between branches to reorganize them on disk.</li>
+                <li><strong>Unsaved work:</strong> before opening a surface or a record, pressing <em>NEW</em>, switching mode or closing the app, Surface Explorer asks whether to save if the scene differs from the one opened or last saved &mdash; putting a control back where it was does not count. Picking another texture or sound, or switching the texture off, asks only if that module itself was changed.</li>
+            </ul>
+
+<hr>
+<p style="font-size: 15px; margin-top: 30px;"><a href="doc_scripting.html">&larr; Script Dock &amp; Advanced Scripting</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_modular-controls.html">Modular Activation &amp; Master Controls &rarr;</a></p>
+
+</body>
+</html>

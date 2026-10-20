@@ -1,0 +1,770 @@
+#include "surfaceengine.h"
+#include "geodesiccalculator.h"
+
+#include <cmath>
+#include <algorithm>
+#include "exprtk.hpp"
+
+SurfaceEngine::SurfaceEngine()
+{
+    // Limiti di default
+    uMin = 0.0f; uMax = 6.28318f;
+    vMin = 0.0f; vMax = 6.28318f;
+    wMin = 0.0f; wMax = 1.0f;
+
+    use4DLighting = false;
+    m_useScriptMode = false;
+    m_glslCode = "";
+
+    u_is_closed = false;
+    v_is_closed = false;
+    u_closes_twisted = false;
+
+    // Tabella Path
+    m_pathSymbolTable.add_variable("t", m_varT);
+    m_pathSymbolTable.add_variable("A", m_varA);
+    m_pathSymbolTable.add_variable("B", m_varB);
+    m_pathSymbolTable.add_variable("C", m_varC);
+    m_pathSymbolTable.add_variable("D", m_varD);
+    m_pathSymbolTable.add_variable("E", m_varE);
+    m_pathSymbolTable.add_variable("F", m_varF);
+    m_pathSymbolTable.add_variable("s", m_varS);
+    m_pathSymbolTable.add_constants();
+
+    // Tabella Surface
+    m_surfaceSymbolTable.add_variable("u", m_varU);
+    m_surfaceSymbolTable.add_variable("v", m_varV);
+    m_surfaceSymbolTable.add_variable("w", m_varW);
+    m_surfaceSymbolTable.add_variable("U", m_varU_comp);
+    m_surfaceSymbolTable.add_variable("V", m_varV_comp);
+    m_surfaceSymbolTable.add_variable("W", m_varW_comp);
+    m_surfaceSymbolTable.add_variable("p", m_varP);
+    m_surfaceSymbolTable.add_variable("A", m_varA);
+    m_surfaceSymbolTable.add_variable("B", m_varB);
+    m_surfaceSymbolTable.add_variable("C", m_varC);
+    m_surfaceSymbolTable.add_variable("D", m_varD);
+    m_surfaceSymbolTable.add_variable("E", m_varE);
+    m_surfaceSymbolTable.add_variable("F", m_varF);
+    m_surfaceSymbolTable.add_variable("s", m_varS);
+    m_surfaceSymbolTable.add_variable("t", m_varT);
+    // Multi-mesh: copia e numero di copie (vedi detectPartClosure).
+    m_surfaceSymbolTable.add_variable("mesh", m_varMesh);
+    m_surfaceSymbolTable.add_variable("meshes", m_varMeshes);
+    m_surfaceSymbolTable.add_constants();
+
+    // Generiamo subito la mesh di default
+    computeMesh();
+}
+
+
+// ==========================================================
+// CORE MESH & GENERATION
+// ==========================================================
+
+void SurfaceEngine::clear()
+{
+    generatedVertices.clear();
+    generatedIndices.clear();
+    m_meshParts.clear();
+}
+
+void SurfaceEngine::computeMesh()
+{
+    generatedVertices.clear();
+    generatedIndices.clear();
+
+    generateParametricGrid();
+    generateBorder();
+}
+
+void SurfaceEngine::setResolution(int u, int v)
+{
+    numU = std::max(2, u);
+    numV = std::max(2, v);
+}
+
+void SurfaceEngine::setCustomMesh(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices, bool isUClosed, bool isVClosed)
+{
+    generatedVertices = vertices;
+    generatedIndices = indices;
+
+    // Ora rispettiamo la vera topologia della mesh geodetica
+    u_is_closed = isUClosed;
+    v_is_closed = isVClosed;
+
+    // Mesh custom (flusso geodetico): una parte sola che copre tutto il buffer.
+    // Senza questo il loop di draw non troverebbe parti e non disegnerebbe
+    // nulla. I vertici qui sono POSIZIONI, non parametri (#define CUSTOM_MESH),
+    // quindi il dominio non serve a ricalcolare punti: teniamo quello corrente.
+    m_meshParts.clear();
+    MeshPart part;
+    part.uMin = uMin; part.uMax = uMax;
+    part.vMin = vMin; part.vMax = vMax;
+    part.numU = numU; part.numV = numV;
+    part.vertexOffset = 0;
+    part.vertexCount  = (int)generatedVertices.size();
+    part.indexOffset  = 0;
+    part.indexCount   = (int)generatedIndices.size();
+    part.uClosed = isUClosed;
+    part.vClosed = isVClosed;
+    part.meshIndex = 0;
+    m_meshParts.push_back(part);
+
+    // Bordo sui lati del dominio, come per le superfici. I vertici della mesh
+    // custom sono POSIZIONI, non parametri: i punti dei lati il vertex shader
+    // li legge dalla texture dei lati della griglia (GLWidget::setBorderEdges).
+    generateBorder();
+}
+
+
+// ==========================================================
+// EQUATIONS & CONSTRAINTS
+// ==========================================================
+
+void SurfaceEngine::setEquations(const QString &x, const QString &y, const QString &z, const QString &p)
+{
+    eqX = x; eqY = y; eqZ = z; eqP = p;
+
+    exprtk::parser<float> parser;
+
+    auto compileSurf = [&](const QString &s, CachedExpression &target) {
+        target.isValid = false;
+        if (s.trimmed().isEmpty()) return;
+        target.expr.register_symbol_table(m_surfaceSymbolTable);
+        if (parser.compile(s.toStdString(), target.expr)) {
+            target.isValid = true;
+        }
+    };
+
+    compileSurf(x, m_exprSurfX);
+    compileSurf(y, m_exprSurfY);
+    compileSurf(z, m_exprSurfZ);
+}
+
+void SurfaceEngine::setConstraintMode(ConstraintMode mode) {
+    m_constraintMode = mode;
+}
+
+void SurfaceEngine::setExplicitU(const QString &eq) {
+    m_explicitU = eq;
+}
+
+void SurfaceEngine::setExplicitV(const QString &eq) {
+    m_explicitV = eq;
+}
+
+void SurfaceEngine::setExplicitW(const QString &eq) {
+    m_explicitW = eq;
+}
+
+QString SurfaceEngine::getActiveExplicitEquation() const {
+    switch(m_constraintMode) {
+    case ConstraintU: return m_explicitU;
+    case ConstraintV: return m_explicitV;
+    default: return m_explicitW;
+    }
+}
+QVector<QVector<QVector4D>> SurfaceEngine::computeGeodesicFlow(
+    QRhi* rhi,
+    const QString& eqX, const QString& eqY, const QString& eqZ, const QString& eqP,
+    const QString& eqU, const QString& eqV, const QString& eqW,
+    const QString& eqDu, const QString& eqDv, const QString& eqDw, const QString& eqLambda,
+    const QString& eqMetric,
+    float uMin, float uMax, int numU,
+    float vMin, float vMax, int numV,
+    const QMap<QString, float>& constants,
+    float currentT,
+    QString* outErrorMsg)
+{
+    return m_geoCalc.computeGeodesicFlow(
+        rhi,
+        eqX, eqY, eqZ, eqP, eqU, eqV, eqW, eqDu, eqDv, eqDw, eqLambda, eqMetric,
+        uMin, uMax, numU, vMin, vMax, numV, constants,
+        currentT,
+        outErrorMsg);
+}
+
+void SurfaceEngine::setTime(float t) {
+    m_varT = t;
+}
+
+
+// ==========================================================
+// MATHEMATICAL RANGES & CONSTANTS
+// ==========================================================
+
+void SurfaceEngine::setRangeU(float min, float max)
+{
+    this->uMin = min;
+    this->uMax = max;
+}
+
+void SurfaceEngine::setRangeV(float min, float max)
+{
+    this->vMin = min;
+    this->vMax = max;
+}
+
+void SurfaceEngine::setRangeW(float min, float max)
+{
+    this->wMin = min;
+    this->wMax = max;
+}
+
+void SurfaceEngine::setConstants(float a, float b, float c, float d, float e, float f, float s)
+{
+    valA = a; valB = b; valC = c;
+    valD = d; valE = e; valF = f;
+    valS = s;
+
+    m_varA = a; m_varB = b; m_varC = c;
+    m_varD = d; m_varE = e; m_varF = f;
+    m_varS = s;
+}
+
+bool SurfaceEngine::isMeshValid() const {
+    if (generatedVertices.empty()) return false;
+
+    float limit = 100000.0f;
+
+    for (const Vertex& v : generatedVertices) {
+        if (std::isnan(v.position.x()) || std::isinf(v.position.x()) || std::abs(v.position.x()) > limit ||
+            std::isnan(v.position.y()) || std::isinf(v.position.y()) || std::abs(v.position.y()) > limit ||
+            std::isnan(v.position.z()) || std::isinf(v.position.z()) || std::abs(v.position.z()) > limit ||
+            std::isnan(v.position.w()) || std::isinf(v.position.w()) || std::abs(v.position.w()) > limit) {
+
+            return false;
+        }
+    }
+
+    return true;
+}
+
+
+// ==========================================================
+// PATHS 3D & 4D (EVALUATION)
+// ==========================================================
+
+bool SurfaceEngine::compilePathEquations(const QString &x, const QString &y, const QString &z, const QString &p,
+                                         const QString &alpha, const QString &beta, const QString &gamma)
+{
+    exprtk::parser<float> parser;
+
+    compileSingleExpr(x, m_exprPathX, parser);
+    compileSingleExpr(y, m_exprPathY, parser);
+    compileSingleExpr(z, m_exprPathZ, parser);
+    compileSingleExpr(p, m_exprPathP, parser);
+
+    compileSingleExpr(alpha, m_exprPathAlpha, parser);
+    compileSingleExpr(beta, m_exprPathBeta, parser);
+    compileSingleExpr(gamma, m_exprPathGamma, parser);
+
+    pathEqX = x; pathEqY = y; pathEqZ = z; pathEqP = p;
+    pathEqAlpha = alpha; pathEqBeta = beta; pathEqGamma = gamma;
+
+    pathValid = (m_exprPathX.isValid && m_exprPathY.isValid && m_exprPathZ.isValid);
+    return pathValid;
+}
+
+void SurfaceEngine::clearPathEquations()
+{
+    for (CachedExpression *e : { &m_exprPathX, &m_exprPathY, &m_exprPathZ, &m_exprPathP,
+                                 &m_exprPathAlpha, &m_exprPathBeta, &m_exprPathGamma,
+                                 &m_exprPath3DX, &m_exprPath3DY, &m_exprPath3DZ, &m_exprPath3DR })
+        e->isValid = false;
+    for (QString *eq : { &pathEqX, &pathEqY, &pathEqZ, &pathEqP, &pathEqAlpha, &pathEqBeta, &pathEqGamma,
+                         &pathEqX3D, &pathEqY3D, &pathEqZ3D, &pathEqR3D })
+        eq->clear();
+    pathValid = false;
+    path3DValid = false;
+}
+
+QVector4D SurfaceEngine::evaluatePathPosition(float t)
+{
+    if (!pathValid) return QVector4D(0,0,4,0);
+
+    m_varT = t;
+
+    float x = m_exprPathX.isValid ? m_exprPathX.expr.value() : 0.0f;
+    float y = m_exprPathY.isValid ? m_exprPathY.expr.value() : 0.0f;
+    float z = m_exprPathZ.isValid ? m_exprPathZ.expr.value() : 0.0f;
+    float p = m_exprPathP.isValid ? m_exprPathP.expr.value() : 0.0f;
+
+    return QVector4D(x, y, z, p);
+}
+
+float SurfaceEngine::evaluatePathAlpha(float t)
+{
+    if (!m_exprPathAlpha.isValid) return 0.0f;
+    m_varT = t;
+    return m_exprPathAlpha.expr.value();
+}
+
+float SurfaceEngine::evaluatePathBeta(float t)
+{
+    if (!m_exprPathBeta.isValid) return 0.0f;
+    m_varT = t;
+    return m_exprPathBeta.expr.value();
+}
+
+float SurfaceEngine::evaluatePathGamma(float t)
+{
+    if (!m_exprPathGamma.isValid) return 0.0f;
+    m_varT = t;
+    return m_exprPathGamma.expr.value();
+}
+
+bool SurfaceEngine::compilePath3DEquations(const QString &x, const QString &y, const QString &z, const QString &r)
+{
+    exprtk::parser<float> parser;
+
+    compileSingleExpr(x, m_exprPath3DX, parser);
+    compileSingleExpr(y, m_exprPath3DY, parser);
+    compileSingleExpr(z, m_exprPath3DZ, parser);
+    compileSingleExpr(r, m_exprPath3DR, parser);
+
+    pathEqX3D = x; pathEqY3D = y; pathEqZ3D = z; pathEqR3D = r;
+
+    path3DValid = (m_exprPath3DX.isValid && m_exprPath3DY.isValid && m_exprPath3DZ.isValid);
+    return path3DValid;
+}
+
+QVector4D SurfaceEngine::evaluatePath3DPosition(float t)
+{
+    if (!path3DValid) return QVector4D(0,0,4,0);
+
+    m_varT = t;
+
+    float x = m_exprPath3DX.isValid ? m_exprPath3DX.expr.value() : 0.0f;
+    float y = m_exprPath3DY.isValid ? m_exprPath3DY.expr.value() : 0.0f;
+    float z = m_exprPath3DZ.isValid ? m_exprPath3DZ.expr.value() : 0.0f;
+    float r = m_exprPath3DR.isValid ? m_exprPath3DR.expr.value() : 0.0f;
+
+    return QVector4D(x, y, z, r);
+}
+
+
+// ==========================================================
+// 4D LIGHTING STATE (Used by GLWidget)
+// ==========================================================
+
+void SurfaceEngine::set4DLighting(bool enable)
+{
+    use4DLighting = enable;
+}
+
+
+// ==========================================================
+// SCRIPTING & SHADERS
+// ==========================================================
+
+void SurfaceEngine::setScriptMode(bool active) {
+    m_useScriptMode = active;
+    // Script e tubo si escludono. Qui e non solo in GLWidget::setScriptMode:
+    // il load di un record Ray Marching da script accende lo script sul motore
+    // direttamente, e il tubo del preset precedente restava acceso (lo trovava
+    // lo scenario load-order).
+    if (active) m_useTubeMode = false;
+}
+
+
+// ==========================================================
+// PRIVATE INTERNAL HELPERS
+// ==========================================================
+
+// --- Mesh Generation & Analysis ---
+
+std::vector<MeshPart> SurfaceEngine::resolveMeshParts() const
+{
+    // Il dominio CORRENTE della superficie: gli assi della griglia dipendono
+    // dal vincolo attivo, come prima. Vale per la mesh singola e per le parti
+    // nate dal campo Meshes senza una sezione (followsGlobalDomain).
+    auto applyGlobalDomain = [this](MeshPart &p) {
+        if (m_constraintMode == ConstraintU) {
+            p.uMin = vMin; p.uMax = vMax;
+            p.vMin = wMin; p.vMax = wMax;
+        } else if (m_constraintMode == ConstraintV) {
+            p.uMin = uMin; p.uMax = uMax;
+            p.vMin = wMin; p.vMax = wMax;
+        } else {
+            p.uMin = uMin; p.uMax = uMax;
+            p.vMin = vMin; p.vMax = vMax;
+        }
+    };
+
+    // Nessuna sezione //MESH_BEGIN nello script: una parte sola sul dominio
+    // corrente. Coincide esattamente con la griglia storica, quindi ogni preset
+    // che non dichiara parti genera gli stessi vertici e gli stessi indici.
+    if (m_declaredParts.empty()) {
+        MeshPart single;
+        applyGlobalDomain(single);
+        single.numU = numU;
+        single.numV = numV;
+        single.meshIndex = 0;
+        return { single };
+    }
+
+    // Parti dichiarate dallo script.
+    //
+    // LO SLIDER STEPS GOVERNA LA RISOLUZIONE (vedi la memoria
+    // slider-steps-governa-risoluzione-script: la direttiva `steps :=` e' inerte
+    // e comanda solo lo slider). I passi dichiarati nelle sezioni //MESH_BEGIN
+    // valgono quindi come PROPORZIONE, non come tetto.
+    //
+    // Prima qui c'era `min(dichiarato, numU)`, che rendeva il valore dichiarato
+    // un tetto assoluto: con "u: 0, TAU, 100" lo slider agiva solo fino a 100 e
+    // oltre non cambiava piu' nulla. Era un bug: le superfici multi-mesh
+    // ignoravano gran parte della corsa dello slider.
+    //
+    // Ora si riscala: la parte con piu' passi dichiarati prende esattamente il
+    // valore dello slider, le altre restano in proporzione. Cosi'
+    //   - i rapporti voluti dallo script (fra parti, e fra u e v) sono rispettati
+    //   - la corsa INTERA dello slider produce effetto
+    //   - il costo totale resta governato dallo slider, come per le mesh singole.
+    std::vector<MeshPart> parts = m_declaredParts;
+
+    // Riferimento = massimo dichiarato su tutte le parti e su entrambi gli assi.
+    int declMax = 0;
+    for (const MeshPart& p : parts) {
+        declMax = std::max(declMax, std::max(p.declaredU, p.declaredV));
+    }
+
+    for (int k = 0; k < (int)parts.size(); ++k) {
+        MeshPart& p = parts[k];
+        p.meshIndex = k;
+        if (p.followsGlobalDomain && !p.hasCustomDomain) applyGlobalDomain(p);
+
+        // AMBITO "ALL" CON UN DOMINIO PROPRIO: vale per TUTTE le parti, al
+        // posto del loro. E' il gemello di cio' che m_meshAppearanceUniform fa
+        // per colore e texture -- i valori per-parte non vengono cancellati, solo
+        // SOSPESI: tornando a "Mesh" ogni parte ritrova il suo dominio, perche'
+        // questa funzione lavora su una COPIA di m_declaredParts e non scrive
+        // mai nell'originale.
+        // Senza dominio di All (il caso di sempre) non si tocca nulla e ogni
+        // parte usa il proprio: e' cosi' che "passando ad All la figura torna
+        // intera" -- intera secondo lo script, finche' in All non si taglia.
+        if (m_meshScopeAll && m_hasAllDomain) {
+            p.uMin = m_allUMin; p.uMax = m_allUMax;
+            p.vMin = m_allVMin; p.vMax = m_allVMax;
+        }
+
+        // Una parte senza risoluzione dichiarata segue lo slider su entrambi gli
+        // assi (comportamento naturale: "come la superficie intera").
+        if (declMax <= 0) {
+            p.numU = std::max(1, numU);
+            p.numV = std::max(1, numV);
+            continue;
+        }
+
+        const int dU = (p.declaredU > 0) ? p.declaredU : declMax;
+        const int dV = (p.declaredV > 0) ? p.declaredV : declMax;
+
+        // Riscalamento proporzionale sul valore ORIGINALE dichiarato: parte
+        // sempre da lì, quindi muovere lo slider avanti e indietro riporta
+        // esattamente agli stessi valori (nessuna deriva).
+        // I due assi usano lo stesso riferimento (numU e numV coincidono: lo
+        // slider Steps e' unico), ma restano campi distinti per non legarli.
+        p.numU = std::max(1, (int)std::lround((double)dU * (double)numU / (double)declMax));
+        p.numV = std::max(1, (int)std::lround((double)dV * (double)numV / (double)declMax));
+    }
+    return parts;
+}
+
+void SurfaceEngine::generateParametricGrid()
+{
+    // 1. Pulizia dei buffer
+    generatedVertices.clear();
+    generatedIndices.clear();
+    m_meshParts.clear();
+
+    m_meshParts = resolveMeshParts();
+
+    // Dimensiona una volta i buffer condivisi: i vertici di TUTTE le parti
+    // vivono contigui, cosi' la GPU riceve un solo upload e ogni parte viene
+    // disegnata con un offset (vedi MeshPart in surfaceengine.h).
+    int totalVerts = 0, totalIdx = 0;
+    for (const MeshPart& p : m_meshParts) {
+        totalVerts += (p.numU + 1) * (p.numV + 1);
+        totalIdx   += p.numU * p.numV * 6;
+    }
+    generatedVertices.reserve(totalVerts);
+    generatedIndices.reserve(totalIdx);
+
+    // 2. Generazione, una parte per volta
+    for (MeshPart& part : m_meshParts) {
+        const int pNumU = part.numU;
+        const int pNumV = part.numV;
+
+        part.vertexOffset = (int)generatedVertices.size();
+        part.indexOffset  = (int)generatedIndices.size();
+
+        const float start1 = part.uMin, end1 = part.uMax;
+        const float start2 = part.vMin, end2 = part.vMax;
+
+        // 2a. Vertici. position.xy porta i PARAMETRI (non le coordinate): il
+        // vertex shader ne ricava la posizione con getRawPosition(u,v).
+        for (int i = 0; i <= pNumU; ++i) {
+            float val1 = start1 + (float)i / pNumU * (end1 - start1);
+
+            for (int j = 0; j <= pNumV; ++j) {
+                float val2 = start2 + (float)j / pNumV * (end2 - start2);
+
+                QVector3D paramPos(val1, val2, 0.0f);
+
+                Vertex vert;
+                vert.position = QVector4D(paramPos, 1.0f);
+                vert.normal = QVector4D(0.0f, 0.0f, 1.0f, 0.0f);
+                // texCoord resta normalizzata 0..1 SULLA PARTE: il fragment
+                // ricostruisce (u,v) interpolando gli uniform u_min/u_max
+                // (v_texCoord), che sono per-draw e valgono il sotto-dominio di
+                // questa parte. Usare coordinate globali sfalserebbe il cutout.
+                vert.texCoord = QVector2D((float)i/pNumU, (float)j/pNumV);
+
+                generatedVertices.push_back(vert);
+            }
+        }
+
+        // 2b. Indici, LOCALI alla parte (0..vertexCount-1). Il quad fra j e j+1
+        // non puo' piu' scavalcare su un'altra parte: il loop e' confinato alla
+        // griglia corrente. E' qui che sparisce la lamina di giunzione.
+        for (int i = 0; i < pNumU; ++i) {
+            for (int j = 0; j < pNumV; ++j) {
+                int p0 = i * (pNumV + 1) + j;
+                int p1 = (i + 1) * (pNumV + 1) + j;
+                int p2 = i * (pNumV + 1) + (j + 1);
+                int p3 = (i + 1) * (pNumV + 1) + (j + 1);
+
+                generatedIndices.push_back(p0);
+                generatedIndices.push_back(p1);
+                generatedIndices.push_back(p2);
+
+                generatedIndices.push_back(p2);
+                generatedIndices.push_back(p1);
+                generatedIndices.push_back(p3);
+            }
+        }
+
+        part.vertexCount = (int)generatedVertices.size() - part.vertexOffset;
+        part.indexCount  = (int)generatedIndices.size()  - part.indexOffset;
+    }
+
+    detectMeshClosure();
+}
+
+// BORDO: per ogni parte, i quattro lati del dominio, ciascuno come griglia
+// (punti lungo il lato) x (angoli attorno al tubo). Ogni vertice porta:
+//   position = (u, v, angolo, 1)   il punto del lato e la posizione sul cerchio
+//   normal   = (lungo u, lungo v, verso l'interno, 1)
+//              direzione del lato nel dominio, segno del passo verso
+//              l'interno, e w = 1 che distingue i vertici del bordo da quelli
+//              della superficie (normal.w = 0)
+//   texCoord = (coordinata del lato opposto, somma degli estremi del lato)
+//              per il test della cucitura, diritta o ritorta (Moebius)
+// I punti lungo il lato sono quelli della griglia della parte, cosi' il tubo
+// segue la superficie con la stessa risoluzione.
+void SurfaceEngine::generateBorder()
+{
+    m_borderVertices.clear();
+    m_borderIndices.clear();
+    m_borderRanges.clear();
+    m_borderWireIndices.clear();
+
+    const int ring = kBorderRing;
+
+    for (const MeshPart &part : m_meshParts) {
+        BorderRange range;
+        range.meshIndex = part.meshIndex;
+        range.vertexOffset = (int)m_borderVertices.size();
+        range.indexOffset = (int)m_borderIndices.size();
+
+        struct Edge { bool alongU; float fixed; float opposite; float inward; int steps; };
+        const Edge edges[4] = {
+            { true,  part.vMin, part.vMax,  1.0f, part.numU },
+            { true,  part.vMax, part.vMin, -1.0f, part.numU },
+            { false, part.uMin, part.uMax,  1.0f, part.numV },
+            { false, part.uMax, part.uMin, -1.0f, part.numV },
+        };
+        for (int ei = 0; ei < 4; ++ei) {
+            const Edge &e = edges[ei];
+            range.edgeSteps[ei] = e.steps;
+            const float a0 = e.alongU ? part.uMin : part.vMin;
+            const float a1 = e.alongU ? part.uMax : part.vMax;
+            const int base = (int)m_borderVertices.size() - range.vertexOffset;
+            for (int i = 0; i <= e.steps; ++i) {
+                const float a = a0 + (float)i / e.steps * (a1 - a0);
+                const float u = e.alongU ? a : e.fixed;
+                const float v = e.alongU ? e.fixed : a;
+                for (int k = 0; k <= ring; ++k) {
+                    Vertex vert;
+                    vert.position = QVector4D(u, v, (float)k / ring * 6.28318531f, 1.0f);
+                    vert.normal = QVector4D(e.alongU ? 1.0f : 0.0f, e.alongU ? 0.0f : 1.0f,
+                                            e.inward, 1.0f);
+                    vert.texCoord = QVector2D(e.opposite, a0 + a1);
+                    m_borderVertices.push_back(vert);
+                }
+            }
+            // Indici LOCALI alla parte, come quelli della superficie.
+            for (int i = 0; i < e.steps; ++i) {
+                for (int k = 0; k < ring; ++k) {
+                    const unsigned int p0 = base + i * (ring + 1) + k;
+                    const unsigned int p1 = base + (i + 1) * (ring + 1) + k;
+                    m_borderIndices.insert(m_borderIndices.end(),
+                                           { p0, p1, p0 + 1, p0 + 1, p1, p1 + 1 });
+                }
+            }
+        }
+
+        // GIUNTI D'ANGOLO. Ogni lato e' un tubo a se', chiuso da una sezione
+        // piatta perpendicolare al lato: dove due lati si incontrano ad angolo
+        // (gli spigoli di un dominio quadrato, come l'Enneper in H3) le due
+        // sezioni lasciavano un cuneo vuoto sul lato esterno, e il bordo
+        // sembrava strozzato. In ogni angolo una sfera dello stesso raggio fa da
+        // giunto. Vertici: (u, v, longitudine) e normal = (latitudine, 0, 0, 2);
+        // lo shader la nasconde se nessuno dei due lati si vede (cuciture, poli),
+        // e dove i lati proseguono lisci resta dentro il tubo.
+        const int lonSteps = ring;
+        const int latSteps = ring / 2;
+        const float corners[4][2] = { { part.uMin, part.vMin }, { part.uMax, part.vMin },
+                                      { part.uMin, part.vMax }, { part.uMax, part.vMax } };
+        for (const auto &c : corners) {
+            const int base = (int)m_borderVertices.size() - range.vertexOffset;
+            for (int j = 0; j <= latSteps; ++j) {
+                const float lat = -1.57079633f + 3.14159265f * (float)j / latSteps;
+                for (int k = 0; k <= lonSteps; ++k) {
+                    Vertex vert;
+                    vert.position = QVector4D(c[0], c[1], (float)k / lonSteps * 6.28318531f, 1.0f);
+                    vert.normal = QVector4D(lat, 0.0f, 0.0f, 2.0f);
+                    vert.texCoord = QVector2D(0.0f, 0.0f);
+                    m_borderVertices.push_back(vert);
+                }
+            }
+            for (int j = 0; j < latSteps; ++j) {
+                for (int k = 0; k < lonSteps; ++k) {
+                    const unsigned int p0 = base + j * (lonSteps + 1) + k;
+                    const unsigned int p1 = p0 + lonSteps + 1;
+                    m_borderIndices.insert(m_borderIndices.end(),
+                                           { p0, p1, p0 + 1, p0 + 1, p1, p1 + 1 });
+                }
+            }
+        }
+
+        range.indexCount = (int)m_borderIndices.size() - range.indexOffset;
+        m_borderRanges.push_back(range);
+    }
+}
+
+void SurfaceEngine::buildBorderWire(int stepAlong, int stepAround)
+{
+    m_borderWireIndices.clear();
+    const int ring = kBorderRing;
+    const int along = std::max(1, stepAlong);
+    const int around = std::max(1, stepAround) * (ring / kBorderWireSides);
+
+    for (BorderRange &range : m_borderRanges) {
+        range.wireIndexOffset = (int)m_borderWireIndices.size();
+        int base = 0;   // primo vertice del lato, locale alla parte
+        for (int ei = 0; ei < 4; ++ei) {
+            const int n = range.edgeSteps[ei];
+            auto at = [&](int i, int k) { return (unsigned int)(base + i * (ring + 1) + k); };
+            // Anelli attorno al tubo, l'ultimo sempre (chiude il lato).
+            for (int i = 0; i <= n; i += along) {
+                for (int k = 0; k < ring; ++k)
+                    m_borderWireIndices.insert(m_borderWireIndices.end(), { at(i, k), at(i, k + 1) });
+                if (i < n && i + along > n) i = n - along;   // il prossimo giro e' l'ultimo punto
+            }
+            // Linee lungo il tubo.
+            for (int k = 0; k < ring; k += around)
+                for (int i = 0; i < n; ++i)
+                    m_borderWireIndices.insert(m_borderWireIndices.end(), { at(i, k), at(i + 1, k) });
+            base += (n + 1) * (ring + 1);
+        }
+        range.wireIndexCount = (int)m_borderWireIndices.size() - range.wireIndexOffset;
+    }
+}
+
+// Chiusura di UNA parte: confronta gli estremi del sotto-dominio della parte.
+// Prima il test era solo globale, quindi con N rami cuciti in una griglia sola
+// non poteva sapere se il singolo ramo si chiudeva: e' il motivo per cui
+// u_is_closed/v_is_closed "non aiutavano" nel caso multi-ramo.
+void SurfaceEngine::detectPartClosure(MeshPart& part)
+{
+    part.uClosed = false;
+    part.vClosed = false;
+
+    // Tubo: v e' l'angolo attorno alla curva, sempre chiuso; u lo sa chi ha
+    // campionato la curva di QUESTO tubo (setTubeCopies).
+    if (m_useTubeMode) {
+        part.uClosed = tubeUClosed(part.meshIndex);
+        part.vClosed = true;
+        return;
+    }
+    if (m_useScriptMode) return;
+    if (!m_exprSurfX.isValid || !m_exprSurfY.isValid || !m_exprSurfZ.isValid) return;
+
+    // Le equazioni possono distinguere le copie con `mesh` (campo Meshes):
+    // la chiusura e' quella di QUESTA copia.
+    m_varMesh = (float)part.meshIndex;
+    m_varMeshes = (float)std::max<size_t>(1, m_meshParts.size());
+
+    const float threshold = 0.001f;
+
+    const float start1 = part.uMin, end1 = part.uMax;
+    const float start2 = part.vMin, end2 = part.vMax;
+
+    auto evalPoint = [&](float p1, float p2) -> QVector3D {
+        if (m_constraintMode == ConstraintU) {
+            m_varV = p1; m_varW = p2; m_varU = 0;
+        } else if (m_constraintMode == ConstraintV) {
+            m_varU = p1; m_varW = p2; m_varV = 0;
+        } else {
+            m_varU = p1; m_varV = p2; m_varW = 0;
+        }
+        return QVector3D(m_exprSurfX.expr.value(), m_exprSurfY.expr.value(), m_exprSurfZ.expr.value());
+    };
+
+    float mid2 = (start2 + end2) * 0.5f;
+    QVector3D pStart1 = evalPoint(start1, mid2);
+    QVector3D pEnd1   = evalPoint(end1, mid2);
+    part.uClosed = (pStart1.distanceToPoint(pEnd1) < threshold);
+
+    float mid1 = (start1 + end1) * 0.5f;
+    QVector3D pStart2 = evalPoint(mid1, start2);
+    QVector3D pEnd2   = evalPoint(mid1, end2);
+    part.vClosed = (pStart2.distanceToPoint(pEnd2) < threshold);
+}
+
+void SurfaceEngine::detectMeshClosure()
+{
+    for (MeshPart& part : m_meshParts) {
+        detectPartClosure(part);
+    }
+
+    // I flag globali restano quelli della PRIMA parte: nel caso a mesh singola
+    // (che e' ogni preset senza //MESH_BEGIN) sono identici a prima. Con piu'
+    // parti la chiusura e' una proprieta' per-parte e va letta da getMeshParts().
+    if (!m_meshParts.empty()) {
+        u_is_closed = m_meshParts[0].uClosed;
+        v_is_closed = m_meshParts[0].vClosed;
+    } else {
+        u_is_closed = false;
+        v_is_closed = false;
+    }
+}
+
+ // --- Expression Parsing ---
+
+void SurfaceEngine::compileSingleExpr(const QString &eqStr, CachedExpression &target, exprtk::parser<float> &parser)
+{
+    target.isValid = false;
+    if (eqStr.trimmed().isEmpty()) return;
+
+    target.expr.register_symbol_table(m_pathSymbolTable);
+
+    if (parser.compile(eqStr.toStdString(), target.expr)) {
+        target.isValid = true;
+    }
+}
+
+
+
+

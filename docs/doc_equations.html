@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Surface Explorer &mdash; Parametric Equations</title>
+
+    <style>
+        body { background-color: #1e1e1e; color: #d4d4d4;
+               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        p, li, td, th { color: #d4d4d4; }
+        strong { color: #007acc; }
+        code { background-color: #101010; color: #ce9178;
+               font-family: 'Consolas', 'Courier New', monospace; }
+        pre  { background-color: #101010; color: #dcdcaa; }
+        a { color: #569cd6; }
+    </style>
+</head>
+<body>
+
+<table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 24px; color: #ffffff; margin: 0;"><b>Parametric Equations</b></p></td></tr></table>
+<hr>
+<p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_dimensions.html">&larr; The 4th Dimension</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_geodesic.html">Geodesic Flow &amp; Non-Euclidean Geometries &rarr;</a></p>
+<hr>
+<p>Parametric equations are translated into GLSL and evaluated directly on the GPU via Qt RHI. Before compilation, the expression parser (based on <em>ExprTk</em>) validates the syntax and resolves constants and constraints. Because the software generates 2-dimensional surfaces embedded in 3D or 4D space, the mathematical definitions must always ultimately reduce to exactly <strong>two independent parameters</strong>.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>The 2-Parameter Rule (Four Methods)</b></p></td></tr></table>
+            <p>You can achieve this reduction to two dimensions using one of the following four methods:</p>
+            <ol>
+                <li><strong>Direct 2D Parametrization:</strong> Write the main spatial equations (X, Y, Z, P) directly as functions of exactly two lowercase parameters (<code>u</code>, <code>v</code>).</li>
+                <li><strong>Constraint Mode:</strong> Write the main equations using three lowercase parameters (<code>u, v, w</code>), but bind one of them to the other two by providing an explicit equation in the Constraints tab (e.g., <code>w = f(u, v)</code>).</li>
+                <li><strong>Composition Mode:</strong> Write the main equations using uppercase composite variables (<code>U, V, W</code>). Then, in the Composition tab, define how these uppercase variables are calculated from the base parameters <code>u</code> and <code>v</code> (e.g., <code>U = cos(u)*sin(v)</code>). <br><em>Note: You cannot mix lowercase (u, v, w) and uppercase (U, V, W) spatial variables in the main coordinate equations.</em></li>
+                <li><strong>Geodesic Flow:</strong> Described in detail in the <a href="doc_geodesic.html">Geodesic Flow & Non-Euclidean Geometries</a> section.</li>
+            </ol>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Syntax</b></p></td></tr></table>
+            <table>
+                <tr>
+                    <th>Variable</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <td><code>u, v, w</code></td>
+                    <td>Main lowercase parametric coordinates.</td>
+                </tr>
+                <tr>
+                    <td><code>U, V, W</code></td>
+                    <td>Uppercase composite variables, used in Composition Mode (defined in the Composition tab) and in Geodesic Flow.</td>
+                </tr>
+                <tr>
+                    <td><code>A, B, C... F</code></td>
+                    <td>Constants dynamically adjustable via sliders in the Equations panel. A slider unlocks when its constant appears in the equations, the limits, the camera paths, the texture or the background; a constant can also be defined from the ones before it (e.g. <code>B = A/10</code>).</td>
+                </tr>
+                <tr>
+                    <td><code>s</code></td>
+                    <td>A dynamic variable controlled by its own slider for structural changes.</td>
+                </tr>
+                <tr>
+                    <td><code>pi</code></td>
+                    <td>Constant &pi; (3.14159...).</td>
+                </tr>
+                <tr>
+                    <td><code>e</code></td>
+                    <td>Euler's number (2.71828...).</td>
+                </tr>
+                <tr>
+                    <td><code>tau</code></td>
+                    <td>Constant &tau; = 2&pi; (6.28318...).</td>
+                </tr>
+            </table>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Resolution (Steps)</b></p></td></tr></table>
+            <p>The <strong>Steps</strong> slider sets the resolution of the mesh: the number of samples taken along each parameter. The slider stops at 1000: for more, type the value in the field next to it (up to about 2000 on desktop and 1500 on mobile devices, fewer on multi-mesh surfaces). In Ray Marching it sets the ray-marching accuracy instead (see the Ray Marching section).</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>The Solid Curve Sub-tab</b></p></td></tr></table>
+            <p>The Parametric tab holds two sub-tabs: <strong>Surface</strong>, with the equations described above, and <strong>Solid Curve</strong>, which draws a tube around a curve.</p>
+            <p>A <strong>solid curve</strong> is built around its curve: the curve is truly 4D, but the cross-sections stay round, with no 4D deformation, so that the curve is easy to follow. A <strong>tube</strong> in the full sense is a true surface seen in 4D, deformed by the 4D view like any other: it is written in the <strong>Surface</strong> sub-tab, with equations in <code>u</code> and <code>v</code>.</p>
+            <ul>
+                <li><strong>The curve:</strong> write <code>X(u)</code>, <code>Y(u)</code>, <code>Z(u)</code> as functions of the single parameter <code>u</code>; the <strong>u</strong> limits choose the stretch of curve that is drawn. Filling in <code>P(u)</code> as well gives a curve in 4D, projected and rotated like any 4D surface.</li>
+                <li><strong>Thickness</strong> sets the width of the tube. The slider goes up to 3; a larger value typed in the field widens it, as for the constants.</li>
+                <li>The curve can use the constants <code>A&ndash;F</code>, <code>s</code> and the time <code>t</code>: a curve that depends on <code>t</code> moves, and the tube follows it.</li>
+                <li><strong>Several curves:</strong> on this sub-tab the Script dock describes the curve, one tube per <code>//MESH_BEGIN</code> block, each with its own thickness (see <em>Solid curves from a script</em> in the Script Guide).</li>
+            </ul>
+            <p>Clicking the sub-tab you are already on reloads its default surface.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Cutout (Hiding Parts of a Surface)</b></p></td></tr></table>
+            <p>A scripted surface can carry an optional <strong>cutout</strong> section, written in the Script dock between <code>//CUTOUT_BEGIN</code> and <code>//CUTOUT_END</code>. It is a rule, evaluated at every point of the surface, that answers one question: <em>should this point be drawn?</em> Everything the rule rejects simply disappears from view.</p>
+            <p>The main use is <strong>self-intersecting shapes</strong> &mdash; tubes and ribbons that pass through themselves. Where two branches cross, the walls that end up buried inside the solid are still being drawn even though nothing can be seen of them, and they betray themselves as stray highlights and hard seams along the crossing. A cutout removes precisely those hidden strips and leaves the visible skin untouched.</p>
+            <p>The test runs on the GPU while the image is drawn:</p>
+            <ul>
+                <li><strong>It follows the sliders live.</strong> A cutout that depends on a constant reacts continuously as you drag &mdash; nothing is recomputed, so there is no pause. This is also how a script can switch whole grids of a multi-mesh surface on and off from a slider (see the Script Guide).</li>
+                <li><strong>It opens the surface, it does not seal it.</strong> The removed area leaves a bare rim rather than a lid, so through the opening you see the inside of the far wall. That is expected, not a rendering error.</li>
+            </ul>
+            <p>The full syntax, with the variables available to the rule, is in the Script Guide.</p>
+
+<hr>
+<p style="font-size: 15px; margin-top: 30px;"><a href="doc_dimensions.html">&larr; The 4th Dimension</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_geodesic.html">Geodesic Flow &amp; Non-Euclidean Geometries &rarr;</a></p>
+
+</body>
+</html>

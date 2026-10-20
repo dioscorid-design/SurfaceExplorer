@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Surface Explorer &mdash; User Interface</title>
+
+    <style>
+        body { background-color: #1e1e1e; color: #d4d4d4;
+               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        p, li, td, th { color: #d4d4d4; }
+        strong { color: #007acc; }
+        code { background-color: #101010; color: #ce9178;
+               font-family: 'Consolas', 'Courier New', monospace; }
+        pre  { background-color: #101010; color: #dcdcaa; }
+        a { color: #569cd6; }
+    </style>
+</head>
+<body>
+
+<table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 24px; color: #ffffff; margin: 0;"><b>User Interface</b></p></td></tr></table>
+<hr>
+<p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_quickstart.html">&larr; Quick Start (First Launch)</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_interaction.html">Interaction &amp; Navigation &rarr;</a></p>
+<hr>
+<p>The buttons on the bottom status bar open and close the <strong>docks</strong> (panels); the 3D viewport sits in the center.</p>
+
+            <h3>Global commands</h3>
+            <p><strong>RESET</strong> brings the scene back to how it opened, without touching the surface. When something is moving it asks what to reset: the <em>view</em> (camera, zoom and field of view), the <em>motions</em> (rotations, camera paths and everything animated by <code>t</code>), or both. <strong>START / STOP</strong> is the master switch of every animated module (see Modular Activation).</p>
+
+            <h3>Starting over: NEW vs. the mode tabs</h3>
+            <p>There are two ways to clear your work, and they do different things.</p>
+            <ul>
+                <li><strong>NEW</strong>, at the bottom of the <strong>Equations</strong> dock, empties everything &mdash; fields, script editor and viewport &mdash; and loads no surface in its place: the scene stays empty until you build something.</li>
+                <li><strong>Clicking the tab of the mode you are already in</strong> (<strong>Parametric</strong> or <strong>Implicit</strong>) also clears everything, but then <em>restores the default surface</em> of that mode — the torus in Parametric, the sphere in Ray Marching. That is its only purpose: to put a known, working surface back on screen.</li>
+            </ul>
+            <div class="note">
+                <strong>Which one to use:</strong> pick the <strong>tab</strong> when you want a clean, working starting point to modify; pick <strong>NEW</strong> when you want to write a surface from scratch and the default one would just be in the way.
+            </div>
+
+<hr>
+<p style="font-size: 15px; margin-top: 30px;"><a href="doc_quickstart.html">&larr; Quick Start (First Launch)</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_interaction.html">Interaction &amp; Navigation &rarr;</a></p>
+
+</body>
+</html>

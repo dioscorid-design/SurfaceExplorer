@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+#
+# make-preview.sh — builds the preview clip for docs/videos.html out of an
+# export produced by the application.
+#
+#   ./docs/tools/make-preview.sh <video> <name> [start-second] [duration] [subfolder] [gamma]
+#
+#   ./docs/tools/make-preview.sh "3-torus.mp4" 3-torus 12
+#
+# The source may be a path (absolute or relative) or just the file name: a bare
+# name is looked up in ../presets/renders, where the application writes its
+# exports.
+#
+# Writes docs/media/Videos/<name>.mp4 (silent clip) and
+# docs/media/Videos/<name>-poster.jpg (still frame shown while it loads).
+# The fifth argument overrides the subfolder (default: Videos), the sixth the
+# gamma (default: 1.35; 1.0 leaves the image untouched).
+#
+# Remember: the files must be COMMITTED to appear on the site. GitHub Pages
+# serves only what is in the repository — see docs/tools/README.md.
+#
+# WHY THESE SETTINGS
+#   1080p24, crf 26: measured on a real 30 s 1080p60 export (22 MB), 5 seconds
+#   cost 0.95 MB. DURATION drives the size, not resolution: dropping to 720p
+#   saves half a megabyte and throws away half the detail, which on these
+#   surfaces is exactly what is worth showing.
+#
+#   -movflags +faststart moves the index to the front: playback starts without
+#   downloading the whole file.
+#
+#   -an strips the audio: previews autoplay, and browsers block autoplay with
+#   sound (besides being unpleasant).
+#
+#   eq=gamma lifts the midtones. The scenes are dark by construction (the
+#   Brieskorn-Pham clip averages 37/255) and sit inside an equally dark page, so
+#   the wireframe is hard to read — the file itself is fine, spanning the full
+#   scale from 0 to 253. At 1.35 the average reaches 57 and the mesh becomes
+#   legible, at a cost of about a megabyte on the heaviest clip. Site preview
+#   only: the export and the YouTube version are untouched.
+#
+#   The colour tags (bt709, range tv) are written explicitly: left unset, each
+#   browser guesses, and Safari and Chrome do not guess alike. Note that x264
+#   ignores -color_primaries/-color_trc for the bitstream — if ffprobe still
+#   reports "unknown", rewrite them with the h264_metadata bitstream filter.
+#
+set -euo pipefail
+
+# Usage text = the header block above, from the line after the shebang down to
+# the last comment line before `set -euo pipefail`. Computed rather than
+# hardcoded as a line range, which silently drifts whenever the header is
+# edited.
+usage() {
+    awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"
+}
+
+if [ $# -lt 2 ]; then
+    usage
+    exit 1
+fi
+
+SRC="$1"
+NAME="$2"
+START="${3:-5}"
+DUR="${4:-5}"
+
+# CARTELLA DEGLI EXPORT: i render prodotti dall'applicazione stanno in
+# C/presets/renders, cioe' FUORI dal repository (un livello sopra). Se $SRC non
+# esiste come scritto, lo si cerca li' prima di arrendersi: cosi' basta il nome
+# del file, senza percorso, da qualunque cartella si lanci lo script.
+# L'uscita invece resta sempre dentro docs/ (vedi OUTDIR piu' sotto): GitHub
+# Pages serve solo quello che sta li'.
+RENDERS="$(cd "$(dirname "$0")/../../.." && pwd)/presets/renders"
+if [ ! -f "$SRC" ] && [ -f "$RENDERS/$SRC" ]; then
+    SRC="$RENDERS/$SRC"
+fi
+
+if [ ! -f "$SRC" ]; then
+    echo "Error: '$SRC' does not exist." >&2
+    echo "       Neither as given, nor in $RENDERS" >&2
+    exit 1
+fi
+
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "Error: ffmpeg not found. Install it with 'brew install ffmpeg'." >&2
+    exit 1
+fi
+
+# Repository root, so the script works from any directory.
+# It lives in docs/tools/, so the root is two levels up.
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# SOTTOCARTELLA: docs/media e' diviso per tipo (Videos, Gallery/Parametric,
+# Gallery/Implicit, Gallery/Textures). I video vanno in Videos; il quinto
+# argomento permette di scriverne altrove senza modificare lo script.
+# L'uscita resta comunque DENTRO docs/: GitHub Pages serve solo quello che sta
+# li', quindi scrivere fuori significherebbe 404 sul sito.
+SUBDIR="${5:-Videos}"
+
+# GAMMA DEL PREVIEW. Le scene sono scure per costruzione (il Brieskorn-Pham ha
+# luminanza media 37/255) e dentro una pagina altrettanto scura si leggono male.
+# 1.35 porta quella media a ~57 -- il wireframe diventa distinguibile -- senza
+# bruciare le alte luci (YHIGH da 83 a 112, nessun collasso a 255).
+# L'effetto e' contenuto: costa circa 1 MB sul clip piu' pesante, ed e' una
+# preferenza, non una correzione -- il file originale usa gia' tutta la scala
+# (luma 0-253), non e' difettoso. Sesto argomento per disattivarla: 1.0 lascia
+# l'immagine esattamente com'e'.
+# Riguarda SOLO i preview del sito: sorgente e versione YouTube non si toccano.
+GAMMA="${6:-1.35}"
+
+OUTDIR="$ROOT/docs/media/$SUBDIR"
+mkdir -p "$OUTDIR"
+
+OUT="$OUTDIR/$NAME.mp4"
+POSTER="$OUTDIR/$NAME-poster.jpg"
+
+# The source duration is only needed for a warning: if START is past the end,
+# ffmpeg would produce an empty file without complaining in any obvious way.
+if command -v ffprobe >/dev/null 2>&1; then
+    TOTAL=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$SRC" 2>/dev/null || echo "")
+    if [ -n "$TOTAL" ]; then
+        if awk -v s="$START" -v t="$TOTAL" 'BEGIN { exit !(s >= t) }'; then
+            echo "Error: start second ($START s) is past the end of the video (${TOTAL%.*} s)." >&2
+            exit 1
+        fi
+    fi
+fi
+
+echo "Source : $SRC"
+echo "Trim   : from ${START}s for ${DUR}s"
+
+# TAG DI COLORE ESPLICITI. Senza, ffprobe riporta color_range/colorspace/
+# color_trc = "unknown" e ogni browser decide da se' come interpretare i valori:
+# lo stesso file puo' apparire piu' scuro o piu' slavato a seconda del motore
+# (Safari e Chrome non concordano). I flag NON ricodificano il colore ne'
+# schiariscono l'immagine -- dichiarano soltanto come vanno letti i pixel, che e'
+# esattamente cio' che mancava.
+#   -color_range tv : luma 16-235, la convenzione del video (il sorgente e' gia' cosi')
+#   bt709           : lo spazio standard per HD, quello in cui l'app renderizza
+ffmpeg -y -loglevel error -ss "$START" -t "$DUR" -i "$SRC" \
+       -vf "scale=1920:-2,fps=24,eq=gamma=$GAMMA" \
+       -c:v libx264 -crf 26 -preset slow \
+       -color_range tv -colorspace bt709 \
+       -color_primaries bt709 -color_trc bt709 \
+       -movflags +faststart -an "$OUT"
+
+# Poster taken from the FIRST frame of the already-trimmed clip, so the still
+# matches what is on screen when the video is paused at the start, rather than
+# being some other moment.
+ffmpeg -y -loglevel error -i "$OUT" -vframes 1 -q:v 3 "$POSTER"
+
+SIZE=$(awk -v b="$(wc -c < "$OUT")" 'BEGIN { printf "%.2f", b/1048576 }')
+
+echo
+echo "Created:"
+echo "  docs/media/$SUBDIR/$NAME.mp4          ($SIZE MB)"
+echo "  docs/media/$SUBDIR/$NAME-poster.jpg"
+echo
+if awk -v s="$SIZE" 'BEGIN { exit !(s > 5) }'; then
+    echo "WARNING: over 5 MB. Shorten the clip (duration argument) or raise the"
+    echo "crf, otherwise the file stays in git history forever."
+    echo
+fi
+echo "Next: add the block to docs/videos.html — the template is in an HTML"
+echo "comment inside the page — then git add the two files above together with"
+echo "the page, and push. Uncommitted media gives a 404 on the site."

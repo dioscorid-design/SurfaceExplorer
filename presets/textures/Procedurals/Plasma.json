@@ -1,0 +1,12 @@
+{
+    "code": "// Plasma: three interfering waves, coloured with the dock pickers.\n// Set Color 1 to red and Color 2 to yellow for the classic fire look.\nvec3 c1 = u_col1;\nvec3 c2 = u_col2;\n\n// Scale of the pattern: raise 25.0 to pack the plasma tighter,\n// lower it to stretch the shapes out.\nfloat xx = u * 25.0;\nfloat yy = v * 25.0;\n\n// --- PLASMA ---\nfloat v1 = sin(xx + yy);\nfloat v2 = sin((xx * sin(yy/2.0)) + (yy * cos(xx/3.0)));\n\nfloat cx = xx + 0.5 * sin(yy/5.0);\nfloat cy = yy + 0.5 * cos(xx/3.0);\nfloat v3 = sin(sqrt(100.0 * (cx*cx + cy*cy) + 1.0));\n\nfloat vf = (v1 + v2 + v3) / 3.0;\n\n// 'plasmaVal' and not 'tit': that name clashes with the injected variables.\nfloat plasmaVal = vf * 0.5 + 0.5;\n\nreturn mix(c1, c2, plasmaVal);\n",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "hasCustomColors": true,
+    "name": "Plasma",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

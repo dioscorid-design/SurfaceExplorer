@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	Info.plist della build macOS. Distinto da Info.plist (iOS) perche' quello
+	dichiara LSRequiresIPhoneOS=true e porta chiavi UIKit (UILaunchScreen,
+	UIRequiresFullScreen, UIStatusBarHidden, orientamenti) che su Mac non hanno
+	senso — e "app che gira solo su iPhone" in un bundle macOS e' una
+	contraddizione che l'App Store puo' respingere.
+
+	ATTENZIONE: CFBundleVersion va tenuto allineato con i campi build number del
+	ramo macOS del CMakeLists. Lo fa ExC/Mac/release_testflight_mac.sh; a mano,
+	ricordarsi che ORA I FILE DA AGGIORNARE SONO DUE.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Surface Explorer</string>
+	<key>CFBundleExecutable</key>
+	<string>SurfaceExplorer</string>
+	<key>CFBundleIconFile</key>
+	<string>icon.icns</string>
+	<!-- SEGNAPOSTO, non un valore fisso: CMake lo sostituisce con
+	     MACOSX_BUNDLE_GUI_IDENTIFIER, che vale "com.dioscorid.surfaceexplorer"
+	     per il canale App Store e "...surfaceexplorer.dmg" per il DMG (vedi
+	     CMakeLists.txt, blocco elseif(APPLE)).
+	     Scritto a mano com'era, vinceva sul valore di CMake e le due app
+	     tornavano ad avere lo stesso identificatore -- cioe' a essere la stessa
+	     applicazione per launchd, il Dock e TCC. -->
+	<key>CFBundleIdentifier</key>
+	<string>${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Surface Explorer</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.4</string>
+	<key>CFBundleVersion</key>
+	<string>62</string>
+
+	<!-- OBBLIGATORIA sul Mac App Store: senza, la distribuzione fallisce con
+	     "The product archive is invalid. The Info.plist must contain a
+	     LSApplicationCategoryType key".
+
+	     Accetta UN SOLO valore e NON e' la categoria mostrata nello Store:
+	     quella (primaria + secondaria) si imposta in "Informazioni sull'app" su
+	     App Store Connect, per ogni piattaforma, e in caso di discordanza vince
+	     su questa. Qui teniamo la PRIMARIA scelta li': Education, con Graphics &
+	     Design come secondaria (su entrambe le piattaforme). -->
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.education</string>
+
+	<!-- Deve combaciare con MACOSX_DEPLOYMENT_TARGET del progetto Xcode (13,
+	     ereditato da Qt 6.10). Dichiararne uno PIU' BASSO fa installare l'app su
+	     sistemi dove non parte; verificarlo con:
+	       grep -o "MACOSX_DEPLOYMENT_TARGET = [^;]*" \
+	         build/macos-appstore/SurfaceExplorer.xcodeproj/project.pbxproj | sort -u -->
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+
+	<key>NSHighResolutionCapable</key>
+	<true/>
+
+	<!-- Le purpose string restano: un framework multimediale linkato dichiara
+	     queste capability, e senza le chiavi Apple respinge la build
+	     (ITMS-90683). Vale su macOS come su iOS. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Surface Explorer does not use the camera. This permission is requested only because a linked multimedia framework declares this capability.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Surface Explorer does not use the microphone. This permission is requested only because a linked multimedia framework declares this capability.</string>
+
+	<!-- CARTELLE PROTETTE DA TCC. Servono al canale DMG/Developer ID, che gira
+	     NON sandboxed ma NON e' esente da TCC: Documents, Desktop e Downloads
+	     sono protette per QUALUNQUE app, sandbox o no, e la libreria puo' essere
+	     messa dall'utente in una qualsiasi delle tre.
+	     Senza queste chiavi il pannello di autorizzazione non ha un testo da
+	     mostrare, e macOS puo' negare l'accesso senza chiedere nulla: la
+	     libreria risulterebbe vuota senza spiegazione.
+	     NB: aggiunte indagando il blocco su cartella iCloud, ma NON erano la
+	     causa di quello -- era una read() sospesa sui file non scaricati (vedi
+	     isDatalessFile in librarymanager.cpp). Restano perche' la loro assenza
+	     e' comunque un difetto per un'app che apre cartelle scelte dall'utente.
+	     Il canale App Store non ne ha bisogno: li' l'accesso passa dal Powerbox
+	     e dai security bookmark (vedi securitybookmark.mm). -->
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Surface Explorer needs access to this folder to open the presets library you keep there.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Surface Explorer needs access to this folder to open the presets library you keep there.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Surface Explorer needs access to this folder to open the presets library you keep there.</string>
+</dict>
+</plist>

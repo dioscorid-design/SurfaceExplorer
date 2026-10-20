@@ -1,0 +1,16 @@
+{
+    "code": "// FREQUENCY comes from the F slider (Constants dock): raise F for finer\n// stripes, lower it for wider ones. F = 1 is the width this preset has\n// always had. max() keeps the stripes from vanishing if F is left at 0.\nfloat FREQ = 10.0 * max(F, 0.05);   // slider F\n\n// Compute how much each axis (X, Y, Z) weighs based on the normal\nvec3 blend = abs(n_model);\nblend /= max(blend.x + blend.y + blend.z, 0.00001);\n\n// Generate different procedural patterns for each projection plane\nvec3 colX = vec3(sin(pModel.y * FREQ) * 0.5 + 0.5, 0.0, 0.0); // Red stripes on the YZ plane\nvec3 colY = vec3(0.0, sin(pModel.x * FREQ) * 0.5 + 0.5, 0.0); // Green stripes on the XZ plane\nvec3 colZ = vec3(0.0, 0.0, sin(pModel.x * FREQ) * 0.5 + 0.5); // Blue stripes on the XY plane\n\n// Blend the patterns using the normal weights\ntextureCol = colX * blend.x + colY * blend.y + colZ * blend.z;",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "displacement": "",
+    "hasCustomColors": true,
+    "hintSeconds": 6,
+    "hintText": "Slider\nF: density of the stripes (1 = default, higher = finer)",
+    "isImplicitMode": true,
+    "name": "Triplanar Stripes",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

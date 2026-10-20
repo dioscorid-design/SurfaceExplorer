@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+#
+# pre-commit — blocks commits containing oversized files.
+#
+# Why: whatever enters git history stays there. Deleting the file later does not
+# shrink the repository, and everyone who clones downloads it. presets/renders/
+# is already in .gitignore, so the app's raw exports cannot slip in; this hook
+# covers the gap between that and GitHub's own 100 MB push limit — typically a
+# preview that came out heavier than intended.
+#
+# Bypass with: git commit --no-verify
+#
+# Installed by hand in .git/hooks/ (not tracked by git). A copy lives in
+# docs/tools/pre-commit for reinstalling after a fresh clone.
+
+set -euo pipefail
+
+MAX_MB=5
+MAX_BYTES=$((MAX_MB * 1024 * 1024))
+
+# Only files being ADDED or MODIFIED in this commit, NUL-separated so that
+# paths with spaces (this repository is full of them) survive intact.
+# Against HEAD normally; against the empty-tree hash on the very first commit,
+# where HEAD does not resolve yet.
+if git rev-parse --verify HEAD >/dev/null 2>&1; then
+    against=HEAD
+else
+    against=$(git hash-object -t tree /dev/null)
+fi
+
+oversized=""
+count=0
+
+while IFS= read -r -d '' file; do
+    [ -f "$file" ] || continue          # skip deletions and submodules
+    size=$(wc -c < "$file" | tr -d ' ')
+    if [ "$size" -gt "$MAX_BYTES" ]; then
+        mb=$(awk -v b="$size" 'BEGIN { printf "%.1f", b/1048576 }')
+        oversized="${oversized}  ${file}  (${mb} MB)"$'\n'
+        count=$((count + 1))
+    fi
+done < <(git diff --cached --name-only --diff-filter=AM -z "$against")
+
+if [ "$count" -eq 0 ]; then
+    exit 0
+fi
+
+exec >&2
+echo
+echo "Commit blocked: ${count} file(s) over ${MAX_MB} MB"
+echo
+printf '%s' "$oversized"
+echo
+echo "Committed files stay in git history forever — deleting them later does"
+echo "not shrink the repository."
+echo
+echo "  Video preview:  ./docs/tools/make-preview.sh <video> <name> <start>"
+echo "  Image:          re-export smaller, or save as JPEG instead of PNG"
+echo
+echo "Nothing has been lost: the files are still on disk and still staged."
+echo "To commit anyway:  git commit --no-verify"
+echo
+exit 1

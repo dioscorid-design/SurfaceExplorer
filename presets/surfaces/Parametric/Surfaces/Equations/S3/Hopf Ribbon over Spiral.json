@@ -1,0 +1,83 @@
+{
+    "angles": {
+        "omega": 0.39600008726119995,
+        "phi": 0.6600002646446228,
+        "psi": 0.6600002646446228
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.24160553514957428,
+        "rot_x": 0.4909913241863251,
+        "rot_y": -0.4144931435585022,
+        "rot_z": 0.7271518111228943,
+        "x": -0.333170086145401,
+        "y": 0.3488461971282959,
+        "yaw": 0,
+        "z": 1.639969825744629
+    },
+    "cameraFov": 103,
+    "colors": {
+        "alpha": 1,
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 2,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "fov3D": 103,
+    "fov4D": 103,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "hintSeconds": 6,
+    "hintText": "Slider A: width of the ribbon",
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 0,
+        "uMin": 0,
+        "vMax": 0,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "meshScopeAll": true,
+    "name": "Hopf Ribbon over Spiral",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "scriptCode": "// --- CONFIGURATION ---\n// v is NORMALIZED to [0,1]: the real domain (phi in [0, PI/A]) depends on A,\n// and the limits of the MESH_BEGIN sections are evaluated on the CPU by ExprTk\n// WITHOUT the slider constants (extractMeshSections, mainwindow.cpp ~7630):\n// writing \"v: 0, PI/A\" would not compile. The rescaling is done below in the shader.\nu_min := 0;\nu_max := 6.28318531;\nv_min := 0;\nv_max := 1;\nsteps := 400;\n\n// --- HOPF FIBERS OVER THE SPIRAL theta = A*phi ---\n// Same fibration h: S^3 -> S^2 as the \"Hopf Tori over Parallels\" presets, but\n// the base curve is no longer a parallel theta = const: it is the LOXODROMIC\n// SPIRAL theta = A*phi, which goes down from the north pole to the south pole\n// winding around the axis. The lift of that curve is the surface.\n//\n// THE LIFT. With the Hopf tori convention (r = theta/2, i.e.\n// |z1| = cos r and |z2| = sin r), the point above (theta, phi) with fiber\n// parameter u is\n//     z1 = cos(r) e^{i(phi + u)}      z2 = sin(r) e^{i u}      r = theta/2\n// Substituting theta = A*phi gives r = A*phi/2. Verified to be a true\n// lift: h is constant along u to 1e-16, and the base rebuilt from h has\n// exactly theta = A*phi and phi_base = phi.\n//\n// WHY phi STOPS AT PI/A (and not at 2*PI). On the sphere the colatitude lives\n// in [0, PI]: theta = A*phi leaves that range as soon as phi > PI/A. Letting\n// phi run up to 2*PI the curve does NOT go on, it RETRACES: at A = 2 the points\n// phi = 0 and phi = PI give r = 0 and r = PI, i.e. (cos r, sin r) = (1,0) and\n// (-1,0) -- the SAME fiber C12 traversed twice. Measured: minimum distance\n// between non-adjacent points = 0.0000, i.e. the surface self-intersects.\n// With phi in [0, PI/A] the curve runs between the two poles ONCE and the\n// surface is EMBEDDED for every A (minimum distance between non-adjacent points\n// ~0.03-0.06, verified for A = 0.5, 1, 2, 4).\n//\n// CONSEQUENCE: it is NOT a torus, it is an ANNULUS (cylinder).\n// The domain is [0, PI/A] x S^1 and the two edges are the two POLAR FIBERS:\n//     phi = 0     -> |z2| = 0 -> the great circle C12 = {(cos u, sin u, 0, 0)}\n//     phi = PI/A  -> |z1| = 0 -> the great circle C34 = {(0, 0, cos u, sin u)}\n// (verified: |z1| and |z2| are 1 and 0 on the respective edges).\n// The surface is therefore a BAND joining the two polar Hopf fibers,\n// winding around the axis as many times as A says. The Hopf tori over\n// the parallels are instead CLOSED because a parallel is a closed curve; a\n// spiral going from pole to pole is an ARC, and its lift has a boundary.\n// Every line v = const is still a FIBER, i.e. a great circle of S^3\n// (measured: center at the origin to 2.5e-3, radius 1.000000) -- in stereographic\n// projection a Villarceau circle. The wireframe along u shows them directly.\n//\n// A NEED NOT BE AN INTEGER. Closing up in phi (which would need an even A) is\n// not needed here: the domain stops at PI/A and does not go all the way round,\n// so A can be any real > 0 and the surface stays regular. Larger A = more\n// tightly wound spiral = more twisted band.\n//\n// NORMALIZATION. The shader uses v in [0,1] with phi = v*PI/A: then\n//     r = A*phi/2 = v*PI/2\n// and r NO LONGER depends on A. This is why the band always has the same\n// two edges (r goes from 0 to PI/2 whatever A is): A changes ONLY how much the\n// surface winds, not where it starts and ends.\n//\n// --- FIXED 4D ROTATION (avoids the stereographic clamp) ---\n// The edge C34 passes through the projection pole w = +1: there stereoS3\n// saturates (rad = min(sqrt((1+w)/(1-w)), 12)) and the edge would come out cut\n// -- the known limit documented in the Hopf tori presets. Measured: max w = 1.000000\n// and 1.62% of the vertices above 0.95.\n// A FIXED rigid rotation in the (x1, x4) plane by 0.6 rad brings the maximum to\n// w = 0.825 and the vertices above 0.95 to ZERO: the band is seen whole.\n// It must mix x1 (or x2) with x4: a rotation in (x3, x4) is NOT enough, because\n// C34 is a circle precisely in that plane and stays at w = 1 anyway (verified:\n// 0.9998). The rotation is an isometry of S^3, so it deforms nothing.\n//MESH_BEGIN\nu: 0, 6.28318531, 400\nv: 0, 1, 400\n//MESH_END\n\n// A = how much the spiral winds (turns around the axis between the two poles).\nfloat Aa = max(A, 0.05);\n\n// v normalized -> true angle on the base. r does not depend on A (see above).\nfloat phi = v * 3.14159265 / Aa;\nfloat r   = v * 1.57079633;\n\nfloat cr = cos(r);\nfloat sr = sin(r);\n\n// Hopf lift: u runs ALONG THE FIBER, v along the base spiral.\nfloat q1 = cr * cos(phi + u);\nfloat q2 = cr * sin(phi + u);\nfloat q3 = sr * cos(u);\nfloat q4 = sr * sin(u);\n\n// Fixed rotation in the (x1, x4) plane: moves the edge C34 away from the pole w = 1.\nfloat ca = 0.82533561;   // cos(0.6)\nfloat sa = 0.56464247;   // sin(0.6)\n\nreturn vec4(\n    ca * q1 - sa * q4,\n    q2,\n    q3,\n    sa * q1 + ca * q4\n);\n",
+    "steps": 400,
+    "type": "surface",
+    "use4DLighting": true,
+    "wireframe": {
+        "uStep": 8,
+        "vStep": 8
+    }
+}

@@ -1,0 +1,73 @@
+# --- Build and Release folders ---
+# These contain generated binaries and libraries that should not be tracked
+build/
+Release/
+AppDir/
+dist/
+*.zip
+*.AppImage
+*.run
+*.dmg
+*.sha256
+
+# --- Diagnostic logs (crash/run dumps, not source) ---
+*.log
+
+# --- Android build system (Gradle) ---
+# Cache/artefatti generati dal Gradle daemon: non sono sorgenti
+android/.gradle/
+
+# --- CMake generated files ---
+# Temporary files created by the build system
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+*_autogen/
+
+# --- IDE and Editor specific files ---
+# Settings specific to Qt Creator or other development tools
+*.user
+.qtc_clangd/
+.cmake/
+.qtcreator/
+.vscode/
+.claude/
+
+# --- System and Temporary files ---
+# OS-generated files and editor swap files
+.DS_Store
+Thumbs.db
+*~
+*.swp
+
+# --- Platform tooling & release notes (ExC/) ---
+# Gli script di release (Linux/, Mac/, Windows/) e la RELEASE_GUIDE.md sono
+# versionati, cosi' si sincronizzano tra le macchine via git. Restano fuori solo
+# le note personali e gli artefatti di build:
+# note personali (non sorgenti)
+ExC/docs/*.odt
+# cartella portable Windows (prodotta con -KeepFolder)
+ExC/Windows/SurfaceExplorer/
+# NB: gli output .AppImage / .dmg / .zip in ExC/{Linux,Mac,Windows} sono gia'
+#     esclusi dalle regole globali *.AppImage / *.dmg / *.zip piu' in alto.
+
+# --- Python ---
+__pycache__/
+*.pyc
+
+# --- System and Temporary files ---
+.DS_Store
+._*
+Thumbs.db
+
+# --- App runtime folders (not source) ---
+# Recycle bin and exported renders created by the app at runtime
+presets/.trash/
+presets/renders/
+
+# Backup dei preset
+*.bak
+*.bak[0-9]*

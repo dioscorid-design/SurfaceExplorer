@@ -1,0 +1,2351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Videos &mdash; Surface Explorer</title>
+    <meta name="description" content="Videos recorded with Surface Explorer: camera paths, 4D rotations, geodesic flows and animated surfaces.">
+
+    <style>
+        :root {
+            --bg: #1e1e1e;
+            --fg: #d4d4d4;
+            --accent: #33cc33;
+            --link: #569cd6;
+            --blue: #007acc;
+            --panel: #252526;
+            --border: #3a3a3a;
+            --muted: #888;
+        }
+        * { box-sizing: border-box; }
+        body {
+            background-color: var(--bg);
+            color: var(--fg);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0 20px 60px;
+            line-height: 1.6;
+        }
+        .wrap { max-width: 1000px; margin: 0 auto; }
+
+        nav {
+            padding: 18px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 15px;
+        }
+        nav a { color: var(--link); text-decoration: none; margin-right: 18px; }
+        nav a:hover { text-decoration: underline; }
+        nav a.here { color: var(--accent); font-weight: bold; }
+
+        header { text-align: center; padding: 40px 0 10px; }
+        h1 { color: var(--accent); font-size: 30px; margin: 0 0 8px; }
+        header p { color: var(--muted); margin: 0; font-size: 16px; }
+
+        .clip {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            margin: 34px 0;
+        }
+        .clip video {
+            display: block;
+            width: 100%;
+            height: auto;
+            background: #101010;
+        }
+        .clip .meta { padding: 14px 18px 16px; }
+        .clip h2 {
+            color: var(--accent);
+            font-size: 18px;
+            margin: 0 0 6px;
+            border: none;
+            padding: 0;
+        }
+        .clip p { margin: 0; font-size: 14.5px; }
+        .clip .specs { color: var(--muted); font-size: 13px; margin-top: 8px; }
+
+        /* The video sits in a positioned container so the preview tag can be
+           laid over it without disturbing the layout. */
+        .clip .frame { position: relative; line-height: 0; }
+        .clip .frame .preview-tag {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.62);
+            color: var(--fg);
+            font-size: 11.5px;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            padding: 3px 9px;
+            border-radius: 3px;
+            line-height: 1.5;
+            pointer-events: none;
+        }
+        .watch-hd {
+            display: inline-block;
+            margin-top: 12px;
+            background: #c4302b;
+            color: #fff;
+            font-size: 14px;
+            font-weight: bold;
+            padding: 8px 16px;
+            border-radius: 4px;
+            text-decoration: none;
+        }
+        .watch-hd:hover { background: #e03a34; text-decoration: none; }
+        .watch-hd .yt { font-size: 12px; opacity: 0.85; font-weight: normal; }
+
+        .empty {
+            background: var(--panel);
+            border: 1px dashed var(--border);
+            border-radius: 6px;
+            padding: 28px;
+            text-align: center;
+            color: var(--muted);
+            font-size: 15px;
+        }
+        code {
+            background-color: #101010;
+            color: #ce9178;
+            font-family: 'Consolas', 'Courier New', monospace;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-size: 13.5px;
+        }
+        a { color: var(--link); }
+        .note {
+            background: var(--panel);
+            border-left: 3px solid var(--blue);
+            padding: 12px 16px;
+            font-size: 14px;
+            margin: 30px 0 0;
+        }
+        footer {
+            text-align: center;
+            color: var(--muted);
+            font-size: 13px;
+            margin-top: 52px;
+            border-top: 1px solid var(--border);
+            padding-top: 20px;
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+
+    <nav>
+        <a href="index.html">Home</a>
+        <a href="gallery.html">Gallery</a>
+        <a href="videos.html" class="here">Videos</a>
+        <a href="documentation.html">User Manual</a>
+        <a href="script_guide.html">Script Guide</a>
+    </nav>
+
+    <header>
+        <h1>Videos</h1>
+        <p>Recorded from the application with the built-in video export</p>
+    </header>
+
+    <!--
+        HOW TO ADD A VIDEO
+        ==================
+        The pattern here is a SHORT SILENT PREVIEW that loops on the page, with a
+        button to the full-length version on YouTube. A 5-second 1080p24 preview
+        costs under 1 MB, so it can live in the repository without weighing it
+        down, while the long high-resolution cut is hosted by YouTube for free.
+
+        1. Produce the preview. The helper script does both files at once:
+
+               docs/tools/make-preview.sh input.mp4 3-torus 12
+
+           (arguments: source file, output name, start second — 5 s by default)
+
+           Or by hand:
+
+               ffmpeg -ss 12 -t 5 -i input.mp4 -vf "scale=1920:-2,fps=24" \
+                      -c:v libx264 -crf 26 -preset slow -movflags +faststart \
+                      -an docs/media/Videos/brieskorn-pham-3-5.mp4
+
+               ffmpeg -i docs/media/Videos/brieskorn-pham-3-5.mp4 -vframes 1 -q:v 3 \
+                      docs/media/Videos/brieskorn-pham-3-5-poster.jpg
+
+        2. Upload the full video to YouTube and copy its URL.
+
+        3. Copy the block below, remove the comment markers, and fill in the
+           file name, the title, the description and the YouTube link.
+
+        Reference sizes measured on a real 30 s 1080p60 export (22 MB):
+            1080p24 crf 26 → 0.95 MB   ← recommended
+            1080p24 crf 30 → 0.63 MB
+             720p24 crf 26 → 0.41 MB
+        Resolution costs little; DURATION is what drives the size. Staying at
+        1080p keeps the geometric detail that makes these renders worth showing.
+
+        ----- TEMPLATE, copy from here -----
+
+        <div class="clip">
+            <div class="frame">
+                <video src="media/Videos/NAME.mp4" poster="media/Videos/NAME-poster.jpg"
+                       controls muted playsinline preload="metadata"></video>
+                <span class="preview-tag">Preview &middot; 5 s</span>
+            </div>
+            <div class="meta">
+                <h2>TITLE</h2>
+                <p>One or two sentences on what the surface is and what the camera does.</p>
+                <a class="watch-hd" href="https://youtu.be/VIDEO_ID">
+                    Watch in HD <span class="yt">on YouTube</span>
+                </a>
+                <p class="specs">Preview 1080p &middot; full version 4 min</p>
+            </div>
+        </div>
+
+        ----- to here -----
+    -->
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/berestovskii-sphere.mp4" poster="media/Videos/berestovskii-sphere-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Berestovskii Sphere</h2>
+            <p>A sphere in Nil geometry, the Heisenberg group: the points at equal
+               distance from a centre in a space where motion is confined to a plane of
+               admissible directions and the vertical axis is reached only by spiralling.
+               The poles are not smooth caps but conical dimples, like the stalk of an
+               apple &mdash; a sub-Riemannian sphere fails to be smooth exactly where the
+               geometry forbids moving directly.</p>
+            <a class="watch-hd" href="https://youtu.be/li1QYVZcrhw" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/blistered-gyroid.mp4" poster="media/Videos/blistered-gyroid-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Blistered Gyroid</h2>
+            <p>The thickened gyroid again, with a second pattern pushed into its walls: a
+               product of three sines at about three and a half times the frequency of the
+               gyroid, subtracted from the distance so that the surface bulges outward
+               wherever it is positive. Some three and a half blisters fit along each cell
+               of the labyrinth, and since the relief follows the material rather than the
+               viewer, the swellings stay fixed to the walls as the camera passes through
+               the channels.</p>
+            <a class="watch-hd" href="https://youtu.be/Iq8qVmaCJG4" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Sound: <em>spatial audio 4</em> by
+               <a href="https://freesound.org/s/723963/" target="_blank" rel="noopener">BadWolf23</a>
+               on Freesound, licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/borromean-rings-spinning.mp4" poster="media/Videos/borromean-rings-spinning-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Borromean Rings Spinning</h2>
+            <p>Three ellipses, each twice as long as it is wide, lying in the three
+               perpendicular planes through the centre. No two of them are linked: take any
+               one away and the other two fall apart. Yet the three together cannot be
+               separated &mdash; the Borromean rings. They cannot be built from three flat
+               round circles, which is why the classic model uses ellipses; here each one is a
+               solid curve, with a tube drawn around it.</p>
+            <p>Only the 3D rotations move: a slow precession and spin turn the figure over,
+               showing from every side how each ring slips past the next, held in place only
+               by the third.</p>
+            <a class="watch-hd" href="https://youtu.be/qp-j4T1JoCM" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/boy-surface.mp4" poster="media/Videos/boy-surface-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Boy Surface</h2>
+            <p>Another immersion of the real projective plane, and the one that answers a
+               question the Veronese surface leaves open: can the plane be placed in
+               ordinary three-dimensional space without any singular point &mdash; no
+               pinch, no cusp, only ordinary self-intersection? Werner Boy showed in 1901
+               that it can, against his supervisor Hilbert's expectation that it could
+               not. What is drawn here is a trigonometric parametrisation of it, in the
+               form given by Fran&ccedil;ois Ap&eacute;ry.</p>
+            <p>The figure has a threefold symmetry, visible as the three lobes that fold
+               over one another, and a single triple point where all three sheets meet. It
+               is one-sided and has no boundary: the surface crosses itself along a curve
+               but never ends, and a path drawn on it returns to its start reversed. The
+               rotation carries it through the angles where the triple point comes into
+               view and back out again.</p>
+            <a class="watch-hd" href="https://youtu.be/9qxZDUEjkCA" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Surface and background images: planetary maps by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/breathing-loxodrome.mp4" poster="media/Videos/breathing-loxodrome-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Breathing Loxodrome</h2>
+            <p>The true loxodrome, or rhumb line: the course a ship holds by keeping one
+               compass bearing, crossing every meridian at the same angle. On the globe it
+               spirals from pole to pole, tighter and tighter, without ever reaching either
+               &mdash; and on a Mercator map it is a straight line. It is drawn as a solid
+               curve, with a tube around it.</p>
+            <p>The breathing is its height: every three seconds or so the spiral flattens
+               into a double spiral in the plane and opens again upside down, as the mirror
+               image of the rhumb line it was. A slow tumble turns it over, and a rotation in
+               four dimensions squeezes it, more slowly, across its width.</p>
+            <a class="watch-hd" href="https://youtu.be/cRqy-_PdbFU" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/breathing-trefoil.mp4" poster="media/Videos/breathing-trefoil-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Breathing Trefoil</h2>
+            <p>The trefoil, the simplest true knot: a single closed curve that cannot be
+               turned into a plain circle without cutting it. It circles its centre twice and
+               rises and falls three times on the way, which gives it three lobes and three
+               crossings, each passing alternately over and under. It is drawn as a solid
+               curve, with a tube of constant thickness around it.</p>
+            <p>The breathing is the knot's height: the rise and fall swells and flattens by
+               thirty per cent about every three seconds, while a slow tumble turns the figure
+               over. The crossings never meet &mdash; however flat the knot becomes, it stays
+               the same knot.</p>
+            <a class="watch-hd" href="https://youtu.be/Y_yUtugQPb8" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Sound: <em>Labyrinthus Sub Terra</em> by
+               <a href="https://www.shadertoy.com/view/WXtyzs" target="_blank" rel="noopener">RushmoreEffect</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/brieskorn-pham-3-5.mp4" poster="media/Videos/brieskorn-pham-3-5-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Brieskorn-Pham (3,5)</h2>
+            <p>The complex surface z1^3 + z2^5 = 1, a true 4D shape projected into
+               three dimensions. The fifteen patches are the pairs of roots of unity
+               of the two exponents.</p>
+            <a class="watch-hd" href="https://youtu.be/AzeTAlwd-V8" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/calabi-yau.mp4" poster="media/Videos/calabi-yau-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Calabi-Yau Quintic</h2>
+            <p>A two-dimensional slice of the Fermat quintic, z1<sup>5</sup> + z2<sup>5</sup> = 1
+               over the complex numbers &mdash; the shape that illustrates the hidden
+               dimensions of string theory. Each of the twenty-five patches belongs to one
+               pair of fifth roots of unity, and they meet along the edges where the roots
+               agree. The fourth coordinate is folded into the depth by a projection angle,
+               here the customary 45&deg;; the camera orbits while the figure turns.</p>
+            <a class="watch-hd" href="https://youtu.be/lCGqdjTRWEs" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Background: <em>Mount Zoomington 3D</em> by
+               <a href="https://www.shadertoy.com/view/7cBSRW" target="_blank" rel="noopener">chronos</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/cell-noise-schwarz.mp4" poster="media/Videos/cell-noise-schwarz-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Cell Noise Schwarz</h2>
+            <p>The Schwarz P surface, cos&thinsp;x + cos&thinsp;y + cos&thinsp;z = 0 &mdash;
+               a minimal surface that repeats every 2&pi; in all three directions and
+               divides space into two interlocking labyrinths, neither of them closed.
+               Here cellular noise is subtracted from the equation, so the walls thicken
+               and thin and the perfect periodicity is broken without the structure ever
+               coming apart. The camera flies a circle that passes through the origin,
+               rolling once as it goes, so the corridors are entered rather than
+               observed.</p>
+            <a class="watch-hd" href="https://youtu.be/hX7hOIDjZyU" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Planetary texture by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+        <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/clifford-6-tubes-rotations.mp4" poster="media/Videos/clifford-6-tubes-rotations-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Clifford 6-Tubes Rotation</h2>
+            <p>All six great circles of S<sup>3</sup> that lie in the coordinate planes,
+               thickened into tubes and seen from outside. They meet three at a time at
+               the eight points &plusmn;e<sub>1</sub>&hellip;&plusmn;e<sub>4</sub>, which
+               are the vertices of the 16-cell &mdash; so the figure is that polytope's
+               skeleton given substance. Complementary pairs never touch at all, staying
+               ninety degrees apart everywhere, while the others fuse at the vertices.
+               The camera circles the structure as a 4D rotation turns it, and the
+               stereographic projection keeps rearranging which tubes appear to pass
+               through which.</p>
+            <a class="watch-hd" href="https://youtu.be/X7WcXCp1wCU" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Planetary textures by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/clifford-knot-rotating.mp4" poster="media/Videos/clifford-knot-rotating-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Clifford Knot Rotating</h2>
+            <p>A trefoil knot that lives in four dimensions. The curve turns twice in one
+               plane of &#8477;&#8308; while it turns three times in the other, so it never
+               leaves the Clifford torus &mdash; the flat torus inside the 3-sphere, made of
+               two circles of the same radius &mdash; and winds around it as the (2,3) torus
+               knot, which is the trefoil. It is projected stereographically into ordinary
+               space and drawn as a solid curve, with a tube of constant thickness around it.</p>
+            <p>The 4D rotations turn the knot through planes that mix its two circles, so the
+               projection keeps changing shape: lobes swell, shrink and swing through the
+               centre, while the knot itself never changes. A slow 3D tumble turns the whole
+               figure over at the same time.</p>
+            <a class="watch-hd" href="https://youtu.be/H8WazqOJVZE" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/clifford-labyrinth.mp4" poster="media/Videos/clifford-labyrinth-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Clifford Labyrinth</h2>
+            <p>Tubes drawn around the great circles of S<sup>3</sup> that lie in the
+               coordinate planes, and a slider sets how many, from one to six. The first
+               three share a coordinate and touch only at its two poles, so their tubes run
+               clear of one another except in two chambers. Each further tube adds meeting
+               points, and with all six the circles meet three at a time at eight vertices
+               &mdash; the full skeleton of the 16-cell, the four-dimensional polytope
+               whose edges these circles are. Removing the overlaps at every junction
+               opens the passages that make the figure a labyrinth rather than a bundle of
+               pipes.</p>
+            <p>The lines running along the walls are Hopf fibres. Each tube is
+               parametrised along the fibration that makes its own axis a fibre, so every
+               one of those lines is a great circle of S<sup>3</sup> &mdash; a Villarceau
+               circle once projected &mdash; rather than a meridian of the tube. Each tube
+               is its own mesh, which is what lets all six carry their own fibration at
+               once.</p>
+            <p>The camera flies inside, and this is what the run looks like from within:
+               the walls converge to a point ahead because the tube closes on itself in
+               S<sup>3</sup>, not because it recedes. The path threads three of the tubes
+               in turn, passing from one to the next through the openings at the poles,
+               and comes back to where it started without ever turning around.</p>
+            <a class="watch-hd" href="https://youtu.be/BaFLfhdka84" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Background: <em>Cyclic noise 2D</em> by
+               <a href="https://www.shadertoy.com/view/fcjXzh" target="_blank" rel="noopener">nimitz</a>, MIT License.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/clifford-tori-labyrinth.mp4" poster="media/Videos/clifford-tori-labyrinth-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Clifford Tori Labyrinth</h2>
+            <p>Three tubes drawn around the three great circles of S<sup>3</sup> that
+               lie in coordinate planes through the same pair of poles, each parametrised
+               along the fibres of its own Hopf
+               structure &mdash; so every transverse line is a great circle, and the
+               stereographic projection turns it into a Villarceau circle. The circles
+               meet only at the two poles, so the tubes interpenetrate in just two
+               chambers, and cutting the overlaps there opens the passages from one tube
+               to another: that is the labyrinth. Each tube is its own mesh, which is
+               what keeps the three from being stitched into a single grid with seams to
+               mask.</p>
+            <a class="watch-hd" href="https://youtu.be/P8rakksj6HQ" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Surface texture by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/clifford-torus.mp4" poster="media/Videos/clifford-torus-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Clifford Torus</h2>
+            <p>The flat torus that cuts the 3-sphere into two congruent halves, drawn
+               here through a stereographic projection. Its two circles carry equal
+               radius 1/&radic;2, and the coupling of the angles rules the coordinate
+               curves into Hopf fibres &mdash; great circles that never meet yet stay
+               everywhere the same distance apart. Under the projection those fibres
+               become the Villarceau circles of a torus of revolution, and the 4D
+               rotation sweeps the surface through the projection pole, where it opens
+               out and closes again.</p>
+            <a class="watch-hd" href="https://youtu.be/_UrbFLwwsNk" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/clifford-torus-knot.mp4" poster="media/Videos/clifford-torus-knot-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Clifford Torus Knot</h2>
+            <p>The same curve as in Clifford Knot Rotating &mdash; twice around one plane of
+               &#8477;&#8308; and three times around the other, a trefoil on the Clifford
+               torus &mdash; but seen through the parallel projection, which simply drops the
+               fourth coordinate. The knot does not survive it: in ordinary space its shadow
+               is an unknotted loop, and where the curve heads straight into the fourth
+               dimension the shadow almost stops and turns sharply.</p>
+            <p>A 4D rotation turns the curve while a slow 3D tumble turns the figure over, and
+               now and then the shadow passes right through itself &mdash; something no knot
+               in three dimensions can do. In four
+               dimensions any knot can be untied, and the projection shows only its
+               untangled shadow.</p>
+            <a class="watch-hd" href="https://youtu.be/wS7C5x5EL18" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/coiling-spherinder.mp4" poster="media/Videos/coiling-spherinder-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Coiling Spherinder</h2>
+            <p>A sphere is attached to every point of a line, and as the line runs
+               through the fourth dimension the centre of the sphere winds round a
+               helix. The result is a three-dimensional object living in
+               four-dimensional space &mdash; the side wall of an infinite spherinder,
+               bent into a coil &mdash; and what the screen shows is its slice.</p>
+            <p>A rotation in the plane of z and the fourth coordinate tilts that slice.
+               Cut straight across, the object is a single sphere; as the cut leans
+               along the coil the sphere stretches into a curling worm that grows longer
+               and longer, until at a right angle it becomes an endless spring, then
+               shortens back into a sphere &mdash; while the whole figure tumbles in 3D.</p>
+            <a class="watch-hd" href="https://youtu.be/kSyWebBq3sw" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+        <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/cuspid-koranyi-sphere.mp4" poster="media/Videos/cuspid-koranyi-sphere-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Cuspid Kor&aacute;nyi Sphere</h2>
+            <p>The Kor&aacute;nyi gauge is the algebraic stand-in for distance in the
+               Heisenberg group, and its unit sphere is a flattened solid of revolution,
+               smooth and almost flat at the poles. Here its profile is raised to an
+               exponent set by a slider: at one half it is the Kor&aacute;nyi sphere
+               itself, at 1 an ellipsoid, and past 2 the profile is drawn onto the axis
+               until the poles close into sharp cusps. The cusps come from the exponent,
+               not from the gauge.</p>
+            <a class="watch-hd" href="https://youtu.be/3_f60K8QVfg" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Planetary texture by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+        <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/cytherean-coil.mp4" poster="media/Videos/cytherean-coil-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Cytherean Coil</h2>
+            <p>A torus whose tube is itself coiled: the cross-section does not merely
+               change size along the ring, it travels around a circle of its own, and
+               the second turn is taken through the fourth dimension. Five of those
+               turns fit into one lap of the ring, so the tube swells and thins five
+               times over while its profile rotates out of ordinary space and back. The
+               camera flies along the axis of the tube, rising and falling once per lap in
+               the fourth coordinate while the section winds five times around it.</p>
+            <a class="watch-hd" href="https://youtu.be/yIfdN38_spk" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Texture: <em>Fire clouds</em> by
+               <a href="https://www.shadertoy.com/view/w3VyDW" target="_blank" rel="noopener">ygilk</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>,
+               based on <em>Voronoi</em> by Inigo Quilez.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/dinis-surface.mp4" poster="media/Videos/dinis-surface-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Dini's Surface</h2>
+            <p>A tractrix dragged along a helix. The tractrix is the curve a weight traces
+               when pulled by a string whose free end moves along a straight line &mdash;
+               it approaches that line without ever reaching it. Revolve it and you get the
+               pseudosphere; twist it into a screw instead, advancing along the axis while
+               it turns, and you get this.</p>
+            <p>In Dini's surface what survives the twisting is the curvature: like the
+               pseudosphere, it has constant negative Gaussian curvature at every point.
+               The version drawn here softens the profile &mdash; one term of its height is
+               smaller than the tractrix calls for &mdash; so the curvature no longer
+               holds: negative towards the narrow end, it turns positive towards the wide
+               one. The spiral tapers without end &mdash; the domain is cut short here,
+               because the true surface would wind on forever, thinning towards an edge it
+               never reaches.</p>
+            <a class="watch-hd" href="https://youtu.be/f5ELgMP3wrE" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Texture: <em>Squished Coordinates</em> by
+               <a href="https://www.shadertoy.com/view/W3KcWd" target="_blank" rel="noopener">pyBlob</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+            <p class="specs">Surface image: planetary map by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/ellipsoid.mp4" poster="media/Videos/ellipsoid-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Ellipsoid</h2>
+            <p>An ellipsoid that is not in ordinary space at all. The three hyperspherical
+               angles of the 3-sphere are driven with amplitudes in the ratio 1&thinsp;:&thinsp;2&thinsp;:&thinsp;3,
+               so the ellipsoid lives in the space of <em>angles</em>; what reaches us is
+               its image on a 3-sphere of radius 1.13, projected down to three dimensions.
+               Every point of the surface sits at exactly that distance from the origin in
+               four dimensions, and nothing in the equations changes with time: the shape
+               we see swelling and contracting is rigid &mdash; it is the projection that
+               changes as the object turns.</p>
+            <a class="watch-hd" href="https://youtu.be/87RA7ujw_WQ" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Sound: <em>spatial audio 4</em> by
+               <a href="https://freesound.org/s/723963/" target="_blank" rel="noopener">BadWolf23</a>
+               on Freesound, licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/otto-tube.mp4" poster="media/Videos/otto-tube-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Figure-Eight Knot Tube</h2>
+            <p>A tube swept along the figure-eight knot, drawn as a curve that winds three
+               times around the axis while its radius beats twice and its height four
+               times &mdash; frequencies 2, 3 and 4 in the same closed loop. The fourth
+               coordinate is where the motion happens: it rises and falls as a slow sine,
+               lifting the curve out of ordinary space and setting it back down. The first
+               three coordinates never change, so the knot drawn in them stays the same;
+               in four dimensions every knot can be undone, and the lift only changes how
+               much of the curve lies outside ordinary space.</p>
+            <a class="watch-hd" href="https://youtu.be/4v_i1cW4JtU" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Sound: <em>Neptune Racing</em> by
+               <a href="https://www.shadertoy.com/view/XtX3Rr" target="_blank" rel="noopener">Dave_Hoskins</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+        <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/genus-3-bowel.mp4" poster="media/Videos/genus-3-bowel-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Genus 3 Bowel</h2>
+            <p>Two tori, overlapped and welded by a smooth minimum rather than simply placed
+               together. The join costs nothing and adds something: besides the two original
+               holes, the lens where the rings cross closes into a third one, so the surface
+               carries three handles built out of two pieces. The camera never sees it from
+               outside &mdash; it travels along the inside of the tube, and the ray marcher
+               keeps resolving the wall from within, so the passage reads as a gut rather
+               than as a solid. What little geometry the view catches beyond the wall is the
+               far side of the same surface, arriving from the other direction.</p>
+            <a class="watch-hd" href="https://youtu.be/lltoeo-63S4" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/gyroid-race.mp4" poster="media/Videos/gyroid-race-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Gyroid Race</h2>
+            <p>The gyroid, sin&thinsp;x&middot;cos&thinsp;y + sin&thinsp;y&middot;cos&thinsp;z
+               + sin&thinsp;z&middot;cos&thinsp;x = 0 &mdash; a minimal surface that repeats
+               in all three directions and, unlike Schwarz's P and D surfaces, contains no
+               straight line and no mirror plane at all. A point reflection turns the
+               surface into itself, swapping its two sides, but the two labyrinths it
+               separates are chiral: each is the mirror image of the other. The flight
+               is a circle of radius 2.12 with a single rise and fall folded into it, so
+               the camera crosses between levels of the maze rather than staying on
+               one.</p>
+            <a class="watch-hd" href="https://youtu.be/g9pTxgxsQUc" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Sound: <em>Trailing the Twinkling Tunnelwisp</em> by
+               <a href="https://www.shadertoy.com/view/WfcGWj" target="_blank" rel="noopener">mrange</a>,
+               licensed under <a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noopener">CC0 1.0</a>;
+               original music by Pestis, <em>Cassini&rsquo;s Cosmic Conclusion</em>
+               (<a href="https://demozoo.org/productions/367582/" target="_blank" rel="noopener">demozoo</a>).</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/heisenberg-sphere.mp4" poster="media/Videos/heisenberg-sphere-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Heisenberg Sphere</h2>
+            <p>Seen from inside. An ordinary sphere is carried into the Heisenberg
+               group by the shear z &rarr; z + A&middot;xy, the whole of Nil geometry in one
+               expression: height is no longer absolute but depends on horizontal
+               position. The camera travels within the closed shell, and the banded
+               texture makes the distortion legible &mdash; the stripes converge into two
+               spiral points, the poles of the parametrisation, where the twisting
+               winds up on itself.</p>
+            <a class="watch-hd" href="https://youtu.be/j_WJzrC-jOI" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/helix-bundle-twist.mp4" poster="media/Videos/helix-bundle-twist-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Helix Bundle Twist</h2>
+            <p>Three helices around a common axis, each a third of a turn behind the next
+               &mdash; a triple helix. All three are copies of one curve: the equations tell
+               them apart only by their number, and each strand is a solid curve of its own,
+               with its own texture.</p>
+            <p>The phase of the strands advances with time, so the bundle turns about its
+               axis like a screw. On top of that the whole figure is turned in four dimensions
+               and brought back by stereographic projection: the coil widens at one end and
+               narrows at the other, and its proportions keep shifting as it turns.</p>
+            <a class="watch-hd" href="https://youtu.be/PC5tAy9W7Tk" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/hopf-fibers.mp4" poster="media/Videos/hopf-fibers-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Hopf Fibers</h2>
+            <p>Eleven circles of the Hopf fibration, which fills the 3-sphere with great
+               circles so that any two of them are linked exactly once. Six lie on the
+               Clifford torus and five on a thinner torus nested inside it, each family spread
+               evenly around its torus. Projected stereographically into ordinary space they
+               stay circles, and every one of them threads once through each of the others.</p>
+            <p>The 4D rotations turn the circles through planes that reach into the fourth
+               dimension, so they swell, shrink and slide through one another while staying
+               round and linked; a circle that passes close to the pole of the projection
+               grows huge and runs off the screen almost straight. A slow 3D tumble turns the
+               whole figure over at the same time.</p>
+            <a class="watch-hd" href="https://youtu.be/C82Wgz0Oo3M" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/hopf-half-tori.mp4" poster="media/Videos/hopf-half-tori-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Hopf Half Tori</h2>
+            <p>Five Hopf tori, each built from its own mesh and cut in half between two
+               Hopf fibres &mdash; which the stereographic projection renders as Villarceau
+               circles. Unlike the equatorial cut of an ordinary torus, the two boundary
+               fibres are linked, yet the resulting band, despite its Möbius-like look, is
+               orientable. Nested and interlocking around the same fibration axis, the
+               half tubes spin together under a slow 4D rotation, exposing from the inside
+               the nested-shell structure that a full Hopf torus keeps hidden.</p>
+            <a class="watch-hd" href="https://youtu.be/KpSnLCemXas" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+            <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/hopf-ribbon-over-spiral.mp4" poster="media/Videos/hopf-ribbon-over-spiral-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Hopf Ribbon over Spiral</h2>
+            <p>The Hopf fibration sends every point of the 2-sphere to a whole circle in
+               S<sup>3</sup>. Lift a parallel and you get a torus; lift the spiral
+               &theta; = A&thinsp;&phi;, a Clelia curve that winds from pole to pole with its
+               colatitude growing in step with its longitude, and you get
+               this instead &mdash; a band closed around the fibre direction but bounded
+               at both ends, its two edges being the fibres over the poles. The lift is
+               exact: the Hopf map is constant along the fibres to within machine
+               precision.</p>
+            <a class="watch-hd" href="https://youtu.be/_5zwhNeSmxY" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Background: <em>Trailing the Twinkling Tunnelwisp</em>,
+               gyroid logic adapted from Paul Karlik,
+               <a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noopener">CC0 1.0</a>.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/hopf-parallel.mp4" poster="media/Videos/hopf-parallel-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Hopf Parallel</h2>
+            <p><em>Parallel</em> is meant in the geographic sense, not the geometric one:
+               each surface here is the preimage of one parallel of the base sphere under
+               the Hopf map. A parallel at colatitude &theta; lifts to the torus
+               |z<sub>1</sub>| = cos(&theta;/2), |z<sub>2</sub>| = sin(&theta;/2) &mdash; a
+               single circle on the sphere becomes a whole torus in S<sup>3</sup>, because
+               every one of its points carries a circle of its own above it. The equator
+               lifts to the Clifford torus, and the two poles do not lift to tori at all:
+               they are single fibres, the two circles the whole family is nested around.</p>
+            <p>Up to nine of those lifts can be drawn, each as its own mesh, so the fibres stay visible
+               as curves on each surface rather than being smeared into shading. The nesting
+               is symmetric about the equator: the surfaces come in pairs at colatitudes
+               &theta; and &pi;&minus;&theta;, one inside the Clifford torus and one outside,
+               with the equator itself joining in whenever their number is odd.</p>
+            <a class="watch-hd" href="https://youtu.be/fBg1WzEDQho" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Textures, one per surface:<br>
+               <em>Cyclic noise 2D</em> by nimitz, MIT License &mdash;
+               <a href="https://www.shadertoy.com/view/fcjXzh" target="_blank" rel="noopener">shadertoy.com/view/fcjXzh</a><br>
+               <em>Fiber Optics</em> by NFX &mdash;
+               <a href="https://www.shadertoy.com/view/33yyDd" target="_blank" rel="noopener">shadertoy.com/view/33yyDd</a><br>
+               <em>Quasicrystal GIF in HD</em> by pvillano &mdash;
+               <a href="https://www.shadertoy.com/view/sXsGDl" target="_blank" rel="noopener">shadertoy.com/view/sXsGDl</a><br>
+               <em>Iridescent Fibers</em> by evesira &mdash;
+               <a href="https://www.shadertoy.com/view/tffSDr" target="_blank" rel="noopener">shadertoy.com/view/tffSDr</a><br>
+               The last three are licensed under
+               <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/hopf-tori.mp4" poster="media/Videos/hopf-tori-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Hopf Tori</h2>
+            <p>Five tori of the Hopf fibration, each the preimage of a different parallel
+               of the base sphere. A parallel at colatitude &theta; lifts to the torus
+               |z<sub>1</sub>| = cos(&theta;/2), |z<sub>2</sub>| = sin(&theta;/2), so the
+               equator gives the Clifford torus &mdash; the only one equidistant from the
+               two polar fibres, and the one that cuts S<sup>3</sup> into two congruent
+               solid tori. Nested here in stereographic projection, they are rotated in
+               three dimensions: the object in S<sup>3</sup> is fixed, only the shadow
+               turns.</p>
+            <a class="watch-hd" href="https://youtu.be/BSVkv5cuGhM" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Texture: <em>Fire clouds</em> by
+               <a href="https://www.shadertoy.com/view/w3VyDW" target="_blank" rel="noopener">ygilk</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>,
+               based on <em>Voronoi</em> by Inigo Quilez.
+               <em>Cyclic noise 2D</em> by
+               <a href="https://www.shadertoy.com/view/fcjXzh" target="_blank" rel="noopener">nimitz</a>, MIT License.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/hopf-tori-4D-rotation.mp4" poster="media/Videos/hopf-tori-4D-rotation-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Hopf Tori 4D Rotation</h2>
+            <p>The same five Hopf tori, with the four-dimensional rotation switched on as
+               well. Now two motions run at once: the projected image turns in three
+               dimensions as before, while the whole family also rotates in S<sup>3</sup>
+               itself. The nesting is not preserved by the second motion the way it is by
+               the first &mdash; a rotation of 4-space moves the tori through one another
+               in the projection, and which one appears to be inside which stops being a
+               fixed fact. Compare with <em>Hopf Tori</em> above, where the same five
+               surfaces are turned in three dimensions only and the order never
+               changes.</p>
+            <a class="watch-hd" href="https://youtu.be/0U7r_6hHMEg" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Texture: <em>Fire clouds</em> by
+               <a href="https://www.shadertoy.com/view/w3VyDW" target="_blank" rel="noopener">ygilk</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>,
+               based on <em>Voronoi</em> by Inigo Quilez.
+               <em>Cyclic noise 2D</em> by
+               <a href="https://www.shadertoy.com/view/fcjXzh" target="_blank" rel="noopener">nimitz</a>, MIT License.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/hyperbolic-catenoid.mp4" poster="media/Videos/hyperbolic-catenoid-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Hyperbolic Catenoid</h2>
+            <p>The catenoid &mdash; the surface a soap film takes between two rings &mdash;
+               carried into hyperbolic space and drawn in the Poincar&eacute; ball. Its
+               flared mouths grow like cosh, so the projection crushes them against the
+               rim: the whole infinite trumpet ends up in the last thin shell of the ball,
+               while the narrow waist keeps its shape near the centre. The surface then
+               orbits the origin, and since the compression depends only on distance from
+               the centre, it swells and thins as it travels. It is moved rigidly in the
+               flat coordinates, before the compression, and those moves are not motions
+               of hyperbolic space: what changes is the shape itself, not just the
+               viewpoint.</p>
+            <a class="watch-hd" href="https://youtu.be/dOFBJYhuQ_U" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Sound: <em>The Sanctuary</em> by
+               <a href="https://www.shadertoy.com/view/4ddfWX" target="_blank" rel="noopener">srtuss</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/hyperbolic-enneper.mp4" poster="media/Videos/hyperbolic-enneper-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Hyperbolic Enneper</h2>
+            <p>Enneper's minimal surface, known since 1864, carried into the Poincar&eacute;
+               ball model of hyperbolic space. Every point is pulled inward along its own
+               radius by the map r &rarr; tanh(r/2), which compresses infinite space into a
+               ball of radius one: the lobes that run off to infinity in flat space fold
+               back and stay visible inside it.</p>
+            <a class="watch-hd" href="https://youtu.be/x35-qX70jzs" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/hyperbolic-mobius-band.mp4" poster="media/Videos/hyperbolic-mobius-band-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Hyperbolic M&ouml;bius Band</h2>
+            <p>The M&ouml;bius band carried into hyperbolic space and drawn in the Poincar&eacute;
+               ball model, where the projection x &rarr; x&middot;tanh(r/2)/r pulls the whole
+               of H<sup>3</sup> inside a unit sphere. Distances grow without bound towards
+               the boundary, so the band curls as it approaches the rim &mdash; yet the
+               single edge and the one-sided surface survive the change of geometry
+               untouched.</p>
+            <a class="watch-hd" href="https://youtu.be/ACnvUUEYEEI" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Texture: <em>sun with stars</em> by
+               <a href="https://www.shadertoy.com/view/tXKfz1" target="_blank" rel="noopener">nayk</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+            <p class="specs">Background: <em>Disco Sun Vortex</em> by
+               <a href="https://www.shadertoy.com/view/7cfGzn" target="_blank" rel="noopener">workingclasshacker</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noopener">CC BY-NC-SA 4.0</a>.</p>
+            <p class="specs">Sound: <em>Cross-Galactic Ocean</em> by
+               <a href="https://www.shadertoy.com/view/4l2XWh" target="_blank" rel="noopener">Klems</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+        <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/inside-gyroid.mp4" poster="media/Videos/inside-gyroid-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Inside Gyroid</h2>
+            <p>The same gyroid, but thickened until it is no longer a surface. Taking the
+               absolute value of the function and subtracting a thickness turns the thin
+               sheet into a solid, and at this setting the solid fills about 95 per cent
+               of space &mdash; what remains is a network of narrow channels, and that is
+               where the camera is. The lattice also drifts while the flight proceeds,
+               faster along one axis than the other, so the walls slide past for reasons
+               that have nothing to do with the camera moving.</p>
+            <a class="watch-hd" href="https://youtu.be/nm3QIeCCDmc" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+        <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/iwasawa-torus.mp4" poster="media/Videos/iwasawa-torus-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Iwasawa Torus</h2>
+            <p>A surface drawn inside SL(2,&#8477;) itself, the group of two-by-two
+               matrices of determinant one. Iwasawa's theorem factors every such matrix
+               uniquely as a rotation times a diagonal times a triangular one, and each
+               factor has determinant one on its own &mdash; so a point built from those
+               three ingredients lies in the group by construction, not by approximation.
+               Two of the parameters are turned into a closed loop, and what you see is
+               that loop dragged through the group while its third coordinate
+               rotates.</p>
+            <a class="watch-hd" href="https://youtu.be/hQ7dI-L_9HA" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Texture: <em>Squished Coordinates</em> by
+               <a href="https://www.shadertoy.com/view/W3KcWd" target="_blank" rel="noopener">pyBlob</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+            <p class="specs">Sound: <em>The Sanctuary</em> by
+               <a href="https://www.shadertoy.com/view/4ddfWX" target="_blank" rel="noopener">srtuss</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/jeener-core-flight.mp4" poster="media/Videos/jeener-core-flight-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Jeener Core Flight</h2>
+            <p>A flight down the inside of a Jeener-Klein bottle. The tube follows a
+               deltoid rather than a circle, and its radius breathes three times over
+               the course of the loop, from 0.31 to 1.81 &mdash; so the corridor opens
+               into chambers and closes to a throat as the camera advances. The path is
+               a Fourier series of three harmonics threading the core: it holds no fixed
+               clearance, running wide where the tube swells and passing within a
+               hundredth of a unit of the wall at the tightest point.</p>
+            <a class="watch-hd" href="https://youtu.be/Mf_YWIBs4wI" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/klein-3d-falling.mp4" poster="media/Videos/klein-3d-falling-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Klein 3D Falling</h2>
+            <p>The figure-8 immersion of the Klein bottle, the version that fits in
+               ordinary space at the price of passing through itself. A lemniscate is
+               carried around a circle while turning through half a revolution, so after
+               one lap it returns mirrored &mdash; the same point of space is reached
+               twice with opposite normals, and no consistent inside survives. Set
+               tumbling about three axes at once, it never presents the same silhouette
+               twice within a turn.</p>
+            <a class="watch-hd" href="https://youtu.be/3hZudUScFDU" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Planetary texture by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/klein-circle-bundle.mp4" poster="media/Videos/klein-circle-bundle-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Klein Circle Bundle</h2>
+            <p>A circle is attached to every point of a Klein bottle, and the whole
+               construction is a three-dimensional object living in four-dimensional
+               space. It cannot be seen as it is: what the screen shows is a slice, the
+               set of points whose fourth coordinate is the one currently selected.</p>
+            <p>The equation is the Klein bottle's own, squared and set against the
+               fourth coordinate, so each slice cuts the fibres at a different height.
+               Moving through the fourth dimension the figure opens and closes, tubes
+               detach and rejoin: not a shape that deforms, but successive cross-sections
+               of something that never changes.</p>
+            <a class="watch-hd" href="https://youtu.be/ebNj__jl84I" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/klein-racing.mp4" poster="media/Videos/klein-racing-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 8 s</span>
+        </div>
+        <div class="meta">
+            <h2>Klein Racing</h2>
+            <p>The Klein bottle as it exists in four dimensions, where the neck passes
+               through the fourth coordinate instead of through the wall: no
+               self-intersection, and no seam to drive across. The camera stays inside
+               the tube for the whole flight, a tenth of a unit clear of the wall and
+               never changing side. What turns is the projection: a 4D rotation
+               advancing at half the rate of the lap, so the same fixed course is shown
+               from a continuously changing angle &mdash; and the walls that seem to open
+               outwards are the shadow moving, not the camera.</p>
+            <a class="watch-hd" href="https://youtu.be/b680HHcuXxs" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/kruskal-wormhole.mp4" poster="media/Videos/kruskal-wormhole-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Kruskal Wormhole</h2>
+            <p>The Schwarzschild black hole seen whole. In the usual coordinates the
+               solution appears to break down at the horizon, but that is a failure of the
+               chart and not of the geometry: Kruskal and Szekeres found coordinates in
+               which nothing goes wrong there, and those reveal that the solution has been
+               describing two exterior regions all along, joined through the horizon.</p>
+            <p>What is drawn is the embedding of a slice at constant time: the two mouths
+               are the two exteriors, and the throat between them is the Einstein&ndash;Rosen
+               bridge. It is not a passage &mdash; the bridge pinches off faster than
+               anything could cross it, so the two regions stay causally separate. The
+               slider sets the mass, which fixes how wide the throat opens.</p>
+            <a class="watch-hd" href="https://youtu.be/Tm-k2vDErdg" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/lissajous-drift.mp4" poster="media/Videos/lissajous-drift-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Lissajous Drift</h2>
+            <p>A Lissajous curve in space: three sine waves of frequencies 4, 3 and 5, one
+               per axis, traced together until they close up after a single turn. The phase
+               of the first one drifts with time, so the curve keeps reshaping itself inside
+               its box without ever opening.</p>
+            <p>Because the other two waves start in step, the curve is symmetric and passes
+               through itself at three points, which slide back and forth with the drift.
+               Twice in each cycle it folds completely and runs back over its own path, as a
+               flat Lissajous figure does when its phase lines up.</p>
+            <a class="watch-hd" href="https://youtu.be/52vcnflqAXc" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/lissajous-knot.mp4" poster="media/Videos/lissajous-knot-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Lissajous Knot</h2>
+            <p>Three cosine waves of frequencies 3, 2 and 7, one per axis, with their phases
+               slightly offset. Unlike the Lissajous Drift, this curve never meets itself: it
+               closes up into a true knot, the three-twist knot, 5<sub>2</sub> in the knot
+               tables, drawn as a solid curve with a tube around it. The knot is chiral &mdash;
+               no motion in ordinary space turns it into its mirror image.</p>
+            <p>A slow 3D tumble turns it over, while a rotation in four dimensions does what
+               ordinary space cannot: about every ten seconds the knot flattens into a plane
+               and opens again as its own mirror image.</p>
+            <a class="watch-hd" href="https://youtu.be/lDQGlS0PNTE" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/loxodrome.mp4" poster="media/Videos/loxodrome-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Loxodrome</h2>
+            <p>A loxodrome is the path that crosses every meridian at the same angle
+               &mdash; the course a ship holds by keeping one bearing on the compass,
+               which on a globe spirals in towards the pole rather than following a great
+               circle. The name is borrowed loosely here. The surface is a torus in
+               S<sup>2</sup>&times;S<sup>1</sup> whose section, at each point of the ring,
+               is a curve on a 2-sphere: the winding W = v + 3u makes that curve a spiral
+               whose longitude grows in step with its colatitude &mdash; a Clelia curve
+               rather than a true loxodrome &mdash; and turns it three times for every lap
+               around the ring.</p>
+            <p>Both angles then drift with time, and at different rates: U advances once
+               per unit while W runs backwards at twice that. The drift of U only slides
+               the grid along the ring; the net effect is a rigid turn of the whole
+               surface in the plane of z and the fourth axis, so the shape never changes
+               in four dimensions &mdash; only its shadow does.</p>
+            <a class="watch-hd" href="https://youtu.be/gViz6hw7KqQ" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Surface image: planetary map by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+            <p class="specs">Sound: <em>Xyptonjtroz</em> by
+               <a href="https://www.shadertoy.com/view/4ts3z2" target="_blank" rel="noopener">nimitz</a>,
+               audio by Dave_Hoskins, licensed under
+               <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/mobius-band-racing.mp4" poster="media/Videos/mobius-band-racing-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>M&ouml;bius Band Racing</h2>
+            <p>The M&ouml;bius band taken as a racetrack, with the camera flying just above
+               the centre line at a fixed height. One lap does not bring it home: after
+               a full turn around the ring the camera is running along the other face
+               of the band, and only the second lap restores the starting position &mdash;
+               the path closes after 4&pi;, not 2&pi;. The roll follows at half the rate,
+               so the horizon turns over once per lap and the one-sided surface is felt
+               rather than described.</p>
+            <a class="watch-hd" href="https://youtu.be/qQCAZ5h2wGc" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Sound: <em>Waterfalls</em> by
+               <a href="https://www.shadertoy.com/view/MdlXD4" target="_blank" rel="noopener">P_Malin</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+            <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/modulated-torus.mp4" poster="media/Videos/modulated-torus-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Modulated Torus</h2>
+            <p>A torus whose main radius is not constant: it carries a travelling wave,
+               R = A + B&thinsp;cos(C&thinsp;v + t). The wave depends on v, the angle around
+               the tube, not on the angle around the ring: it pushes each cross-section
+               out on one side and in on the other, so the tube widens and narrows as the
+               wave runs around it, in the same way at every point of the ring.</p>
+            <p>A second relief is laid over it, a vertical ripple that runs around the
+               ring instead, with a frequency tied to the same slider that sets the wave
+               depth. The two act in different directions, and where they cross the
+               surface picks up a texture that neither produces alone.</p>
+            <a class="watch-hd" href="https://youtu.be/nwZ-BqAgI4g" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/morphing-3-torus.mp4" poster="media/Videos/morphing-3-torus-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Morphing 3-Torus</h2>
+            <p>The circle, the torus, and then this: the three-dimensional torus, a
+               torus of tori. It is a closed three-dimensional object that only fits in
+               four-dimensional space, so what the screen shows is its slice &mdash; the
+               part of it that lies in our space.</p>
+            <p>The camera flies a four-dimensional path, and as it turns it tilts the
+               slice. Cut head-on, the 3-torus is a compact, full-bodied figure; as the
+               slice leans it thins out and stretches, splits into two separate pieces
+               around a quarter turn, then rejoins and fills out again, every half turn.</p>
+            <a class="watch-hd" href="https://youtu.be/tueCyBL9c_c" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/nil-sphere.mp4" poster="media/Videos/nil-sphere-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Nil Sphere</h2>
+            <p>A sphere of four-dimensional space &mdash; a 3-sphere &mdash; with its fourth
+               coordinate twisted: every point is pushed along it by an amount that grows
+               with its height and with its distance from the axis, a twist in the spirit
+               of Nil geometry. It stays a closed object, and what the screen shows is its
+               slice.</p>
+            <p>The camera flies a four-dimensional path that tilts the slice. Head-on, the
+               twist squeezes the sphere at mid-latitudes into a rounded double cone; as the
+               slice turns it flattens into a thick pillow folded along a crease, its upper
+               half curling one way and its lower half the other, then unfolds back &mdash;
+               always a single piece.</p>
+            <a class="watch-hd" href="https://youtu.be/f5MlfvsPHew" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/nutating-cycloid-hopf-torus.mp4" poster="media/Videos/nutating-cycloid-hopf-torus-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Nutating Cycloid Hopf Torus</h2>
+            <p>Take a spherical cycloid &mdash; the curve a point of a rolling circle
+               traces on a sphere, here closing after five lobes &mdash; and lift every
+               Hopf fibre above it. The result is a surface in S<sup>3</sup>, and the lift
+               is exact: the Hopf map stays constant along the fibres to within machine
+               precision. What moves is the axis of the cycloid, tilting back and forth,
+               so the lobes deepen on one side of the sphere while flattening on the
+               other and the whole figure appears to nod.</p>
+            <a class="watch-hd" href="https://youtu.be/hu9n5ZMs7pg" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+        <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/projective-plain-racing.mp4" poster="media/Videos/projective-plain-racing-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Projective Plane Racing</h2>
+            <p>The real projective plane, the surface obtained by gluing every point of a
+               sphere to the one opposite it. No such gluing fits in ordinary space without
+               the surface crossing itself, so this is the Veronese immersion: the fourth
+               coordinate carries the part that will not fit, and what is left in three
+               dimensions folds through itself along a seam. The camera flies inside it,
+               drifting through the fourth coordinate as it goes, and passes to the far
+               side of a sheet that has no far side &mdash; the surface is one-sided, and
+               the flight never reaches an edge. The view turns as it travels, rolling once
+               about one axis of the moving frame and half a turn about another for every
+               lap, so the same stretch of surface is met each time at a different angle.</p>
+            <a class="watch-hd" href="https://youtu.be/IrPVxZkv2vc" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Sound: <em>Trailing the Twinkling Tunnelwisp</em> by
+               <a href="https://www.shadertoy.com/view/WfcGWj" target="_blank" rel="noopener">mrange</a>,
+               licensed under <a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noopener">CC0 1.0</a>;
+               original music by Pestis, <em>Cassini&rsquo;s Cosmic Conclusion</em>
+               (<a href="https://demozoo.org/productions/367582/" target="_blank" rel="noopener">demozoo</a>).</p>
+        </div>
+    </div>
+
+        <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/pseudosphere.mp4" poster="media/Videos/pseudosphere-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Pseudosphere</h2>
+            <p>The tractrix turned about its own asymptote. Where the sphere has the same
+               positive curvature everywhere, this surface has the same <em>negative</em>
+               curvature everywhere &mdash; it is the sphere's counterpart, and the reason
+               for the name. Beltrami used it in 1868 to show that hyperbolic geometry is
+               no less consistent than Euclid's: here is a piece of it, made of ordinary
+               space, where the angles of a triangle fall short of a straight angle.</p>
+            <p>Two cusps meet at the waist and the surface tapers away in both directions
+               without ever ending. It is only a piece: no surface in ordinary space can
+               carry the whole hyperbolic plane, as Hilbert proved in 1901. The camera
+               circles it while rolling, so the flare of one horn passes across the view
+               and the waist comes back into frame from a different side each time.</p>
+            <a class="watch-hd" href="https://youtu.be/Yu3gg8CpLAs" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Surface and background images: planetary maps by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/pulsating-torus.mp4" poster="media/Videos/pulsating-torus-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Pulsating Torus</h2>
+            <p>Two motions at once. The radius of the tube carries a wave, three crests
+               running forward around the ring, so the surface swells and narrows as they
+               pass &mdash; that part is a genuine deformation. The rest is not: the last
+               two coordinates are turned rigidly into one another, a rotation of 4-space
+               that preserves every length. The figure
+               appears to breathe on two counts, and only one of them is really
+               happening.</p>
+            <a class="watch-hd" href="https://youtu.be/EeqLKT76lxs" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Background: <em>Fire clouds</em> by
+               <a href="https://www.shadertoy.com/view/w3VyDW" target="_blank" rel="noopener">ygilk</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>,
+               based on <em>Voronoi</em> by Inigo Quilez.</p>
+            <p class="specs">Sound: <em>Neptune Racing</em> by
+               <a href="https://www.shadertoy.com/view/XtX3Rr" target="_blank" rel="noopener">Dave_Hoskins</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/pulsing-klein-bottle.mp4" poster="media/Videos/pulsing-klein-bottle-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Pulsing Klein Bottle</h2>
+            <p>A Klein bottle embedded in four dimensions, where it needs no
+               self-intersection. The doubled angle in the first two coordinates against
+               the single angle in the last two is what closes it with a reversal: follow
+               u through half a turn and the fibre returns mirrored, so no consistent
+               side survives &mdash; measured, every identified pair of parameters gives
+               opposite normals. The animation interpolates between two configurations
+               and back, changing the shape without ever touching the topology.</p>
+            <a class="watch-hd" href="https://youtu.be/3iFUAkNDSbo" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Texture: <em>Squished Coordinates</em> by
+               <a href="https://www.shadertoy.com/view/W3KcWd" target="_blank" rel="noopener">pyBlob</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+            <p class="specs">Sound: <em>Red Cells</em> by
+               <a href="https://www.shadertoy.com/view/MsXXWH" target="_blank" rel="noopener">P_Malin</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/roman-surface.mp4" poster="media/Videos/roman-surface-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Roman Surface</h2>
+            <p>Steiner's model of the real projective plane, found in Rome in 1844 and
+               left unpublished &mdash; Weierstrass wrote it up years later from his notes.
+               It is the third immersion of that plane in this collection, and the most
+               singular of them: where the Boy surface avoids pinch points and the
+               Veronese needs a fourth dimension to do so, this one accepts them. Six of
+               them, at the ends of three segments of self-intersection meeting at the
+               centre.</p>
+            <p>The shape is a tetrahedral cushion: four flattened lobes, one towards each
+               vertex of a tetrahedron, with the symmetry that follows. Its equations are
+               quadratic in the sphere's coordinates, which is what forces antipodal
+               points together and makes the surface one-sided, with no inside and no
+               boundary anywhere.</p>
+            <a class="watch-hd" href="https://youtu.be/kGu7qyLDRoc" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/s3-plane.mp4" poster="media/Videos/s3-plane-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>S<sup>3</sup> Moving Plane</h2>
+            <p>A surface built inside the 3-sphere, where every point is written as a
+               direction in ordinary space paired with a latitude: the rule
+               w = u + v hands each direction its own height on S<sup>3</sup>. Because
+               that sum runs three times further than the directions themselves, the
+               surface climbs through the poles four times over and folds back on
+               itself, and the rings this produces are what the 4D rotation keeps
+               turning inside out.</p>
+            <a class="watch-hd" href="https://youtu.be/QowmWnDm0ik" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Planetary texture by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+            <p class="specs">Sound: <em>Red Cells</em> by
+               <a href="https://www.shadertoy.com/view/MsXXWH" target="_blank" rel="noopener">P_Malin</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/rose-curves-bloom.mp4" poster="media/Videos/rose-curves-bloom-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Rose Curves Bloom</h2>
+            <p>Four rose curves stacked one above the other &mdash; in polar terms
+               r&nbsp;=&nbsp;cos(k&theta;), with k from 2 to 5. An odd k gives k petals and an
+               even one twice as many, so the layers carry four, three, eight and five petals.
+               All four are copies of one curve, told apart only by their number, and each is a
+               solid curve with a look of its own.</p>
+            <p>Each rose spins in its own plane, and each one faster than the layer below
+               &mdash; the top one turns four times as fast as the bottom one &mdash; so the
+               petals keep drifting out of line and back, while a slow tumble turns the whole
+               stack over.</p>
+            <a class="watch-hd" href="https://youtu.be/1YlbchDKOxg" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+        <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/scherks-surface.mp4" poster="media/Videos/scherks-surface-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Scherk's Surface</h2>
+            <p>For sixty years the catenoid and the helicoid were the only minimal surfaces
+               known; in 1834 Heinrich Scherk found new ones, and this is his second
+               surface. It is singly periodic: it repeats in one direction only, along the
+               line where the two planes it approaches cross, like a tower of saddles
+               stacked on top of one another. One period of the tower is drawn here.</p>
+            <p>What it does is join two planes that cross at right angles, replacing the
+               line where they meet with a column of saddle-shaped passages. Every point
+               sits on a saddle: the surface curves up along one direction and down along
+               the perpendicular one by exactly the same amount, which is what minimal
+               means &mdash; a soap film would take this shape and no other.</p>
+            <a class="watch-hd" href="https://youtu.be/z38bSExh8II" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Surface and background images: planetary maps by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/schwarz-p-circuit.mp4" poster="media/Videos/schwarz-p-circuit-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Schwarz P Circuit</h2>
+            <p>The Schwarz P surface, cos&thinsp;x + cos&thinsp;y + cos&thinsp;z = 0, flown
+               without the noise that perturbs it elsewhere. The path is built from
+               hyperbolic tangents steep enough to saturate almost at once, so the camera
+               does not glide: it holds at a corner of a 2&pi; cube, then snaps to the
+               next. Those corners are the centres of the chambers, the points furthest
+               from the walls, and the route never once crosses the surface &mdash;
+               measured along the whole loop the equation stays negative, so the flight
+               stays inside a single labyrinth and passes from room to room through the
+               throats that connect them.</p>
+            <a class="watch-hd" href="https://youtu.be/p3LCKNni_Bk" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Planetary textures by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/sliding-spring.mp4" poster="media/Videos/sliding-spring-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Sliding Spring</h2>
+            <p>An ordinary torus in its first two coordinates, with the section turned
+               into the fourth dimension by an angle w = v + 3u + 2t. The 3u is the
+               spring: three full turns of the section for every lap of the ring, which
+               closes the surface after one lap all the same. The 2t makes those turns
+               travel: the whole surface turns rigidly in the plane of z and the fourth
+               axis, so nothing changes shape in four dimensions, while in the shadow the
+               coil appears to slide along the tube and the ring stays where it is.</p>
+            <a class="watch-hd" href="https://youtu.be/PpkEsncqkGU" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Background: <em>Raymarching Basic</em> by
+               <a href="https://www.shadertoy.com/view/Ml2XRD" target="_blank" rel="noopener">gyabo</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+            <p class="specs">Sound: <em>Trailing the Twinkling Tunnelwisp</em> by
+               <a href="https://www.shadertoy.com/view/WfcGWj" target="_blank" rel="noopener">mrange</a>,
+               licensed under <a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noopener">CC0 1.0</a>;
+               original music by Pestis, <em>Cassini&rsquo;s Cosmic Conclusion</em>
+               (<a href="https://demozoo.org/productions/367582/" target="_blank" rel="noopener">demozoo</a>).</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/small_sphere_escape.mp4" poster="media/Videos/small_sphere_escape-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Small Sphere Escape</h2>
+            <p>Geodesics of S<sup>3</sup> released from a circle drawn on a sphere that
+               is <em>not great</em> &mdash; one of the spheres at constant distance from a
+               pole. They leave it at once. A sphere that is not great is not totally
+               geodesic: its own geodesics are not geodesics of S<sup>3</sup>, just as a
+               parallel of latitude is not a shortest route on the Earth. Only the
+               equatorial sphere holds them, and the curves here sweep across the whole
+               family of non-great spheres, swelling out to the great one and shrinking
+               back. They are great circles throughout &mdash; it is the surface they
+               started on that cannot keep them.</p>
+            <a class="watch-hd" href="https://youtu.be/QdoLi9NEuEM" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Planetary texture by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/sol-sphere.mp4" poster="media/Videos/sol-sphere-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Sol Sphere</h2>
+            <p>The stretch of Sol &mdash; one direction pulled out exponentially, the
+               perpendicular one squeezed by exactly as much &mdash; applied to a sphere.
+               Where the Sol Torus takes the height as the exponent, here it is the fourth
+               coordinate: every value of it gives the sphere its own factor, and together
+               they build a three-dimensional object in four-dimensional space. What the
+               screen shows is its slice.</p>
+            <p>Three 4D rotations and a slow 3D tumble keep tilting the slice. Cut straight
+               across, the object is a plain sphere; as the cut leans toward the fourth
+               direction it runs through more and more of those stretches at once, and the
+               sphere shoots out into a long band &mdash; round in the middle, flattening
+               toward the two ends into wide, thin blades set at right angles to each
+               other &mdash; before gathering back into a sphere, about every five seconds.</p>
+            <a class="watch-hd" href="https://youtu.be/rtSEiGTa73E" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/sol-torus.mp4" poster="media/Videos/sol-torus-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Sol Torus</h2>
+            <p>An ordinary torus, seen with the geometry of Sol &mdash; one of the eight
+               Thurston geometries, the only ones a three-dimensional space can be
+               modelled on. Sol stretches one direction exponentially while contracting
+               the perpendicular one by exactly as much: area is preserved, shape is not.</p>
+            <p>What makes it strange is that the amount of stretching depends on where the
+               point sits &mdash; the exponent is the height. The top of the torus is
+               pulled one way and the bottom the other, with every level between them
+               getting its own factor, so the figure crumples rather than growing. The
+               camera flies inside it on a circular path, rolling as it goes.</p>
+            <a class="watch-hd" href="https://youtu.be/W9gDv2QCnp4" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Sound: <em>Alps</em> by
+               <a href="https://www.shadertoy.com/view/4ssXW2" target="_blank" rel="noopener">David Hoskins</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/sphere-tori-merging.mp4" poster="media/Videos/sphere-tori-merging-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Sphere-Tori Merging</h2>
+            <p>A pulsing sphere at the centre and six small tori, one at each end of the
+               three axes &mdash; written as three tori and doubled by taking absolute
+               values of the coordinates. The sphere breathes between radius 0.55 and
+               1.45 while the rings sit with their inner edge at exactly 1.00, so for
+               about half of every cycle the sphere has swallowed them into a single
+               body and for the other half there are seven separate pieces. The topology
+               changes twice per breath.</p>
+            <a class="watch-hd" href="https://youtu.be/f5dNAf9I8CU" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Background: <em>Fractal pyramid</em> by
+               <a href="https://www.shadertoy.com/view/tsXBzS" target="_blank" rel="noopener">bradjamesgrant</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/spherical-lissajous.mp4" poster="media/Videos/spherical-lissajous-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Spherical Lissajous</h2>
+            <p>A Lissajous figure drawn on a sphere instead of a box: the latitude swings up
+               and down five times while the longitude goes twice around, and the curve closes
+               after a single turn. On a surface one strand cannot pass over another, so where
+               the curve meets itself it really crosses: at five points, all on the equator,
+               evenly spaced around it. It is drawn as a solid curve, with a tube around it.</p>
+            <p>A slow tumble turns it over, while a rotation in four dimensions squeezes the
+               sphere it lies on into an ellipsoid and, about every ten seconds, flattens it
+               into a disc before it opens again as its own mirror image.</p>
+            <a class="watch-hd" href="https://youtu.be/I_BE5uBHmfw" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/spherical-spirals.mp4" poster="media/Videos/spherical-spirals-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Spherical Spirals</h2>
+            <p>Six rhumb lines on one sphere, each turned a sixth of the way round from the
+               next: six courses with the same compass bearing, spiralling from pole to pole
+               side by side. On the sphere they never touch &mdash; at every height each one
+               sits at its own longitude. All six are copies of one curve, told apart only by
+               their number, and each is a solid curve of its own.</p>
+            <p>As in the Breathing Loxodrome, their height breathes: every three seconds or so
+               the ball flattens into a disc of interleaved double spirals, where the strands
+               do cross, and opens again as its own mirror image. A slow tumble turns it over,
+               and a rotation in four dimensions, seen in perspective, swells one side of it
+               and shrinks the other.</p>
+            <a class="watch-hd" href="https://youtu.be/vFyuPP96XYY" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/splitting-hyperboloid.mp4" poster="media/Videos/splitting-hyperboloid-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Splitting Hyperboloid</h2>
+            <p>The group SL(2,R) &mdash; the 2&times;2 real matrices with determinant one &mdash;
+               is itself a three-dimensional object in four-dimensional space: its four
+               entries, suitably combined, are the four coordinates, and the determinant
+               condition becomes the equation x&sup2; + y&sup2; &minus; z&sup2; &minus; p&sup2; = 1.
+               What the screen shows is its slice, and a straight slice is an ordinary
+               one-sheeted hyperboloid.</p>
+            <p>Three 4D rotations turn at different speeds and keep tilting the slice. For
+               most of the time the hyperboloid holds together; whenever the tilt crosses
+               the balance point its waist stretches without end, tears, and the surface
+               falls apart into two separate sheets &mdash; then closes up again, over and
+               over, while the whole figure tumbles in 3D.</p>
+            <a class="watch-hd" href="https://youtu.be/tExIfX_n7BY" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/splitting-torus.mp4" poster="media/Videos/splitting-torus-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Splitting Torus</h2>
+            <p>Surround a circle with a small sphere at every one of its points, instead of
+               a small circle, and you get the four-dimensional cousin of the torus: a
+               three-dimensional object, S&sup2;&times;S&sup1;, that lives in four-dimensional
+               space. What the screen shows is its slice, and a straight slice is an
+               ordinary ring.</p>
+            <p>Three 4D rotations and a slow 3D tumble keep tilting the slice. As long as
+               the cut runs along the central circle, the section is a ring; when it turns
+               across that circle it meets it at only two points, and the ring thins on two
+               opposite sides, snaps and splits into two separate pieces &mdash; which then
+               swell, meet and close up into a ring again, about every five seconds.</p>
+            <a class="watch-hd" href="https://youtu.be/lV7AtsuynVo" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/stretching-torus.mp4" poster="media/Videos/stretching-torus-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Stretching Torus</h2>
+            <p>An ordinary torus, carried unchanged along the fourth dimension: every slice
+               across that direction is the same ring, and together they make a
+               three-dimensional object in four-dimensional space, T&sup2;&times;R &mdash; a
+               torus times a line. What the screen shows is its slice.</p>
+            <p>The camera flies a four-dimensional path that keeps tilting the slice toward
+               the fourth direction. Since the object never changes along it, a tilted cut
+               spreads the same torus over a longer and longer stretch: the ring elongates,
+               faster and faster, until the cut runs parallel to the fourth direction and the
+               torus opens into two endless coaxial cylinders, its inner and outer walls
+               &mdash; then shortens back into a ring, about every nine seconds.</p>
+            <a class="watch-hd" href="https://youtu.be/lVjPaNsUKu4" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+        <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/toroidal-spring.mp4" poster="media/Videos/toroidal-spring-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Toroidal Spring</h2>
+            <p>The torus equations with the guide radius set to zero, which collapses
+               them into a sphere &mdash; but the domain runs twice around, so the sphere
+               is traced two times over and the fourth coordinate, growing linearly with
+               the angle, pulls the two passes apart into a spiral. The extent in that
+               hidden direction is nearly six times the radius of what we can see, so the
+               visible figure is a thin slice of something much longer, and the rate of
+               the pull breathes as the animation runs.</p>
+            <a class="watch-hd" href="https://youtu.be/Bd4lSABW-gE" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Texture: planetary map by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+            <p class="specs">Background: <em>QuasiCrystals &mdash; Dragon Eye</em> by
+               <a href="https://www.shadertoy.com/view/wdXfz8" target="_blank" rel="noopener">mrange</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+            <p class="specs">Sound: <em>Neptune Racing</em> by
+               <a href="https://www.shadertoy.com/view/XtX3Rr" target="_blank" rel="noopener">Dave_Hoskins</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/torus-knot.mp4" poster="media/Videos/torus-knot-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Torus Knot</h2>
+            <p>A curve wound on a torus: twice around its axis while it goes five times around
+               the tube. Because 2 and 5 have no common factor it closes up after a single
+               pass, and the result is the cinquefoil, 5<sub>1</sub> in the knot tables &mdash;
+               the (2,5) torus knot. Like every torus knot it is chiral: its mirror image is a
+               different knot. It is drawn as a solid curve, with a tube around it.</p>
+            <p>A slow tumble turns it over, while a rotation in four dimensions presses it
+               flat every ten seconds or so and lets it open again as its own mirror image
+               &mdash; the swap no motion in ordinary space can make.</p>
+            <a class="watch-hd" href="https://youtu.be/K3kN7MakDX4" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/n-torus-garland.mp4" poster="media/Videos/n-torus-garland-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Torus Rosette</h2>
+            <p>Five tori arranged in a ring and welded by a smooth minimum, so the
+               tubes merge instead of intersecting. The camera flies along a rosette
+               curve threaded inside the tubes: the path has five petals and the ring
+               has five tori, and it is that matching count which keeps the flight
+               within the surface for the whole loop.</p>
+            <a class="watch-hd" href="https://youtu.be/iRENsF7NtFI" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/3-torus.mp4" poster="media/Videos/3-torus-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Triple Torus</h2>
+            <p>Two tori welded into one body by a smooth minimum, which rounds the join
+               instead of leaving a crease. Their generating circles cross at two points,
+               so the tubes merge in two separate places, and the lens-shaped gap between
+               those junctions becomes a third hole beside the two of the original rings
+               &mdash; a surface of genus 3. The separation breathes as the animation runs,
+               and the weld travels with it.</p>
+            <a class="watch-hd" href="https://youtu.be/GfVh4mbwY3s" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Background: <em>Disco Sun Vortex</em> by
+               <a href="https://www.shadertoy.com/view/7cfGzn" target="_blank" rel="noopener">workingclasshacker</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noopener">CC BY-NC-SA 4.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/twisted-geodesic-sphere.mp4" poster="media/Videos/twisted-geodesic-sphere-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Twisted Geodesic Sphere</h2>
+            <p>The sphere of Nil geometry &mdash; the Heisenberg group, where no path can
+               climb straight up and the vertical is reached only by turning. Its
+               geodesics are helices, and the set of points at a fixed distance from the
+               origin is this: not a round surface but one that folds inward as the
+               parameter grows, since the same geodesic length buys less and less
+               euclidean radius. Here the meridian is also rotated as time passes, so the
+               figure twists about its axis while keeping the shape a Nil sphere must
+               have.</p>
+            <a class="watch-hd" href="https://youtu.be/E1VjEp0CwH8" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Background: <em>Iridescent Fibers</em> by
+               <a href="https://www.shadertoy.com/view/tffSDr" target="_blank" rel="noopener">evesira</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+            <p class="specs">Sound: <em>The Sanctuary</em> by
+               <a href="https://www.shadertoy.com/view/4ddfWX" target="_blank" rel="noopener">srtuss</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/twisted-torus.mp4" poster="media/Videos/twisted-torus-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Twisted Torus</h2>
+            <p>A flattened ellipse carried around a circle while it turns, but only by a
+               third of a revolution for each lap &mdash; so the tube does not close after
+               one circuit, nor after two. It takes three passes around the ring before
+               the section returns to its starting attitude, and the surface is a single
+               band that overtakes itself twice on the way. Three sheets pass at every
+               angle of the ring &mdash; the same ellipse set at 0&deg;, 120&deg; and
+               240&deg; &mdash; and since equal ellipses turned against one another meet
+               in four points, the surface cuts through itself as it goes. The twist
+               never reverses the section, though, so unlike a M&ouml;bius band this one
+               keeps two distinct sides.</p>
+            <a class="watch-hd" href="https://youtu.be/R2FEdIAa0nY" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/klein-quartic.mp4" poster="media/Videos/klein-quartic-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Unknotted Klein Bottle</h2>
+            <p>The implicit equation of the Klein bottle, a polynomial of degree
+               six in x, y and z. Nothing here is traced out point by point: the figure is
+               whatever satisfies that single equation, and the ray marcher finds it by
+               asking, for each point in space, which side of the equation it falls on.</p>
+            <p>At level zero the surface crosses itself along a circle, as a Klein bottle
+               in ordinary space must. Here the level is moved slightly off zero and the
+               crossing opens up: what remains is smooth and never passes through itself.
+               It keeps the bottle's silhouette, but it is a torus &mdash; a closed surface
+               that sits in three dimensions without crossing itself always has two sides.
+               The sliders act on the coefficients and on the level, so the same equation
+               can be pushed back towards the bottle or away from it.</p>
+            <a class="watch-hd" href="https://youtu.be/rPfLmOSfSXw" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/venus-4d-transit.mp4" poster="media/Videos/venus-4d-transit-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Venus 4D Transit</h2>
+            <p>A planet tipping through the three-sphere. The surface is a great sphere of
+               S&sup3;, drawn at full radius, and the equations swing it in the plane of the
+               third and fourth coordinates while its equator stays fixed. The radius never
+               changes, so nothing here is a sphere merely swelling and shrinking. What
+               moves instead is the fourth coordinate: as the sphere tips, the polar caps
+               drain into the direction we cannot see, and the globe flattens towards a
+               disc before filling out again. The surface of Venus is mapped onto it
+               throughout, and the way the texture gathers and spreads is the only visible
+               trace of a rotation that carries one axis of ordinary space into the
+               fourth.</p>
+            <a class="watch-hd" href="https://youtu.be/dpu0j6EY1Yo" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Surface image: planetary map by
+               <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/villarceau-tubes.mp4" poster="media/Videos/villarceau-tubes-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Villarceau Tubes</h2>
+            <p>Tubes threaded along Villarceau circles &mdash; the oblique sections a
+               torus makes with a plane tangent to it at two points, tilted here by
+               about twenty-eight degrees. The copies are rotated about the axis by equal steps, and
+               because the torus is unchanged by those rotations every copy is again a
+               Villarceau circle of the same torus, in the same family. That is also why
+               the only motion possible is a rigid turn of the whole configuration: fix
+               the mutual distances and every angle is fixed too, up to one common
+               rotation.</p>
+            <a class="watch-hd" href="https://youtu.be/8nSCI7x_5E8" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/viviani-curve.mp4" poster="media/Videos/viviani-curve-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Viviani Curve</h2>
+            <p>Viviani's curve is the figure eight that a cylinder cuts out of a sphere when it
+               touches the sphere from inside and passes through its centre: it winds twice
+               around the cylinder and crosses itself once, at the point of contact. It is
+               drawn as a solid curve, with a tube around it.</p>
+            <p>Here the height breathes. At every moment the curve is still the cut of the same
+               cylinder with a sphere touching it at that point, but the sphere swells and
+               shrinks: at its smallest the figure eight collapses onto a single circle, and
+               the classic Viviani curve is one moment along the way. A slow tumble turns it
+               over, and a rotation in four dimensions presses it flat every ten seconds or so,
+               opening it again facing the other way.</p>
+            <a class="watch-hd" href="https://youtu.be/szU6sSqFylY" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+<div class="clip">
+        <div class="frame">
+            <video src="media/Videos/warping-torus.mp4" poster="media/Videos/warping-torus-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Warping Torus</h2>
+            <p>Two motions at once, and only one of them is a deformation. The radius of
+               the tube is 0.30 + 0.15&middot;sin(3u + 2t): three crests around the ring,
+               travelling backwards as time advances. The rest is not the surface
+               changing shape but turning &mdash; the equations rotate the visible
+               height into the fourth coordinate and back, so material swells and
+               thins on screen while nothing about it actually moves. The camera
+               meanwhile flies inside the tube, along the circle at its core.</p>
+            <a class="watch-hd" href="https://youtu.be/S23HwIncaDk" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Sound: <em>Deep Space Vibrations Ambience Loop</em> by
+               <a href="https://freesound.org/s/321723/" target="_blank" rel="noopener">rhodesmas</a>
+               on Freesound, licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/waving-tractroid.mp4" poster="media/Videos/waving-tractroid-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Waving Tractroid</h2>
+            <p>The tractroid &mdash; the surface swept by rotating a tractrix, the curve a
+               weight traces when dragged by a string. Given equal coefficients it is the
+               pseudosphere, the classical model of a geometry with constant negative
+               curvature; here the vertical scale is a quarter of the horizontal, so the
+               curvature varies instead of holding, and the profile is a flattened horn.
+               A wave runs along it, meridians displaced by a sine that travels down the
+               figure, while a fourth coordinate lifts the whole thing obliquely out of
+               ordinary space.</p>
+            <a class="watch-hd" href="https://youtu.be/DDGqTsPJm0I" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Texture: <em>Disco Sun Vortex</em> by
+               <a href="https://www.shadertoy.com/view/7cfGzn" target="_blank" rel="noopener">workingclasshacker</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noopener">CC BY-NC-SA 4.0</a>.</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/wireframe-tunnel.mp4" poster="media/Videos/wireframe-tunnel-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Wireframe Tunnel</h2>
+            <p>The same four-dimensional ring as the Splitting Torus &mdash; a sphere
+               attached to every point of a circle, S&sup2;&times;S&sup1; &mdash; but with the
+               sphere as wide as the circle itself, so the tube reaches right into the
+               centre. The camera sits near that centre and, for most of the video, inside
+               the object: what surrounds it is the inner wall of the slice, drawn as a
+               wireframe grid.</p>
+            <p>Only the three 4D rotations move, and they keep tilting the slice around the
+               camera. The walls sweep past, and the small hole in the middle of the ring
+               closes into a solid blob and opens again, about every five seconds; with the
+               sphere this wide, the section never breaks apart.</p>
+            <a class="watch-hd" href="https://youtu.be/GSlMVP-X3Yk" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
+    </div>
+
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/wormhole-btz.mp4" poster="media/Videos/wormhole-btz-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 5 s</span>
+        </div>
+        <div class="meta">
+            <h2>Wormhole BTZ</h2>
+            <p>A slice of SL(2,&#8477;), the group of 2&times;2 real matrices of determinant one
+               &mdash; each point of the surface literally <em>is</em> such a matrix, its four
+               coordinates read as the entries. The parametrisation follows the Iwasawa
+               decomposition, factoring every element into a shear, a scaling and a rotation,
+               so the unit determinant holds by construction rather than by accident. The
+               shape earns its name from the neck at the centre: the radius falls to a minimum
+               midway and widens again on either side, giving the two mouths of a bridge
+               joining separate regions.</p>
+            <a class="watch-hd" href="https://youtu.be/ycTEalMz1wQ" target="_blank" rel="noopener">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+            <p class="specs">Texture: <em>Disco Sun Vortex</em> by
+               <a href="https://www.shadertoy.com/view/7cfGzn" target="_blank" rel="noopener">workingclasshacker</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noopener">CC BY-NC-SA 4.0</a>,
+               with a cosine palette by <a href="https://www.shadertoy.com/view/ll2GD3" target="_blank" rel="noopener">Inigo Quilez</a> (MIT).</p>
+            <p class="specs">Background: <em>Infinite Zoom (tension)</em> by
+               <a href="https://www.shadertoy.com/view/4ssBzS" target="_blank" rel="noopener">CriticalMammal</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+            <p class="specs">Sound: <em>Everything's A Caustic</em> by
+               <a href="https://www.shadertoy.com/view/WdBGDm" target="_blank" rel="noopener">Wyatt</a>,
+               licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/" target="_blank" rel="noopener">CC BY-NC-SA 3.0</a>.</p>
+        </div>
+    </div>
+
+    <footer>
+        <p>Surface Explorer 4D &mdash; Developed by Gaetano Moschetti &mdash; GNU GPL v3</p>
+        <p>&copy; 2026 Dioscorid. All rights reserved.</p>
+    </footer>
+
+</div>
+</body>
+</html>

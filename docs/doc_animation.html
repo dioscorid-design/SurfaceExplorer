@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Surface Explorer &mdash; Animation &amp; Video</title>
+
+    <style>
+        body { background-color: #1e1e1e; color: #d4d4d4;
+               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        p, li, td, th { color: #d4d4d4; }
+        strong { color: #007acc; }
+        code { background-color: #101010; color: #ce9178;
+               font-family: 'Consolas', 'Courier New', monospace; }
+        pre  { background-color: #101010; color: #dcdcaa; }
+        a { color: #569cd6; }
+    </style>
+</head>
+<body>
+
+<table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 24px; color: #ffffff; margin: 0;"><b>Animation &amp; Video</b></p></td></tr></table>
+<hr>
+<p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_audio.html">&larr; Sounds &amp; Audio</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_scripting.html">Script Dock &amp; Advanced Scripting &rarr;</a></p>
+<hr>
+<p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Real-Time Animations (t_Motions)</b></p></td></tr></table>
+            <p>The engine supports dynamic, real-time surface animations, allowing both internal geometric deformations and continuous spatial rotations.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 17px; color: #4ec9b0; margin: 0;"><b>Time-Based Morphological Animations</b></p></td></tr></table>
+            <p>To animate a shape's geometry, simply include the <strong><code>t</code></strong> (time) variable within your parametric equations (e.g., <code>X = sin(u + t)</code>).</p>
+            <ul class="feature-list">
+                <li><strong>Customizing Time Speed & Direction:</strong> There is no dedicated global speed slider for the <code>t</code> variable. To adjust the animation speed, simply multiply <code>t</code> by the <strong><code>s</code></strong> constant (e.g., <code>X = sin(u + t * s)</code>). Because the <strong><code>s</code></strong> slider in the Equations dock can take negative values, you can use it to speed up, slow down, and even <strong>reverse</strong> the direction of the movement dynamically!</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 17px; color: #4ec9b0; margin: 0;"><b>3D & 4D Spatial Animations</b></p></td></tr></table>
+            <p>Beyond internal shape morphing, you can animate the entire surface spatially using the dedicated controls in the <strong>3D</strong> and <strong>4D</strong> docks.</p>
+            <ul class="feature-list">
+                <li><strong>Continuous Rotations:</strong> You can set the surface to spin continuously by adjusting the specific speed sliders. The 3D dock controls standard spatial rotations (Spin, Precession, Nutation), while the 4D dock controls complex hyperspace rotations (Omega, Phi, Psi).</li>
+                <li><strong>Path Following:</strong> In the 3D dock, you can activate the <strong>Path</strong> feature to automate the camera or the object's movement along the calculated parametric curves. For fly-through paths that travel inside a surface, combine this with the <strong>Fov</strong> slider of the same panel: a wider lens angle keeps nearby walls from filling the screen (see <a href="doc_projection.html">Projection Modes</a>).</li>
+                <li><strong>Starting Over:</strong> a stopped motion resumes where it stopped (<strong>DEPARTURE</strong> continues the path from the point it had reached). To bring rotations, camera paths and the <code>t</code> animations back to where the scene opened, press <strong>RESET</strong> and choose <em>Motions</em>.</li>
+            </ul>
+
+            <p>The software includes a high-quality offline recording system.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 17px; color: #4ec9b0; margin: 0;"><b>Recording Workflow</b></p></td></tr></table>
+            <p>Press <strong>REC</strong> and choose duration, frame rate, resolution and destination: the video is rendered offline, frame by frame, and assembled into an MP4.</p>
+            <div class="note">
+                <strong>Technical Note:</strong> Offline rendering decouples real-time from video time. Even if calculating a frame takes 1 second, the final video will be perfectly fluid.
+            </div>
+
+<hr>
+<p style="font-size: 15px; margin-top: 30px;"><a href="doc_audio.html">&larr; Sounds &amp; Audio</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_scripting.html">Script Dock &amp; Advanced Scripting &rarr;</a></p>
+
+</body>
+</html>

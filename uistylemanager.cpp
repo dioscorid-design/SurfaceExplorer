@@ -1,0 +1,1201 @@
+#include "uistylemanager.h"
+
+#include <QScrollArea>
+#include <QScroller>
+#include <QMargins>
+#include <QPushButton>
+#include <QPlainTextEdit>
+#include <QLabel>
+#include <QLayout>
+#include <QGroupBox>
+#include <QSlider>
+#include <QDockWidget>
+#include <QMainWindow>
+#include <QApplication>
+#include <QStyleFactory>
+#include <QWidget>
+#include <QDialog>
+#include <QMessageBox>
+#include <QVBoxLayout>
+#include <QTextBrowser>
+#include <QPainter>
+#include <QPixmap>
+#include <QSpinBox>
+#include <QStyle>
+#include <QLineEdit>
+#include <QHBoxLayout>
+#include <QFormLayout>
+#include <QEvent>
+#include <functional>
+#include <QIcon>
+#include <QMenu>
+#include <QTabWidget>
+#include <QTabBar>
+
+void UiStyleManager::applyDarkTheme(QMainWindow* window) {
+
+    // 1. FORZA LO STILE FUSION (Fondamentale per vedere i colori scuri e i bordi)
+    qApp->setStyle(QStyleFactory::create("Fusion"));
+
+    // 2. Opzionale: Aggiusta la palette di base per i controlli non coperti dal CSS
+    QPalette darkPalette;
+    darkPalette.setColor(QPalette::Window, QColor(45, 45, 48));
+    darkPalette.setColor(QPalette::WindowText, Qt::white);
+    darkPalette.setColor(QPalette::Base, QColor(30, 30, 30));
+    darkPalette.setColor(QPalette::AlternateBase, QColor(45, 45, 48));
+    darkPalette.setColor(QPalette::ToolTipBase, Qt::white);
+    darkPalette.setColor(QPalette::ToolTipText, Qt::white);
+    darkPalette.setColor(QPalette::Text, Qt::white);
+    darkPalette.setColor(QPalette::Button, QColor(45, 45, 48));
+    darkPalette.setColor(QPalette::ButtonText, Qt::white);
+    darkPalette.setColor(QPalette::BrightText, Qt::red);
+    darkPalette.setColor(QPalette::Link, QColor(42, 130, 218));
+    darkPalette.setColor(QPalette::Highlight, QColor(42, 130, 218));
+    darkPalette.setColor(QPalette::HighlightedText, Qt::black);
+    qApp->setPalette(darkPalette);
+
+    // --- SETUP DIMENSIONI FONT DINAMICHE ---
+    QString baseFontSize = "12pt";
+    QString inputFontSize = "10pt";
+
+#if defined(Q_OS_MACOS)
+    baseFontSize = "15pt";
+    inputFontSize = "13pt";
+#endif
+    // ---------------------------------------
+
+    // 3. IL TUO FOGLIO DI STILE (QSS)
+    // Usa QString(...) e .arg() alla fine per iniettare i font
+    QString darkStyle = QString(R"(
+        /* --- GLOBAL --- */
+        QWidget {
+            background-color: #2D2D30;
+            color: #F0F0F0;
+            font-family: "Segoe UI", Arial, sans-serif;
+            font-size: %1;
+        }
+
+        /* --- TOOLTIP ---
+           QToolTip e' una finestra a se' e NON eredita dal QWidget qui sopra:
+           senza questa regola restava col tema CHIARO di sistema, e nella
+           Library (dove ogni item ha come tooltip il path del file) compariva
+           come un rettangolo bianco largo e sottile in mezzo all'interfaccia
+           scura. Stessa palette del resto dell'app. */
+        QToolTip {
+            background-color: #3E3E42;
+            color: #F0F0F0;
+            border: 1px solid #454545;
+            padding: 4px 6px;
+        }
+
+        /* --- DOCK WIDGETS --- */
+        QDockWidget {
+            border: 1px solid #454545;
+            titlebar-close-icon: url(:/icons/close.png);
+            titlebar-normal-icon: url(:/icons/float.png);
+        }
+        QDockWidget::title {
+            background: #3E3E42;
+            padding-left: 5px;
+            padding-top: 4px;
+            border-bottom: 1px solid #111;
+            font-weight: bold;
+        }
+
+        /* --- PULSANTI 3D (RAISED) --- */
+        QPushButton {
+            background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4E4E52, stop:1 #38383A);
+            border: 2px solid #252526;
+            border-top-color: #68686C;
+            border-left-color: #68686C;
+            border-right-color: #1E1E1E;
+            border-bottom-color: #1E1E1E;
+            border-radius: 4px;
+            padding: 6px 12px;
+            color: #FFFFFF;
+            font-weight: bold;
+        }
+        QPushButton:hover { background-color: #55555A; }
+        QPushButton:pressed, QPushButton:checked {
+            background-color: #222222;
+            border-top-color: #111;
+            border-left-color: #111;
+            border-right-color: #555;
+            border-bottom-color: #555;
+            padding-top: 7px;
+            padding-left: 13px;
+        }
+        QPushButton:disabled {
+            background-color: #2D2D30;
+            color: #666;
+            border: 1px solid #444;
+        }
+
+        /* --- INPUT 3D (SUNKEN/INCASSATI) --- */
+        QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox {
+            background-color: #1E1E1E;
+            border: 2px solid #3E3E42;
+            border-top-color: #111;
+            border-left-color: #111;
+            border-bottom-color: #555;
+            border-right-color: #555;
+            border-radius: 2px;
+            padding: 4px;
+            color: #E0E0E0;
+            selection-background-color: #264F78;
+            font-size: %2;
+        }
+        QPlainTextEdit:focus, QLineEdit:focus { border: 2px solid #007ACC; }
+        /* Spazio a destra per le due frecce (18px = 16 + margine), o il numero
+           ci finisce sotto: il padding: 4px ereditato dalla regola condivisa
+           con QLineEdit non ne lascia abbastanza.
+           ESCLUSO il caso mobile: li' le frecce native non ci sono
+           (installMobileSpinButtons -> NoButtons + due QPushButton esterni) e
+           un padding a destra scentrerebbe il numero, che invece e' impostato
+           su AlignCenter. La proprieta' "mobileSpinButtons" la mette proprio
+           quella funzione; il ramo mobile la rimette a 0 subito sotto. */
+        QSpinBox { padding-right: 18px; }
+        QSpinBox[mobileSpinButtons="true"] { padding-right: 4px; }
+
+        /* --- FRECCE DEI QSPINBOX ---
+           La regola qui sopra mette QSpinBox insieme ai QLineEdit per dargli il
+           bordo incassato. Effetto collaterale di Qt: appena il QSS tocca il
+           border di uno spin box, il widget smette di essere disegnato dallo
+           stile NATIVO e passa al rendering via QSS; le sotto-parti up/down non
+           stilizzate spariscono e il campo si legge come una casella di testo
+           (era il caso del selettore Mesh, spinMeshSel). Vanno quindi disegnate
+           qui, o non si vedono.
+           I triangoli sono fatti coi bordi (box di lato zero + tre bordi
+           trasparenti): niente PNG da aggiungere al .qrc, che e' GENERATO da
+           update_resources.py e andrebbe tenuto in sincrono a mano.
+           NB: su mobile le frecce native sono nascoste apposta
+           (ButtonSymbols::NoButtons) e rimpiazzate da due QPushButton grandi in
+           installMobileSpinButtons(); li' queste regole non si applicano. */
+        QSpinBox::up-button, QSpinBox::down-button {
+            subcontrol-origin: border;
+            background-color: #3E3E42;
+            border: 1px solid #555;
+            border-radius: 2px;
+            width: 16px;
+            margin: 1px;
+        }
+        QSpinBox::up-button { subcontrol-position: top right; }
+        QSpinBox::down-button { subcontrol-position: bottom right; }
+        QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+            background-color: #55555A;
+        }
+        QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {
+            background-color: #007ACC;
+            border-color: #007ACC;
+        }
+        /* Freccia disabilitata al limite del range: il grigio spento e' il
+           segnale che il valore non puo' salire/scendere oltre. */
+        QSpinBox::up-button:disabled, QSpinBox::up-button:off,
+        QSpinBox::down-button:disabled, QSpinBox::down-button:off {
+            background-color: #2D2D30;
+            border-color: #444;
+        }
+        QSpinBox::up-arrow {
+            width: 0px; height: 0px;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-bottom: 5px solid #E0E0E0;
+        }
+        QSpinBox::down-arrow {
+            width: 0px; height: 0px;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 5px solid #E0E0E0;
+        }
+        QSpinBox::up-arrow:disabled, QSpinBox::up-arrow:off {
+            border-bottom-color: #666;
+        }
+        QSpinBox::down-arrow:disabled, QSpinBox::down-arrow:off {
+            border-top-color: #666;
+        }
+
+        /* --- GROUP BOX --- */
+        QGroupBox {
+            border: 1px solid #555;
+            border-radius: 5px;
+            margin-top: 2ex;
+            font-weight: bold;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top center;
+            padding: 0 3px;
+            background-color: #2D2D30;
+            color: #BBB;
+        }
+
+        /* --- TABS --- */
+        QTabWidget::pane { border: 1px solid #444; background: #2D2D30; }
+        QTabBar::tab { background: #2D2D30; border: 1px solid #444; padding: 5px 10px; color: #AAA; }
+        QTabBar::tab:selected { background: #3E3E42; color: #FFF; border-bottom-color: #3E3E42; }
+
+/* --- TABS --- */
+        QTabWidget::pane { border: 1px solid #444; background: #2D2D30; }
+        QTabBar::tab { background: #2D2D30; border: 1px solid #444; padding: 5px 10px; color: #AAA; }
+        QTabBar::tab:selected { background: #3E3E42; color: #FFF; border-bottom-color: #3E3E42; }
+    )" // Chiude il primo blocco di testo
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+                                // --- TASTI SPINBOX MOBILE ---
+                                // Su mobile i campi numerici non sono editabili
+                                // da tastiera (vedi installMobileSpinButtons in
+                                // mainwindow.cpp): il valore si cambia SOLO coi
+                                // tasti, quindi devono essere bersagli veri.
+                                // Le frecce native del QSpinBox sono nascoste
+                                // (ButtonSymbols::NoButtons) e sostituite da due
+                                // QPushButton con proprieta' "spinArrow": qui
+                                // ricevono la forma di freccia, disegnata col
+                                // carattere triangolare del testo.
+                                R"(
+        QPushButton[spinArrow="true"] {
+            background-color: #3E3E42;
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #E0E0E0;
+            font-size: 13px;
+            font-weight: bold;
+            padding: 0px;
+            margin: 0px;
+        }
+        QPushButton[spinArrow="true"]:pressed {
+            background-color: #007ACC;
+            border-color: #007ACC;
+        }
+        QPushButton[spinArrow="true"]:disabled {
+            background-color: #2D2D30;
+            border-color: #444;
+            color: #666;
+        }
+        /* Riquadro che tiene insieme il radio "Mesh" e il suo selettore:
+           rende visibile che sono un gruppo solo, distinto da "All". */
+        QFrame#groupMeshOne {
+            border: 1px solid #4A4A4F;
+            border-radius: 6px;
+            background-color: #2A2A2E;
+        }
+        )"
+                                // --- STILE SCROLLBAR MOBILE ---
+                                R"(
+        QScrollBar:vertical {
+            background: transparent;
+            width: 26px;
+            margin: 0px;
+            padding: 0px;
+        }
+        QScrollBar::handle:vertical {
+            background-color: #666666;
+            min-height: 28px;
+            border-radius: 11px; /* 11px per una larghezza interna di 22px */
+            margin: 2px;
+            border: none; /* <--- QUESTO FORZA IL DISEGNO ROTONDO! */
+        }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            height: 0px;
+            width: 0px;
+            border: none;
+            background: transparent;
+            margin: 0px;
+        }
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+            background: none;
+        }
+
+        QScrollBar:horizontal {
+            background: transparent;
+            height: 22px;
+            margin: 0px;
+            padding: 0px;
+        }
+        QScrollBar::handle:horizontal {
+            background-color: #666666;
+            min-width: 28px;
+            border-radius: 9px;  /* 9px per un'altezza interna di 18px */
+            margin: 2px;
+            border: none; /* <--- QUESTO FORZA IL DISEGNO ROTONDO! */
+        }
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+            height: 0px;
+            width: 0px;
+            border: none;
+            background: transparent;
+            margin: 0px;
+        }
+        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+            background: none;
+        }
+    )"
+#else
+                                // --- STILE SCROLLBAR DESKTOP (Normali) ---
+                                R"(
+        QScrollBar:vertical { border: none; background: #2D2D30; width: 14px; margin: 0px; }
+        QScrollBar::handle:vertical { background: #555; min-height: 20px; border-radius: 7px; margin: 2px; }
+        QScrollBar::handle:vertical:hover { background: #666; }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+
+        QScrollBar:horizontal { border: none; background: #2D2D30; height: 14px; margin: 0px; }
+        QScrollBar::handle:horizontal { background: #555; min-width: 20px; border-radius: 7px; margin: 2px; }
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }
+    )"
+#endif
+
+                                // --- CONTINUAZIONE E FINE DELLO STILE ---
+                                R"(
+        /* --- MENU --- */
+        QMenuBar { background-color: #2D2D30; color: #FFF; }
+        QMenuBar::item:selected { background-color: #3E3E42; }
+        QMenu { background-color: #2D2D30; border: 1px solid #555; color: #FFF; }
+        QMenu::item:selected { background-color: #007ACC; }
+
+        /* --- SLIDERS STANDARD (Costanti, Steps, ecc.) --- */
+        QSlider::groove:horizontal {
+            border: 1px solid #444;
+            height: 8px;
+            background: #1E1E1E;
+            border-radius: 4px;
+        }
+        QSlider::handle:horizontal {
+            background: #D0D0D0;
+            border: 1px solid #555;
+            width: 20px;
+            height: 20px;
+            margin: -6px 0;
+            border-radius: 10px;
+        }
+        QSlider::handle:horizontal:hover {
+            background: #007ACC;
+            border: 1px solid #007ACC;
+        }
+        QSlider::handle:horizontal:pressed {
+            background: #0098FF;
+        }
+    )").arg(baseFontSize, inputFontSize);
+
+    // ==========================================================
+    // 4. FIX: STILE CHECKBOX E RADIO BUTTON (Alto Contrasto e Pallino Solido)
+    // ==========================================================
+// Il border-radius si applica al box BORDI COMPRESI, quindi per avere un
+// cerchio deve valere (width + 2*border) / 2. Il radio ACCESO ha un bordo piu'
+// spesso di quello spento (radioBorder contro i 2px fissi), percio' i due stati
+// hanno bisogno di due raggi diversi: con un raggio solo, quello acceso restava
+// un quadrato con gli angoli smussati. Su iOS si vedeva bene nel gruppo Multi
+// Mesh, con "All" acceso a forma di riquadro blu e "Mesh" spento tondo.
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    QString boxSize = "24px";
+    QString radioRadius = "14px";        // (24 + 2*2) / 2
+    QString radioBorder = "6px";
+    QString radioRadiusChecked = "18px"; // (24 + 2*6) / 2
+#else
+    QString boxSize = "16px";
+    QString radioRadius = "10px";        // (16 + 2*2) / 2
+    QString radioBorder = "4px";
+    QString radioRadiusChecked = "12px"; // (16 + 2*4) / 2
+#endif
+
+    QString formStyle = QString(R"(
+        /* --- CHECKBOX --- */
+        QCheckBox { color: #FFFFFF; spacing: 10px; font-weight: bold; }
+
+        QCheckBox::indicator {
+            width: %1; height: %1;
+            background-color: #111111;
+            border: 2px solid #888888;
+            border-radius: 4px;
+        }
+        QCheckBox::indicator:unchecked {
+            /* L'ARMA SEGRETA: PNG 1x1 trasparente in Base64 */
+            image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
+        }
+        QCheckBox::indicator:hover {
+            border: 2px solid #007ACC;
+            background-color: #1E1E1E;
+        }
+        QCheckBox::indicator:checked {
+            background-color: #007ACC;
+            border: 2px solid #007ACC;
+            image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3 8.5 L6.5 12 L13 4' stroke='%23FFFFFF' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+        }
+        QCheckBox::indicator:disabled {
+            background-color: #2D2D30;
+            border: 2px solid #444444;
+            color: #555555;
+        }
+
+        /* --- RADIO BUTTON --- */
+        QRadioButton { color: #FFFFFF; spacing: 10px; }
+
+        QRadioButton::indicator {
+            width: %1; height: %1;
+            background-color: #111111;
+            border: 2px solid #888888;
+            border-radius: %2;
+        }
+        QRadioButton::indicator:unchecked {
+            /* PNG 1x1 trasparente */
+            image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
+        }
+        QRadioButton::indicator:hover {
+            border: 2px solid #007ACC;
+        }
+        QRadioButton::indicator:checked {
+            background-color: #007ACC;
+            border: %3 solid #222222;
+            /* Raggio proprio: il bordo qui e' piu' spesso, vedi la nota sopra. */
+            border-radius: %4;
+            /* PNG trasparente per evitare collassi anche nello stato acceso */
+            image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
+        }
+        /* DISABILITATO. Il border-radius va RIPETUTO: ridefinendo qui 'border'
+           senza il raggio, Qt non lo eredita dalla regola base e l'indicatore
+           tornava QUADRATO -- un radio disabilitato sembrava una checkbox. */
+        QRadioButton::indicator:disabled {
+            background-color: #2D2D30;
+            border: 2px solid #444444;
+            border-radius: %2;
+        }
+        /* Disabilitato ma ACCESO: mantiene il pallino (spento nei toni del
+           grigio) e il raggio dello stato checked, che ha bordo piu' spesso. */
+        QRadioButton::indicator:checked:disabled {
+            background-color: #4A4A4F;
+            border: %3 solid #2D2D30;
+            border-radius: %4;
+        }
+    )").arg(boxSize, radioRadius, radioBorder, radioRadiusChecked);
+
+    // ==========================================================
+    // 5. STILE ALBERI (QTreeView) SPECIFICO PER PIATTAFORMA
+    // ==========================================================
+    QString treeStyle = R"(
+        QTreeView {
+            border: none;
+            background-color: #2D2D30;
+        }
+    )";
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    // Distanza verticale "stile desktop" ma leggermente maggiorata (4px)
+    treeStyle += R"(
+        QTreeView::item {
+            padding: 4px 5px;
+        }
+    )";
+#endif
+
+    // 6. Applica tutti gli stili combinati alla finestra
+    window->setStyleSheet(darkStyle + formStyle + treeStyle);
+
+    // AVVISI (QMessageBox): foglio sull'APPLICAZIONE, non sulla finestra, cosi'
+    // vale anche per i box costruiti senza parent. Solo COLORI: nessun vincolo
+    // di larghezza, perche' una min-width in QSS su iOS diventa la dimensione
+    // della finestra e il box si espande a tutto schermo.
+    qApp->setStyleSheet(R"(
+        QMessageBox {
+            background-color: #2D2D30;
+            color: #F0F0F0;
+        }
+        QMessageBox QLabel {
+            background-color: transparent;
+            color: #F0F0F0;
+        }
+        QMessageBox QPushButton {
+            background-color: #3E3E42;
+            color: #F0F0F0;
+            border: 1px solid #454545;
+            padding: 6px 18px;
+            min-width: 70px;
+        }
+        QMessageBox QPushButton:hover {
+            background-color: #4E4E52;
+        }
+    )");
+}
+
+void UiStyleManager::applyPlatformStyle(QMainWindow* window) {
+#ifdef Q_OS_ANDROID
+    QString menuStyle = R"(
+        QMenu {
+            background-color: #FAFAFA; border: 1px solid #BBBBBB; border-radius: 8px; padding: 4px;
+        }
+        QMenu::item {
+            padding: 15px 30px; color: #222222; font-size: 22pt; min-height: 60px; min-width: 250px; margin: 2px 0px;
+        }
+        QMenu::item:selected { background-color: #B0D4F1; border-radius: 4px; color: #000000; }
+        QMenu::separator { height: 2px; background-color: #DDDDDD; margin: 10px 10px; }
+    )";
+    window->setStyleSheet(menuStyle);
+#else
+    window->setStyleSheet(
+        "QMenu { background-color: white; border: 1px solid gray; }"
+        "QMenu::item { padding: 5px 20px; }"
+        "QMenu::item:selected { background-color: #a8d1ff; }"
+        );
+#endif
+}
+
+void UiStyleManager::setupDockScroll(QDockWidget* dock, bool isExamplesDock) {
+    if (!dock || !dock->widget()) return;
+
+    QWidget* content = dock->widget();
+    int minHeight = 0;
+
+    // 1. Controllo UNIFICATO per la libreria (Android, iOS, Desktop)
+    if (isExamplesDock) {
+        minHeight = 0;
+    } else {
+        // 2. Altezze specifiche solo per i pannelli standard (Equazioni, Render, ecc.)
+#ifdef Q_OS_ANDROID
+        minHeight = content->sizeHint().height();
+        if (minHeight < 400) minHeight = 450;
+#else
+        minHeight = dock->minimumHeight();
+        if (minHeight < 800) minHeight = 850;
+#endif
+    }
+
+    content->setMinimumHeight(minHeight);
+
+    // Manteniamo la larghezza minima originale
+    int minWidth = dock->minimumWidth();
+    if (minWidth < 300) minWidth = 300;
+    content->setMinimumWidth(minWidth);
+
+    dock->setMinimumHeight(0); // Sblocca l'altezza del dock
+    dock->setMinimumWidth(minWidth);
+
+    if (isExamplesDock) {
+        return; // Esce prima di creare la QScrollArea extra!
+    }
+    QScrollArea* scrollArea = new QScrollArea();
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scrollArea->setWidget(content);
+
+    dock->setWidget(scrollArea);
+    QScroller::grabGesture(scrollArea->viewport(), QScroller::LeftMouseButtonGesture);
+}
+
+void UiStyleManager::compactForMobile(const QList<QWidget*>& containers) {
+// Estendiamo la compattazione anche a iOS!
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    QString style = R"(
+        QWidget { font-size: 13px; }
+        QGroupBox { font-weight: bold; margin-top: 1ex; padding: 0px; border: 1px solid #999; }
+        QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top center; padding: 0 2px; }
+        QLabel { margin: 0px; padding: 0px; }
+        QLineEdit { height: 30px; }
+
+        /* --- INGRANDIMENTO SLIDER PER MOBILE --- */
+        QSlider {
+            min-height: 40px; /* Dà respiro verticale al layout per non tagliare il pallino */
+        }
+        QSlider::groove:horizontal {
+            border: 1px solid #444;
+            height: 8px;
+            background: #1E1E1E;
+            border-radius: 4px;
+        }
+        QSlider::handle:horizontal {
+            background: #D0D0D0;
+            border: 1px solid #555;
+            width: 26px;       /* 1. Dimensione aggiornata */
+            height: 26px;
+            margin: -9px 0;    /* 2. Margine ricalcolato: -(26 - 8) / 2 = -9 */
+            border-radius: 13px; /* 3. Esattamente la metà di 26 */
+        }
+        QSlider::handle:horizontal:pressed {
+            background: #0098FF;
+        }
+    )";
+
+    for (QWidget* w : containers) {
+        if (!w) continue;
+        w->setStyleSheet(style);
+
+        QList<QLayout*> layouts = w->findChildren<QLayout*>();
+        for (QLayout* l : layouts) {
+            l->setSpacing(2);
+            l->setContentsMargins(0, 2, 0, 2);
+        }
+
+        QList<QPushButton*> btns = w->findChildren<QPushButton*>();
+        for (QPushButton* btn : btns) {
+            btn->setFixedHeight(38);
+            QFont f = btn->font(); f.setPointSize(10); btn->setFont(f);
+        }
+
+        QList<QPlainTextEdit*> textEdits = w->findChildren<QPlainTextEdit*>();
+        for (QPlainTextEdit* edit : textEdits) {
+            const QString on = edit->objectName();
+            // Gli editor del tab Ray Marching sono gestiti da setupRaymarchTabMobile.
+            if (on == "lineEquation" || on == "lineTexture" || on == "lineVariations")
+                continue;
+            edit->setMaximumHeight(75);
+            edit->setMinimumHeight(70);
+        }
+    }
+#endif
+}
+
+void UiStyleManager::setupRaymarchTabMobile(QWidget* equationsContainer) {
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    if (!equationsContainer) return;
+
+    // Risolviamo i widget per objectName: nessuna dipendenza dall'oggetto ui.
+    auto* lblEq        = equationsContainer->findChild<QLabel*>("lblEq");
+    auto* lbl3DTexture = equationsContainer->findChild<QLabel*>("lbl3DTexture");
+    auto* lbl2DTexture = equationsContainer->findChild<QLabel*>("lbl2DTexture");
+    auto* renderCtrls  = equationsContainer->findChild<QWidget*>("panelRenderControls");
+    auto* lineEquation = equationsContainer->findChild<QPlainTextEdit*>("lineEquation");
+    auto* lineTexture  = equationsContainer->findChild<QPlainTextEdit*>("lineTexture");
+    auto* lineVars     = equationsContainer->findChild<QPlainTextEdit*>("lineVariations");
+
+    // 1. Le tre label: altezza fissa e bassa, testo centrato verticalmente.
+    for (QLabel* lbl : { lblEq, lbl3DTexture, lbl2DTexture }) {
+        if (!lbl) continue;
+        lbl->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        lbl->setMinimumHeight(30);
+        lbl->setMaximumHeight(30);
+        lbl->setAlignment(Qt::AlignCenter);   // centrato H e V
+        lbl->setContentsMargins(0, 0, 0, 0);
+    }
+
+    // 2. Controlli di resa (Shell/Solid, Fast/Precise, Shell Thickness):
+    // compatti sul mobile. Sono in una GRIGLIA (gridRenderControls) che li
+    // allinea in due colonne condivise dalle due coppie di radio; qui si
+    // stringono solo i margini, senza toccare le dimensioni dei figli o
+    // l'allineamento salterebbe. Vive in panelRenderControls, comune ai due
+    // sotto-tab: findChild e' ricorsivo e lo trova se il container lo contiene.
+    if (renderCtrls) {
+        renderCtrls->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        if (renderCtrls->layout())
+            renderCtrls->layout()->setContentsMargins(2, 1, 2, 1);
+    }
+
+    // 3. Editor più alti: equazione stretta, texture molto più ampie.
+    if (lineEquation) { lineEquation->setMinimumHeight(60);  lineEquation->setMaximumHeight(QWIDGETSIZE_MAX); }
+    if (lineTexture)  { lineTexture->setMinimumHeight(170);  lineTexture->setMaximumHeight(QWIDGETSIZE_MAX); }
+    if (lineVars)     { lineVars->setMinimumHeight(170);     lineVars->setMaximumHeight(QWIDGETSIZE_MAX); }
+
+    // 4. Ribilanciamo gli stretch ereditati dal .ui, altrimenti label e radio
+    //    si riprendono lo spazio verticale a scapito degli editor.
+    // verticalLayout_24 contiene ORA solo lineEquation: lblEq non e' mai stato
+    // suo figlio e panelRadio e' stato spostato in panelRenderControls. Gli
+    // indici 0 e 2 di prima non esistono piu' (Qt li ignora in silenzio), quindi
+    // resta il solo stretch dell'editor.
+    if (auto* vl24 = equationsContainer->findChild<QVBoxLayout*>("verticalLayout_24")) {
+        vl24->setStretch(0, 1);   // lineEquation
+    }
+    if (auto* vl26 = equationsContainer->findChild<QVBoxLayout*>("verticalLayout_26")) {
+        vl26->setStretch(0, 0);   // lbl3DTexture
+        vl26->setStretch(1, 5);   // lineTexture
+        vl26->setStretch(2, 0);   // lbl2DTexture
+        vl26->setStretch(3, 5);   // lineVariations
+        vl26->setStretch(4, 0);   // btnTextureCode
+    }
+    if (auto* vl23 = equationsContainer->findChild<QVBoxLayout*>("verticalLayout_23")) {
+        vl23->setStretch(0, 2);   // panelEquation (stretto)
+        vl23->setStretch(1, 7);   // panelVariations (texture, più ampio)
+        vl23->setStretch(2, 1);   // panelLimits
+    }
+#else
+    Q_UNUSED(equationsContainer);
+#endif
+}
+
+void UiStyleManager::setupBigSliders(QSlider* r, QSlider* g, QSlider* b, QSlider* alpha, QSlider* light, QSlider* speed3D, QSlider* speed4D, QSlider* fov, QSlider* fov4D) {
+    QString baseStyle = R"(
+        QSlider::groove:horizontal { border: 1px solid #999; height: 12px; border-radius: 6px; margin: 2px 0; }
+        QSlider::handle:horizontal { background: white; border: 1px solid #5c5c5c; width: 30px; height: 30px; margin: -10px 0; border-radius: 15px; }
+    )";
+
+    if(r) r->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #FF6666; }");
+    if(g) g->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #66FF66; }");
+    if(b) b->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #6666FF; }");
+
+    // SLIDER DI VALORE del dock Renderer (Transparency, Light, FOV; Headlight
+    // e Border Thickness copiano lo stile di Light): tutti uguali, evidenziati
+    // da accesi e GRIGI da spenti. Prima Light era bianca e Transparency/FOV
+    // grigine, e nessuno stile diceva come disegnare lo slider spento: Headlight
+    // spenta sembrava accesa, Transparency e FOV accese sembravano spente.
+    // I colori (R/G/B) restano coi loro: il colore e' il loro significato.
+    const QString valueStyle = valueSliderStyle();
+    if(alpha) alpha->setStyleSheet(valueStyle);
+    if(light) light->setStyleSheet(valueStyle);
+    if(fov) fov->setStyleSheet(valueStyle);
+    if(fov4D) fov4D->setStyleSheet(valueStyle);
+
+    // Velocita' dei path (dock 3D e 4D): il loro grigio, piu' l'aspetto spento.
+    const QString disabledStyle = R"(
+        QSlider::groove:horizontal:disabled { background: #4A4A4A; border: 1px solid #555555; }
+        QSlider::handle:horizontal:disabled { background: #6E6E6E; border: 1px solid #555555; }
+    )";
+    if(speed3D) speed3D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }" + disabledStyle);
+    if(speed4D) speed4D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }" + disabledStyle);
+
+    int minH = 40;
+    if(r) r->setMinimumHeight(minH);
+    if(g) g->setMinimumHeight(minH);
+    if(b) b->setMinimumHeight(minH);
+    if(alpha) alpha->setMinimumHeight(minH);
+    if(light) light->setMinimumHeight(minH);
+    if(speed3D) speed3D->setMinimumHeight(minH);
+    if(speed4D) speed4D->setMinimumHeight(minH);
+    if(fov) fov->setMinimumHeight(minH);
+    if(fov4D) fov4D->setMinimumHeight(minH);
+}
+
+QString UiStyleManager::valueSliderStyle()
+{
+    return QStringLiteral(R"(
+        QSlider::groove:horizontal { border: 1px solid #999; height: 12px; border-radius: 6px; margin: 2px 0; background: #FFFFFF; }
+        QSlider::handle:horizontal { background: white; border: 1px solid #5c5c5c; width: 30px; height: 30px; margin: -10px 0; border-radius: 15px; }
+        QSlider::groove:horizontal:disabled { background: #4A4A4A; border: 1px solid #555555; }
+        QSlider::handle:horizontal:disabled { background: #6E6E6E; border: 1px solid #555555; }
+    )");
+}
+
+void UiStyleManager::applyInputFieldsStyle(const QList<QWidget*>& fields) {
+    if (fields.isEmpty()) return;
+
+    // Prende il font di base dal primo elemento
+    QFont boldFont = fields.first()->font();
+    boldFont.setBold(true);
+
+#if defined(Q_OS_MACOS)
+    boldFont.setPointSize(14);
+#endif
+
+    // Applica il nuovo font a tutti i campi
+    for (QWidget* field : fields) {
+        if (field) {
+            field->setFont(boldFont);
+        }
+    }
+}
+
+void UiStyleManager::addScrollToDock(QDockWidget* dock) {
+    if (!dock) return;
+
+    // Recupera il widget che contiene attualmente i bottoni/caselle
+    QWidget* innerWidget = dock->widget();
+
+    // Se c'è già una scrollarea o il widget è nullo, ci fermiamo
+    if (!innerWidget || qobject_cast<QScrollArea*>(innerWidget)) return;
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    // La scrollbar mobile e' larga 26px e trasparente: senza margine destro i
+    // controlli ancorati al bordo (bottoni di dock3D/dock4D) le finiscono sotto.
+    // Il margine va messo QUI e non nel .ui: compactForMobile azzera i margini
+    // di tutti i layout dei dock, e gira prima di questa funzione.
+    {
+        QMargins m = innerWidget->contentsMargins();
+        m.setRight(m.right() + 26);
+        innerWidget->setContentsMargins(m);
+    }
+#endif
+
+    // Crea la nuova ScrollArea
+    QScrollArea* scrollArea = new QScrollArea(dock);
+
+    // Impostazioni estetiche e funzionali
+    scrollArea->setWidget(innerWidget);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+
+    // Assegna la scrollarea come nuovo widget principale del dock
+    dock->setWidget(scrollArea);
+}
+
+void UiStyleManager::applyConstraintStyle(QPlainTextEdit* editor, ConstraintState state) {
+    if (!editor) return;
+
+    switch (state) {
+    case ConstraintState::Active:
+        editor->setStyleSheet("QPlainTextEdit { background-color: #1E1E1E; color: #FFFFFF; font-weight: bold; border: 1px solid #007ACC; }");
+        break;
+    case ConstraintState::Inactive:
+        editor->setStyleSheet("QPlainTextEdit { background-color: #1E1E1E; color: #666666; border: 1px solid #3E3E42; } QPlainTextEdit:focus { border: 1px solid #007ACC; }");
+        break;
+    case ConstraintState::Default:
+        editor->setStyleSheet("QPlainTextEdit { background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3E3E42; } QPlainTextEdit:focus { border: 1px solid #007ACC; }");
+        break;
+    case ConstraintState::Disabled:
+        editor->setStyleSheet("QPlainTextEdit { background-color: #252526; color: #555555; border: 1px solid #333; } QPlainTextEdit:focus { border: 1px solid #007ACC; background-color: #1E1E1E; }");
+        break;
+    }
+}
+
+void UiStyleManager::setupDocumentationDialog(QDialog* dialog, QVBoxLayout* layout, QTextBrowser* browser, QPushButton* closeBtn,
+                                              QLineEdit* searchEdit) {
+    if (!dialog || !layout || !browser || !closeBtn) return;
+
+    // Stile del pulsante di chiusura
+    closeBtn->setStyleSheet("padding: 12px; font-weight: bold; font-size: 16px; background-color: #333; color: white;");
+
+    // CAMPO DI RICERCA. L'altezza di default e' tarata sul mouse: su un
+    // telefono il campo risulta stretto e scomodo da centrare col dito, e la
+    // tastiera di sistema ne copre buona parte. Si allarga come si fa per gli
+    // altri campi mobili (setMinimumHeight, cfr. i campi dei dock), con il font
+    // ingrandito in proporzione. Su desktop resta com'e'.
+    if (searchEdit) {
+        searchEdit->setStyleSheet("padding: 8px; font-size: 15px;");
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+        searchEdit->setMinimumHeight(52);   // ~30% in piu' dell'altezza di default
+        QFont sf = searchEdit->font();
+        sf.setPointSize(sf.pointSize() + 3);   // come browser e dock su mobile
+        searchEdit->setFont(sf);
+        searchEdit->setStyleSheet("padding: 12px; font-size: 18px;");
+#endif
+    }
+
+#if defined(Q_OS_IOS)
+    // --- COMPORTAMENTO iOS ---
+    // FullScreen + Margini di sicurezza per evitare Notch e barra Home
+    dialog->setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+    dialog->showFullScreen();
+    layout->setContentsMargins(0, 45, 0, 20);
+    layout->setSpacing(0);
+    QScroller::grabGesture(browser->viewport(), QScroller::TouchGesture);
+    QFont mobileFont = browser->font();
+    mobileFont.setPointSize(mobileFont.pointSize() + 3);
+    browser->setFont(mobileFont);
+
+#elif defined(Q_OS_ANDROID)
+    // --- COMPORTAMENTO ANDROID ---
+    // Maximized mantiene la Status Bar intatta, evitando sbalzi di UI alla chiusura!
+    dialog->setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+    dialog->showMaximized();
+    layout->setContentsMargins(0, 0, 0, 0); // Nessun margine
+    layout->setSpacing(0);
+    QScroller::grabGesture(browser->viewport(), QScroller::TouchGesture);
+    QFont mobileFont = browser->font();
+    mobileFont.setPointSize(mobileFont.pointSize() + 3);
+    browser->setFont(mobileFont);
+
+#else
+    // --- COMPORTAMENTO DESKTOP (Mac, Windows, Linux) ---
+    dialog->setMinimumSize(320, 480);
+    dialog->resize(800, 600);
+#endif
+}
+
+void UiStyleManager::styleMobileMenuButton(QPushButton* button) {
+    if (!button) return;
+
+    button->setFlat(true);
+
+    QPixmap pixmap(60, 60);
+    pixmap.fill(Qt::transparent);
+    {
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        int r = 4; // Raggio del puntino
+        int cx = 30; // Centro orizzontale
+
+        // --- NUOVO: Disegna prima l'ombra dei puntini ---
+        // Usiamo un nero semi-trasparente e lo spostiamo leggermente in basso
+        painter.setBrush(QColor(0, 0, 0, 180));
+        painter.setPen(Qt::NoPen);
+        int shadowOffset = 2; // Pixel di spostamento dell'ombra verso il basso
+
+        painter.drawEllipse(QPoint(cx, 16 + shadowOffset), r, r);
+        painter.drawEllipse(QPoint(cx, 30 + shadowOffset), r, r);
+        painter.drawEllipse(QPoint(cx, 44 + shadowOffset), r, r);
+
+        // --- ORIGINALE: Disegna i puntini bianchi esatti sopra ---
+        painter.setBrush(Qt::white);
+
+        painter.drawEllipse(QPoint(cx, 16), r, r);
+        painter.drawEllipse(QPoint(cx, 30), r, r);
+        painter.drawEllipse(QPoint(cx, 44), r, r);
+    } // Il distruttore di QPainter applica definitivamente il disegno
+
+    button->setIcon(QIcon(pixmap));
+    button->setIconSize(QSize(60, 60));
+    button->setFixedSize(60, 60);
+
+    // Stile invariato con effetto "Ripple"
+    button->setStyleSheet(
+        "QPushButton { "
+        "  background: transparent; "
+        "  border: none; "
+        "}"
+        "QPushButton:pressed { "
+        "  background-color: rgba(255, 255, 255, 0.2); "
+        "  border-radius: 30px; "
+        "}"
+        "QPushButton::menu-indicator { "
+        "  image: none; "
+        "  width: 0px; "
+        "}"
+        );
+}
+
+void UiStyleManager::styleMobileOverflowMenu(QMenu* menu) {
+    if (!menu) return;
+
+    menu->setStyleSheet(
+        "QMenu { font-size: 18px; background-color: #2D2D2D; border: 1px solid #444; }"
+        "QMenu::item { padding: 20px 40px; color: white; border-bottom: 1px solid #333; }"
+        "QMenu::item:selected { background-color: #007ACC; }"
+        );
+}
+
+void UiStyleManager::applyRecordButtonStyle(QPushButton* btn) {
+    if (btn) btn->setStyleSheet("QPushButton { color: red; font-weight: bold; }");
+}
+
+// MOBILE: due QPushButton a forma di freccia al posto delle frecce native.
+//
+// Perche' non bastava stilare le frecce native: su iOS toccarle dava il focus al
+// QLineEdit interno dello spinbox, che apriva il tastierino numerico E il menu
+// di modifica, senza poterli chiudere (app bloccata). Gli hint di input
+// (ImhDigitsOnly) non risolvono: cambiano il tipo di campo per il text
+// responder del plugin ma non gli impediscono di prendere il focus.
+// Qui invece il campo diventa non editabile e senza focus, e il valore si
+// cambia con due bottoni veri, che col plugin non hanno alcun rapporto.
+void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
+{
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    if (!spin || spin->property("mobileSpinButtons").toBool()) return;
+    spin->setProperty("mobileSpinButtons", true);
+    // Il QSS e' gia' stato applicato quando arriviamo qui: Qt non rivaluta i
+    // selettori su proprieta' da solo, va forzato. Serve alla regola
+    // QSpinBox[mobileSpinButtons="true"] che toglie il padding riservato alle
+    // frecce native (qui assenti), altrimenti il numero resta scentrato
+    // nonostante l'AlignCenter poco sotto.
+    spin->style()->unpolish(spin);
+    spin->style()->polish(spin);
+
+    // Il campo resta come sola casella del numero: niente frecce native.
+    spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    spin->setFocusPolicy(Qt::NoFocus);
+    spin->setAlignment(Qt::AlignCenter);
+    if (QLineEdit* le = spin->findChild<QLineEdit*>()) {
+        le->setReadOnly(true);
+        le->setFocusPolicy(Qt::NoFocus);
+        // Niente menu di modifica su un campo non editabile.
+        le->setContextMenuPolicy(Qt::PreventContextMenu);
+    }
+
+    QWidget* parent = spin->parentWidget();
+    if (!parent) return;
+    // Il layout che contiene lo spinbox non e' per forza quello restituito da
+    // parent->layout(): puo' essere annidato (es. un QFormLayout dentro un
+    // QVBoxLayout). Cerchiamo quello che lo contiene davvero, o l'inserimento
+    // finirebbe nel posto sbagliato.
+    QLayout* lay = nullptr;
+    for (QLayout* cand : parent->findChildren<QLayout*>(QString(), Qt::FindChildrenRecursively)) {
+        if (cand->indexOf(spin) >= 0) { lay = cand; break; }
+    }
+    if (!lay && parent->layout() && parent->layout()->indexOf(spin) >= 0)
+        lay = parent->layout();
+    if (!lay) return;
+
+    // Lo spinbox viene sostituito, nella sua posizione, da una riga
+    // [ giu ] [ campo ] [ su ]: cosi' il numero resta centrato fra i due tasti.
+    auto* row = new QWidget(parent);
+    auto* rowLay = new QHBoxLayout(row);
+    rowLay->setContentsMargins(0, 0, 0, 0);
+    rowLay->setSpacing(4);
+    // La riga non deve crescere in altezza oltre i tasti: e' il campo, con il
+    // suo padding, a spingerla in basso fin sopra l'etichetta sottostante.
+    spin->setMaximumHeight(32);
+    row->setMaximumHeight(32);
+
+    auto makeArrow = [&](const QString& glyph) {
+        auto* b = new QPushButton(glyph, row);
+        b->setProperty("spinArrow", true);   // aggancia il QSS mobile
+        b->setFocusPolicy(Qt::NoFocus);      // mai focus: nessuna tastiera
+        b->setAutoRepeat(true);              // tenere premuto scorre i valori
+        b->setAutoRepeatDelay(400);
+        b->setAutoRepeatInterval(120);
+        // 32px: bersaglio ancora comodo al dito ma contenuto. A 46 la riga
+        // cresceva troppo in altezza e il tasto giu' finiva sopra l'etichetta
+        // del gruppo sottostante.
+        b->setFixedSize(32, 32);
+        return b;
+    };
+    // Glifi triangolari: la forma della freccia la da' il carattere, cosi' non
+    // servono icone da caricare ne' disegno custom.
+    QPushButton* btnDown = makeArrow(QString::fromUtf8("▼"));
+    QPushButton* btnUp   = makeArrow(QString::fromUtf8("▲"));
+
+    // Il campo mostra un numero di 1-2 cifre: non serve piu' largo di cosi'.
+    // Con una larghezza FISSA (non solo minima) il layout non puo' allargarlo
+    // per riempire lo spazio, che e' cio' che spingeva la riga oltre il gruppo
+    // e faceva finire il tasto giu' sopra l'etichetta sottostante.
+    spin->setFixedWidth(36);
+
+    // Posizione originale, letta PRIMA di rimuovere lo spinbox dal layout.
+    const int boxIdx = lay->indexOf(spin);
+    int formRow = -1;
+    QFormLayout::ItemRole formRole = QFormLayout::FieldRole;
+    auto* form = qobject_cast<QFormLayout*>(lay);
+    if (form) form->getWidgetPosition(spin, &formRow, &formRole);
+
+    // Lo spinbox passa dentro la riga: addWidget lo riparenta e lo toglie da
+    // solo dal layout precedente.
+    // NIENTE stretch qui dentro: la riga deve occupare solo lo spazio che le
+    // serve e lasciare il resto agli altri widget della riga esterna (i radio
+    // All/Mesh). Uno stretch finale schiacciava proprio quelli, troncando
+    // l'etichetta "Mesh" in "Mes" e lasciando vuota la meta' destra.
+    // La compattezza la danno gia' le dimensioni fisse di tasti e campo.
+    rowLay->addWidget(btnDown);
+    rowLay->addWidget(spin);
+    rowLay->addWidget(btnUp);
+
+    // La riga prende il posto che aveva lo spinbox.
+    if (auto* box = qobject_cast<QBoxLayout*>(lay)) {
+        box->insertWidget(boxIdx < 0 ? box->count() : boxIdx, row);
+    } else if (form && formRow >= 0) {
+        // In un QFormLayout lo spinbox e' il campo di una riga: si sostituisce
+        // il widget di quella riga, o la label resterebbe spaiata.
+        form->setWidget(formRow, formRole, row);
+    } else {
+        lay->addWidget(row);
+    }
+
+    QObject::connect(btnUp,   &QPushButton::clicked, spin, &QSpinBox::stepUp);
+    QObject::connect(btnDown, &QPushButton::clicked, spin, &QSpinBox::stepDown);
+
+    // I tasti seguono lo stato del campo: quando lo spinbox e' disabilitato
+    // (ambito "All" sul selettore Mesh) devono spegnersi con lui.
+    auto syncEnabled = [spin, btnUp, btnDown]() {
+        btnUp->setEnabled(spin->isEnabled());
+        btnDown->setEnabled(spin->isEnabled());
+    };
+    syncEnabled();
+    // enabledChange non e' un segnale: si osserva l'evento sul widget.
+    class EnabledWatcher : public QObject {
+    public:
+        EnabledWatcher(QObject* p, std::function<void()> f) : QObject(p), fn(std::move(f)) {}
+        bool eventFilter(QObject*, QEvent* e) override {
+            if (e->type() == QEvent::EnabledChange) fn();
+            return false;
+        }
+        std::function<void()> fn;
+    };
+    spin->installEventFilter(new EnabledWatcher(spin, syncEnabled));
+#else
+    Q_UNUSED(spin);
+#endif
+}
+
+// Allarga i tasti di un QMessageBox con etichette-frase.
+//
+// PERCHE' SERVE: il foglio globale dei QMessageBox (applyDarkTheme, ~501) ha
+// `padding: 6px 18px; min-width: 70px`. Quel min-width NON si comporta da
+// minimo: una volta che il QSS governa la geometria del tasto, diventa la
+// larghezza EFFETTIVA e UNIFORME di tutti i tasti del box -- 70 + 18*2 = 108px
+// -- indipendente dal testo. Le etichette corte (OK/Yes/No/Cancel) ci stanno e
+// il difetto non si vede; una etichetta-frase viene TAGLIATA, e siccome il
+// testo e' centrato si perde da ENTRAMBI i lati ("ave without soun").
+//
+// Misurato (sonda offscreen, WA_DontShowOnScreen + show(), confrontando
+// sizeHint().width() con width() di ogni tasto):
+//   "Save without sound"  chiede 169px a 15pt  -> tagliato di 61
+//   "Don't save"          chiede 109px a 15pt  -> tagliato di 1 (la "D")
+//
+// IL VALORE VA MISURATO COL FONT VERO: il foglio globale impone font-size 15pt
+// su macOS (~59), 12pt altrove. Con il font di default di Qt le soglie
+// risultano piu' basse e il fix sembra funzionare quando non funziona.
+//
+// Perche' un default di 100 e non la soglia esatta: "Don't save" sfora di UN
+// pixel, un margine troppo fragile per affidarci al numero minimo (basta un
+// font di sistema diverso a rimetterlo sotto). 100 da' tasti da 138px, con
+// spazio vero. Chi ha etichette piu' lunghe passa un valore maggiore.
+//
+// NON usare setMinimumWidth() sui QPushButton: quando il QSS governa la
+// geometria del tasto e' il foglio di stile ad avere l'ultima parola.
+void UiStyleManager::widenMessageBoxButtons(QMessageBox* box, int minWidth)
+{
+    if (!box) return;
+    box->setStyleSheet(QString("QPushButton { min-width: %1px; }").arg(minWidth));
+}
+
+// Linguette a tutta larghezza.
+//
+// Dentro un QTabWidget il tab bar riceve solo la larghezza che chiede: per
+// questo setExpanding non serve, e l'unica leva e' la min-width delle
+// linguette. Un valore FISSO non arriva al bordo: il tab widget e' largo la sua
+// barra piu' 8px e il suo MINIMO e' proprio quello, quindi alzando la min-width
+// cresce tutto il dock (fino a strabordare dall'area visibile, con la barra di
+// scorrimento orizzontale) e la distanza dal bordo resta la stessa.
+//
+// Qui la larghezza si misura a ogni ridimensionamento: si divide per il numero
+// di linguette e l'ultima prende il resto, cosi' finisce sul bordo. La
+// linguetta e' larga min-width piu' i suoi bordi (2px sul Mac): i bordi si
+// MISURANO dalla linguetta, non si stimano -- un primo tentativo che li
+// ignorava faceva strabordare la seconda linguetta.
+//
+// Il foglio va sul TAB BAR, non sul tab widget: quello del tab widget si
+// propagherebbe ai tab widget contenuti nelle sue pagine. Le frecce di
+// scorrimento restano ATTIVE (con linguette a filo non compaiono): senza, il
+// minimo del tab bar sarebbe la somma delle linguette e il tab widget non
+// potrebbe piu' restringersi.
+namespace {
+class TabFillWatcher : public QObject
+{
+public:
+    explicit TabFillWatcher(QTabWidget *tabs) : QObject(tabs), m_tabs(tabs) {}
+
+    bool eventFilter(QObject *obj, QEvent *event) override
+    {
+        if (obj == m_tabs && (event->type() == QEvent::Resize || event->type() == QEvent::Show))
+            refit();
+        return false;
+    }
+
+    void refit()
+    {
+        const int n = m_tabs->count();
+        const int w = m_tabs->width();
+        if (n <= 0 || w <= 0) return;
+        const int per = w / n;
+        const int last = w - per * (n - 1);
+        if (per == m_per && last == m_last) return;
+        m_per = per;
+        m_last = last;
+        apply(per - m_chrome, last - m_chrome);
+        // Bordi veri della linguetta: larghezza reale meno la min-width data.
+        const int chrome = m_tabs->tabBar()->tabRect(0).width() - (per - m_chrome);
+        if (chrome != m_chrome && chrome >= 0 && chrome < per) {
+            m_chrome = chrome;
+            apply(per - m_chrome, last - m_chrome);
+        }
+    }
+
+private:
+    void apply(int width, int lastWidth)
+    {
+        m_tabs->tabBar()->setStyleSheet(
+            QString("QTabBar::tab { min-width: %1px; max-width: %1px; padding: 6px 0px; }"
+                    "QTabBar::tab:last { min-width: %2px; max-width: %2px; }")
+                .arg(width).arg(lastWidth));
+    }
+
+    QTabWidget *m_tabs;
+    int m_per = -1;
+    int m_last = -1;
+    int m_chrome = 2;
+};
+}
+
+void UiStyleManager::fillTabBarWidth(QTabWidget* tabs)
+{
+    if (!tabs || !tabs->tabBar()) return;
+    tabs->tabBar()->setUsesScrollButtons(true);
+    auto *watcher = new TabFillWatcher(tabs);
+    tabs->installEventFilter(watcher);
+    watcher->refit();
+}

@@ -1,0 +1,121 @@
+{
+    "angles": {
+        "omega": 0.39600008726119995,
+        "phi": 0.6600002646446228,
+        "psi": 0.6600002646446228
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.35717594623565674,
+        "rot_x": -0.22504746913909912,
+        "rot_y": 0.7802067995071411,
+        "rot_z": 0.4615803062915802,
+        "x": -0.333170086145401,
+        "y": -1.10115385055542,
+        "yaw": 0,
+        "z": 4.039963722229004
+    },
+    "cameraFov": 103,
+    "colors": {
+        "alpha": 1,
+        "b": 0.545098066329956,
+        "g": 0.9686274528503418,
+        "r": 0.8549019694328308
+    },
+    "constants": {
+        "A": 2,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 6,
+        "F": 2,
+        "S": 0
+    },
+    "equations": {
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "fov3D": 103,
+    "fov4D": 103,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "hintSeconds": 6,
+    "hintText": "Sliders\nA: tube radius\nMeshes: how many tubes",
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 0,
+        "uMin": 0,
+        "vMax": 0,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "meshCount": "6",
+    "meshParts": [
+        {
+            "b": 0.6313725709915161,
+            "g": 0.3450980484485626,
+            "mode": 0,
+            "r": 0.8274509906768799
+        },
+        {
+            "b": 0.20000000298023224,
+            "g": 0.3450980484485626,
+            "mode": 1,
+            "r": 0.8274509906768799
+        },
+        {
+            "b": 0.8745098114013672,
+            "g": 0.8235294222831726,
+            "mode": 1,
+            "r": 0.8274509906768799
+        },
+        {
+            "b": 0.6313725709915161,
+            "g": 0.6313725709915161,
+            "mode": 1,
+            "r": 0.24705882370471954
+        },
+        {
+            "b": 0.545098066329956,
+            "g": 0.7058823704719543,
+            "mode": 1,
+            "r": 0.8705882430076599
+        },
+        {
+            "b": 0.545098066329956,
+            "g": 0.9686274528503418,
+            "mode": 1,
+            "r": 0.572549045085907
+        }
+    ],
+    "name": "Clifford Labyrinth",
+    "projectionMode": 2,
+    "renderMode": 0,
+    "scriptCode": "// --- CONFIGURAZIONE ---\n\n// The Meshes field (Multi Mesh panel) says how many tubes to draw, 1 to 6. Near\n// 45 degrees (|cos(2R)| < 0.02) the six tubes collapse into three: this caps the\n// Mesh selector of the Renderer dock at 3 (the cutout discards the rest), with\n// the syntax of the CPU evaluator: if(cond, then, else).\nMESH_VISIBLE := if(abs(cos(2*(min(max(A,0.3),10)*0.078539816)))<0.02, 3, 6);\nu_min := 0;\nu_max := 6.28318531;\nv_min := 0;\nv_max := 6.28318531;    // multi-mesh: each tube has its own grid\nsteps := 600;           // the seams no longer exist: no divisibility constraint\nA := min(0.3);   // below 0.3 the tubes collapse onto the axis: only artifacts\n\n// --- MULTI-MESH: one tube per grid ---\n// One mesh per tube, as many as the Meshes field says (1 to 6); `mesh` = 0..5\n// identifies the tube (C12, C13, C14, C23, C24, C34).\n// Before multi-mesh the six tubes were stitched into ONE grid with v over\n// [0,12*PI], compressed onto the N actual branches: they needed the scale vs, the index\n// kk by division, the rescale f01 and FIVE guard bands G1..G5 in the\n// cutout (which left as many circular grooves). All gone: no\n// quad can connect two separate meshes.\n//MESH_BEGIN\nu: 0, 6.28318531, 100\nv: 0, 6.28318531, 100\n//MESH_END\n\n// --- THE CLIFFORD TORI IN S^3: THE SKELETON OF THE 16-CELL ---\n// NB: do not declare variables named PI, pi, tau: the translator\n// replaces them with the numeric value throughout the script.\n//\n// At a radius r < PI/4 the surfaces x_i^2 + x_j^2 = cos^2 r are SIX, not\n// three: one for each pair of indices. They are the tubes around the six great\n// coordinate circles\n//     C12  C13  C14  C23  C24  C34\n// which meet three at a time at the eight points +-e1, +-e2, +-e3, +-e4:\n// e1 lies on C12, C13, C14, and so on. Those eight points are the vertices and the\n// twenty-four arcs are the edges of the 16-cell, the 4-dimensional polytope\n// dual to the hypercube: this figure is its thickened skeleton.\n// Two complementary axes (C12 and C34) never touch: they are 90 degrees apart\n// everywhere, so their tubes do not interpenetrate.\n//\n// --- OPENING ON SLIDER A ---\n// A is the angular radius of the tubes in steps of 4.5 degrees, i.e. PI/40, so\n// the slider's full scale coincides with the limit of the construction:\n//     A =  2.67 -> 12 degrees (the historical value)\n//     A =  5    -> PI/8 = 22.5 degrees\n//     A = 10    -> PI/4 = 45 degrees, where each tube becomes half a hypersphere and\n//                  each surface coincides with that of the complementary axis.\n// One notch of the slider is 0.045 degrees.\n// Below the radius at which the path moves away from the axis at the joints (6.3 degrees\n// on the three- and six-tube paths, 2.5 on the double tube) the camera leaves the tubes\n// on the curves.\n// It is on A because F is left to the textures, which use it as a slider (e.g.\n// Static Holography: density of the grid): on the same slider,\n// dragging the radius would change the pattern too. The radius enters only the position\n// of the vertices and the cutting threshold, never the seam machinery,\n// so it moves live without rebuilding the mesh.\n//\n// --- NUMBER OF TUBES: THE MESHES FIELD ---\n// The Meshes field (Multi Mesh panel) picks how many of the six tubes to draw,\n// from 1 to 6, in the order\n//     C12  C13  C14  C23  C24  C34\n//\n// Near PI/4 the number is truncated to THREE by itself. There\n// cos^2 R = sin^2 R = 1/2, so the tube around Cij and the one around\n// the complementary axis Ckl are the SAME surface: the pairs are\n// C12<->C34, C13<->C24, C14<->C23. Drawing more than three would mean\n// drawing the same surface twice, with z-fighting. The first three branches\n// of the order above contain no complementary pairs, so the\n// truncation already gives three distinct surfaces without reordering anything.\n// The distance between the two complementary surfaces is |cos 2R|: it is 1 at zero\n// radius and goes to zero continuously at PI/4. It is truncated when it drops below\n// 0.02 (from about 44.4 degrees up): there the two surfaces are already so\n// close that they z-fight, well before coinciding exactly. Measuring the\n// separation instead of the angle keeps the jump from depending on the last\n// digit of the radius.\n// Below A = 0.3 (1.35 degrees) the tubes collapse onto their own axis: the\n// surface degenerates into the great circle and only visual artifacts remain\n// (interpenetrating faces, unstable normals). The minimum of the\n// clamp is NOT 0: it is the smallest radius that still draws a tube.\nfloat Rq = clamp(A, 0.3, 10.0) * 0.078539816;\nfloat degenere = 1.0 - step(0.02, abs(cos(2.0 * Rq)));\nfloat Nmax = mix(6.0, 3.0, degenere);\nfloat N = min(meshes, Nmax);\n\nfloat R = Rq;\nfloat cR = cos(R);\nfloat sR = sin(R);\n\n\n// The branch index is the mesh index: no divisions or epsilons to\n// decide which side of a seam a vertex falls on (it was the most\n// fragile point between Mali and Adreno).\nfloat kk = mesh;\n\n\n// Each branch puts cos R on the plane of its own axis and sin R on the two remaining\n// indices: (a,b) turn along the axis, (c,d) around the tube.\nfloat a = cR * cos(u);\nfloat b = cR * sin(u);\nfloat c = sR * cos(v);\nfloat d = sR * sin(v);\n\n// Branch indicators: kk is an exact integer (a sum of steps), so\n// max(0, 1 - |kk - n|) is 1 on branch n and 0 on all the others. With six\n// branches this form stays readable where six nested mix() would not.\nfloat I0 = max(0.0, 1.0 - abs(kk));         // C12\nfloat I1 = max(0.0, 1.0 - abs(kk - 1.0));   // C13\nfloat I2 = max(0.0, 1.0 - abs(kk - 2.0));   // C14\nfloat I3 = max(0.0, 1.0 - abs(kk - 3.0));   // C23\nfloat I4 = max(0.0, 1.0 - abs(kk - 4.0));   // C24\nfloat I5 = max(0.0, 1.0 - abs(kk - 5.0));   // C34\n\n// NB: the validator in inputvalidator.cpp requires the literal form of the\n// return with vec3 or vec4 opened right after it, and counts the parentheses over the\n// whole text, COMMENTS INCLUDED: do not write unbalanced ones here.\nreturn vec4(\n    a * (I0 + I1 + I2) + c * (I3 + I4 + I5),\n    b * I0 + c * (I1 + I2) + a * (I3 + I4) + d * I5,\n    c * I0 + b * (I1 + I3) + d * (I2 + I4) + a * I5,\n    d * (I0 + I1 + I3) + b * (I2 + I4 + I5)\n);\n\n//CUTOUT_BEGIN\n// --- CUTTING ONLY THE INNER OBSTRUCTIONS ---\n// From each tube we remove the part that lies inside the OTHER DRAWN TUBES:\n// what remains is the boundary of the union of the solids, i.e. a CLOSED\n// surface. Each tube is cut open around the vertices it touches, and there\n// the passages toward the other tubes open up.\n// Exact criterion: a point lies inside the tube around Cij if its\n// angular distance from that circle is < R, i.e. if x_i^2 + x_j^2 > cos^2 R.\n// On its own branch its own quantity is identically cos^2 R, so it is\n// zeroed with (1 - indicator) and the maximum of the others is taken.\n// The tubes NOT drawn must be excluded from the maximum with the same weight: at N < 6\n// a missing tube must cut nothing, otherwise holes would open\n// toward a surface that is not there.\n// same radius as the body, from the same slider: if the two copies diverged\n// the cut would no longer fall on the surface it is trimming\nfloat Rc = clamp(A, 0.3, 10.0) * 0.078539816;\nfloat cRc = cos(Rc);\nfloat sRc = sin(Rc);\nfloat lim = cRc * cRc;\n\n// same threshold as the body: if the two copies diverged, the cut would use a\n// number of tubes different from the one drawn\nfloat degc = 1.0 - step(0.02, abs(cos(2.0 * Rc)));\nfloat Nmaxc = mix(6.0, 3.0, degc);\nfloat Nc = min(meshes, Nmaxc);\n\n\n// branch index = mesh index, as in the body\nfloat tk = mesh;\n\n\nfloat aa = cRc * cos(u);\nfloat bb = cRc * sin(u);\nfloat cc = sRc * cos(v);\nfloat dd = sRc * sin(v);\n\nfloat J0 = max(0.0, 1.0 - abs(tk));\nfloat J1 = max(0.0, 1.0 - abs(tk - 1.0));\nfloat J2 = max(0.0, 1.0 - abs(tk - 2.0));\nfloat J3 = max(0.0, 1.0 - abs(tk - 3.0));\nfloat J4 = max(0.0, 1.0 - abs(tk - 4.0));\nfloat J5 = max(0.0, 1.0 - abs(tk - 5.0));\n\n// Presence of the six tubes: P_n is 1 if branch n is drawn (n < Nc).\nfloat P0 = step(0.5, Nc);\nfloat P1 = step(1.5, Nc);\nfloat P2 = step(2.5, Nc);\nfloat P3 = step(3.5, Nc);\nfloat P4 = step(4.5, Nc);\nfloat P5 = step(5.5, Nc);\n\n// rebuilds the point of THIS fragment, as in the body\nfloat px = aa * (J0 + J1 + J2) + cc * (J3 + J4 + J5);\nfloat py = bb * J0 + cc * (J1 + J2) + aa * (J3 + J4) + dd * J5;\nfloat pz = cc * J0 + bb * (J1 + J3) + dd * (J2 + J4) + aa * J5;\nfloat pw = dd * (J0 + J1 + J3) + bb * (J2 + J4 + J5);\n\nfloat q12 = px * px + py * py;\nfloat q13 = px * px + pz * pz;\nfloat q14 = px * px + pw * pw;\nfloat q23 = py * py + pz * pz;\nfloat q24 = py * py + pw * pw;\nfloat q34 = pz * pz + pw * pw;\n\n// (1 - J) zeroes the tube's OWN term, P zeroes the tubes not drawn.\nfloat m1 = max(q12 * (1.0 - J0) * P0, q13 * (1.0 - J1) * P1);\nfloat m2 = max(q14 * (1.0 - J2) * P2, q23 * (1.0 - J3) * P3);\nfloat m3 = max(q24 * (1.0 - J4) * P4, q34 * (1.0 - J5) * P5);\nfloat altro = max(max(m1, m2), m3);\n\n// The 0.0001 margin keeps the points lying EXACTLY on the intersection\n// curves, where the quantity is exactly cos^2 R: they are the edges along\n// which the pieces weld together, and in float32 they must be kept.\nbool didCut = (altro > lim + 0.0001);\n\n// --- MESHES BEYOND N: discarded entirely ---\n// Beyond six tubes, or beyond three when the radius degenerates, the extra\n// meshes are discarded here.\n// Gone instead are the FIVE guard bands G1..G5 on the seams, the\n// rescale f01 and the step computation: there is no longer any joining quad\n// to mask.\nif (mesh > Nc - 0.5) { didCut = true; }\n\nreturn didCut;\n//CUTOUT_END",
+    "steps": 258,
+    "type": "surface",
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 2,
+        "vStep": 7
+    }
+}

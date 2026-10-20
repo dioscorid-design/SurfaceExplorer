@@ -1,0 +1,969 @@
+#version 450
+layout(location=0) in vec2 fragCoord;
+layout(location=0) out vec4 FragColor;
+
+layout(std140, binding=0) uniform SceneUBO {
+    mat4 u_mvpMatrix; mat4 u_mvMatrix; mat4 u_mMatrix;
+    vec4 u_dummyZero; vec4 u_observerPos; vec4 u_cameraPos4D; vec4 u_mathParams; vec4 u_mathParams2;
+    vec3 color; float alpha;
+    vec3 u_col1; float u_lightIntensity;
+    vec3 u_col2; float u_zoom;
+    vec2 u_center; float u_rotation; float u_omega;
+    float u_phi; float u_psi; float u_time; int u_projMode;
+    int u_lightingMode; int u_renderMode; int u_isFlat; int useTexture;
+    int useSpecular; float u_min; float u_max; float v_min;
+    float v_max; int u_hasExplicitW; int u_raySteps; float x_min;
+    float x_max; float y_min; float y_max; float z_min; float z_max;
+    // I tre campi finali di UboData, nell'ORDINE ESATTO della struct C++: std140
+    // non consente di saltarne uno, e il ray marching ha bisogno dell'ultimo
+    // (u_fillLight). u_meshIndex e u_noImage non servono qui -- questo e' un
+    // fragment a se', non ha il vertex gemello con cui combaciare (la regola
+    // Adreno vale fra i due stage di surface.vert/frag) -- ma vanno dichiarati
+    // lo stesso o u_fillLight leggerebbe l'offset sbagliato.
+    float u_meshIndex; int u_noImage; float u_fillLight; float u_shellThickness;
+    // Scelta del marcher: 0 = sphere tracing storico, 1 = ibrido (vedi main()).
+    float u_marcherMode;
+} ubuf;
+
+layout(binding=1) uniform sampler2D tex;
+
+// Semi-spessore del guscio (modalita' Shell), in unita' di scena: la banda va da
+// -SHELL_THICKNESS a +SHELL_THICKNESS attorno alla superficie, quindi il guscio e'
+// spesso 0.01. E' una DISTANZA vera, non un valore di campo: vedi la
+// normalizzazione col gradiente in map().
+// Perche' 0.005 e non 0.01: il codice storico faceva abs(d_surf) - 0.01 sul campo
+// GREZZO, e sulla sfera unitaria (|grad| = 2) quel valore corrispondeva a un
+// semi-spessore geometrico di 0.005. Tenendo 0.005 qui, il guscio delle superfici
+// 3D gia' esistenti resta identico a prima; cambia solo dove il campo non e'
+// normalizzato, che e' esattamente il caso che stiamo correggendo.
+// Regolabile dalla UI (slider Thickness, sotto i radio Shell/Solid) invece che
+// costante. Normalizzare il campo col gradiente ha reso lo spessore una LUNGHEZZA
+// VERA, uguale per tutte le equazioni -- ed e' corretto -- ma prima dipendeva da
+// come l'equazione era scritta: valeva 0.01/|grad|, quindi le superfici con un
+// fattore di scala davanti (es. "A*(...)" con A=0.1) avevano gusci molto piu'
+// spessi. Misurato: Ding Dong 0.23 e Steiner 0.47 contro lo 0.01 fisso di ora,
+// cioe' 20-50 volte tanto. Con la costante quelle superfici si presentavano
+// assottigliate e la trasparenza le attraversava quasi del tutto.
+// Un default unico non puo' andare bene per tutte (|grad| varia di due ordini di
+// grandezza fra un'equazione e l'altra), quindi lo spessore e' un parametro della
+// SCENA, salvato nei preset. 0.005 = il valore storico della sfera unitaria.
+#define SHELL_THICKNESS ubuf.u_shellThickness
+
+// --- FUNZIONE PER INTERSEZIONI MORBIDE (SMOOTH MAX) ---
+float smax(float a, float b, float k) {
+    float h = clamp(0.5 + 0.5 * (a - b) / k, 0.0, 1.0);
+    return mix(b, a, h) + k * h * (1.0 - h);
+}
+
+// --- EQUAZIONE IMPLICITA 3D ---
+// CAMPO GREZZO: l'equazione dell'utente + il displacement, SENZA guscio e senza
+// bounding box. Estratta da map() perche' il guscio ha bisogno del GRADIENTE del
+// campo (vedi map() qui sotto) e GLSL non ammette ricorsione: map() non puo'
+// campionare se stessa. Chi vuole il campo puro chiama questa.
+float rawField(vec3 pos) {
+    float x = pos.x; float y = pos.y; float z = pos.z;
+    float t = ubuf.u_time;
+    float A = ubuf.u_mathParams.x; float B = ubuf.u_mathParams.y;
+    float C = ubuf.u_mathParams.z; float S = ubuf.u_mathParams.w;
+    float D = ubuf.u_mathParams2.x; float E = ubuf.u_mathParams2.y;
+    float F = ubuf.u_mathParams2.z;
+    %CROSS_SECTION_P%
+
+    // 1. Calcola la distanza matematica pura dalla tua equazione
+    float d_surf = float( %IMPLICIT_EQ% );
+
+    // INIEZIONE RILIEVI PROCEDURALI DALLA UI +++
+    // Creiamo un alias pModel per comodità dell'utente
+    vec3 pModel = pos;
+    // ALIAS 'p' = punto 3D per il codice DISPLACEMENT, che viene iniettato qui
+    // sotto. Era il nome del parametro di questa funzione prima che il sotto-tab
+    // Cross Section lo rinominasse in 'pos'; senza, un displacement che usa 'p'
+    // (pattern documentato nella guida script) non compila e la superficie
+    // sparisce. Stesso alias di getCustomImplicit e mapInner.
+    //
+    // IN UNO SCOPE ANNIDATO, non qui: in Cross Section 'p' e' gia' la QUARTA
+    // VARIABILE scalare dell'equazione (dichiarata dal segnaposto della sezione
+    // 4D piu' sopra -- NB: non si scrive qui il nome di quel segnaposto, il
+    // replace del C++ lo sostituirebbe dentro questo commento e lo spezzerebbe,
+    // lasciando testo libero come codice), e due 'p' nello stesso scope sono
+    // una ridefinizione -> errore di
+    // compilazione su OGNI superficie Cross Section con displacement. Il blocco
+    // { } fa shadowing: dentro, 'p' e' il punto 3D (quello che il displacement
+    // si aspetta); fuori, la 'p' scalare resta intatta per l'equazione.
+    // Le modifiche del displacement a d_surf attraversano lo scope: d_surf e'
+    // dichiarata fuori, quindi "d_surf -= ..." agisce davvero.
+    {
+        vec3 p = pos;
+
+    // Qui verrà inserito il codice del box "Rilievi"
+    %DISPLACEMENT_CODE%
+    }
+    // ++++++++++++++++++++++++++++++++++++++++++++++
+
+    return d_surf;
+}
+
+// Gradiente del campo nel punto corrente del marcher, condiviso dalle map() di
+// uno stesso passo per non ricalcolarlo 4 volte su punti quasi coincidenti.
+// 0.0 = "non preparato": map() se lo calcola da se'. Vedi il ramo Shell in map().
+float g_shellGradLen = 0.0;
+// Valore di rawField nel punto per cui g_shellGradLen e' stato preparato, e il
+// punto stesso. Il marcher calcola rawField(pModel) per il gradiente e map()
+// lo ricalcolerebbe identico un istante dopo: memorizzandolo si risparmia una
+// valutazione per passo (7 -> 6). Valido SOLO per quel punto esatto: map()
+// confronta e in caso di mismatch ricalcola.
+float g_shellBaseVal = 0.0;
+vec3  g_shellBasePos = vec3(1e30);
+
+float map(vec3 pos) {
+    // Il marcher ha gia' valutato il campo in questo punto per preparare il
+    // gradiente del guscio: riusiamo quel valore invece di ricalcolarlo. Il
+    // confronto e' esatto perche' e' lo STESSO vec3 passato dal loop, non una
+    // ricostruzione; qualunque altro punto (i 3 vicini, calcNormal, la
+    // bisezione) non combacia e ricade sul calcolo normale.
+    float d_surf = (pos == g_shellBasePos) ? g_shellBaseVal : rawField(pos);
+
+    // --- LOGICA GUSCIO (SHELL) ---
+    // u_renderMode == 1 -> l'oggetto pieno diventa un guscio vuoto.
+    //
+    // PERCHE' IL CAMPO VA NORMALIZZATO PRIMA. Lo spessore e' una distanza in
+    // unita' di scena, ma d_surf e' il valore GREZZO dell'equazione, che non ha
+    // unita' di lunghezza: quanto vale a un dato punto dipende da come l'utente
+    // ha scritto l'equazione, non da quanto si e' lontani dalla superficie.
+    // Un semplice abs(d_surf) - spessore quindi produce un guscio il cui spessore
+    // reale e' spessore/|grad| — cioe' arbitrario. Sulla sfera (|grad| ~ 2) va per
+    // combinazione; sulle equazioni 4D del sotto-tab Cross Section (quartiche di
+    // quartiche, |grad| ~ 0.04) il guscio diventava piu' spesso del solido stesso
+    // e lo inghiottiva: Shell e Solid si vedevano IDENTICI perche' la banda del
+    // guscio copriva tutto l'interno e il raggio colpiva lo stesso bordo esterno.
+    // Misurato sul T^3 di default (A=.9 B=.3 C=.2): |d_surf| dentro il solido non
+    // superava 0.030, contro una soglia guscio di 0.01 -> nessuna cavita' residua.
+    //
+    // Dividendo per |grad| il campo diventa una stima di distanza al primo ordine
+    // (passo di Newton), la stessa che il marcher usa gia' per dimensionare i passi
+    // (vedi marchField): lo spessore torna a essere una lunghezza vera e uguale per
+    // tutte le equazioni. Il clamp del gradiente evita la divisione per ~0 nei punti
+    // critici (dove grad si annulla e la stima non ha senso).
+    if (ubuf.u_renderMode == 1) {
+        // COSTO. Il gradiente qui e' la sola ragione per cui Shell costa piu' di
+        // Solid: 3 rawField in piu' per ogni map(). Siccome marchField chiama
+        // map() 4 volte per passo (valore + 3 vicini a e=0.001), i gradienti
+        // calcolati erano 4, su punti quasi coincidenti — 16 valutazioni del
+        // campo per passo contro le 4 di Solid.
+        //
+        // g_shellGradLen e' il gradiente del passo CORRENTE, calcolato una volta
+        // sola dal marcher e condiviso dalle 4 chiamate: 7 valutazioni per passo
+        // invece di 16. Misurato sul T^3: su una distanza di 0.001 il |grad|
+        // cambia del 2% (99° percentile), che sullo spessore 0.01 vale 0.0002
+        // unita' — sotto la soglia di hit del marcher, quindi invisibile.
+        //
+        // Vale 0.0 quando nessuno l'ha preparato (calcNormal, calcAO, le passate
+        // che non vengono dal loop): li' si ricalcola come prima, perche' e' il
+        // valore corretto e quelle chiamate sono poche.
+        float gradLen = g_shellGradLen;
+        if (gradLen <= 0.0) {
+            vec2 e = vec2(0.001, 0.0);
+            vec3 grad = vec3(rawField(pos + e.xyy) - d_surf,
+                             rawField(pos + e.yxy) - d_surf,
+                             rawField(pos + e.yyx) - d_surf);
+            gradLen = max(length(grad) / e.x, 1e-4);
+        }
+        d_surf = (abs(d_surf) / gradLen - SHELL_THICKNESS) * gradLen;
+    }
+
+    // 2. Bounding Box SDF (Il cubo di taglio)
+    vec3 bMin = vec3(ubuf.x_min, ubuf.y_min, ubuf.z_min);
+    vec3 bMax = vec3(ubuf.x_max, ubuf.y_max, ubuf.z_max);
+    vec3 bCenter = (bMax + bMin) * 0.5;
+    vec3 bHalf = (bMax - bMin) * 0.5;
+
+    vec3 q = abs(pos - bCenter) - bHalf;
+    float d_box = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+
+    // Ritorna l'intersezione tra la forma (piena o a guscio) e il cubo di taglio
+    return smax(d_surf, d_box, 0.02);
+}
+
+// --- SECONDA SUPERFICIE OPZIONALE (campo interno/opaco) ---
+// Attiva SOLO quando lo script ray marching definisce la direttiva Inner:=
+// (C++ setta ubuf.u_dummyZero.y = 1.0). Altrimenti %INNER_MAP% e' uno stub
+// che ritorna 1e9 e questa funzione non viene mai chiamata dal main().
+// Applica lo STESSO bounding-box di map() per coerenza del cubo di taglio.
+float mapInner(vec3 pos) {
+    float x = pos.x; float y = pos.y; float z = pos.z;
+    float t = ubuf.u_time;
+    float A = ubuf.u_mathParams.x; float B = ubuf.u_mathParams.y;
+    float C = ubuf.u_mathParams.z; float S = ubuf.u_mathParams.w;
+    float D = ubuf.u_mathParams2.x; float E = ubuf.u_mathParams2.y;
+    float F = ubuf.u_mathParams2.z;
+
+    // ALIAS 'p' = punto 3D, per le espressioni della direttiva //INNER: degli
+    // script ray marching (es. Ergosphere: kerrHorizonSDF(p, A, ...)). Era il
+    // nome del PARAMETRO di questa funzione prima che il sotto-tab Cross Section
+    // lo rinominasse in 'pos'; senza l'alias quelle espressioni non compilano
+    // ("'p' : undeclared identifier") e la superficie sparisce.
+    // REGOLA UNICA: l'alias del punto 3D vive SEMPRE in un blocco { } proprio,
+    // che avvolge il codice utente. Qui un blocco non servirebbe (mapInner non
+    // ospita la variabile scalare della sezione 4D, quindi non c'e' collisione
+    // possibile), ma tenerlo uguale a rawField -- dove il blocco e'
+    // OBBLIGATORIO -- toglie il dubbio su quale delle due forme sia quella
+    // giusta da copiare la prossima volta.
+    float d_surf;
+    {
+        vec3 p = pos;
+        d_surf = float( %INNER_MAP% );
+    }
+
+    vec3 bMin = vec3(ubuf.x_min, ubuf.y_min, ubuf.z_min);
+    vec3 bMax = vec3(ubuf.x_max, ubuf.y_max, ubuf.z_max);
+    vec3 bCenter = (bMax + bMin) * 0.5;
+    vec3 bHalf = (bMax - bMin) * 0.5;
+    vec3 q = abs(pos - bCenter) - bHalf;
+    float d_box = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+    return smax(d_surf, d_box, 0.02);
+}
+
+// --- CALCOLO NORMALI 3D ---
+vec3 calcNormal(vec3 pos) {
+    vec2 e = vec2(0.005, 0.0);
+    return normalize(vec3(
+        map(pos + e.xyy) - map(pos - e.xyy),
+        map(pos + e.yxy) - map(pos - e.yxy),
+        map(pos + e.yyx) - map(pos - e.yyx)
+    ));
+}
+
+vec3 calcNormalInner(vec3 pos) {
+    vec2 e = vec2(0.005, 0.0);
+    return normalize(vec3(
+        mapInner(pos + e.xyy) - mapInner(pos - e.xyy),
+        mapInner(pos + e.yxy) - mapInner(pos - e.yxy),
+        mapInner(pos + e.yyx) - mapInner(pos - e.yyx)
+    ));
+}
+
+// --- AMBIENT OCCLUSION PROCEDURALE ---
+float calcAO(vec3 pos, vec3 nor) {
+    // NORMALIZZAZIONE IN DISTANZA. map() restituisce il valore GREZZO del campo,
+    // che non ha unita' di lunghezza: quanto vale in un punto dipende da COME
+    // l'utente ha scritto l'equazione, non da quanto si e' lontani dalla
+    // superficie. La formula qui sotto lo confronta pero' con h, che e' una
+    // DISTANZA in unita' di scena: e' la stessa confusione dimensionale che il
+    // marcher aveva sul clamp del gradiente, e va curata allo stesso modo.
+    //
+    // MISURATO sul T^3 della posa di default, sui punti colpiti dai raggi:
+    // col campo grezzo l'AO mediana vale 0.168 al fattore di scala 0.01 e 1.000
+    // al fattore 0.5. La STESSA superficie si vedeva quindi schiacciata al 17%
+    // di luminosita' oppure pulita a seconda di come era scritta l'equazione.
+    // Il termine colpito e' l'ambiente (0.15 * ao in shadeSurface): sulle facce
+    // che le due luci non raggiungono -- il 17.4% di quelle viste di fronte,
+    // gia' misurato li' -- e' l'UNICO contributo, e passava da 0.15 a 0.025,
+    // cioe' nero. L'AO variava inoltre fra 0.11 e 0.24 da pixel a pixel (le
+    // chiazze scure) e risaliva di scatto a 1.0 dove occ diventava negativo
+    // (i puntini chiari sparsi): e' la sabbiatura.
+    //
+    // Dividendo per |grad| il valore torna una stima di distanza al primo ordine
+    // -- lo stesso passo di Newton che usano gia' il marcher e lo spessore del
+    // guscio -- e l'AO diventa INVARIANTE DI SCALA: misurata 1.000 a entrambi i
+    // fattori, che e' l'aspetto della configurazione verificata a schermo.
+    //
+    // Costa 4 map() in piu' per pixel, una volta sola: irrilevante accanto ai
+    // 4 map() per PASSO del marcher (centinaia di passi per pixel).
+    vec2 e = vec2(0.001, 0.0);
+    float v0 = map(pos);
+    vec3 g = vec3(map(pos + e.xyy) - v0,
+                  map(pos + e.yxy) - v0,
+                  map(pos + e.yyx) - v0);
+    float gradLen = max(length(g) / e.x, 1e-6);
+
+    float occ = 0.0;
+    float sca = 1.0;
+    for(int i = 0; i < 5; i++) {
+        float h = 0.01 + 0.12 * float(i) / 4.0;
+        float d = map(pos + h * nor) / gradLen;   // ora e' una DISTANZA, come h
+        occ += (h - d) * sca;
+        sca *= 0.95;
+    }
+    return clamp(1.0 - 3.0 * occ, 0.0, 1.0);
+}
+
+// --- MARCHER CONDIVISO ---
+// Esegue il ray marching sul campo principale (map) o sul campo interno
+// (mapInner) a seconda di useInner. E' la copia ESATTA del loop storico:
+// per la passata 1 (useInner=false) il risultato e' identico al comportamento
+// precedente. tStart permette alla passata 2 di ripartire oltre il primo hit.
+//
+// tReached (out) = la distanza a cui il loop si e' fermato, che serve al ramo
+// opaco per ripartire da li' con la ricerca a cambio di segno (vedi il marcher
+// ibrido in main()). Non cambia nulla per chi la ignora: e' solo un valore in
+// piu' in uscita, il loop e il criterio di hit restano identici.
+//
+// leftScene (out) = il loop e' finito perche' il raggio e' USCITO dalla scena
+// (t > 50), non perche' ha esaurito u_raySteps. Serve al marcher ibrido per
+// distinguere due non-hit che si somigliano ma costano in modo opposto:
+// "sono volato via, non c'e' niente da cercare" (la grande maggioranza dei
+// pixel: sfondo) contro "mi sono arreso a meta' scena" (pochi raggi difficili,
+// dove la superficie puo' essere ancora davanti). Vedi main().
+//
+// crossedSign / tBeforeCross (out) = il campo ha cambiato segno fra due passi
+// consecutivi: il marcher ha SCAVALCATO una superficie senza accorgersene, e
+// tBeforeCross e' l'ultimo t certamente prima di essa. Vedi il test nel loop.
+bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 pHit,
+                out float tReached, out bool leftScene,
+                out bool crossedSign, out float tBeforeCross) {
+    float t_dist = tStart;
+    float d = 0.0;
+    bool hit = false;
+    leftScene = false;
+    crossedSign = false;
+    tBeforeCross = tStart;
+    // valore e t del passo precedente, per rilevare lo scavalcamento
+    float valPrev = 0.0;
+    float tPrev = tStart;
+    vec3 pModel = rayPos + rayDir * t_dist;
+
+    float stepRelax = (ubuf.u_mathParams.w > 0.001) ? ubuf.u_mathParams.w : 0.4;
+
+    for(int i = 0; i < %MAX_RAY_STEPS%; i++) {
+        if (i >= ubuf.u_raySteps) break;
+        pModel = rayPos + rayDir * t_dist;
+
+        // GUSCIO: un solo gradiente del campo grezzo per passo, condiviso dalle 4
+        // map() qui sotto (vedi g_shellGradLen). Costa 3 rawField, cioe' quanto
+        // costava PRIMA una sola delle 4 map(): il ramo Shell passa da 16 a 7
+        // valutazioni del campo per passo. Fuori da Shell non si calcola nulla e
+        // il costo resta identico al comportamento storico.
+        if (ubuf.u_renderMode == 1 && !useInner) {
+            vec2 eg = vec2(0.001, 0.0);
+            float v0 = rawField(pModel);
+            vec3 gg = vec3(rawField(pModel + eg.xyy) - v0,
+                           rawField(pModel + eg.yxy) - v0,
+                           rawField(pModel + eg.yyx) - v0);
+            g_shellGradLen = max(length(gg) / eg.x, 1e-4);
+            g_shellBaseVal = v0;          // map(pModel) lo riusa: 7 -> 6 per passo
+            g_shellBasePos = pModel;
+        }
+
+        float val = useInner ? mapInner(pModel) : map(pModel);
+
+        // GRADIENTE FORWARD (non centrale): il gradiente serve a NORMALIZZARE il
+        // campo grezzo in una stima di distanza (d = val/gradLen) per soglia di hit
+        // e passo. Il punto base del forward-difference e' pModel, di cui abbiamo
+        // GIA' il valore in 'val': riusandolo bastano 3 map() extra invece di 6.
+        // Costo per passo: da 7 a 4 map(). Il forward e' meno accurato del centrale
+        // di O(e) sul valore di gradLen, ma e' poi clampato (>=0.2) e la soglia di
+        // hit e' gia' sub-pixel (max(0.0005, 0.001*t)): lo spostamento del punto di
+        // convergenza e' dello stesso ordine del threshold -> impercettibile.
+        // Intervallo forward = e.x (0.001), quindi divisore e.x (il centrale usava
+        // 2*e.x = 0.002): cosi' gradLen resta sulla stessa scala fisica.
+        vec2 e = vec2(0.001, 0.0);
+        vec3 grad = useInner
+            ? vec3(mapInner(pModel + e.xyy) - val,
+                   mapInner(pModel + e.yxy) - val,
+                   mapInner(pModel + e.yyx) - val)
+            : vec3(map(pModel + e.xyy) - val,
+                   map(pModel + e.yxy) - val,
+                   map(pModel + e.yyx) - val);
+
+        float gradLen = length(grad) / e.x;
+        gradLen = max(gradLen, 0.2);
+        d = val / gradLen;
+
+        // SCAVALCAMENTO. Se il campo ha cambiato SEGNO fra il passo precedente e
+        // questo, una superficie e' stata attraversata NEL MEZZO senza che la
+        // soglia di hit scattasse: i passi erano troppo lunghi (stima di distanza
+        // sbagliata su campi molto anisotropi o a prodotto). Lo segnaliamo col t
+        // del passo PRECEDENTE, che e' l'ultimo punto certamente prima della
+        // superficie: il marcher ibrido riparte da li' e trova il crossing vero.
+        //
+        // Senza questo, su campi-prodotto lo sphere-tracing salta interi pezzi di
+        // oggetto e poi esce dalla scena: MISURATO sul preset "Chain" (6 tori
+        // moltiplicati), 5 raggi su 1681 scavalcano la superficie a t~20 in 101
+        // passi su 400 e finiscono a t>50 -- indistinguibili, senza questo test,
+        // da un raggio di sfondo, con 5 pixel di buco nella superficie.
+        // E' lo stesso difetto che il ramo trasparente documenta piu' sotto
+        // ("puo' OVERSHOOTARE la faccia frontale"): qui lo si rileva invece di
+        // subirlo, e costa un confronto su valori che il loop ha gia'.
+        //
+        // SOLO PER IL CAMPO PRINCIPALE (!useInner). Uscire dal loop qui lascia
+        // hit=false, e chi chiama deve saper ripartire da tBeforeCross: lo fa il
+        // marcher ibrido del campo principale, NON la passata sul campo interno
+        // (mapInner), che userebbe quel false come "nessuna superficie interna" e
+        // perderebbe l'orizzonte dell'ergosfera di Kerr dove oggi lo trova.
+        //
+        // E SOLO IN MODALITA' IBRIDA (u_marcherMode > 0.5): nel cammino storico
+        // questa uscita anticipata cambierebbe il risultato -- il marcher storico
+        // DEVE poter dichiarare il proprio hit anche dopo un cambio di segno, che
+        // e' il caso dei raggi che entrano nel solido. Con il radio su "storico"
+        // il loop e' quindi identico bit per bit a prima.
+        if(ubuf.u_marcherMode > 0.5 && !useInner
+           && i > 0 && val * valPrev <= 0.0 && val != valPrev) {
+            crossedSign = true;
+            tBeforeCross = tPrev;
+            break;
+        }
+
+        float hitThreshold = max(0.0005, 0.001 * t_dist);
+        if(abs(d) < hitThreshold) { hit = true; break; }
+        if(t_dist > 50.0) { leftScene = true; break; }
+        tPrev = t_dist;
+        valPrev = val;
+        t_dist += clamp(abs(d) * stepRelax, 0.0001, 0.5);
+    }
+    // Il gradiente condiviso vale solo dentro questo loop, per il punto del passo
+    // corrente. Chi viene dopo (calcNormal sul punto colpito, calcAO, la passata
+    // trasparente) lavora su punti diversi: lasciarlo acceso gli darebbe il
+    // gradiente di un altro punto e deformerebbe il guscio. 0.0 = "ricalcolalo".
+    g_shellGradLen = 0.0;
+    g_shellBasePos = vec3(1e30);
+    pHit = pModel;
+    tReached = t_dist;
+    return hit;
+}
+
+// --- RICERCA STRATO SUCCESSIVO (per la trasparenza vera) ---
+// Trova la PROSSIMA superficie lungo il raggio partendo da tStart, basandosi sul
+// CAMBIO DI SEGNO del campo grezzo map() invece che sulla stima SDF d=val/gradLen.
+// Perche': la passata trasparente deve attraversare l'interno del solido (map<0)
+// e ritrovare la faccia posteriore. Lo sphere-tracing classico (marchField) usa
+// passi proporzionali a abs(d), che per campi ANISOTROPI (es. ellissoide
+// x^2+y^2+3z^2: gradiente esploso lungo l'asse schiacciato) collassano dentro il
+// volume -> u_raySteps esaurito prima di uscire -> faccia posteriore persa ->
+// "anello"/disco di sfondo pieno. Qui marciamo a PASSO FISSO fitto cercando dove
+// map() cambia segno (attraversamento di superficie), immune all'anisotropia, poi
+// raffiniamo con bisezione per un hit preciso. Robustezza > velocita': serve solo
+// per i pochi strati interni di una superficie trasparente.
+bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
+    // Passo ADATTIVO guidato dalla distanza stimata |map|/|grad|: si accorcia
+    // automaticamente vicino alla superficie e non salta MAI un attraversamento.
+    // Un passo fisso (STEP costante) aliasava: lungo i raggi quasi-tangenti
+    // all'asse schiacciato dell'ellissoide due crossing ravvicinati (< STEP)
+    // venivano saltati a coppie -> pathLen sbagliato in anelli -> banding a moire'
+    // nell'alpha. Cap superiore CAP per non sorvolare comunque gusci sottili.
+    const float CAP    = 0.05;         // passo massimo
+    const float FLOOR  = 0.0008;       // passo minimo (progresso garantito)
+    float tPrev = tStart;
+    float vPrev = map(rayPos + rayDir * tPrev);
+    float t = tStart;
+
+    // Tetto di iterazioni iniettato dal C++: 2000 su desktop (robustezza piena),
+    // ridotto su Android. marchNextLayer costa 4 map() per passo ed e' chiamato
+    // MAX_FACES x 3 volte per pixel nel ramo trasparente: e' il moltiplicatore di
+    // costo dominante che, su un pannello ad alta risoluzione (es. Galaxy Tab S9),
+    // fa sforare il timeout di rendering GPU -> fault -> app killed. Il cap mobile
+    // non cambia l'aspetto (le superfici stanno in poche unita'; a CAP=0.05 servono
+    // pochi passi per attraversarle), ma mette un tetto duro al costo per pixel.
+    for (int i = 0; i < %MAX_LAYER_STEPS%; i++) {
+        // stima distanza con gradiente locale (campo non normalizzato).
+        // GRADIENTE FORWARD (non centrale): il gradiente serve SOLO a dimensionare
+        // il passo adattivo (gradLen ~ |df/ds|), non deve essere preciso. Il punto
+        // base del forward-difference e' pp = rayPos+rayDir*t, di cui abbiamo GIA'
+        // il valore in vPrev: quindi riusiamo vPrev e bastano 3 map() in piu' invece
+        // di 6. Costo per passo: da 7 a 4 map() (3 gradiente + 1 v) — proprio i "4
+        // map() per passo" gia' citati nel commento sopra. Il forward cambia
+        // leggermente gradLen e quindi la lunghezza dei passi, ma NON dove avviene
+        // l'attraversamento di segno: quello e' poi raffinato da bisezione a
+        // precisione sub-pixel, percio' il punto d'intersezione finale e' invariato.
+        vec2 e = vec2(0.002, 0.0);
+        vec3 pp = rayPos + rayDir * t;
+        // GUSCIO: stesso gradiente condiviso di marchField, e qui pesa di piu' --
+        // questo loop e' chiamato MAX_FACES x 3 volte per pixel nel ramo
+        // trasparente, ed e' il moltiplicatore di costo dominante dello shader.
+        if (ubuf.u_renderMode == 1) {
+            vec2 eg = vec2(0.001, 0.0);
+            float v0 = rawField(pp);
+            vec3 gg = vec3(rawField(pp + eg.xyy) - v0,
+                           rawField(pp + eg.yxy) - v0,
+                           rawField(pp + eg.yyx) - v0);
+            g_shellGradLen = max(length(gg) / eg.x, 1e-4);
+            g_shellBaseVal = v0;
+            g_shellBasePos = pp;
+        }
+        vec3 grad = vec3(map(pp + e.xyy) - vPrev,
+                         map(pp + e.yxy) - vPrev,
+                         map(pp + e.yyx) - vPrev);
+        float gradLen = max(length(grad) / e.x, 0.05);
+        float step = clamp(abs(vPrev) / gradLen, FLOOR, CAP);
+
+        float tNextS = t + step;
+        if (tNextS > 50.0) break;
+        float v = map(rayPos + rayDir * tNextS);
+
+        // Attraversamento di superficie: il campo cambia segno tra t e tNextS.
+        if (v * vPrev <= 0.0 && v != vPrev) {
+            // bisezione robusta: segno di riferimento FISSO all'estremo 'a'.
+            float a = t, b = tNextS;
+            float sPrev = sign(vPrev);
+            // La bisezione campiona punti LONTANI da quello per cui il gradiente
+            // condiviso e' stato preparato: qui va spento, o il guscio verrebbe
+            // valutato col gradiente di un altro punto e l'intersezione cadrebbe
+            // nel posto sbagliato. Da qui in poi map() se lo ricalcola.
+            g_shellGradLen = 0.0;
+            g_shellBasePos = vec3(1e30);
+            // iterazioni di bisezione iniettate dal C++: 24 su desktop/iOS (precisione
+            // piena), ridotte su Android per alleggerire il ramo trasparente. A 12
+            // iterazioni l'intervallo si dimezza 2^12 volte: errore < passo/4096,
+            // ampiamente sotto il pixel -> nessuna differenza visibile.
+            for (int k = 0; k < %BISECT_ITERS%; k++) {
+                float m  = 0.5 * (a + b);
+                float vm = map(rayPos + rayDir * m);
+                if (sign(vm) == sPrev) a = m; else b = m;
+            }
+            pHit = rayPos + rayDir * (0.5 * (a + b));
+            return true;
+        }
+        t     = tNextS;
+        vPrev = v;
+    }
+    g_shellGradLen = 0.0;   // vedi marchField: vale solo dentro il loop
+    g_shellBasePos = vec3(1e30);
+    pHit = rayPos + rayDir * tStart;
+    return false;
+}
+
+// --- LUCI IN SPAZIO MODELLO (costanti nel frame) ---
+// mainLight/backLight sono fisse in spazio camera; la matrice camera->modello e'
+// costante per frame. Le calcoliamo UNA volta nel main() (g_mainLight_model /
+// g_backLight_model) invece che dentro shadeSurface: prima ogni chiamata faceva
+// inverse(u_mvMatrix) (matrice 4x4) + 2 normalize, ripetuti fino a MAX_FACES x 3
+// volte per pixel nel ramo trasparente -> decine di inversioni 4x4 identiche per
+// pixel. Ora zero inversioni nel loop di shading.
+vec3 g_mainLight_model;
+vec3 g_backLight_model;
+
+void setupLights() {
+    // LUCE PRINCIPALE: laterale (da destra-alto, spazio camera) per dare modellato
+    // 3D. STESSA luce per opaco e trasparente: cosi' muovere lo slider della
+    // trasparenza NON sposta la sorgente luminosa (lo switch a una headlight nel
+    // ramo trasparente era una pezza del vecchio compositing multi-strato, ora
+    // rimpiazzato dal modello a facce + Beer-Lambert).
+    vec3 mainLight_cam = normalize(vec3(1.0, 1.5, 1.0));
+    vec3 backLight_cam = normalize(vec3(-1.0, -0.5, -2.0));
+
+    mat3 camToModel = mat3(inverse(ubuf.u_mvMatrix));
+    g_mainLight_model = normalize(camToModel * mainLight_cam);
+    g_backLight_model = normalize(camToModel * backLight_cam);
+}
+
+// --- SHADING CONDIVISO ---
+// Illuminazione a 2 punti + AO + speculare, identica al path storico.
+// useInner sceglie le normali del campo giusto. Ritorna l'rgb illuminato
+// (senza alpha): il compositing trasparente avviene nel main().
+// PREREQUISITO: setupLights() dev'essere stata chiamata in main() prima.
+//
+// withAO: l'ambient occlusion (calcAO = 5 map()) entra SOLO nel termine
+// ambient = 0.15*ao. Nel ramo OPACO/ergosfera vale 'true' (aspetto storico).
+// Nel ramo TRASPARENTE lo passiamo 'false': li' lo shading di ogni faccia e'
+// pesato da alpha<1 e dall'assorbimento Beer-Lambert, quindi l'AO e' di fatto
+// invisibile, mentre il suo costo (5 map() per ognuna delle ~MAX_FACES x 2
+// facce per pixel) e' tutt'altro che trascurabile. Saltarlo li' non cambia
+// l'aspetto percepito e toglie il secondo contributo di costo del ramo
+// trasparente dopo marchNextLayer.
+vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner, bool withAO) {
+    vec3 n_model = useInner ? calcNormalInner(pModel) : calcNormal(pModel);
+    vec3 viewDir_model = -rayDir;
+
+    float ao = withAO ? calcAO(pModel, n_model) : 1.0;
+
+    vec3 mainLight_model = g_mainLight_model;
+    vec3 backLight_model = g_backLight_model;
+
+    float diffMain = max(dot(n_model, mainLight_model), 0.0);
+    float diffBack = max(dot(n_model, backLight_model), 0.0) * 0.4;
+
+    // LUCE DI RIEMPIMENTO dall'osservatore, regolata dall'utente (0 = spenta).
+    //
+    // Le due luci qui sopra sono quasi opposte fra loro (dot = -0.79) e lasciano
+    // scoperto un anello di direzioni perpendicolari a entrambe: misurato, il
+    // 17.4% delle facce viste DI FRONTE non riceve luce diffusa e resta col solo
+    // ambiente (0.15*ao, che in una cavita' crolla). Non sono facce viste da
+    // dietro: sono guardate di fronte, solo orientate dove la luce non arriva.
+    // Si nota lungo i path, che portano la camera dentro tubi e cavita', e lo
+    // slider Light non le salva perche' MOLTIPLICA la luce totale: tre volte
+    // quasi-zero resta quasi-zero.
+    //
+    // viewDir_model e' la direzione verso l'osservatore, quindi questa luce
+    // illumina per costruzione cio' che si sta guardando: e' il riempimento piu'
+    // efficace dentro una cavita'.
+    //
+    // REGOLABILE e non fissa: ogni riempimento SEMPRE attivo provato prima
+    // (abs() two-sided, headlight fissa, luci ancorate al mondo) migliorava i
+    // path ma peggiorava le superfici ferme -- coperta corta. A u_fillLight = 0,
+    // che e' il default, questo termine e' esattamente zero e l'immagine e'
+    // identica a quella storica: paga solo chi decide di accenderla, quando gli
+    // serve. NB: NON moltiplicato per ao -- serve proprio dove l'occlusione e'
+    // alta, cioe' dentro le cavita'.
+    //
+    // FORMULA "WRAP" (half-lambert) invece del solo max(dot,0). Con la headlight
+    // pura le facce quasi PERPENDICOLARI alla vista hanno dot ~ 0.05 e restavano
+    // nere anche con lo slider al massimo: misurato, 0.06 su 1 -- e' il motivo
+    // per cui serviva spingere il cursore a fondo senza ottenere nulla. Il
+    // fattore si compone di due parti:
+    //   0.65 * (dot+1)/2  -> la parte DIREZIONALE, che conserva il modellato
+    //                        (le facce rivolte all'osservatore restano piu'
+    //                        chiare di quelle di taglio);
+    //   + 0.35            -> una parte COSTANTE, che prende anche le facce
+    //                        radenti e le stacca dal nero (0.06 -> 0.70).
+    // Il fondo non si alza mai "a tradimento" perche' tutto e' moltiplicato per
+    // u_fillLight, che a zero annulla anche la costante.
+    float fillWrap = 0.65 * (dot(n_model, viewDir_model) * 0.5 + 0.5) + 0.35;
+    float diffFill = fillWrap * ubuf.u_fillLight;
+
+    float ambient  = 0.15 * ao;
+    float totalLight = diffMain + diffBack + diffFill + ambient;
+
+    vec3 textureCol = ubuf.color;
+    %TEXTURE_CODE%
+    vec3 baseColor = textureCol * totalLight * ubuf.u_lightIntensity;
+
+    float spec = 0.0;
+    if (ubuf.useSpecular != 0 && diffMain > 0.0) {
+        vec3 reflectDir = reflect(-mainLight_model, n_model);
+        float specAngle = max(dot(viewDir_model, reflectDir), 0.0);
+        spec = pow(specAngle, 64.0) * 0.4 * ubuf.u_lightIntensity;
+    }
+    return baseColor + vec3(spec);
+}
+
+// Overload storico (con AO): usato dai rami OPACO ed ERGOSFERA, aspetto identico
+// al passato. Il ramo trasparente chiama invece la versione a 4 argomenti con
+// withAO=false. Tenere il wrapper evita di toccare i call site esistenti.
+vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner) {
+    return shadeSurface(pModel, rayDir, useInner, true);
+}
+
+void main() {
+    vec2 ndc = fragCoord * 2.0 - 1.0;
+    ndc.y = -ndc.y;
+
+    // Direzioni luce in spazio modello: calcolate una volta sola per pixel.
+    setupLights();
+
+    vec3 rayPos;
+    vec3 rayDir;
+
+// --- SETUP DEL RAGGIO BASATO SULLA PROIEZIONE ---
+    if (ubuf.u_projMode == 2) {
+        // === MODALITÀ STEREOGRAFICA ===
+
+        // u_mvpMatrix contiene le rotazioni 3D.
+        // Moltiplicandola per l'inversa della ModelView otteniamo la pura Matrice di Proiezione.
+        // Questo garantisce un Aspect Ratio stabile come la roccia in qualsiasi angolazione!
+        mat4 projMatrix = ubuf.u_mvpMatrix * inverse(ubuf.u_mvMatrix);
+        float aspect = abs(projMatrix[1][1] / projMatrix[0][0]);
+
+        vec2 uv_stereo = vec2(ndc.x * aspect, ndc.y);
+
+        // Angolo di campo (45 gradi in radianti)
+        float fov = 0.785398;
+
+        // Vera formula della proiezione Stereografica inversa:
+        // Raggio sullo schermo proporzionale alla tangente del FOV
+        float r = length(uv_stereo) * tan(fov / 4.0);
+
+        // Angolo sferico puro
+        float phi = 2.0 * atan(r);
+
+        vec3 dir_cam;
+        if (length(uv_stereo) < 0.0001) {
+            dir_cam = vec3(0.0, 0.0, -1.0);
+        } else {
+            // Mappiamo le coordinate dal piano sferico 2D al vettore 3D
+            vec2 uv_norm = normalize(uv_stereo);
+            dir_cam = vec3(uv_norm.x * sin(phi), uv_norm.y * sin(phi), -cos(phi));
+        }
+
+        // Convertiamo il raggio dalla telecamera allo spazio del modello
+        mat3 camToModel = mat3(inverse(ubuf.u_mvMatrix));
+        rayDir = normalize(camToModel * dir_cam);
+
+        vec4 camPos_model = inverse(ubuf.u_mvMatrix) * vec4(0.0, 0.0, 0.0, 1.0);
+        rayPos = camPos_model.xyz;
+
+    } else if (ubuf.u_projMode == 0) {
+        // === MODALITÀ ORTOGONALE ===
+        mat4 invMV = inverse(ubuf.u_mvMatrix);
+        mat4 invMVP = inverse(ubuf.u_mvpMatrix);
+
+        // 1. Direzione del raggio: In ortogonale, tutti i raggi sono paralleli all'asse Z della telecamera
+        rayDir = normalize((invMV * vec4(0.0, 0.0, -1.0, 0.0)).xyz);
+
+        // 2. Troviamo la posizione della telecamera nello spazio 3D
+        vec3 camPos_model = (invMV * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+
+        // 3. Troviamo un punto qualsiasi lungo il raggio che corrisponde al pixel corrente
+        vec4 midPoint = invMVP * vec4(ndc.x, ndc.y, 0.5, 1.0);
+        midPoint /= midPoint.w;
+
+        // 4. MAGIA MATEMATICA: Calcoliamo l'esatta distanza tra il midPoint e il piano della telecamera.
+        // Usando il prodotto scalare (dot product), scopriamo quanto dobbiamo far scivolare indietro il raggio.
+        float t_offset = dot(midPoint.xyz - camPos_model, rayDir);
+
+        // 5. Origine perfetta: Allineata al millimetro con la tua telecamera C++
+        rayPos = midPoint.xyz - rayDir * t_offset;
+
+    } else {
+        // === MODALITÀ PROSPETTICA (1) ===
+        mat4 invMVP = inverse(ubuf.u_mvpMatrix);
+
+        // Troviamo il punto di mira al centro della scena (Z = 0.5)
+        vec4 midPoint = invMVP * vec4(ndc.x, ndc.y, 0.5, 1.0);
+        midPoint /= midPoint.w;
+
+        // La telecamera è il punto di origine
+        vec4 camPos_model = inverse(ubuf.u_mvMatrix) * vec4(0.0, 0.0, 0.0, 1.0);
+        rayPos = camPos_model.xyz;
+
+        // Semplice vettore da A a B
+        rayDir = normalize(midPoint.xyz - rayPos);
+    }
+
+    // NEAR CLIPPING PLANE: Ignora i primissimi istanti del raggio
+    float tNear = 0.3;
+
+    // === PASSATA 1: superficie principale (map) — MARCHER IBRIDO ===
+    //
+    // PERCHE' NON BASTA marchField. Il suo test di hit e' abs(val/gradLen) con
+    // gradLen CLAMPATO a 0.2. Il clamp e' il salvavita del PASSO (dove il
+    // gradiente si annulla la stima esplode e il marcher scavalca la superficie),
+    // ma applicato anche al TEST falsifica la distanza: dove |grad| vero e' molto
+    // sotto 0.2, dividere per 0.2 restituisce una distanza molto PIU' PICCOLA del
+    // vero e il marcher dichiara un hit NEL VUOTO. Sono le "saldature": blob di
+    // superficie fantasma che uniscono parti separate (visibilissime fra i tubi
+    // del T^3 nel sotto-tab Cross Section).
+    //
+    // Il sintomo diagnostico: l'artefatto c'e' in OPACO e sparisce appena si
+    // attiva un filo di trasparenza, perche' il ramo trasparente usa
+    // marchNextLayer (cambio di segno) che non puo' fermarsi dove il campo non ha
+    // mai attraversato lo zero -- immune per costruzione.
+    //
+    // MISURATO sul T^3 alla posa di default, griglia 161x161 (25921 raggi):
+    //   - marchField: 1768 hit su 8105 (22%) sono FALSI, a 0.104 unita' di media
+    //     dalla superficie vera (la parete del guscio e' spessa 0.005: 20x fuori);
+    //   - sui 5315 pixel dove i due marcher divergono, marchField atterra a 0.047
+    //     di media (max 0.154) e SEMPRE davanti alla superficie, 5315 casi su 5315;
+    //   - marchNextLayer atterra a 0.00500 in Shell (esattamente lo spessore della
+    //     parete) e 0.00000 in Solid, e non perde NEMMENO UN pixel che marchField
+    //     trovi (0 hit solo-marchField legittimi).
+    //
+    // PERCHE' IBRIDO E NON marchNextLayer PURO. Il puro e' corretto ma costa 7.7x
+    // in Shell / 6.8x in Solid: il suo passo e' cappato a CAP=0.05, quindi striscia
+    // per tutta la distanza a vuoto dal near plane all'oggetto (995 passi mediani
+    // contro 126). Lo sphere-tracing quel vuoto lo copre a balzi da 0.5.
+    // Qui si usano entrambi per cio' in cui sono bravi:
+    //   1. marchField per AVVICINARSI (passi lunghi). Il punto dove si ferma e'
+    //      inaffidabile, e non lo usiamo come hit: ci serve solo il suo t.
+    //   2. marchNextLayer dall'ultimo tratto: copre poca distanza, costa poco, e
+    //      localizza lo zero vero per bisezione.
+    // Costo misurato: 1.77x in Shell, 1.66x in Solid, con risultato IDENTICO al
+    // marcher puro (0 pixel persi, 0 in piu', stessa distanza dalla superficie).
+    //
+    // NB: non serve alcun backoff prima di ripartire (misurato: 0.0, 0.05, 0.2 e
+    // 0.4 danno lo stesso risultato identico), perche' marchNextLayer parte
+    // valutando il campo a tRestart e ne cerca il cambio di segno: se
+    // l'avvicinamento si e' fermato GIA' dentro il solido, il primo crossing che
+    // trova e' l'uscita, cioe' comunque una faccia reale.
+    //
+    // TENTATIVI PRECEDENTI, da non rifare (sono in memoria, entrambi revertati):
+    // (a) usare il gradiente vero nel test + "val <= 0.0" come hit: mangiava
+    //     superficie legittima sui raggi tangenti; (b) togliere il "* gradLen" dal
+    //     guscio: bucava la lamina sottile (anelli e sabbiatura dentro i tubi).
+    // Entrambi passavano i test numerici e fallivano a schermo: qui la differenza
+    // e' che non si tocca la stima di distanza, si cambia CHI decide l'hit.
+    // SCELTA DELL'UTENTE (radio nel dock Ray Marching, salvata nel preset):
+    // u_marcherMode 0 = sphere tracing storico, 1 = ibrido. A 0 il cammino e'
+    // identico bit per bit a prima dell'introduzione dell'ibrido -- e' il default
+    // per i record 3D esistenti, che con l'ibrido mostravano difetti sui bordi.
+    bool useHybrid = (ubuf.u_marcherMode > 0.5);
+
+    vec3 pModel;
+    float tApproach;
+    bool leftScene, crossedSign;
+    float tBeforeCross;
+    bool approached = marchField(rayPos, rayDir, false, tNear, pModel, tApproach,
+                                 leftScene, crossedSign, tBeforeCross);
+
+    // I TRE ESITI DELL'AVVICINAMENTO. Distinguerli e' cio' che rende l'ibrido
+    // conveniente: due non-hit che si somigliano hanno costi opposti.
+    //
+    //  1. HA CONVERGIUTO: il suo t e' vicino alla superficie. Si riparte da li'
+    //     e la ricerca a cambio di segno copre pochissima distanza -> costa poco.
+    //
+    //  2. HA SCAVALCATO una superficie (crossedSign): i passi erano troppo lunghi
+    //     e il campo ha cambiato segno nel mezzo. Si riparte da tBeforeCross,
+    //     l'ultimo t certamente prima della superficie. E' il caso dei
+    //     campi-prodotto (preset "Chain"), dove senza questo ramo il raggio
+    //     scavalca l'oggetto e poi esce dalla scena, indistinguibile dallo sfondo.
+    //
+    //  3. E' USCITO DALLA SCENA (leftScene, t>50) senza mai cambiare segno: il
+    //     raggio e' davvero volato via. E' SFONDO e non c'e' nulla da cercare: si
+    //     chiude qui, senza seconda marcia. E' il caso della MAGGIORANZA dei pixel
+    //     (misurati 17774 raggi su 25921, il 69%, alla posa di default del T^3),
+    //     ed e' esattamente il motivo per cui l'ibrido resta a 1.7x: se anche
+    //     questi rifacessero la marcia da tNear il costo salirebbe a 8.5x, PEGGIO
+    //     del marcher puro (misurato).
+    //     NB: "uscito" da solo NON basta a concludere che sia sfondo -- e' per
+    //     questo che il caso 2 viene prima e va rilevato dentro il loop.
+    //
+    //  4. HA ESAURITO u_raySteps restando nella scena: si e' arreso a meta'
+    //     strada e la superficie puo' essere ancora DAVANTI. Qui tApproach non
+    //     e' un punto di partenza valido, quindi si rifa' la marcia da tNear,
+    //     pagando il costo pieno. Sono pochi raggi (42-48 su 25921 sul T^3),
+    //     quindi non spostano il conto.
+    bool rayEscaped = (!approached && leftScene && !crossedSign);
+
+    bool hit;
+    if (!useHybrid) {
+        // --- CAMMINO STORICO: l'hit e' quello di marchField, come sempre. ---
+        // pModel e' gia' il punto di stop del marcher: nessuna seconda passata.
+        hit = approached;
+    } else if (rayEscaped) {
+        hit = false;
+        pModel = rayPos + rayDir * tNear;   // valore definito per i rami sotto
+    } else {
+        // L'hit lo dichiara la ricerca a cambio di segno: e' l'unica immune ai
+        // falsi hit del clamp (vedi sopra).
+        float tRestart = tNear;
+        if (approached)        tRestart = tApproach;
+        else if (crossedSign)  tRestart = tBeforeCross;
+        hit = marchNextLayer(rayPos, rayDir, tRestart, pModel);
+    }
+
+    bool hasInner = (ubuf.u_dummyZero.y > 0.5);
+
+    if (!hasInner) {
+        // --- CAMMINO STORICO: una sola superficie con ubuf.alpha ---
+        if (!hit) { discard; return; }
+
+        float aFront = clamp(ubuf.alpha, 0.0, 1.0);
+
+        // OPACA: comportamento storico identico, nessuna seconda passata.
+        // frontRGB (shading completo CON AO) si calcola SOLO qui: nel ramo
+        // trasparente sotto non veniva usato, quindi prima era shading sprecato
+        // per pixel a ogni superficie con alpha<1.
+        if (aFront >= 0.999) {
+            vec3 frontRGB = shadeSurface(pModel, rayDir, false);
+            FragColor = vec4(frontRGB, 1.0);
+            return;
+        }
+
+        // === TRASPARENZA VERA su superficie singola ===
+        // La trasparenza storica (vec4(rgb, alpha)) si limitava a sfumare la
+        // faccia frontale sullo SFONDO: la parte nascosta dell'oggetto non era
+        // mai marciata, quindi non si vedeva attraverso. Qui riprendiamo il
+        // marcher sullo STESSO campo (map) appena oltre il primo hit per trovare
+        // gli strati retrostanti (faccia posteriore / pieghe interne) e li
+        // compositiamo "over". E' la stessa tecnica dell'ergosfera, ma sul
+        // medesimo campo invece di un campo interno distinto.
+        // Modello a FACCE + Beer-Lambert sul CAMMINO INTERNO (continuo).
+        // Iteriamo gli attraversamenti REALI di superficie (entrata/uscita, e di
+        // nuovo entrata/uscita per geometrie concave). Per ogni coppia
+        // entrata->uscita l'opacita' del segmento dipende dalla LUNGHEZZA del
+        // cammino dentro il solido, non dal numero di campioni: cosi' non si crea
+        // banding (gli "anelli" nascevano dal compositing di tanti strati con
+        // alpha quantizzato dal passo). Il colore di ogni faccia (front e back)
+        // e' compositato "over" front-to-back.
+        const int MAX_FACES = %MAX_FACES%; // facce massime (geometrie stratificate).
+        // Valore iniettato dal C++: 8 su desktop, ridotto su Android (Adreno). Il ramo
+        // trasparente fa MAX_FACES x 3 marchNextLayer (loop di marcia) per pixel: su un
+        // campo SDF pesante + alpha<1, a 8 facce il costo supera il timeout di rendering
+        // GPU e l'Adreno va in fault (verificato su Galaxy Tab S9: N-Tours trasparente
+        // -> frame ~1700ms -> gpuSnapshot -> context lost; opaco gira). Vedi createImplicitFragmentShader.
+        vec3  accumRGB = vec3(0.0);
+        float accumA   = 0.0;
+
+        // coeff. di assorbimento tarato perche' uno spessore UNITARIO dia
+        // un'attenuazione pari ad aFront: sigma = -ln(1-aFront).
+        float sigma = -log(max(1.0 - aFront, 1e-4));
+
+        // IMPORTANTE: NON usiamo pModel (primo hit di marchField) come faccia di
+        // entrata. Lo sphere-tracing con stima d=val/gradLen su campo ANISOTROPO
+        // (ellissoide) puo' OVERSHOOTARE la faccia frontale e colpire direttamente
+        // la POSTERIORE: in quel caso partire da li' lascia il marcher gia' FUORI
+        // dal solido, nessuna uscita davanti -> guscio mancato -> sfondo in anelli.
+        // Per la trasparenza ricostruiamo TUTTE le facce da zero con la ricerca a
+        // cambio-segno (marchNextLayer), affidabile a prescindere dall'anisotropia.
+        vec3  pEnter;
+        bool  more = marchNextLayer(rayPos, rayDir, tNear, pEnter);
+        for (int f = 0; f < MAX_FACES && more; f++) {
+            // --- FACCIA DI ENTRATA: la sua riflessione (shading) si compone ---
+            // withAO=false: l'AO e' invisibile sotto alpha<1 + Beer-Lambert.
+            vec3 enterRGB = shadeSurface(pEnter, rayDir, false, false);
+            // alpha della superficie frontale (riflesso di Fresnel morbido):
+            // contributo di superficie, NON dipende dallo spessore.
+            float aSurf = aFront;
+            accumRGB += (1.0 - accumA) * aSurf * enterRGB;
+            accumA   += (1.0 - accumA) * aSurf;
+
+            // --- USCITA: prossimo crossing = faccia posteriore di questo guscio.
+            vec3 pExit;
+            float tEnter = dot(pEnter - rayPos, rayDir);
+            bool gotExit = marchNextLayer(rayPos, rayDir, tEnter + 0.005, pExit);
+            if (!gotExit) { more = false; break; }
+
+            // --- ASSORBIMENTO DEL VOLUME tra entrata e uscita (Beer-Lambert) ---
+            // dipende SOLO dalla lunghezza del cammino interno -> continuo,
+            // niente banding; e il centro (cammino lungo) e' piu' opaco dei bordi.
+            float pathLen = dot(pExit - rayPos, rayDir) - tEnter;
+            float aVol    = 1.0 - exp(-sigma * max(pathLen, 0.0));
+            // il "colore" del volume e' lo shading della faccia di uscita
+            // (withAO=false: vale lo stesso ragionamento della faccia di entrata)
+            vec3 exitRGB  = shadeSurface(pExit, rayDir, false, false);
+            accumRGB += (1.0 - accumA) * aVol * exitRGB;
+            accumA   += (1.0 - accumA) * aVol;
+
+            // --- prossimo guscio (geometrie concave): cerca la prossima ENTRATA
+            vec3 pNext;
+            float tExit = dot(pExit - rayPos, rayDir);
+            more = marchNextLayer(rayPos, rayDir, tExit + 0.005, pNext);
+            pEnter = pNext;
+            if (accumA > 0.995) break;     // gia' opaco: inutile proseguire
+        }
+
+        // accumRGB e' PRE-moltiplicato per accumA. La pipeline implicita usa blend
+        // a alpha dritto (srcColor = SrcAlpha), quindi l'hardware rimoltiplichera'
+        // per FragColor.a: dividiamo qui per non applicarlo due volte. Lo sfondo
+        // resta visibile solo via (1-accumA) DIETRO la sagoma.
+        vec3 straightRGB = accumRGB / max(accumA, 1e-4);
+        FragColor = vec4(straightRGB, accumA);
+        return;
+    }
+
+    // === MODO ERGOSFERA: superficie esterna TRASPARENTE + interna OPACA ===
+    // La passata 1 (map) e' la superficie ESTERNA (limite statico): trasparente
+    // con alpha = ubuf.alpha (slider UI). Poi marciamo sul campo INTERNO opaco
+    // (orizzonte) per compositare cio' che si vede ATTRAVERSO la trasparenza.
+    vec3  outerRGB   = vec3(0.0);
+    float outerAlpha = 0.0;
+    float tInnerStart = tNear;     // da dove parte la passata interna
+
+    if (hit) {
+        outerRGB   = shadeSurface(pModel, rayDir, false);
+        outerAlpha = clamp(ubuf.alpha, 0.0, 1.0);
+        // riprendi l'interna appena oltre il guscio esterno colpito
+        tInnerStart = dot(pModel - rayPos, rayDir) + 0.02;
+    }
+
+    // === PASSATA 2: campo interno (mapInner) — opaco, sullo sfondo ===
+    vec3 pInner;
+    // Le uscite diagnostiche non servono al campo interno (nessun marcher ibrido
+    // qui: mapInner e' un campo distinto, e la direttiva //INNER: non ha mostrato
+    // saldature). Si dichiarano solo per la firma.
+    float tInnerReached, tInnerCross;
+    bool innerLeftScene, innerCrossed;
+    bool hitInner = marchField(rayPos, rayDir, true, tInnerStart, pInner,
+                               tInnerReached, innerLeftScene,
+                               innerCrossed, tInnerCross);
+
+    if (hitInner) {
+        vec3 innerRGB = shadeSurface(pInner, rayDir, true);
+        // compositing "over": esterna trasparente sopra interna opaca
+        vec3 outRGB = mix(innerRGB, outerRGB, outerAlpha);
+        FragColor = vec4(outRGB, 1.0);
+    } else if (hit) {
+        // solo l'esterna trasparente, sullo sfondo
+        FragColor = vec4(outerRGB, outerAlpha);
+    } else {
+        discard;
+    }
+}

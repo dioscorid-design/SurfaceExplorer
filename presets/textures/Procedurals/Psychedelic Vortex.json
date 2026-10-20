@@ -1,0 +1,13 @@
+{
+    "code": "// --- PSYCHEDELIC VORTEX (Texture mode) ---\n// Use sliders A and B to change the effect in real time!\n\n// We set default values if the sliders are at 0\nfloat speed = 5.0;    // animation speed\nfloat scale = 20.0;   // pattern scale\n\n// We move the center of the u,v coordinates to the center of the screen\nvec2 center = vec2(u, v) - 0.5;\nfloat dist = length(center);\nfloat angle = atan(center.y, center.x);\n\n// We compute the wave from the distance, the angle and the TIME (t)\nfloat wave = sin(dist * scale - t * speed + angle * 4.0);\n\n// Colori dinamici\nfloat r = 0.5 + 0.5 * wave;\nfloat g = 0.2 + 0.3 * sin(t); // The green pulses gently over time\nfloat b = 0.5 + 0.5 * cos(dist * 10.0 - t);\n\nreturn vec3(r, g, b);\n",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "hasCustomColors": true,
+    "isImplicitMode": false,
+    "name": "Psychedelic Vortex",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

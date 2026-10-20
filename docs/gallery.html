@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gallery &mdash; Surface Explorer</title>
+    <meta name="description" content="Images of surfaces rendered with Surface Explorer: parametric geometries, implicit surfaces, 4D projections and procedural textures.">
+
+    <style>
+        :root {
+            --bg: #1e1e1e;
+            --fg: #d4d4d4;
+            --accent: #33cc33;
+            --link: #569cd6;
+            --blue: #007acc;
+            --panel: #252526;
+            --border: #3a3a3a;
+            --muted: #888;
+        }
+        * { box-sizing: border-box; }
+        body {
+            background-color: var(--bg);
+            color: var(--fg);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0 20px 60px;
+            line-height: 1.6;
+        }
+        .wrap { max-width: 1100px; margin: 0 auto; }
+
+        nav {
+            padding: 18px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 15px;
+        }
+        nav a { color: var(--link); text-decoration: none; margin-right: 18px; }
+        nav a:hover { text-decoration: underline; }
+        nav a.here { color: var(--accent); font-weight: bold; }
+
+        header { text-align: center; padding: 40px 0 10px; }
+        h1 { color: var(--accent); font-size: 30px; margin: 0 0 8px; }
+        header p { color: var(--muted); margin: 0; font-size: 16px; }
+
+        h2 {
+            color: var(--blue);
+            font-size: 20px;
+            margin: 40px 0 4px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 6px;
+        }
+        .section-note { color: var(--muted); font-size: 14.5px; margin: 0 0 18px; }
+
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 18px;
+        }
+        figure {
+            margin: 0;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        figure img {
+            display: block;
+            width: 100%;
+            height: auto;
+            background: #101010;
+            cursor: zoom-in;
+            transition: opacity .15s;
+        }
+        figure a:hover img { opacity: .85; }
+        figcaption {
+            padding: 11px 14px;
+            font-size: 14px;
+            color: var(--fg);
+        }
+        figcaption .sub { display: block; color: var(--muted); font-size: 13px; }
+
+        a { color: var(--link); }
+        footer {
+            text-align: center;
+            color: var(--muted);
+            font-size: 13px;
+            margin-top: 52px;
+            border-top: 1px solid var(--border);
+            padding-top: 20px;
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+
+    <nav>
+        <a href="index.html">Home</a>
+        <a href="gallery.html" class="here">Gallery</a>
+        <a href="videos.html">Videos</a>
+        <a href="documentation.html">User Manual</a>
+        <a href="script_guide.html">Script Guide</a>
+    </nav>
+
+    <header>
+        <h1>Gallery</h1>
+        <p>Surfaces rendered in real time with Surface Explorer</p>
+    </header>
+
+    <!--
+        HOW TO ADD AN IMAGE
+        ===================
+        1. Drop the file into the right subfolder of docs/media/Gallery/
+           (Parametric or Implicit)
+        2. Copy the template below into the right section, remove the comment
+           markers, and change file name, title and subtitle
+        3. Commit and push: the site rebuilds on its own
+
+        Keep images under ~1 MB each: PNG for flat-shaded surfaces and
+        wireframes, JPEG (quality ~85) for anything with gradients or textures.
+        A width of 1600 px is plenty — the grid never shows them larger.
+
+        Several figures in a row need one <div class="gallery"> around them:
+        that is what lays them out on a grid.
+
+        ----- TEMPLATE, copy from here -----
+
+        <div class="gallery">
+
+            <figure>
+                <a href="media/Gallery/Parametric/NAME.png" target="_blank" rel="noopener">
+                    <img src="media/Gallery/Parametric/NAME.png" alt="DESCRIPTION" loading="lazy">
+                </a>
+                <figcaption>
+                    TITLE
+                    <span class="sub">preset name, or what makes it interesting</span>
+                </figcaption>
+            </figure>
+
+        </div>
+
+        ----- to here -----
+    -->
+
+    <h2>Parametric surfaces</h2>
+    <p class="section-note">Equation-driven geometries, including 4D shapes projected down to three dimensions.</p>
+
+    <div class="gallery">
+
+        <figure>
+            <a href="media/Gallery/Parametric/klein-bottle-3d.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/klein-bottle-3d.jpg" alt="Klein bottle immersed in three dimensions" loading="lazy">
+            </a>
+            <figcaption>
+                3D Klein Bottle
+                <span class="sub">the bottle passes through itself: no boundary, no inside</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/klein-bottle-3d-2.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/klein-bottle-3d-2.jpg" alt="Klein bottle immersed in three dimensions, second view" loading="lazy">
+            </a>
+            <figcaption>
+                3D Klein Bottle
+                <span class="sub">another view of the same self-intersecting immersion</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/calabi-yau.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/calabi-yau.jpg" alt="Calabi-Yau quintic, cross-section of the six-dimensional manifold" loading="lazy">
+            </a>
+            <figcaption>
+                Calabi-Yau Quintic
+                <span class="sub">cross-section of the quintic threefold</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/clifford-tori-labyrinth.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/clifford-tori-labyrinth.jpg" alt="Tubes around the coordinate great circles of the 3-sphere, opening into one another where they meet" loading="lazy">
+            </a>
+            <figcaption>
+                Clifford Tori Labyrinth
+                <span class="sub">tubes around the great circles of S&sup3; in the coordinate planes, opened into one another where the circles meet</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/coiled-coil.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/coiled-coil.jpg" alt="Coiled coil, a slice of the three-torus" loading="lazy">
+            </a>
+            <figcaption>
+                Coiled Coil
+                <span class="sub">a coil wound on a coil: a slice of S&sup1;&times;S&sup1;&times;S&sup1;</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/cone-distortion.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/cone-distortion.jpg" alt="Double cone twisted into spiral fins" loading="lazy">
+            </a>
+            <figcaption>
+                Cone Distortion
+                <span class="sub">a double cone whose horizontal slices turn through one full revolution from bottom to top</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/cuspid-koranyi-sphere.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/cuspid-koranyi-sphere.jpg" alt="Cuspid Koranyi sphere in Heisenberg geometry" loading="lazy">
+            </a>
+            <figcaption>
+                Cuspid Kor&aacute;nyi Sphere
+                <span class="sub">the Kor&aacute;nyi sphere of the Heisenberg group, its profile sharpened into cusps at the poles</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/eight-torus.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/eight-torus.jpg" alt="Figure-eight torus" loading="lazy">
+            </a>
+            <figcaption>
+                Eight Torus
+                <span class="sub">a torus whose profile is a figure-eight</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/enneper-border.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/enneper-border.jpg" alt="Boundary curve of Enneper's surface drawn as a tube" loading="lazy">
+            </a>
+            <figcaption>
+                Enneper Border
+                <span class="sub">the edge of Enneper's minimal surface as a tube, with the surface itself made invisible</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/epicycloids.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/epicycloids.jpg" alt="Four stacked epitrochoids drawn as tubes" loading="lazy">
+            </a>
+            <figcaption>
+                Epicycloids
+                <span class="sub">a point on a small circle rolling around a larger one traces 3, 4, 5 and 6 lobes, one curve per layer</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/figure-eight-knot.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/figure-eight-knot.jpg" alt="Figure-eight knot drawn as a tube" loading="lazy">
+            </a>
+            <figcaption>
+                Figure-Eight Knot
+                <span class="sub">four crossings: the simplest knot after the trefoil</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/fractal-wave.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/fractal-wave.jpg" alt="Concentric waves with fractal detail" loading="lazy">
+            </a>
+            <figcaption>
+                Fractal Wave
+                <span class="sub">concentric ripples with fractal detail, seen up close</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/fresnel.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/fresnel.jpg" alt="Lobed surface whose radius is a root of a cubic, textured with the surface of Mars" loading="lazy">
+            </a>
+            <figcaption>
+                Fresnel
+                <span class="sub">its radius is one root of a cubic with the symmetry of the cube, perturbed by noise</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/helicoid.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/helicoid.jpg" alt="Helicoid with a border along its edges" loading="lazy">
+            </a>
+            <figcaption>
+                Helicoid
+                <span class="sub">swept by a straight line that turns as it rises; a minimal surface, like a soap film</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/helix-bundle.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/helix-bundle.jpg" alt="Five intertwined helices drawn as tubes" loading="lazy">
+            </a>
+            <figcaption>
+                Helix Bundle
+                <span class="sub">five helices around one axis, each a fifth of a turn behind the next</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/hopf-fibers.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/hopf-fibers.jpg" alt="Ten linked great circles of the 3-sphere" loading="lazy">
+            </a>
+            <figcaption>
+                Hopf Fibers
+                <span class="sub">ten circles of the Hopf fibration, five on the Clifford torus and five on a thinner one; any two are linked once</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/hopf-fibers-ring.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/hopf-fibers-ring.jpg" alt="Eight linked circles fanned around a common axis" loading="lazy">
+            </a>
+            <figcaption>
+                Hopf Fibers Ring
+                <span class="sub">eight Hopf fibers on the Clifford torus, in stereographic projection: every pair is linked once</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/hopf-tori.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/hopf-tori.jpg" alt="Nested Hopf tori in the 3-sphere, seen from close range, some solid and some as wireframe" loading="lazy">
+            </a>
+            <figcaption>
+                Hopf Tori
+                <span class="sub">tori of the Hopf fibration nested in S&sup3;, each drawn from its own mesh &mdash; seen from within the innermost one</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/h2xr-slice.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/h2xr-slice.jpg" alt="Slice of the H2xR geometry" loading="lazy">
+            </a>
+            <figcaption>
+                H&sup2;&times;R Slice
+                <span class="sub">a slice of H&sup2;&times;R, one of the eight Thurston geometries</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/hyperbolic-catenoid.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/hyperbolic-catenoid.jpg" alt="Catenoid in hyperbolic space with a fractal texture" loading="lazy">
+            </a>
+            <figcaption>
+                Hyperbolic Catenoid
+                <span class="sub">the Euclidean minimal surface pulled into hyperbolic space</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/hyperbolic-ellipsoid.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/hyperbolic-ellipsoid.jpg" alt="Ellipsoid in hyperbolic geometry" loading="lazy">
+            </a>
+            <figcaption>
+                Hyperbolic Ellipsoid
+                <span class="sub">the ellipsoid as hyperbolic geometry reshapes it</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/enneper.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/enneper.jpg" alt="Enneper surface mapped into the Poincar&eacute; ball, textured with the surface of Venus" loading="lazy">
+            </a>
+            <figcaption>
+                Hyperbolic Enneper
+                <span class="sub">the Euclidean minimal surface pulled into the hyperbolic ball &mdash; texture: Venus surface map by <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a></span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/hyperbolic-helicoid.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/hyperbolic-helicoid.jpg" alt="Helicoid of hyperbolic space in the Poincare ball model" loading="lazy">
+            </a>
+            <figcaption>
+                Hyperbolic Helicoid
+                <span class="sub">a helicoid in hyperbolic space, drawn in the Poincar&eacute; ball: its turns shrink toward the boundary sphere</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/hyperbolic-mobius-band.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/hyperbolic-mobius-band.jpg" alt="Mobius band in hyperbolic space, nested transparent shells" loading="lazy">
+            </a>
+            <figcaption>
+                Hyperbolic M&ouml;bius Band
+                <span class="sub">one side and one edge, carried into hyperbolic space &mdash; texture &ldquo;Squished Coordinates&rdquo; by pyBlob &mdash; <a href="https://www.shadertoy.com/view/W3KcWd" target="_blank" rel="noopener">shadertoy.com/view/W3KcWd</a></span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/hyperbolic-torus.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/hyperbolic-torus.jpg" alt="Torus in hyperbolic space" loading="lazy">
+            </a>
+            <figcaption>
+                Hyperbolic Torus
+                <span class="sub">the torus carried into hyperbolic space</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/hyperbolic-twisted-ribbon.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/hyperbolic-twisted-ribbon.jpg" alt="Twisted ribbon in hyperbolic space" loading="lazy">
+            </a>
+            <figcaption>
+                Hyperbolic Twisted Ribbon
+                <span class="sub">a ribbon given a half-twist and carried into hyperbolic space</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/hyperboloid.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/hyperboloid.jpg" alt="Hyperboloid with a coordinate grid" loading="lazy">
+            </a>
+            <figcaption>
+                Hyperboloid
+                <span class="sub">the coordinate grid follows the curvature of the surface</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/hyperboloid-hyperbolic-geometry.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/hyperboloid-hyperbolic-geometry.jpg" alt="Hyperboloid in hyperbolic geometry with a fractal boundary" loading="lazy">
+            </a>
+            <figcaption>
+                Hyperboloid in Hyperbolic Geometry
+                <span class="sub">a fractal texture breaks the edge into filaments</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/hyperboloid-poincare-ball.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/hyperboloid-poincare-ball.jpg" alt="Hyperboloid drawn in the Poincare ball model" loading="lazy">
+            </a>
+            <figcaption>
+                Hyperboloid in Poincar&eacute;'s Ball
+                <span class="sub">the hyperboloid seen inside the ball model of hyperbolic space</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/kerr-space-slice.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/kerr-space-slice.jpg" alt="Slice of the Kerr geometry textured as a star field" loading="lazy">
+            </a>
+            <figcaption>
+                Kerr Space Slice
+                <span class="sub">texture by nayk &mdash; <a href="https://www.shadertoy.com/view/tXKfz1" target="_blank" rel="noopener">shadertoy.com/view/tXKfz1</a></span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/lissajous-curve.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/lissajous-curve.jpg" alt="Lissajous curve in space drawn as a tube" loading="lazy">
+            </a>
+            <figcaption>
+                Lissajous Curve
+                <span class="sub">one sine wave per axis, at different frequencies, traced together until the curve closes</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/mobius-band.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/mobius-band.jpg" alt="Mobius band rendered as a solid surface" loading="lazy">
+            </a>
+            <figcaption>
+                M&ouml;bius Band
+                <span class="sub">the classic one-sided surface, drawn solid</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/mobius-border.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/mobius-border.jpg" alt="Single boundary curve of a Mobius band drawn as a tube" loading="lazy">
+            </a>
+            <figcaption>
+                M&ouml;bius Border
+                <span class="sub">the M&ouml;bius band has a single edge: with the band hidden, it is one closed loop</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/nested-ellipsoids.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/nested-ellipsoids.jpg" alt="Four nested ellipsoids, transparent and in wireframe" loading="lazy">
+            </a>
+            <figcaption>
+                Nested Ellipsoids
+                <span class="sub">four ellipsoids one inside another, each with its own colour, transparency or wireframe</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/nil-deforming-torus.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/nil-deforming-torus.jpg" alt="Torus deforming in Nil geometry" loading="lazy">
+            </a>
+            <figcaption>
+                Nil Deforming Torus
+                <span class="sub">a torus carried through the Heisenberg group</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/nil-geodesic-sphere.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/nil-geodesic-sphere.jpg" alt="Geodesic sphere of the Nil geometry in Cartesian coordinates" loading="lazy">
+            </a>
+            <figcaption>
+                Nil Geodesic Sphere
+                <span class="sub">geodesics of the Heisenberg group, all stopped at the same distance</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/nil-twisted-geodesic-sphere.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/nil-twisted-geodesic-sphere.jpg" alt="Twisted geodesic sphere in Nil geometry" loading="lazy">
+            </a>
+            <figcaption>
+                Nil Twisted Geodesic Sphere
+                <span class="sub">points at fixed geodesic distance in Nil</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/oloid.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/oloid.jpg" alt="Oloid, the convex hull of two perpendicular circles" loading="lazy">
+            </a>
+            <figcaption>
+                Oloid
+                <span class="sub">the convex hull of two perpendicular circles</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/poincare-ball-slice.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/poincare-ball-slice.jpg" alt="Slice of the Poincare ball model" loading="lazy">
+            </a>
+            <figcaption>
+                Poincar&eacute; Ball Slice
+                <span class="sub">layer upon layer, each one visible through the next</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/poincares-catenoid.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/poincares-catenoid.jpg" alt="Catenoid drawn in the Poincare ball model" loading="lazy">
+            </a>
+            <figcaption>
+                Poincar&eacute;'s Catenoid
+                <span class="sub">the catenoid compressed into the ball model of hyperbolic space</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/poincares-hyperboloid.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/poincares-hyperboloid.jpg" alt="Hyperboloid drawn in the Poincare ball model" loading="lazy">
+            </a>
+            <figcaption>
+                Poincar&eacute;'s Hyperboloid
+                <span class="sub">a ruled surface inside the hyperbolic ball</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/pseudo-catenoid.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/pseudo-catenoid.jpg" alt="Twisted catenoid with curling fins" loading="lazy">
+            </a>
+            <figcaption>
+                Pseudo Catenoid
+                <span class="sub">a catenoid wrung around a crosswise axis into curling fins</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/pseudo-iwasawa-torus.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/pseudo-iwasawa-torus.jpg" alt="Torus built from the Iwasawa decomposition" loading="lazy">
+            </a>
+            <figcaption>
+                Pseudo-Iwasawa Torus
+                <span class="sub">from the Iwasawa decomposition of SL(2,R)</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/pseudo-wormhole.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/pseudo-wormhole.jpg" alt="Pseudo-wormhole surface" loading="lazy">
+            </a>
+            <figcaption>
+                Pseudo-Wormhole
+                <span class="sub">two mouths joined through a throat</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/pulsating-torus-s2xr.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/pulsating-torus-s2xr.jpg" alt="Pulsating torus in the S2xR geometry" loading="lazy">
+            </a>
+            <figcaption>
+                Pulsating Torus in S&sup2;&times;R
+                <span class="sub">a tube around the equator, its section pulsing three times per turn</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/s2xr-pulsating-torus.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/s2xr-pulsating-torus.jpg" alt="Pulsating torus in the S2xR geometry" loading="lazy">
+            </a>
+            <figcaption>
+                Pulsating Torus Inside
+                <span class="sub">the same torus of S&sup2;&times;R, seen from within</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/sol-torus.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/sol-torus.jpg" alt="Torus seen with the geometry of Sol" loading="lazy">
+            </a>
+            <figcaption>
+                Sol Torus
+                <span class="sub">area preserved, shape stretched exponentially</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/spherical-cycloid-tube.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/spherical-cycloid-tube.jpg" alt="Tube following a spherical cycloid traced by one cone rolling on another, in the looped regime" loading="lazy">
+            </a>
+            <figcaption>
+                Spherical Cycloid Tube
+                <span class="sub">a cone rolling on another traces this curve on the sphere; past the cusp threshold each petal opens into a loop</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/s2xs1-loxodrome.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/s2xs1-loxodrome.jpg" alt="Torus in S2xS1 whose sections spiral over a sphere" loading="lazy">
+            </a>
+            <figcaption>
+                S&sup2;&times;S&sup1; Loxodrome
+                <span class="sub">a surface, not a path: each section spirals over a sphere, a Clelia curve rather than a true loxodrome</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/s2xs1-slice.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/s2xs1-slice.jpg" alt="Sliding spring in S2xS1: a torus whose section turns into the fourth dimension" loading="lazy">
+            </a>
+            <figcaption>
+                S&sup2;&times;S&sup1; Sliding Spring
+                <span class="sub">winding W = v + 3u: three turns of the section into the fourth dimension for every lap</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/s3-ellipsoid.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/s3-ellipsoid.jpg" alt="Ellipsoid built inside the 3-sphere" loading="lazy">
+            </a>
+            <figcaption>
+                S&sup3; Ellipsoid
+                <span class="sub">an ellipsoid living in the 3-sphere</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/s3-slice.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/s3-slice.jpg" alt="Slice of the three-sphere" loading="lazy">
+            </a>
+            <figcaption>
+                S&sup3; Slice
+                <span class="sub">a slice of the three-sphere brought down to 3D</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/symmetrized-double-enneper.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/symmetrized-double-enneper.jpg" alt="Symmetrized double Enneper surface forming two tiers of arches around the axis" loading="lazy">
+            </a>
+            <figcaption>
+                Symmetrized Double Enneper
+                <span class="sub">two Enneper ends joined and closed into a ring of arches</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/toroidal-knot.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/toroidal-knot.jpg" alt="Geodesics of the 3-sphere leaving a trefoil knot, in wireframe with their border" loading="lazy">
+            </a>
+            <figcaption>
+                Toroidal Knot
+                <span class="sub">great circles of S&sup3; leaving a trefoil knot wound around a great circle, with the border along both ends</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/trefoil-trio.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/trefoil-trio.jpg" alt="Three trefoil knots in red, yellow and blue" loading="lazy">
+            </a>
+            <figcaption>
+                Trefoil Trio
+                <span class="sub">three copies of one trefoil, each turned a third of a turn and lifted; the middle one half as thick</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/tri-twisted-ribbon.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/tri-twisted-ribbon.jpg" alt="One-sided ribbon of straight segments with three half-twists" loading="lazy">
+            </a>
+            <figcaption>
+                Tri-Twisted Ribbon
+                <span class="sub">straight segments through a circle making three half-turns on the way round: a one-sided band whose single edge is a trefoil knot</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/twisted-bands.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/twisted-bands.jpg" alt="Four concentric bands with their edges drawn as tubes" loading="lazy">
+            </a>
+            <figcaption>
+                Twisted Bands
+                <span class="sub">four nested bands with one to four half-twists; with an odd number the band is one-sided and its edge a single loop</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/twisted-torus-ribbon.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/twisted-torus-ribbon.jpg" alt="Ring of straight segments turning ten times around a circle" loading="lazy">
+            </a>
+            <figcaption>
+                Twisted Torus Ribbon
+                <span class="sub">geodesics of flat space are straight lines: segments through a circle whose direction turns ten times on the way round</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/villarcea-tubes.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/villarcea-tubes.jpg" alt="Villarceau circles drawn as tubes" loading="lazy">
+            </a>
+            <figcaption>
+                Villarceau Tubes
+                <span class="sub">the oblique circles of the torus, thickened</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/warping-torus.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/warping-torus.jpg" alt="Torus warped into a tunnel, seen from inside" loading="lazy">
+            </a>
+            <figcaption>
+                Warping Torus
+                <span class="sub">stereographic projection, camera inside the surface</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/wavy-clifford-torus.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/wavy-clifford-torus.jpg" alt="Clifford torus with a wave running along it" loading="lazy">
+            </a>
+            <figcaption>
+                Wavy Clifford Torus
+                <span class="sub">the flat torus of S3, rippled</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Parametric/wobbling-ribbon.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/wobbling-ribbon.jpg" alt="Quarter great circles of the 3-sphere fanned out from a great circle, in wireframe" loading="lazy">
+            </a>
+            <figcaption>
+                Wobbling Ribbon
+                <span class="sub">quarter great circles of S&sup3; fanned out from one great circle, their slant wobbling three times along it</span>
+            </figcaption>
+        </figure>
+
+    </div>
+
+    <h2>Implicit surfaces</h2>
+    <p class="section-note">Shapes defined by an equation and rendered by ray marching, with procedural displacement and textures.</p>
+
+    <div class="gallery">
+
+        <figure>
+            <a href="media/Gallery/Implicit/blobs.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Implicit/blobs.jpg" alt="Merging implicit blobs" loading="lazy">
+            </a>
+            <figcaption>
+                Blobs
+                <span class="sub">separate fields merge into one smooth surface</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Implicit/ergosphere.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Implicit/ergosphere.jpg" alt="Ergosphere of a rotating black hole" loading="lazy">
+            </a>
+            <figcaption>
+                Ergosphere
+                <span class="sub">the surface where nothing can stay still</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Implicit/fractal-gyroid.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Implicit/fractal-gyroid.jpg" alt="Gyroid with a fractal texture" loading="lazy">
+            </a>
+            <figcaption>
+                Fractal Gyroid
+                <span class="sub">the periodic surface carrying fractal detail</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Implicit/genus-three-torus.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Implicit/genus-three-torus.jpg" alt="Genus-three surface rendered by ray marching" loading="lazy">
+            </a>
+            <figcaption>
+                Genus-Three Surface
+                <span class="sub">three handles from a single implicit equation</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Implicit/gyroid-1.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Implicit/gyroid-1.jpg" alt="Gyroid minimal surface" loading="lazy">
+            </a>
+            <figcaption>
+                Gyroid
+                <span class="sub">a triply periodic minimal surface, no straight lines and no symmetry planes</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Implicit/gyroid-2.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Implicit/gyroid-2.jpg" alt="Gyroid minimal surface, second view" loading="lazy">
+            </a>
+            <figcaption>
+                Gyroid
+                <span class="sub">another view of the same periodic labyrinth</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Implicit/gyroid-3.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Implicit/gyroid-3.jpg" alt="Gyroid minimal surface, third view" loading="lazy">
+            </a>
+            <figcaption>
+                Gyroid
+                <span class="sub">the two interpenetrating labyrinths it separates</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Implicit/gyroid-artifact.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Implicit/gyroid-artifact.jpg" alt="Gyroid showing ray-marching artifacts" loading="lazy">
+            </a>
+            <figcaption>
+                Gyroid Artifact
+                <span class="sub">where the ray marcher runs out of budget the surface breaks up</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Implicit/klein-bundle-in-r5.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Implicit/klein-bundle-in-r5.jpg" alt="Three-dimensional slice of a circle bundle over the Klein bottle, a four-dimensional object" loading="lazy">
+            </a>
+            <figcaption>
+                Klein Bundle in R<sup>5</sup>
+                <span class="sub">a circle attached to every point of a Klein bottle: what is shown is one three-dimensional slice of it</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Implicit/solid-inside-gyroid.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Implicit/solid-inside-gyroid.jpg" alt="Solid gyroid seen from inside its channels" loading="lazy">
+            </a>
+            <figcaption>
+                Solid Inside Gyroid
+                <span class="sub">the thickened gyroid, seen from within</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Implicit/tangle-cube.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Implicit/tangle-cube.jpg" alt="Tangle cube, a quartic implicit surface" loading="lazy">
+            </a>
+            <figcaption>
+                Tangle Cube
+                <span class="sub">a quartic surface with the symmetry of the cube</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Implicit/three-torus.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Implicit/three-torus.jpg" alt="Two tori welded into a genus-three surface, rendered by ray marching" loading="lazy">
+            </a>
+            <figcaption>
+                Triple Torus
+                <span class="sub">two tori welded together: the lens where they overlap opens a third hole</span>
+            </figcaption>
+        </figure>
+        <figure>
+            <a href="media/Gallery/Implicit/klein-quartic.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Implicit/klein-quartic.jpg" alt="Smooth torus obtained from the implicit equation of the Klein bottle, with a fractal texture" loading="lazy">
+            </a>
+            <figcaption>
+                Unknotted Klein Bottle
+                <span class="sub">the sextic of the Klein bottle, moved off its zero level: the crossing opens and a smooth torus remains</span>
+            </figcaption>
+        </figure>
+
+    </div>
+
+</div>
+</body>
+</html>

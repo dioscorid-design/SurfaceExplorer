@@ -1,0 +1,794 @@
+#ifndef SURFACEENGINE_H
+#define SURFACEENGINE_H
+
+#include "expressionparser.h"
+#include "geodesiccalculator.h"
+#include <rhi/qrhi.h>
+#include <vector>
+#include <algorithm>
+#include <QString>
+#include <QStringList>
+#include <QVector>
+#include <QVector3D>
+#include <QVector4D>
+#include <QVector2D>
+
+// ==========================================================
+// CORE DATA STRUCTURES
+// ==========================================================
+struct Vertex {
+    QVector4D position;
+    QVector4D normal;
+    QVector2D texCoord;
+};
+
+struct CachedExpression {
+    exprtk::expression<float> expr;
+    bool isValid = false;
+};
+
+// ==========================================================
+// MULTI-MESH: una superficie puo' essere composta da PIU' griglie indipendenti
+// ==========================================================
+// Ogni MeshPart e' una griglia parametrica autonoma, con dominio e risoluzione
+// propri. Il motivo di esistere: cucendo N rami in un'unica griglia il
+// generatore di indici collega SEMPRE j a j+1, quindi alla cucitura unisce
+// l'ultima riga di un ramo alla prima del ramo SUCCESSIVO — una "lamina di
+// giunzione" fra due superfici diverse, che va poi mascherata nel cutout con
+// una banda di guardia (e lascia un solco circolare). Con griglie separate
+// nessun quad puo' collegare due rami: il difetto sparisce alla radice.
+//
+// I vertici di TUTTE le parti vivono in un unico buffer contiguo (un solo
+// upload alla GPU); ogni parte sa dove inizia. Gli indici sono LOCALI alla
+// parte (partono da 0) e la draw call li rebasa con vertexOffset: cosi' una
+// parte puo' essere disegnata senza toccare le altre.
+struct MeshPart {
+    // Dominio parametrico coperto da questa parte. Finisce negli uniform
+    // u_min/u_max/v_min/v_max (per-draw): il cutout, che ricalcola il punto da
+    // (u,v), continua a funzionare senza modifiche allo script.
+    float uMin = 0.0f, uMax = 1.0f;
+    float vMin = 0.0f, vMax = 1.0f;
+
+    // true = il dominio qui sopra e' stato scelto DALL'UTENTE (campi u/v del
+    // pannello Multi Mesh), non dichiarato dalla sezione //MESH_BEGIN. Serve a
+    // distinguere i due casi in setMeshParts, che preserva solo il primo: senza
+    // il flag, anche il dominio dichiarato dallo script verrebbe congelato alla
+    // prima estrazione e le modifiche successive allo script non avrebbero piu'
+    // effetto. Si salva nel preset (chiavi uMin/uMax/vMin/vMax dentro
+    // "meshParts"); la sua assenza nei preset esistenti li lascia identici.
+    bool hasCustomDomain = false;
+
+    // true = parte nata dal campo Meshes senza sezione //MESH_BEGIN: il suo
+    // dominio e' quello CORRENTE della superficie (limiti del dock Equations,
+    // secondo il vincolo attivo), letto a ogni rigenerazione da
+    // resolveMeshParts, non una copia presa una volta. Un dominio scelto a mano
+    // (hasCustomDomain) vince comunque.
+    bool followsGlobalDomain = false;
+
+    // Risoluzione EFFETTIVA di questa parte, cioe' quella con cui la griglia
+    // viene generata. NON e' il valore dichiarato nello script: e' quello
+    // riscalato dallo slider Steps (vedi resolveMeshParts).
+    int numU = 100, numV = 100;
+
+    // Risoluzione DICHIARATA dalla sezione //MESH_BEGIN, conservata a parte.
+    // Serve come PROPORZIONE, non come tetto: lo slider Steps governa la
+    // risoluzione (vedi la memoria slider-steps-governa-risoluzione-script), e i
+    // valori dichiarati dicono soltanto il rapporto fra le parti e fra u e v
+    // (es. "in v il doppio dei passi che in u", oppure "questa parte meta'
+    // dell'altra"). Va tenuta separata da numU/numV perche' il riscalamento
+    // deve partire SEMPRE dal valore originale: riscalare un valore gia'
+    // riscalato farebbe derivare la risoluzione a ogni movimento dello slider.
+    int declaredU = 0, declaredV = 0;   // 0 = non dichiarata
+
+    // Posizione nei buffer condivisi (in elementi, non byte).
+    int vertexOffset = 0;   // primo vertice nel buffer comune
+    int vertexCount  = 0;   // (numU+1)*(numV+1)
+    int indexOffset  = 0;   // primo indice nel buffer comune
+    int indexCount   = 0;   // numU*numV*6
+
+    // Chiusura rilevata su QUESTA parte (prima era globale sul dominio intero,
+    // quindi non sapeva chiudere i singoli rami).
+    bool uClosed = false;
+    bool vClosed = false;
+
+    // Indice progressivo, esposto allo script come uniform u_meshIndex per
+    // distinguere il ramo (es. quale toro di Clifford si sta generando).
+    int meshIndex = 0;
+
+    // SPESSORE DI QUESTO TUBO (script del sotto-tab Tubes, riga "thickness:"
+    // della sezione //MESH_BEGIN): fattore sullo spessore del campo Thickness,
+    // cosi' lo slider resta valido per tutti i tubi. < 0 = non dichiarato (1).
+    // Come il dominio, lo dichiara lo script: setMeshParts non lo conserva.
+    float tubeThickness = -1.0f;
+
+    // ==========================================================
+    // ASPETTO PER-PARTE (colore, trasparenza, luce, solid/wireframe)
+    // ==========================================================
+    // Ogni parte puo' avere il proprio aspetto. La convenzione e' che un valore
+    // NEGATIVO significa "eredita dallo stato globale del renderer": cosi' una
+    // parte non configurata si disegna esattamente come prima, e i preset che
+    // non dichiarano nulla restano identici (nessuna regressione).
+    //
+    // Colore e alpha finiscono nei campi omonimi del blocco UBO, che e' gia'
+    // per-parte (dynamic offset): scriverli costa una assegnazione, non una
+    // modifica agli shader.
+    float colorR = -1.0f, colorG = -1.0f, colorB = -1.0f;
+    float alpha = -1.0f;          // < 0 = eredita
+    float lightIntensity = -1.0f; // < 0 = eredita
+
+    // MODALITA' DI RENDERING PROPRIA (0 = Base, 1 = Phong, 2 = Wireframe).
+    // Qui la convenzione "negativo = eredita" NON si puo' esprimere col valore
+    // stesso, perche' 0 (Base) e' un valore LEGITTIMO che updateRenderState
+    // invia davvero: serve un flag separato. Vedi la nota su questo in
+    // GLWidget::setRenderMode.
+    int  renderMode = 0;
+    bool hasCustomRenderMode = false;
+
+    // Densita' wireframe propria (passi di campionamento U/V; meno passi = piu'
+    // linee). 0 = eredita dai wfStepU/wfStepV globali di GLWidget. Senza questi
+    // due campi due mesh in wireframe non si possono differenziare, perche'
+    // buildWireframe applicava un unico stride globale a tutte le parti.
+    int  wfStepU = 0;
+    int  wfStepV = 0;
+
+    // TEXTURE PROCEDURALE PROPRIA (script GLSL della sola parte).
+    // Vuoto = eredita dallo stato globale, cioe' la texture della superficie se
+    // accesa e nessuna texture altrimenti: una parte non configurata si disegna
+    // esattamente come prima e i preset esistenti restano invariati.
+    // Il codice NON e' una risorsa GPU: viene compilato dentro l'UNICO fragment
+    // shader come getCustomColor_<k>(), scelto a run time su u_meshIndex (vedi
+    // GLWidget::createFragmentShaderSource). Percio' le texture per-mesh non
+    // costano ne' binding ne' pipeline in piu': solo codice nello stesso shader.
+    QString textureCode;
+    // NOME della voce di libreria da cui la texture della parte VIENE: l'ancora
+    // del focus nel dock Library, gemella di MainWindow::m_scene.textureLibName per la
+    // texture globale. Senza, una fascia si agganciava solo per CODICE e il
+    // primo ritocco della voce in libreria (es. uno slider aggiunto) le faceva
+    // perdere il focus. Vuoto = nessuna voce nota: ricerca per solo codice.
+    QString textureLibName;
+    // Acceso/spento PROPRIO della parte. Come per renderMode, il solo valore non
+    // basta a esprimere "eredita": una parte puo' voler spegnere la texture
+    // mentre il globale la tiene accesa, e "spento" non si distingue da "non
+    // configurato". Serve percio' il flag esplicito.
+    bool textureEnabled = false;
+    bool hasCustomTexture = false;
+    // COLORI DELLA TEXTURE PROPRI DELLA PARTE (u_col1/u_col2 dello script).
+    // Sono per-parte perche' vivono nel blocco UBO: senza di essi due mesh con
+    // texture diverse condividevano i due slot globali, e l'ultima applicata
+    // riscriveva i colori di tutte le altre.
+    // Negativo = eredita i colori globali della texture di superficie.
+    float texCol1R = -1.0f, texCol1G = -1.0f, texCol1B = -1.0f;
+    float texCol2R = -1.0f, texCol2G = -1.0f, texCol2B = -1.0f;
+    bool hasCustomTexColors() const { return texCol1R >= 0.0f; }
+
+    // TRASFORMAZIONE 2D PROPRIA DELLA PARTE (zoom / pan / rotazione della
+    // texture, quelle che si regolano col mouse in vista 2D).
+    // Come i colori, finiscono nel blocco UBO e quindi possono differire fra le
+    // parti: senza, zoom e pan restavano i tre membri GLOBALI del widget e
+    // ridimensionare la texture di una mesh le ridimensionava TUTTE, compresa
+    // quella dell'ambito All.
+    // texZoom < 0 = eredita la trasformazione globale.
+    float texZoom = -1.0f;
+    float texPanX = 0.0f, texPanY = 0.0f;
+    float texRotation = 0.0f;
+    bool hasCustomTexTransform() const { return texZoom >= 0.0f; }
+
+    // OROLOGIO DELLA TEXTURE, PROPRIO DELLA PARTE.
+    // Qui NON si usa la convenzione "negativo = eredita" degli altri campi, e la
+    // differenza e' sostanziale: un colore ereditato e' una COSTANTE, mentre il
+    // tempo e' un valore che SCORRE e che il globale puo' CONGELARE. Una parte
+    // che eredita m_timeTex eredita anche il suo freeze: dopo uno Stop in ambito
+    // "All" non si riusciva piu' a far ripartire la singola mesh, perche'
+    // continuava a copiare un tempo globale fermo. E' il motivo per cui il primo
+    // tentativo di stop per-mesh fu revertato.
+    // Percio' ADOZIONE ESPLICITA: ogni parte ha SEMPRE il suo tempo e il suo
+    // flag, e i comandi in ambito "All" li scrivono su tutte le parti (vedi
+    // GLWidget::setAllMeshTexturesAnimating). Nessuno eredita, nessuno si
+    // congela per riflesso.
+    // Il tempo NON si azzera allo stop: riprende da dov'era, come il clock globale.
+    float timeTex = 0.0f;
+    bool  texAnimating = false;
+
+    bool hasCustomColor() const { return colorR >= 0.0f; }
+    // Texture EFFICACE di una parte in una superficie MULTI-MESH.
+    // Una parte MAI CONFIGURATA (hasCustomTexture == false) resta SENZA texture:
+    // NON eredita quella globale. E' la differenza con colore/alpha/luce, ed e'
+    // deliberata: applicare una texture in ambito "All" con altre fasce gia'
+    // texturizzate significa "questa e' la texture della superficie", non
+    // "riempi anche le fasce che ho lasciato apposta in tinta unita". Ereditando,
+    // una fascia lasciata volutamente nuda si texturizzava da sola.
+    // NB: vale solo in multi-mesh. Il caso a mesh singola non passa di qui (vedi
+    // il ramo uboPartCount <= 1 in GLWidget), quindi li' la texture globale
+    // continua a governare la superficie come da sempre.
+    bool effectiveTextureEnabledMulti() const {
+        return hasCustomTexture && textureEnabled;
+    }
+    // Texture EFFICACE: la propria se dichiarata, altrimenti quella globale.
+    // Usata dal DISPLAY dei controlli e dal caso a mesh singola.
+    bool effectiveTextureEnabled(bool globalOn) const {
+        return hasCustomTexture ? textureEnabled : globalOn;
+    }
+    // Modalita' EFFICACE: la propria se dichiarata, altrimenti quella globale.
+    int  effectiveRenderMode(int globalMode) const {
+        return hasCustomRenderMode ? renderMode : globalMode;
+    }
+};
+
+class SurfaceEngine
+{
+public:
+    SurfaceEngine();
+
+    // ==========================================================
+    // ENUMS
+    // ==========================================================
+    enum ConstraintMode { ConstraintW, ConstraintU, ConstraintV };
+
+    // ==========================================================
+    // CORE MESH & GENERATION
+    // ==========================================================
+    void clear();
+    void computeMesh();
+    void setResolution(int u, int v);
+    void setCustomMesh(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices, bool isUClosed, bool isVClosed);
+
+
+    const std::vector<Vertex>& getVertices() const { return generatedVertices; }
+    const std::vector<unsigned int>& getIndices() const { return generatedIndices; }
+
+    // BORDO DELLA SUPERFICIE: un tubo attorno a ciascuno dei quattro lati del
+    // dominio di ogni parte (generateBorder). Buffer A PARTE da quelli della
+    // superficie, cosi' offset delle parti, wireframe e ordinamento della
+    // trasparenza non li vedono. Il tubo lo costruisce il vertex shader
+    // (#define HAS_BORDER): qui ci sono solo i parametri di ogni vertice, e la
+    // CPU non sa se un lato e' davvero un bordo -- per gli script non puo'
+    // valutare la superficie, e una cucitura puo' dipendere dal tempo -- quindi
+    // li genera tutti e quattro e lo shader appiattisce quelli che non lo sono.
+    // In coda ai lati, per ogni parte, una sfera in ciascuno dei quattro angoli
+    // (giunto fra due lati, normal.w = 2).
+    // Lati del poligono attorno al tubo. Erano 12: dove due tubi spessi si
+    // compenetrano (le fibre dei mezzi tori di Hopf che convergono) la curva
+    // d'intersezione mostrava i lati del poligono come tacche frastagliate.
+    static constexpr int kBorderRing = 24;
+    // Le linee del wireframe attorno al tubo si contano in dodicesimi di giro,
+    // i lati del poligono storico: il passo salvato nei preset (wireAround)
+    // da' le stesse linee con qualunque kBorderRing.
+    static constexpr int kBorderWireSides = 12;
+    static_assert(kBorderRing % kBorderWireSides == 0, "kBorderRing: multiplo di kBorderWireSides");
+    struct BorderRange {
+        int meshIndex = 0;
+        int vertexOffset = 0;
+        int indexOffset = 0;        // triangoli
+        int indexCount = 0;
+        int wireIndexOffset = 0;    // linee del wireframe (buildBorderWire)
+        int wireIndexCount = 0;
+        int edgeSteps[4] = { 0, 0, 0, 0 };   // punti lungo ciascun lato, meno uno
+    };
+    const std::vector<Vertex>& getBorderVertices() const { return m_borderVertices; }
+    const std::vector<unsigned int>& getBorderIndices() const { return m_borderIndices; }
+    const std::vector<BorderRange>& getBorderRanges() const { return m_borderRanges; }
+    // Linee del bordo in wireframe: un anello ogni `stepAlong` punti lungo il
+    // lato, e una linea lungo il tubo ogni `stepAround` lati del poligono.
+    // Indici locali alla parte, come i triangoli.
+    void buildBorderWire(int stepAlong, int stepAround);
+    const std::vector<unsigned int>& getBorderWireIndices() const { return m_borderWireIndices; }
+
+    int getNumU() const { return numU; }
+    int getNumV() const { return numV; }
+    bool isUClosed() const { return u_is_closed; }
+    bool isVClosed() const { return v_is_closed; }
+    bool isTwisted() const { return u_closes_twisted; }
+
+    // ==========================================================
+    // MULTI-MESH
+    // ==========================================================
+    // Le parti dichiarate dallo script con le sezioni //MESH_BEGIN..//MESH_END.
+    // Se lo script non ne dichiara nessuna, computeMesh() sintetizza UNA parte
+    // sul dominio corrente (uMin..uMax x vMin..vMax, numU x numV): il caso a
+    // mesh singola resta identico a prima, stessi vertici e stessi indici.
+    // Le sezioni //MESH_BEGIN portano DOMINIO e RISOLUZIONE, non l'aspetto:
+    // colore, alpha, luce, modalita' e densita' wireframe sono scelte dell'utente
+    // (spinbox del dock renderer) o del preset, e vanno PRESERVATE quando lo
+    // script viene ri-estratto. Senza questo, ogni ri-parse azzerava l'aspetto
+    // di tutte le parti: muovendo una costante che rigenera la geometria (es. lo
+    // slider E dei tori di Hopf) le mesh tornavano tutte al colore globale.
+    // L'aspetto si conserva per INDICE: se lo script dichiara piu' parti di
+    // prima, quelle nuove partono con i valori di default (= eredita).
+    // L'ASPETTO di una parte (colore, trasparenza, luce, modo, densita'
+    // wireframe, texture e il suo orologio), non la geometria. Unica sede: la
+    // usano setMeshParts e la riserva delle mesh oltre il numero attuale.
+    static void copyPartAppearance(MeshPart &dst, const MeshPart &src) {
+        dst.colorR = src.colorR;
+        dst.colorG = src.colorG;
+        dst.colorB = src.colorB;
+        dst.alpha = src.alpha;
+        dst.lightIntensity = src.lightIntensity;
+        dst.renderMode = src.renderMode;
+        dst.hasCustomRenderMode = src.hasCustomRenderMode;
+        dst.wfStepU = src.wfStepU;
+        dst.wfStepV = src.wfStepV;
+        dst.textureCode = src.textureCode;
+        dst.textureLibName = src.textureLibName;
+        dst.textureEnabled = src.textureEnabled;
+        dst.hasCustomTexture = src.hasCustomTexture;
+        dst.texCol1R = src.texCol1R;
+        dst.texCol1G = src.texCol1G;
+        dst.texCol1B = src.texCol1B;
+        dst.texCol2R = src.texCol2R;
+        dst.texCol2G = src.texCol2G;
+        dst.texCol2B = src.texCol2B;
+        dst.texZoom = src.texZoom;
+        dst.texPanX = src.texPanX;
+        dst.texPanY = src.texPanY;
+        dst.texRotation = src.texRotation;
+        // Orologio della parte: si conserva come il resto dell'aspetto. Il
+        // TEMPO in particolare, o una rigenerazione della griglia (un tocco
+        // allo slider Steps) farebbe saltare indietro l'animazione.
+        dst.timeTex = src.timeTex;
+        dst.texAnimating = src.texAnimating;
+    }
+
+    // RISERVA DEGLI ASPETTI, per indice: quando il campo Meshes cala, l'aspetto
+    // delle mesh tolte resta qui e torna quando il numero risale; il Save lo
+    // scrive comunque (meshPartsForSave), cosi' un preset con 9 colori e 5 tori
+    // a schermo non perde i colori 6-9. Una scena nuova la svuota.
+    void rememberPartAppearance(const std::vector<MeshPart> &parts) {
+        if (m_appearanceStore.size() < parts.size()) m_appearanceStore.resize(parts.size());
+        for (size_t k = 0; k < parts.size(); ++k) copyPartAppearance(m_appearanceStore[k], parts[k]);
+    }
+    // Le parti a schermo, piu' gli aspetti in riserva oltre il loro numero.
+    std::vector<MeshPart> meshPartsForSave() const {
+        std::vector<MeshPart> out = m_meshParts;
+        for (size_t k = out.size(); k < m_appearanceStore.size(); ++k) {
+            MeshPart p;
+            copyPartAppearance(p, m_appearanceStore[k]);
+            p.meshIndex = (int)k;
+            out.push_back(p);
+        }
+        return out;
+    }
+
+    void setMeshParts(const std::vector<MeshPart>& parts) {
+        std::vector<MeshPart> next = parts;
+        rememberPartAppearance(m_declaredParts);
+        // Le parti nuove oltre quelle di prima riprendono l'aspetto in riserva.
+        for (size_t k = m_declaredParts.size(); k < next.size() && k < m_appearanceStore.size(); ++k)
+            copyPartAppearance(next[k], m_appearanceStore[k]);
+        const int n = std::min((int)next.size(), (int)m_declaredParts.size());
+        for (int k = 0; k < n; ++k) {
+            const MeshPart &old = m_declaredParts[k];
+            copyPartAppearance(next[k], old);
+
+            // DOMINIO SCELTO A MANO (campi u/v del pannello Multi Mesh).
+            // Si preserva come l'aspetto, ed e' una scelta DELIBERATA maturata
+            // sul campo: la prima versione lasciava vincere lo script, cosi' che
+            // le sezioni //MESH_BEGIN restassero l'unica autorita' sul dominio.
+            // In pratica era inservibile, perche' i punti che riestraggono le
+            // sezioni e ripassano di qui sono QUATTRO, non solo il Run:
+            //   onRunScriptClicked   (Run del dock Script)
+            //   applyCommonData      (caricamento di un preset)
+            //   onStartClicked       (Master START, Run del dock Equations, Implicit)
+            //   commitFieldsOnEnter  (un semplice INVIO su un campo equazioni)
+            // Il taglio spariva quindi al primo START, e un dominio salvato nel
+            // preset si sarebbe autodistrutto al primo giro: peggio del non
+            // salvarlo affatto.
+            // Il prezzo, accettato: modificando una sezione //MESH_BEGIN nello
+            // script non se ne vede l'effetto finche' il dominio di quella mesh
+            // non viene riportato ai valori dichiarati. E' lo stesso attrito che
+            // esiste gia' fra lo slider Steps e la direttiva "steps :=".
+            // hasCustomDomain distingue "scelto dall'utente" da "viene dallo
+            // script": senza il flag, il dominio dichiarato di una parte verrebbe
+            // scambiato per una scelta e congelato per sempre.
+            if (old.hasCustomDomain) {
+                next[k].uMin = old.uMin;
+                next[k].uMax = old.uMax;
+                next[k].vMin = old.vMin;
+                next[k].vMax = old.vMax;
+                next[k].hasCustomDomain = true;
+            }
+        }
+        m_declaredParts = std::move(next);
+    }
+    void clearMeshParts() { m_declaredParts.clear(); m_appearanceStore.clear(); }
+
+    // ==========================================================
+    // DOMINIO DELL'AMBITO "ALL" (multi-mesh)
+    // ==========================================================
+    // Un secondo dominio, indipendente da quelli per-parte, che vale quando
+    // l'ambito e' "All". Serve a dare al dominio lo stesso comportamento che
+    // colore, trasparenza e texture hanno gia': i due ambiti coesistono, e
+    // passare dall'uno all'altro SOSPENDE l'altro senza cancellarlo. Si
+    // restringono due mesh, si passa ad All e la figura torna intera (o com'era
+    // stata lasciata in All); si taglia in All; si torna a Mesh e i tagli
+    // per-parte sono ancora li'.
+    //
+    // NON si riusa il dominio globale uMin/uMax dell'engine: quello e' il
+    // dominio dei campi del dock Equations, che parseAndApplyScriptParams
+    // riscrive a ogni Run dalle direttive "u_min :=". Scriverci il taglio di
+    // All significherebbe vederlo sparire al primo Run -- lo stesso difetto per
+    // cui il dominio per-parte ha dovuto avere hasCustomDomain.
+    //
+    // Flag separato dal valore per la solita ragione: "nessun taglio in All"
+    // non si puo' esprimere con un numero, perche' ogni intervallo e' legittimo.
+    // Senza taglio le parti usano il PROPRIO dominio (dichiarato o scelto a
+    // mano), che e' il comportamento di sempre.
+    void setAllDomain(float uMin, float uMax, float vMin, float vMax) {
+        m_allUMin = uMin; m_allUMax = uMax;
+        m_allVMin = vMin; m_allVMax = vMax;
+        m_hasAllDomain = true;
+    }
+    void clearAllDomain() { m_hasAllDomain = false; }
+    bool hasAllDomain() const { return m_hasAllDomain; }
+    void allDomain(float &uMin, float &uMax, float &vMin, float &vMax) const {
+        uMin = m_allUMin; uMax = m_allUMax;
+        vMin = m_allVMin; vMax = m_allVMax;
+    }
+
+    // L'ambito corrente, che l'engine da solo non conoscerebbe: lo scrive
+    // GLWidget::setMeshAppearanceUniform. resolveMeshParts lo legge per sapere
+    // se applicare il dominio di All o quello delle singole parti.
+    void setMeshScopeAll(bool on) { m_meshScopeAll = on; }
+    bool meshScopeAll() const { return m_meshScopeAll; }
+
+    // Svuota ANCHE le parti generate. clearMeshParts() da sola lascia in piedi
+    // m_meshParts, che sopravvive fino al primo computeMesh(): al caricamento di
+    // un preset quella rigenerazione non e' immediata (arriva piu' tardi da
+    // checkAndTriggerMeshUpdate), e in quella finestra le parti della superficie
+    // PRECEDENTE sono ancora quelle che il render legge e che mutableMeshPart
+    // restituisce. Con un dominio scelto a mano il residuo si vede: una singola
+    // mesh -- quella attiva al salvataggio -- resta tagliata mentre le altre
+    // tornano intere, un fantasma che non corrisponde ne' al preset caricato ne'
+    // a quello precedente.
+    void clearAllMeshParts() { m_declaredParts.clear(); m_meshParts.clear(); m_appearanceStore.clear(); }
+    const std::vector<MeshPart>& getMeshParts() const { return m_meshParts; }
+    int getMeshPartCount() const { return (int)m_meshParts.size(); }
+
+    // Aspetto di una parte modificabile DAL VIVO, senza rigenerare la griglia:
+    // colore/alpha/luce finiscono nell'UBO, cioe'
+    // nulla che dipenda dai vertici. Scrive su ENTRAMBE le liste, perche' le
+    // dichiarate sopravvivono a un cambio di risoluzione o dominio mentre le
+    // generate sono quelle che il render legge: se aggiornassi solo le seconde,
+    // il primo computeMesh() riporterebbe l'aspetto ai valori dello script.
+    MeshPart* mutableMeshPart(int index) {
+        if (index < 0 || index >= (int)m_meshParts.size()) return nullptr;
+        return &m_meshParts[index];
+    }
+    // Lista modificabile, per i campi che vanno aggiornati a OGNI frame su tutte
+    // le parti (l'orologio texture della parte): passare da mutableMeshPart in un
+    // ciclo costerebbe un controllo di validita' per parte a ogni frame.
+    // NB: chi la usa per modificare l'ASPETTO deve poi chiamare
+    // syncPartAppearance(), o la prossima rigenerazione riporta i valori dello
+    // script. Il tempo che avanza nel tick e' esente: si risincronizza da se' al
+    // frame dopo, e sincronizzarlo a ogni frame sarebbe lavoro inutile.
+    std::vector<MeshPart>& mutableMeshParts() { return m_meshParts; }
+
+    // DOMINIO DI UNA PARTE DICHIARATA. E' l'unico campo che l'interfaccia deve
+    // poter scrivere DIRETTAMENTE nelle parti dichiarate, e la ragione e' che
+    // il dominio non e' aspetto: generateParametricGrid riparte SEMPRE da
+    // resolveMeshParts(), che ricostruisce m_meshParts da m_declaredParts.
+    // Scrivere il dominio nella sola lista generata (mutableMeshPart) non
+    // sopravvive dunque nemmeno un frame: la rigenerazione che serve a rendere
+    // visibile la modifica e' anche cio' che la cancella, e a schermo non
+    // cambia niente.
+    //
+    // Perche' non passare da syncPartAppearance, che gia' fa questo lavoro per
+    // colore, texture e wireframe: quella gira a OGNI modifica di aspetto e
+    // ricopia l'intero blocco. Il dominio deve restare fuori da quel blocco,
+    // perche' setMeshParts (il Run dello script) NON lo preserva: e' cosi' che
+    // le sezioni //MESH_BEGIN restano l'autorita' sul dominio. Un accessore
+    // separato tiene le due cose distinte.
+    void setDeclaredPartDomain(int index, float uMin, float uMax,
+                               float vMin, float vMax) {
+        if (index < 0 || index >= (int)m_declaredParts.size()) return;
+        m_declaredParts[index].uMin = uMin;
+        m_declaredParts[index].uMax = uMax;
+        m_declaredParts[index].vMin = vMin;
+        m_declaredParts[index].vMax = vMax;
+        // Da qui passa SOLO la scelta dell'utente (setActiveMeshDomain): il
+        // flag marca la parte come "dominio proprio", cosi' setMeshParts lo
+        // preserva quando lo script viene riestratto. Le parti che arrivano
+        // dallo script non toccano questa funzione e restano senza flag.
+        m_declaredParts[index].hasCustomDomain = true;
+    }
+    // Ricopia l'aspetto dalle parti generate a quelle dichiarate, cosi' una
+    // modifica fatta dall'UI sopravvive alla prossima rigenerazione.
+    void syncPartAppearance() {
+        const int n = std::min((int)m_meshParts.size(), (int)m_declaredParts.size());
+        for (int k = 0; k < n; ++k) {
+            m_declaredParts[k].colorR = m_meshParts[k].colorR;
+            m_declaredParts[k].colorG = m_meshParts[k].colorG;
+            m_declaredParts[k].colorB = m_meshParts[k].colorB;
+            m_declaredParts[k].alpha = m_meshParts[k].alpha;
+            m_declaredParts[k].lightIntensity = m_meshParts[k].lightIntensity;
+            m_declaredParts[k].renderMode = m_meshParts[k].renderMode;
+            m_declaredParts[k].hasCustomRenderMode = m_meshParts[k].hasCustomRenderMode;
+            m_declaredParts[k].wfStepU = m_meshParts[k].wfStepU;
+            m_declaredParts[k].wfStepV = m_meshParts[k].wfStepV;
+            m_declaredParts[k].textureCode = m_meshParts[k].textureCode;
+            m_declaredParts[k].textureLibName = m_meshParts[k].textureLibName;
+            m_declaredParts[k].textureEnabled = m_meshParts[k].textureEnabled;
+            m_declaredParts[k].hasCustomTexture = m_meshParts[k].hasCustomTexture;
+            m_declaredParts[k].texCol1R = m_meshParts[k].texCol1R;
+            m_declaredParts[k].texCol1G = m_meshParts[k].texCol1G;
+            m_declaredParts[k].texCol1B = m_meshParts[k].texCol1B;
+            m_declaredParts[k].texCol2R = m_meshParts[k].texCol2R;
+            m_declaredParts[k].texCol2G = m_meshParts[k].texCol2G;
+            m_declaredParts[k].texCol2B = m_meshParts[k].texCol2B;
+            m_declaredParts[k].texZoom = m_meshParts[k].texZoom;
+            m_declaredParts[k].texPanX = m_meshParts[k].texPanX;
+            m_declaredParts[k].texPanY = m_meshParts[k].texPanY;
+            m_declaredParts[k].texRotation = m_meshParts[k].texRotation;
+            m_declaredParts[k].timeTex = m_meshParts[k].timeTex;
+            m_declaredParts[k].texAnimating = m_meshParts[k].texAnimating;
+        }
+    }
+
+    // ==========================================================
+    // EQUATIONS & CONSTRAINTS
+    // ==========================================================
+    void setEquations(const QString &x, const QString &y, const QString &z, const QString &p);
+
+    void setConstraintMode(ConstraintMode mode);
+    ConstraintMode getConstraintMode() const { return m_constraintMode; }
+
+    void setExplicitU(const QString &eq);
+    void setExplicitV(const QString &eq);
+    void setExplicitW(const QString &eq);
+
+    QString getExplicitU() const { return m_explicitU; }
+    QString getExplicitV() const { return m_explicitV; }
+    QString getExplicitW() const { return m_explicitW; }
+    QString getActiveExplicitEquation() const;
+
+    QVector<QVector<QVector4D>> computeGeodesicFlow(
+        QRhi* rhi,
+        const QString& eqX, const QString& eqY, const QString& eqZ, const QString& eqP, // <-- Aggiunto eqP
+        const QString& eqU, const QString& eqV, const QString& eqW,
+        const QString& eqDu, const QString& eqDv, const QString& eqDw, const QString& eqLambda,
+        const QString& eqMetric, // corpo GLSL mat3(U,V,W); vuoto = metrica dall'embedding
+        float uMin, float uMax, int numU,
+        float vMin, float vMax, int numV,
+        const QMap<QString, float>& constants,
+        float currentT,
+        QString* outErrorMsg = nullptr);
+    // Ingressi dell'ultima mesh geodetica (tutti tranne il tempo): per i test.
+    const QByteArray &geodesicFlowKey() const { return m_geoCalc.lastInputsKey(); }
+
+    void setTime(float t);
+
+    // ==========================================================
+    // MATHEMATICAL RANGES & CONSTANTS
+    // ==========================================================
+    void setRangeU(float min, float max);
+    void setRangeV(float min, float max);
+    void setRangeW(float min, float max);
+    void setConstants(float a, float b, float c, float d, float e, float f, float s);
+
+    float getUMin() const { return uMin; }
+    float getUMax() const { return uMax; }
+    float getVMin() const { return vMin; }
+    float getVMax() const { return vMax; }
+    float getWMin() const { return wMin; }
+    float getWMax() const { return wMax; }
+
+    float getValA() const { return valA; }
+    float getValB() const { return valB; }
+    float getValC() const { return valC; }
+    float getValD() const { return valD; }
+    float getValE() const { return valE; }
+    float getValF() const { return valF; }
+    float getValS() const { return valS; }
+
+    bool isMeshValid() const;
+
+    // ==========================================================
+    // PATHS 3D & 4D (EVALUATION)
+    // ==========================================================
+    bool compilePathEquations(const QString &x, const QString &y, const QString &z, const QString &p,
+                              const QString &alpha, const QString &beta, const QString &gamma);
+    QVector4D evaluatePathPosition(float t);
+    float evaluatePathAlpha(float t);
+    float evaluatePathBeta(float t);
+    float evaluatePathGamma(float t);
+
+    bool compilePath3DEquations(const QString &x, const QString &y, const QString &z, const QString &r);
+    QVector4D evaluatePath3DPosition(float t); // Restituisce (x, y, z, roll)
+    // Il path APPLICATO: le equazioni dell'ultima compilazione (quelle che il
+    // tick valuta) e se sono utilizzabili. I campi dei dock sono l'intenzione.
+    QStringList appliedPath4D() const { return { pathEqX, pathEqY, pathEqZ, pathEqP, pathEqAlpha, pathEqBeta, pathEqGamma }; }
+    QStringList appliedPath3D() const { return { pathEqX3D, pathEqY3D, pathEqZ3D, pathEqR3D }; }
+    // Nessun path: la scena nuova non tiene compilato quello di prima.
+    void clearPathEquations();
+    bool path4DCompiled() const { return pathValid; }
+    bool path3DCompiled() const { return path3DValid; }
+
+    // ==========================================================
+    // 4D LIGHTING STATE (Used by GLWidget)
+    // ==========================================================
+    void set4DLighting(bool enable);
+    bool is4DLightingEnabled() const { return use4DLighting; }
+
+    // ==========================================================
+    // SCRIPTING & SHADERS
+    // ==========================================================
+    void setScriptMode(bool active);
+    bool isScriptModeActive() const { return m_useScriptMode; }
+
+    void setScriptCodeGLSL(const QString& code) { m_glslCode = code; }
+    QString getScriptCodeGLSL() const { return m_glslCode; }
+
+    // TUBO (sotto-tab Tubes del parametrico): getRawPosition lo genera
+    // GLWidget::createVertexShaderSource attorno alla curva asse, esclusivo con
+    // la modalita' script della superficie. Dominio: u = parametro della
+    // curva, v = angolo attorno (0..2pi). La curva viene dalle equazioni del
+    // sotto-tab (setTubeCurve, P vuoto = curva 3D) o da uno SCRIPT del dock
+    // Script (setTubeScriptBody: corpo GLSL che restituisce vec4(x, y, z, p),
+    // con `mesh` e le sezioni //MESH_BEGIN per piu' tubi).
+    void setTubeMode(bool active) { m_useTubeMode = active; }
+    bool isTubeModeActive() const { return m_useTubeMode; }
+    void setTubeCurve(const QString &x, const QString &y, const QString &z, const QString &p)
+    {
+        m_tubeX = x; m_tubeY = y; m_tubeZ = z; m_tubeP = p;
+        m_tubeScriptBody.clear();
+    }
+    void setTubeScriptBody(const QString &glslBody)
+    {
+        m_tubeScriptBody = glslBody;
+        m_tubeX.clear(); m_tubeY.clear(); m_tubeZ.clear(); m_tubeP.clear();
+    }
+    bool isTubeFromScript() const { return !m_tubeScriptBody.trimmed().isEmpty(); }
+    QString tubeScriptBody() const { return m_tubeScriptBody; }
+    QString tubeX() const { return m_tubeX; }
+    QString tubeY() const { return m_tubeY; }
+    QString tubeZ() const { return m_tubeZ; }
+    QString tubeP() const { return m_tubeP; }
+
+    // UNA COPIA PER TUBO (indice = `mesh`): la direzione di riferimento che
+    // orienta la sezione e la chiusura in u (la curva torna al punto di
+    // partenza). Le sceglie chi chiama campionando la curva -- sulla CPU per
+    // le equazioni, sulla GPU per gli script -- perche' qui la curva non si
+    // valuta. Senza copie: asse z, aperta.
+    struct TubeCopy {
+        QVector3D reference{0.0f, 0.0f, 1.0f};
+        bool uClosed = false;
+    };
+    void setTubeCopies(const std::vector<TubeCopy> &copies) { m_tubeCopies = copies; }
+    const std::vector<TubeCopy> &tubeCopies() const { return m_tubeCopies; }
+    QVector3D tubeReference(int mesh) const {
+        return (mesh >= 0 && mesh < (int)m_tubeCopies.size()) ? m_tubeCopies[mesh].reference
+                                                              : QVector3D(0.0f, 0.0f, 1.0f);
+    }
+    bool tubeUClosed(int mesh) const {
+        return mesh >= 0 && mesh < (int)m_tubeCopies.size() && m_tubeCopies[mesh].uClosed;
+    }
+
+    // Sezione opzionale //CUTOUT_BEGIN..//CUTOUT_END dello script (dock Script):
+    // corpo di bool cutHere(float u, float v), iniettato nel fragment shader per
+    // scartare (discard) le pareti interne nei punti di autointersezione. Vuoto =
+    // nessun taglio (retrocompatibile con ogni preset che non la definisce).
+    void setCutoutCodeGLSL(const QString& code) { m_cutoutCode = code; }
+    QString getCutoutCodeGLSL() const { return m_cutoutCode; }
+
+private:
+
+    // ==========================================================
+    // MESH DATA
+    // ==========================================================
+    std::vector<Vertex> generatedVertices;
+    std::vector<unsigned int> generatedIndices;
+    std::vector<Vertex> m_borderVertices;
+    std::vector<unsigned int> m_borderIndices;
+    std::vector<BorderRange> m_borderRanges;
+    std::vector<unsigned int> m_borderWireIndices;
+    int numU = 100, numV = 100;
+    bool u_is_closed = false;
+    bool v_is_closed = false;
+    bool u_closes_twisted = false;
+
+    // Parti dichiarate dallo script (input) e parti effettivamente generate con
+    // gli offset nei buffer (output di generateParametricGrid). Sono distinte
+    // perche' le dichiarate sopravvivono a un cambio di risoluzione o dominio,
+    // mentre le generate vanno ricalcolate a ogni computeMesh().
+    std::vector<MeshPart> m_declaredParts;
+    std::vector<MeshPart> m_meshParts;
+
+    // Dominio dell'ambito "All" e ambito corrente (vedi setAllDomain).
+    float m_allUMin = 0.0f, m_allUMax = 1.0f;
+    float m_allVMin = 0.0f, m_allVMax = 1.0f;
+    bool  m_hasAllDomain = false;
+    bool  m_meshScopeAll = true;
+
+    // ==========================================================
+    // EQUATIONS STATE
+    // ==========================================================
+    QString eqX, eqY, eqZ, eqP;
+    QString m_explicitU, m_explicitV, m_explicitW;
+    ConstraintMode m_constraintMode = ConstraintW;
+
+    QString pathEqX, pathEqY, pathEqZ, pathEqP;
+    QString pathEqAlpha, pathEqBeta, pathEqGamma;
+    bool pathValid = false;
+
+    QString pathEqX3D, pathEqY3D, pathEqZ3D, pathEqR3D;
+    bool path3DValid = false;
+
+    // ==========================================================
+    // MATHEMATICAL VARIABLES
+    // ==========================================================
+    float valA = 1.0f, valB = 1.0f, valC = 1.0f;
+    float valD = 1.0f, valE = 1.0f, valF = 1.0f;
+    float valS = 1.0f;
+    float uMin, uMax, vMin, vMax, wMin, wMax;
+
+    bool use4DLighting = false;
+
+    // ==========================================================
+    // SCRIPTING STATE
+    // ==========================================================
+    QString m_glslCode;
+    QString m_cutoutCode;
+    bool m_useScriptMode = false;
+    // Riserva degli aspetti per indice (vedi rememberPartAppearance).
+    std::vector<MeshPart> m_appearanceStore;
+    // Tubo: vedi setTubeCurve / setTubeScriptBody / setTubeCopies.
+    bool m_useTubeMode = false;
+    QString m_tubeX, m_tubeY, m_tubeZ, m_tubeP;
+    QString m_tubeScriptBody;
+    std::vector<TubeCopy> m_tubeCopies;
+
+    // ==========================================================
+    // EXPRTK PARSER ENVIRONMENT (Simboli Mappati in Memoria)
+    // ==========================================================
+    exprtk::symbol_table<float> m_pathSymbolTable;
+    exprtk::symbol_table<float> m_surfaceSymbolTable;
+
+    // Variabili fisiche registrate nella tabella (ExprTk punta qui)
+    float m_varU = 0.0f;
+    float m_varV = 0.0f;
+    float m_varW = 0.0f;
+
+    float m_varU_comp = 0.0f;
+    float m_varV_comp = 0.0f;
+    float m_varW_comp = 0.0f;
+
+    float m_varP = 0.0f;
+    float m_varT = 0.0f;
+    float m_varMesh = 0.0f;     // copia valutata (detectPartClosure)
+    float m_varMeshes = 1.0f;   // numero di copie
+
+    float m_varA = 1.0f, m_varB = 1.0f, m_varC = 1.0f;
+    float m_varD = 1.0f, m_varE = 1.0f, m_varF = 1.0f;
+    float m_varS = 0.0f;
+
+    // ==========================================================
+    // CACHED COMPILED EXPRESSIONS
+    // ==========================================================
+    CachedExpression m_exprSurfX, m_exprSurfY, m_exprSurfZ;
+    CachedExpression m_exprPathX, m_exprPathY, m_exprPathZ, m_exprPathP;
+    CachedExpression m_exprPathAlpha, m_exprPathBeta, m_exprPathGamma;
+    CachedExpression m_exprPath3DX, m_exprPath3DY, m_exprPath3DZ, m_exprPath3DR;
+
+    // ==========================================================
+    // GEODESIC FLOW CACHE (GPU pipeline persistente)
+    // ==========================================================
+    GeodesicCalculator m_geoCalc;
+
+    // ==========================================================
+    // PRIVATE INTERNAL HELPERS
+    // ==========================================================
+    // --- Mesh Generation & Analysis ---
+    void generateParametricGrid();
+    void generateBorder();
+    void detectMeshClosure();
+    // Chiusura di una singola parte: valuta le equazioni agli estremi del
+    // sotto-dominio della parte, non del dominio globale.
+    void detectPartClosure(MeshPart& part);
+    // Costruisce l'elenco di parti da generare: quelle dichiarate dallo script,
+    // oppure una parte sola sul dominio corrente (comportamento storico).
+    std::vector<MeshPart> resolveMeshParts() const;
+
+    // --- Expression Parsing ---
+    void compileSingleExpr(const QString &eqStr, CachedExpression &target, exprtk::parser<float> &parser);
+};
+
+#endif // SURFACEENGINE_H
