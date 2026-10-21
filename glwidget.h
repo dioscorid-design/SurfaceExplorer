@@ -1137,6 +1137,17 @@ public:
     // Riparte il tick se qualche oggetto ha il GO acceso (dopo stopAllTimers:
     // il recorder lo usa a fine dialoghi per gli oggetti non selezionati).
     void resumeObjectRotations();
+    // MOTI TENUTI FERMI PER OGGETTO, per la durata di un menu: rotazioni e
+    // orologio della geometria di tutti gli oggetti, e alla fine di nuovo
+    // accesi proprio a chi li aveva. Non per selezione: una voce del menu puo'
+    // cambiare l'oggetto selezionato (Add to Scene), e "riprendi il
+    // selezionato" faceva girare il nuovo oggetto al posto di quello di prima.
+    // Un oggetto tolto nel frattempo si salta.
+    struct ObjectMotionHold {
+        std::vector<const SurfaceObject *> rotating, geometryClock;
+    };
+    ObjectMotionHold holdObjectMotion();
+    void releaseObjectMotion(const ObjectMotionHold &hold);
     void pauseMotion();
     void resumeMotion();
 

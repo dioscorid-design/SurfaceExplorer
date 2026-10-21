@@ -5523,6 +5523,40 @@ void GLWidget::setObjectRotating(int index, bool on)
     rotationTimer->stop();
 }
 
+GLWidget::ObjectMotionHold GLWidget::holdObjectMotion()
+{
+    ObjectMotionHold hold;
+    for (const auto &obj : m_objects) {
+        SurfaceObject &o = *obj;
+        if (isObjectRotating(o)) hold.rotating.push_back(&o);
+        if (o.surfaceAnimating) hold.geometryClock.push_back(&o);
+        o.rotating = false;
+        o.surfaceAnimating = false;
+    }
+    if (rotationTimer) rotationTimer->stop();
+    return hold;
+}
+
+void GLWidget::releaseObjectMotion(const ObjectMotionHold &hold)
+{
+    auto alive = [this](const SurfaceObject *p) -> SurfaceObject * {
+        for (const auto &obj : m_objects)
+            if (obj.get() == p) return obj.get();
+        return nullptr;
+    };
+    bool anyRotating = false;
+    for (const SurfaceObject *p : hold.rotating)
+        if (SurfaceObject *o = alive(p)) { o->rotating = true; anyRotating = true; }
+    if (anyRotating && rotationTimer) rotationTimer->start();
+    bool anyClock = false;
+    for (const SurfaceObject *p : hold.geometryClock)
+        if (SurfaceObject *o = alive(p)) { o->surfaceAnimating = true; anyClock = true; }
+    if (anyClock && m_animTimer && !m_animTimer->isActive()) {
+        m_surfaceTimer.restart();   // azzera la base del dt: niente salti
+        m_animTimer->start();
+    }
+}
+
 void GLWidget::resumeObjectRotations()
 {
     if (!rotationTimer || rotationTimer->isActive()) return;

@@ -5817,6 +5817,35 @@ void ScenarioTest::runSceneMotionScenarios()
     wait(200);
     check(!gl->anyObjectRotating(), QStringLiteral("tolto l'oggetto: il tick delle rotazioni si ferma"));
 
+    // UN OGGETTO CHE RUOTA, POI ADD TO SCENE DAL MENU: il menu tiene fermi i
+    // moti e li rimette PER OGGETTO (prima riprendeva "il selezionato", cioe' il
+    // nuovo: il primo restava fermo e il nuovo era su STOP a velocita' zero).
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) {
+        m_mw->addShapeToScene(torusPath);
+        wait(400);
+        gl->setPrecessionSpeed(1.0f);
+        m_mw->onStopClicked();
+        wait(200);
+        const int first = gl->selectedObject();
+        const bool clockOn = gl->isSurfaceAnimating();
+        // Come showMenu: tieni fermi i moti, esegui la voce, rimettili.
+        const GLWidget::ObjectMotionHold held = gl->holdObjectMotion();
+        m_mw->addShapeToScene(torusPath);
+        wait(400);
+        gl->releaseObjectMotion(held);
+        m_mw->ui->btnStart_2->setText(gl->isAnimating() ? "STOP" : "GO");
+        wait(200);
+        const int second = gl->selectedObject();
+        check(second != first && gl->isObjectRotating(first) && !gl->isObjectRotating(second)
+                  && m_mw->ui->btnStart_2->text() == QLatin1String("GO"),
+              QStringLiteral("menu + Add to Scene: il primo continua a ruotare, il nuovo e' fermo col tasto GO"));
+        m_mw->selectSceneObject(first);
+        wait(100);
+        check(gl->isSurfaceAnimating() == clockOn && m_mw->ui->btnStart_2->text() == QLatin1String("STOP"),
+              QStringLiteral("e il primo ritrova orologio e tasto STOP"));
+        m_mw->onStopClicked();
+    }
+
     // UN RECORD CHE RUOTA, POI UN OGGETTO: l'ambiente si ferma; tolto l'oggetto
     // (modalita' Superficie) le sue rotazioni tornano disponibili.
     if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Wireframes/Pseudo-Iwasawa Torus.json"))) {

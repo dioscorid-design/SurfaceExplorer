@@ -599,22 +599,22 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     bool wasTimeAnimating = false;
     bool wasPath4D = false;
     bool wasPath3D = false;
-    bool wasRotating = false;
+    // Rotazioni e orologio della geometria, PER OGGETTO (vedi
+    // GLWidget::holdObjectMotion): Add to Scene cambia l'oggetto selezionato.
+    GLWidget::ObjectMotionHold heldMotion;
 
     if (!skipMotionHandling) {
         if (m_mainWindow->isAnythingMoving()) {
             wasTimeAnimating = true;
-            m_mainWindow->ui->glWidget->setSurfaceAnimating(false);
             m_mainWindow->ui->glWidget->stopAnimationTimer();
         }
 
         wasPath4D = m_mainWindow->pathRunning(CameraPaths::Path4D);
         wasPath3D = m_mainWindow->pathRunning(CameraPaths::Path3D);
-        wasRotating = m_mainWindow->ui->glWidget->isAnimating();
 
         if (wasPath4D) m_mainWindow->m_paths->stop(CameraPaths::Path4D);
         if (wasPath3D) m_mainWindow->m_paths->stop(CameraPaths::Path3D);
-        if (wasRotating) m_mainWindow->ui->glWidget->pauseMotion();
+        heldMotion = m_mainWindow->ui->glWidget->holdObjectMotion();
     }
 
 // --- ESECUZIONE MENU ---
@@ -643,11 +643,11 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     if (keepHighlight) LibraryTreeFocus::restoreHighlight(senderTree, before);
 #endif
 
-    if (wasTimeAnimating) {
-        m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
-        m_mainWindow->ui->glWidget->startAnimationTimer();
-    }
+    if (wasTimeAnimating) m_mainWindow->ui->glWidget->startAnimationTimer();
     if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
     if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
-    if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
+    m_mainWindow->ui->glWidget->releaseObjectMotion(heldMotion);
+    // Il tasto GO dice se ruota l'oggetto selezionato ADESSO.
+    if (m_mainWindow->ui->btnStart_2)
+        m_mainWindow->ui->btnStart_2->setText(m_mainWindow->ui->glWidget->isAnimating() ? "STOP" : "GO");
 }
