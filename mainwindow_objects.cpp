@@ -171,11 +171,37 @@ static bool pCoordinateIs4D(QString p)
 // quota p; una scena 4D oggetti 3D e 4D, e niente Cross Section. La decide
 // l'ambiente: parametrico con la P 4D. Il path 4D no: anche i record delle
 // Cross Section ne hanno uno.
+void MainWindow::setEnvironmentName(const QString &name)
+{
+    if (m_objectSessions.empty()) return;
+    m_objectSessions[0].name = name;
+    refreshObjectsUi();
+}
+
+QString MainWindow::uniqueObjectName(const QString &base) const
+{
+    auto taken = [this](const QString &n) {
+        for (size_t k = 1; k < m_objectSessions.size(); ++k)
+            if (m_objectSessions[k].name == n) return true;
+        return false;
+    };
+    if (!taken(base)) return base;
+    for (int i = 2;; ++i) {
+        const QString n = QStringLiteral("%1 %2").arg(base).arg(i);
+        if (!taken(n)) return n;
+    }
+}
+
+const ObjectState &MainWindow::environmentState() const
+{
+    if (ui->glWidget->selectedObject() == 0 || m_objectSessions.empty())
+        return static_cast<const ObjectState &>(m_scene);
+    return m_objectSessions[0].state;
+}
+
 bool MainWindow::sceneIs4D() const
 {
-    const ObjectState &env = ui->glWidget->selectedObject() == 0
-                                 ? static_cast<const ObjectState &>(m_scene)
-                                 : m_objectSessions[0].state;
+    const ObjectState &env = environmentState();
     return !env.implicitMode && pCoordinateIs4D(env.eq.p);
 }
 
@@ -211,7 +237,7 @@ void MainWindow::addShapeToScene(const QString &shapePath)
                            "scenes (an environment with a P coordinate)."));
         return;
     }
-    const int index = addPresetAsObject(*d, d->name);
+    const int index = addPresetAsObject(*d, uniqueObjectName(d->name));
     ui->glWidget->setObjectPosition(QVector3D(2.5f * float(index), 0.0f, 0.0f));
     m_sceneObjectsChanged = true;
     refreshObjectsUi();
@@ -359,9 +385,9 @@ void MainWindow::setupObjectsDock()
     auto *w = new QWidget(m_dockObjects);
     auto *lay = new QVBoxLayout(w);
 
-    auto *help = new QLabel(QStringLiteral("The environment and the objects of the scene. "
-                                           "Add objects from the Library: right-click a Shape, "
-                                           "then Add to Scene."), w);
+    auto *help = new QLabel(QStringLiteral("The environment is what you open from the Library "
+                                           "(a Shape or a Record), or nothing after NEW. "
+                                           "Add objects to it: right-click a Shape, then Add to Scene."), w);
     help->setWordWrap(true);
     lay->addWidget(help);
 
@@ -478,7 +504,7 @@ void MainWindow::duplicateSceneObject(int index)
     LibraryItem copy = lm.parseJsonObject(shape, LibraryType::Surface, QString());
     copy.hintText = m_currentHintText;       // l'oggetto e' quello selezionato
     copy.hintSeconds = m_currentHintSeconds;
-    addPresetAsObject(copy, source.name);
+    addPresetAsObject(copy, uniqueObjectName(source.name));
     gl->setObjectPosition(pos + QVector3D(0.5f, 0.5f, 0.0f));
     applyObjectMotion(motion);
     m_sceneObjectsChanged = true;
@@ -523,13 +549,25 @@ QString MainWindow::composedObjectsHint() const
 {
     // Il messaggio dell'oggetto selezionato e' in m_currentHintText: la sua
     // sessione si aggiorna solo quando lo si lascia.
+    // Ogni messaggio UNA volta: due oggetti uguali (o un oggetto uguale
+    // all'ambiente) hanno lo stesso testo, e ripeterlo non dice niente di piu'.
+    // Davanti al testo i nomi di tutti gli oggetti che lo condividono.
     const int selected = ui->glWidget->selectedObject();
-    QStringList parts;
+    QString envText;
+    QStringList texts;                 // nell'ordine degli oggetti
+    QHash<QString, QStringList> names; // testo -> oggetti che lo hanno
     for (int k = 0; k < int(m_objectSessions.size()); ++k) {
         const QString text = (k == selected ? m_currentHintText : m_objectSessions[k].hintText).trimmed();
         if (text.isEmpty()) continue;
-        parts << (k == 0 ? text : m_objectSessions[k].name + QStringLiteral(": ") + text);
+        if (k == 0) { envText = text; continue; }
+        if (text == envText) continue;   // lo dice gia' l'ambiente
+        if (!names.contains(text)) texts << text;
+        names[text] << m_objectSessions[k].name;
     }
+    QStringList parts;
+    if (!envText.isEmpty()) parts << envText;
+    for (const QString &text : texts)
+        parts << names.value(text).join(QStringLiteral(", ")) + QStringLiteral(": ") + text;
     return parts.join(QStringLiteral("\n\n"));
 }
 

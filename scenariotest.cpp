@@ -5876,6 +5876,69 @@ void ScenarioTest::runSceneDepthScenarios()
         gl->setClocksDrivenByRecorder(false);
     }
 
+    // SCENA DA ZERO: NEW lascia l'ambiente vuoto, e il primo Add to Scene
+    // mette a schermo il solo oggetto (nessuna copia fissa).
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Scena da zero: NEW, poi Add to Scene =="));
+    if (loadSurface(kParam)) {
+        gl->stopAllTimers();
+        gl->setClocksDrivenByRecorder(true);
+        wait(400);
+        const QImage loaded = gl->grabFramebuffer();
+        m_discardOnPrompt = true;
+        m_mw->onNewSceneClicked();
+        m_discardOnPrompt = false;
+        wait(600);
+        m_mw->addShapeToScene(libraryPath(kParam));
+        wait(600);
+        gl->stopAllTimers();
+        gl->setObjectPosition(QVector3D(0.0f, 0.0f, 0.0f));
+        wait(400);
+        const QImage scene = gl->grabFramebuffer();
+        scene.save(m_outDir + QStringLiteral("/scene-from-new.png"));
+        const double d = diffFraction(loaded, scene);
+        check(gl->objectCount() == 2 && d < 0.02,
+              QStringLiteral("NEW + Add to Scene della sfera in (0,0,0): come la sfera caricata (%1% di pixel diversi)")
+                  .arg(d * 100.0, 0, 'f', 3));
+        gl->setClocksDrivenByRecorder(false);
+    }
+
+    // DUE OGGETTI UGUALI: nomi distinti nell'elenco, messaggio una volta sola.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Oggetti uguali: nomi distinti, messaggio una volta =="));
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) {
+        m_mw->addShapeToScene(libraryPath(kParam));
+        wait(400);
+        m_mw->m_currentHintText = QStringLiteral("Slider A: the radius.");
+        m_mw->addShapeToScene(libraryPath(kParam));
+        wait(400);
+        m_mw->m_currentHintText = QStringLiteral("Slider A: the radius.");
+        const QString hint = m_mw->composedObjectsHint();
+        check(m_mw->m_objectSessions.size() == 3
+                  && m_mw->m_objectSessions[1].name != m_mw->m_objectSessions[2].name,
+              QStringLiteral("nomi distinti: %1, %2").arg(m_mw->m_objectSessions[1].name,
+                                                         m_mw->m_objectSessions[2].name));
+        check(hint.count(QStringLiteral("Slider A")) == 1
+                  && hint.contains(m_mw->m_objectSessions[1].name + QStringLiteral(", ")
+                                   + m_mw->m_objectSessions[2].name),
+              QStringLiteral("messaggio composto senza ripetizioni: %1").arg(hint.simplified()));
+        check(m_mw->m_objectSessions[0].name == QLatin1String("Torus"),
+              QStringLiteral("l'ambiente ha il nome della Shape (%1)").arg(m_mw->m_objectSessions[0].name));
+    }
+
+    // IL PATH E' DELL'AMBIENTE: un oggetto RM selezionato non spegne i suoi tasti.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Path dell'ambiente con un oggetto RM selezionato =="));
+    if (loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S2xS1/Klein Racing.json"))) {
+        const bool running = m_mw->pathRunning(CameraPaths::Path4D);
+        m_mw->addShapeToScene(libraryPath(kRM));
+        wait(800);
+        check(gl->selectedObject() == 1 && m_mw->implicitMode() && m_mw->ui->btnDeparture->isEnabled()
+                  && m_mw->ui->lineX_P->isEnabled(),
+              QStringLiteral("sfera RM selezionata: Departure/STOP e campi del path accesi (path %1)")
+                  .arg(running ? QStringLiteral("in corsa") : QStringLiteral("fermo")));
+    }
+
     // SCENA 3D O 4D: le Cross Section solo nelle 3D, la P solo nelle 4D.
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Scena 3D o 4D: cosa si puo' aggiungere =="));

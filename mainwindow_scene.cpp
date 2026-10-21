@@ -1242,6 +1242,8 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // Un reset (NEW, cambio di linguetta) riscrive la scena intera: si torna al
     // solo ambiente.
     resetToSingleObject();
+    // La scena vuota: l'ambiente non ha nome (elenco del dock Objects).
+    setEnvironmentName(QString());
 
     // All'uscita la scena e' pulita: niente lavoro da proteggere.
     SceneCleanGuard sceneCleanGuard{this};
@@ -1474,6 +1476,8 @@ void MainWindow::applySurfaceExample(LibraryItem d, bool asObject)
 {
     // Un load normale riscrive la scena intera: si torna al solo ambiente.
     if (!asObject) resetToSingleObject();
+    // L'ambiente prende il nome della Shape (elenco del dock Objects).
+    if (!asObject) setEnvironmentName(d.name);
     // All'uscita la scena e' quella del file: e' il momento pulito. Non per
     // un oggetto aggiunto: la scena e' cambiata, non e' quella di un file.
     std::optional<SceneCleanGuard> sceneCleanGuard;
@@ -2815,6 +2819,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // Un record riscrive la scena intera: si torna al solo ambiente (dopo
     // l'avviso, che deve ancora mostrare la scena di prima).
     resetToSingleObject();
+    setEnvironmentName(data.name);   // il record e' l'ambiente
 
     // LA SCENA DEL FILE, calcolata una volta (con la scansione appena fatta):
     // applyCommonData la assegna in testa, e da qui la leggono sotto-tab e moti.

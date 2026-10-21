@@ -1873,7 +1873,11 @@ void MainWindow::updateRenderState()
         if (ui->panelPath) {
             ui->panelPath->setEnabled(true);
         }
-        const bool path4DUsable = !isImplicitMode || crossSectionActive;
+        // Il path e' dell'AMBIENTE: in una scena il cui ambiente lo permette resta
+        // usabile anche con un oggetto in ray marching selezionato (prima i tasti
+        // si spegnevano aggiungendo una sfera RM a un record col path 4D).
+        const ObjectState &env = environmentState();
+        const bool path4DUsable = !env.implicitMode || env.crossSectionTab;
         for (QWidget *w : { (QWidget*)ui->lineX_P,  (QWidget*)ui->lineY_P,
                             (QWidget*)ui->lineZ_P,  (QWidget*)ui->lineP_P,
                             (QWidget*)ui->lineAlpha_P, (QWidget*)ui->lineBeta_P,

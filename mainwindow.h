@@ -1738,6 +1738,14 @@ private:
     QJsonObject objectMotionJson() const;
     // La scena e' 4D se l'ambiente parametrico ha la P 4D (vedi addShapeToScene).
     bool sceneIs4D() const;
+    // Lo stato dell'AMBIENTE (oggetto 0): m_scene se e' selezionato, altrimenti
+    // la sua sessione. Serve a cio' che e' suo anche con un altro oggetto
+    // selezionato: i path, il tipo di scena.
+    const ObjectState &environmentState() const;
+    // Nomi nell'elenco degli oggetti: l'ambiente prende quello del preset
+    // caricato, e due oggetti con lo stesso nome si distinguono con un numero.
+    void setEnvironmentName(const QString &name);
+    QString uniqueObjectName(const QString &base) const;
     void applyObjectMotion(const QJsonObject &motion);
     // Il messaggio della scena: quello dell'ambiente e, sotto, quello di ogni
     // oggetto col suo nome.
