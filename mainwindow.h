@@ -273,6 +273,11 @@ private slots:
     // prima di un eventuale reset della vista, che a path fermo gliela toglie.
     void resetMotions(std::optional<CameraPaths::Path> camPath);
     void resetMotions() { resetMotions(cameraPath()); }
+    // L'inquadratura a cui View riporterebbe (in una scena: direzione
+    // d'apertura alla distanza di adesso), e se cambierebbe qualcosa: con la
+    // camera gia' li' View non fa nulla, e il RESET non lo chiede.
+    GLWidget::Framing viewResetFraming() const;
+    bool viewResetChangesSomething() const;
     // IL RESET DI UN OGGETTO della scena (selezionato, non l'ambiente): solo i
     // suoi moti, senza chiedere (decisione dell'utente, 2026-10-21: la vista e'
     // della scena, non dell'oggetto). Orientamento d'apertura, orologi, flusso

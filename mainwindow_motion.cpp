@@ -321,6 +321,14 @@ void MainWindow::onResetClicked()
         return;
     }
 
+    // E se la camera e' gia' all'inquadratura d'apertura View non farebbe
+    // nulla (un record di rotazioni: gira la superficie, non la camera): la
+    // scelta e' una sola, i moti (segnalato dall'utente, 2026-10-21).
+    if (!viewResetChangesSomething()) {
+        resetMotions(camPath);
+        return;
+    }
+
     QMessageBox box(this);
     box.setIcon(QMessageBox::Question);
     box.setWindowTitle("Reset");
@@ -369,6 +377,32 @@ std::optional<CameraPaths::Path> MainWindow::cameraPath() const
     return std::nullopt;
 }
 
+GLWidget::Framing MainWindow::viewResetFraming() const
+{
+    GLWidget::Framing framing = m_startFraming;
+    if (ui->glWidget->objectCount() > 1) {
+        const float distance = ui->glWidget->getCameraPos().length();
+        if (framing.cameraPos.lengthSquared() > 1e-8f && distance > 1e-4f)
+            framing.cameraPos = framing.cameraPos.normalized() * distance;
+    }
+    return framing;
+}
+
+bool MainWindow::viewResetChangesSomething() const
+{
+    const GLWidget::Framing target = viewResetFraming();
+    const GLWidget::Framing now = ui->glWidget->framing();
+    auto near = [](float a, float b) { return std::abs(a - b) < 1e-3f; };
+    const bool same = (now.cameraPos - target.cameraPos).length() < 1e-3f
+                      && near(now.yaw, target.yaw) && near(now.pitch, target.pitch)
+                      && near(now.roll, target.roll)
+                      && (now.observerPos - target.observerPos).length() < 1e-3f
+                      && near(now.crossSectionP, target.crossSectionP)
+                      // Il FOV lo rimette solo la superficie sola (resetView).
+                      && (ui->glWidget->objectCount() > 1 || near(m_scene.fov, m_startFov));
+    return !same;
+}
+
 void MainWindow::resetView()
 {
     // Inquadratura d'apertura. Le velocita' e i moti non si toccano. Un path
@@ -378,13 +412,7 @@ void MainWindow::resetView()
     // di adesso dal centro (decisione dell'utente, 2026-10-21): allontanarsi
     // per inquadrare tutti gli oggetti non si perde col RESET. Con una
     // superficie sola la posa d'apertura intera, zoom compreso, come dalla 1.4.
-    GLWidget::Framing framing = m_startFraming;
-    if (ui->glWidget->objectCount() > 1) {
-        const float distance = ui->glWidget->getCameraPos().length();
-        if (framing.cameraPos.lengthSquared() > 1e-8f && distance > 1e-4f)
-            framing.cameraPos = framing.cameraPos.normalized() * distance;
-    }
-    ui->glWidget->resetFraming(framing);
+    ui->glWidget->resetFraming(viewResetFraming());
 
     // Un path IN CORSA la camera la tiene: gliela si rimette subito al suo
     // tempo, invece di mostrare la vista libera per un fotogramma fino al

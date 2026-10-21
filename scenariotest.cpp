@@ -6657,7 +6657,21 @@ void ScenarioTest::runResetButtonScenarios()
     }
 
     if (loadRecord(kAnim)) {
-        // Annulla: niente cambia, l'animazione prosegue.
+        // Camera all'apertura: View non farebbe nulla, quindi niente domanda e
+        // i moti ripartono (t dall'origine).
+        {
+            const int popups = m_popupsClosed;
+            wait(400);
+            const float gBefore = gl->clockTimes().geom;
+            m_mw->onResetClicked();
+            const float gAfter = gl->clockTimes().geom;
+            check(m_popupsClosed == popups && gBefore > 0.2f && gAfter < 0.2f,
+                  QStringLiteral("record animato, camera all'apertura -> Motions senza popup (t %1 -> %2)")
+                      .arg(gBefore).arg(gAfter));
+        }
+        // Annulla: niente cambia, l'animazione prosegue. Con la camera mossa,
+        // perche' View abbia qualcosa da fare e il popup compaia.
+        gl->zoomCamera(0.5f);
         const int popups = m_popupsClosed;
         const float g0 = gl->clockTimes().geom;
         m_mw->onResetClicked();  wait(300);
@@ -6680,8 +6694,10 @@ void ScenarioTest::runResetButtonScenarios()
         checkDirty(QStringLiteral("View dopo zoom e FOV"), false, false, false);
 
         // Moti in corso: t riparte dall'origine e prosegue.
+        // (Camera all'apertura dopo View: nessun popup, i moti direttamente.)
         m_popupAnswer = QStringLiteral("Motions");
         m_mw->onResetClicked();
+        m_popupAnswer.clear();
         const float g2 = gl->clockTimes().geom;
         wait(500);
         const float g3 = gl->clockTimes().geom;
@@ -6696,6 +6712,7 @@ void ScenarioTest::runResetButtonScenarios()
         m_mw->m_btnStart->click();  wait(300);
         m_popupAnswer = QStringLiteral("Both");
         m_mw->onResetClicked();  wait(500);
+        m_popupAnswer.clear();
         const GLWidget::ClockTimes c = gl->clockTimes();
         check(c.geom == o && c.tex == o && c.bg == o && !gl->isSurfaceAnimating()
                   && m_mw->m_btnStart->text() == QLatin1String("START"),
@@ -6706,14 +6723,16 @@ void ScenarioTest::runResetButtonScenarios()
 
     // Rotazioni: Motions le rimette alla posa d'apertura e il GO prosegue da li'.
     if (loadRecord(kRot)) {
+        // La camera e' all'apertura (gira la superficie): View non farebbe
+        // nulla, il RESET rimette i moti senza chiedere.
         const bool turned = !sameOrientation();
-        m_popupAnswer = QStringLiteral("Motions");
+        const int popups = m_popupsClosed;
         m_mw->onResetClicked();
         const bool back = sameOrientation();
         wait(500);
-        check(turned && back && gl->isAnimating() && !sameOrientation(),
-              QStringLiteral("rotazioni -> Motions le rimette alla posa d'apertura, il GO prosegue "
-                             "(girato %1, rimesso %2, gira %3)")
+        check(m_popupsClosed == popups && turned && back && gl->isAnimating() && !sameOrientation(),
+              QStringLiteral("rotazioni, camera all'apertura -> Motions senza popup: posa d'apertura, il GO "
+                             "prosegue (girato %1, rimesso %2, gira %3)")
                   .arg(turned).arg(back).arg(gl->isAnimating()));
     }
 
@@ -6788,6 +6807,7 @@ void ScenarioTest::runResetButtonScenarios()
                   .arg(before).arg(after).arg(m_mw->m_geoTime)
                   .arg(flowing ? QStringLiteral("in moto") : QStringLiteral("fermo")));
     }
+    m_popupAnswer.clear();   // una risposta senza popup non deve restare in sospeso
 }
 
 void ScenarioTest::runResetSceneScenarios()
