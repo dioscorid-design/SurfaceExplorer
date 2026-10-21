@@ -39,7 +39,8 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
         mv.setToIdentity();
     } else {
         o.model.setToIdentity();
-        o.model.translate(o.position);
+        // La posizione piu' il path dell'oggetto (timeline 2a) al suo tempo.
+        o.model.translate(effectivePosition(o));
         o.model.rotate(o.rotationQuat);
         if (o.scale != 1.0f) o.model.scale(o.scale);   // a 1 la matrice di sempre
 

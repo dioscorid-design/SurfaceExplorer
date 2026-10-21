@@ -9,6 +9,8 @@
 #include "scenehintoverlay.h"
 
 #include <QDoubleSpinBox>
+#include <QLineEdit>
+#include <QMessageBox>
 #include <QFontMetrics>
 
 void MainWindow::saveObjectSession(ObjectSession &s) const
@@ -411,6 +413,12 @@ bool MainWindow::loadSceneFile(const QString &path)
             gl->setObjectWindow(gl->selectedObject(), float(window.value(QStringLiteral("in")).toDouble(0.0)),
                                 float(window.value(QStringLiteral("out")).toDouble(0.0)));
         }
+        {
+            const QJsonArray path = o.value(QStringLiteral("path")).toArray();
+            if (!path.isEmpty())
+                gl->setObjectPath(gl->selectedObject(), path.at(0).toString(), path.at(1).toString(),
+                                  path.at(2).toString());
+        }
         applyObjectMotion(o.value(QStringLiteral("motion")).toObject());
         captureObjectStartPose();
     }
@@ -562,6 +570,21 @@ void MainWindow::setupObjectsDock()
     }
     lay->addLayout(posRow);
 
+    // PATH del selezionato (timeline 2a): X(t), Y(t), Z(t) che si sommano alla
+    // posizione, t = il tempo dell'oggetto. Vuoti = fermo.
+    auto *pathRow = new QHBoxLayout();
+    pathRow->addWidget(new QLabel(QStringLiteral("Path"), w));
+    const char *pathHints[3] = { "X(t)", "Y(t)", "Z(t)" };
+    for (int i = 0; i < 3; ++i) {
+        m_objectPath[i] = new QLineEdit(w);
+        m_objectPath[i]->setPlaceholderText(QLatin1String(pathHints[i]));
+        pathRow->addWidget(m_objectPath[i], 1);
+        connect(m_objectPath[i], &QLineEdit::editingFinished, this, [this]() {
+            applyObjectPathFromDock();
+        });
+    }
+    lay->addLayout(pathRow);
+
     // SCALA del selezionato: la stessa che cambiano rotella, pinch e
     // Back/Forward con l'oggetto selezionato (GLWidget::zoomCamera).
     auto *scaleRow = new QHBoxLayout();
@@ -671,6 +694,13 @@ void MainWindow::refreshObjectsUi()
     }
     m_objectScale->setValue(gl->objectScale());
     m_objectScale->setEnabled(selected > 0);
+    {
+        const QStringList path = gl->objectPath(selected);
+        for (int i = 0; i < 3; ++i) {
+            m_objectPath[i]->setText(selected > 0 ? path.value(i) : QString());
+            m_objectPath[i]->setEnabled(selected > 0);
+        }
+    }
     m_objectWindowIn->setValue(gl->objectWindowIn(selected));
     m_objectWindowOut->setValue(gl->objectWindowOut(selected));
     m_objectWindowIn->setEnabled(selected > 0);
@@ -692,11 +722,42 @@ void MainWindow::refreshObjectsUi()
     refreshSceneTimeLabel();
 }
 
-// T NELLA BARRA DI STATO, solo con una timeline: aggiornato 5 volte al secondo.
+// Il path scritto nel dock, al selezionato. Senza la sostituzione virgola ->
+// punto dei path della camera: romperebbe mod(a,b), atan2(y,x) e simili.
+void MainWindow::applyObjectPathFromDock()
+{
+    // editingFinished arriva due volte quando il popup d'errore prende il fuoco.
+    if (m_refreshingObjects || m_applyingObjectPath) return;
+    GLWidget *gl = ui->glWidget;
+    const int selected = gl->selectedObject();
+    if (selected <= 0) return;
+    QString text[3];
+    for (int i = 0; i < 3; ++i) text[i] = m_objectPath[i]->text().trimmed();
+    const QStringList current = gl->objectPath(selected);
+    if (text[0] == current.value(0) && text[1] == current.value(1) && text[2] == current.value(2))
+        return;
+    m_applyingObjectPath = true;
+    bool ok = true;
+    for (int i = 0; i < 3 && ok; ++i)
+        ok = InputValidator::validateExpressionSyntax(this, text[i], QLatin1String("XYZ").mid(i, 1) + "(t)");
+    if (ok && !gl->setObjectPath(selected, text[0], text[1], text[2])) {
+        ok = false;
+        QMessageBox::warning(this, QStringLiteral("Error"),
+                             QStringLiteral("Object path compilation error.\nCheck the syntax: "
+                                            "t, the constants A-F and s, K1-K4."));
+    }
+    m_applyingObjectPath = false;
+    if (!ok) return;   // il testo resta, per correggerlo; il path e' quello di prima
+    m_sceneObjectsChanged = true;
+    updateMasterButtonState();
+    refreshSceneTimeLabel();
+}
+
+// T NELLA BARRA DI STATO, con una timeline o un path: aggiornato 5 volte al secondo.
 void MainWindow::refreshSceneTimeLabel()
 {
     if (!m_sceneTimeLabel || !ui->glWidget) return;
-    const bool show = ui->glWidget->objectCount() > 1 && ui->glWidget->hasTimeline();
+    const bool show = ui->glWidget->objectCount() > 1 && ui->glWidget->sceneClockMatters();
     m_sceneTimeLabel->setVisible(show);
     if (!show) {
         if (m_sceneTimeLabelTimer) m_sceneTimeLabelTimer->stop();
@@ -748,6 +809,7 @@ void MainWindow::duplicateSceneObject(int index)
     const QVector3D pos = gl->objectPosition();
     const float scale = gl->objectScale();
     const float windowIn = gl->objectWindowIn(index), windowOut = gl->objectWindowOut(index);
+    const QStringList path = gl->objectPath(index);
     const QJsonObject motion = objectMotionJson();
     LibraryManager lm;
     LibraryItem copy = lm.parseJsonObject(shape, LibraryType::Motion, QString());
@@ -757,6 +819,7 @@ void MainWindow::duplicateSceneObject(int index)
     gl->setObjectPosition(pos + QVector3D(0.5f, 0.5f, 0.0f));
     gl->setObjectScale(scale);
     gl->setObjectWindow(gl->selectedObject(), windowIn, windowOut);
+    gl->setObjectPath(gl->selectedObject(), path.value(0), path.value(1), path.value(2));
     applyObjectMotion(motion);
     captureObjectStartPose();
     m_sceneObjectsChanged = true;

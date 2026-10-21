@@ -269,6 +269,21 @@ public:
     bool isObjectOnStage(int index) const;
     // Almeno un oggetto ha una finestra: T conta (master, RESET, barra di stato).
     bool hasTimeline() const;
+    // IL PATH DI UN OGGETTO (timeline 2a): X(t), Y(t), Z(t) che si sommano alla
+    // sua posizione, t = SurfaceObject::pathTime. Mai l'ambiente. false =
+    // sintassi sbagliata (resta il path di prima).
+    bool setObjectPath(int index, const QString &x, const QString &y, const QString &z);
+    QStringList objectPath(int index) const;
+    bool objectHasPath(int index) const;
+    float objectPathTime(int index) const;
+    // Dove l'oggetto si disegna adesso: posizione + path.
+    QVector3D objectEffectivePosition(int index) const;
+    // L'orologio di scena conta: finestre o path (master, tick dei fotogrammi).
+    bool sceneClockMatters() const;
+    // Le variabili dei comandi (K1..K4 nelle formule dei path): per ora 0, le
+    // muoveranno tastiera e mouse.
+    void setControlVariable(int i, float v) { if (i >= 0 && i < 4) m_controlVars[i] = v; }
+    float controlVariable(int i) const { return (i >= 0 && i < 4) ? m_controlVars[i] : 0.0f; }
 
     // ==========================================================
     // ENGINE MODES
@@ -1660,6 +1675,8 @@ private:
     // Orologio di scena della timeline: vedi sceneTime.
     float m_sceneTime = 0.0f;
     bool m_sceneTimeRunning = true;
+    float m_controlVars[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    QVector3D effectivePosition(SurfaceObject &o);
     bool isOnStage(const SurfaceObject &o) const;
     // Rotazione 4D del path per gli oggetti: vedi setViewRotation4D.
     float m_viewOmega = 0.0f, m_viewPhi = 0.0f, m_viewPsi = 0.0f;

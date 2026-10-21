@@ -31,6 +31,21 @@ SurfaceEngine::SurfaceEngine()
     m_pathSymbolTable.add_variable("s", m_varS);
     m_pathSymbolTable.add_constants();
 
+    // Tabella del path dell'oggetto (compileObjectPath).
+    m_objectPathSymbols.add_variable("t", m_varObjT);
+    m_objectPathSymbols.add_variable("A", m_varA);
+    m_objectPathSymbols.add_variable("B", m_varB);
+    m_objectPathSymbols.add_variable("C", m_varC);
+    m_objectPathSymbols.add_variable("D", m_varD);
+    m_objectPathSymbols.add_variable("E", m_varE);
+    m_objectPathSymbols.add_variable("F", m_varF);
+    m_objectPathSymbols.add_variable("s", m_varS);
+    m_objectPathSymbols.add_variable("K1", m_varK[0]);
+    m_objectPathSymbols.add_variable("K2", m_varK[1]);
+    m_objectPathSymbols.add_variable("K3", m_varK[2]);
+    m_objectPathSymbols.add_variable("K4", m_varK[3]);
+    m_objectPathSymbols.add_constants();
+
     // Tabella Surface
     m_surfaceSymbolTable.add_variable("u", m_varU);
     m_surfaceSymbolTable.add_variable("v", m_varV);
@@ -327,6 +342,39 @@ bool SurfaceEngine::compilePath3DEquations(const QString &x, const QString &y, c
 
     path3DValid = (m_exprPath3DX.isValid && m_exprPath3DY.isValid && m_exprPath3DZ.isValid);
     return path3DValid;
+}
+
+bool SurfaceEngine::compileObjectPath(const QString &x, const QString &y, const QString &z)
+{
+    exprtk::parser<float> parser;
+    auto compile = [&](const QString &text, CachedExpression &target) {
+        target.isValid = false;
+        target.expr = exprtk::expression<float>();
+        if (text.trimmed().isEmpty()) return true;   // vuoto = 0
+        target.expr.register_symbol_table(m_objectPathSymbols);
+        target.isValid = parser.compile(text.toStdString(), target.expr);
+        return target.isValid;
+    };
+    // Tutto o niente: con un campo sbagliato resta il path di prima.
+    CachedExpression nx, ny, nz;
+    if (!compile(x, nx) || !compile(y, ny) || !compile(z, nz)) return false;
+    m_exprObjX = nx; m_exprObjY = ny; m_exprObjZ = nz;
+    m_objectPathX = x.trimmed(); m_objectPathY = y.trimmed(); m_objectPathZ = z.trimmed();
+    m_objectPathActive = nx.isValid || ny.isValid || nz.isValid;
+    return true;
+}
+
+QVector3D SurfaceEngine::evaluateObjectPath(float t, const float controls[4])
+{
+    if (!m_objectPathActive) return QVector3D();
+    m_varObjT = t;
+    for (int i = 0; i < 4; ++i) m_varK[i] = controls[i];
+    auto value = [](CachedExpression &e) {
+        if (!e.isValid) return 0.0f;
+        const float v = e.expr.value();
+        return std::isfinite(v) ? v : 0.0f;
+    };
+    return QVector3D(value(m_exprObjX), value(m_exprObjY), value(m_exprObjZ));
 }
 
 QVector4D SurfaceEngine::evaluatePath3DPosition(float t)

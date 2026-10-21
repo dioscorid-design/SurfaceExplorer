@@ -1929,6 +1929,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-path")) {
+        runScenePathScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-reset")) {
         runSceneResetScenarios();
         finish();
@@ -3784,6 +3789,7 @@ void ScenarioTest::run()
     runSceneSaveLoadScenarios();
     runSceneResetScenarios();
     runSceneTimelineScenarios();
+    runScenePathScenarios();
     runAnimatedLoadScenarios();
     runLoadOrderScenarios();
 
@@ -6619,6 +6625,135 @@ void ScenarioTest::runSceneTimelineScenarios()
         check(gl->objectCount() == 2 && gl->objectWindowIn(1) == 1.0f && gl->objectWindowOut(1) == 2.0f
                   && gl->sceneTime() < 1.0f,
               QStringLiteral("Save/Load: finestra 1-2 s, T da capo (%1)").arg(gl->sceneTime()));
+    }
+}
+
+void ScenarioTest::runScenePathScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Timeline: il path di un oggetto, X(t) Y(t) Z(t) =="));
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    QString spherePath;
+    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+        if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json")))
+            spherePath = it.filePath;
+    m_mw->addShapeToScene(spherePath);
+    wait(400);
+    const int sphere = gl->selectedObject();
+    const QVector3D base = gl->objectPosition();
+    auto near = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 1e-3f; };
+    auto setPathFields = [this](const QString &x, const QString &y, const QString &z) {
+        m_mw->m_objectPath[0]->setText(x);
+        m_mw->m_objectPath[1]->setText(y);
+        m_mw->m_objectPath[2]->setText(z);
+        m_mw->applyObjectPathFromDock();
+    };
+
+    // Dal dock: la virgola di mod(t,2) resta (niente sostituzione col punto).
+    m_mw->markWholeSceneClean();
+    setPathFields(QStringLiteral("2*t"), QStringLiteral("mod(t,2)"), QStringLiteral("K1"));
+    const QStringList path = gl->objectPath(sphere);
+    check(gl->objectHasPath(sphere) && path.value(1) == QLatin1String("mod(t,2)")
+              && m_mw->hasUnsavedWork() && m_mw->m_sceneTimeLabel->isVisibleTo(m_mw)
+              && m_mw->masterActivity().timelineAvailable,
+          QStringLiteral("path 2*t, mod(t,2), K1 dal dock: compilato, T visibile, master lo conta, scena da salvare"));
+    check(near(gl->objectEffectivePosition(sphere), base),
+          QStringLiteral("t = 0: la sfera e' nella sua posizione"));
+
+    // A tempo controllato (come nel REC).
+    gl->setSpinSpeed(0.0f);
+    m_mw->onStopClicked();
+    gl->stopAllTimers();
+    gl->setClocksDrivenByRecorder(true);
+    gl->setSceneTime(0.0f);
+    gl->setSceneTimeRunning(true);
+    wait(300);
+    const QImage before = gl->grabFramebuffer();
+    gl->advanceClocksBy(1.5f);
+    gl->setControlVariable(0, 0.7f);
+    wait(300);
+    const QImage moved = gl->grabFramebuffer();
+    const QVector3D at15 = gl->objectEffectivePosition(sphere);
+    check(qAbs(gl->objectPathTime(sphere) - 1.5f) < 1e-4f && near(at15, base + QVector3D(3.0f, 1.5f, 0.7f))
+              && moved != before,
+          QStringLiteral("t = 1.5, K1 = 0.7: spostamento (%1, %2, %3), atteso (3, 1.5, 0.7)")
+              .arg(at15.x() - base.x()).arg(at15.y() - base.y()).arg(at15.z() - base.z()));
+    gl->setControlVariable(0, 0.0f);
+    gl->advanceClocksBy(1.0f);
+    check(near(gl->objectEffectivePosition(sphere), base + QVector3D(5.0f, 0.5f, 0.0f)),
+          QStringLiteral("t = 2.5: mod(t,2) torna a 0.5"));
+
+    // Master STOP ferma il tempo del path.
+    m_mw->performMasterStop();
+    const float tStopped = gl->objectPathTime(sphere);
+    gl->advanceClocksBy(1.0f);
+    check(!gl->isSceneTimeRunning() && gl->objectPathTime(sphere) == tStopped,
+          QStringLiteral("master STOP: il path resta fermo a t = %1").arg(tStopped));
+    gl->setSceneTimeRunning(true);
+
+    // RESET dell'oggetto: il path torna all'inizio, nessun popup.
+    m_lastPopup.clear();
+    m_mw->onResetClicked();
+    wait(200);
+    check(m_lastPopup.isEmpty() && gl->objectPathTime(sphere) == 0.0f
+              && near(gl->objectEffectivePosition(sphere), base),
+          QStringLiteral("RESET dell'oggetto: t = 0, sfera al suo posto, nessun popup"));
+
+    // Fuori dalla sua finestra il path non avanza.
+    m_mw->m_objectWindowIn->setValue(5.0);
+    gl->setSceneTime(0.0f);
+    gl->advanceClocksBy(1.0f);
+    check(!gl->isObjectOnStage(sphere) && gl->objectPathTime(sphere) == 0.0f,
+          QStringLiteral("fuori dalla finestra (In 5 s, T = 1): t fermo a 0"));
+    m_mw->m_objectWindowIn->setValue(0.0);
+
+    // Una formula sbagliata: popup, il path resta quello di prima.
+    m_lastPopup.clear();
+    setPathFields(QStringLiteral("2*t+"), QStringLiteral("mod(t,2)"), QStringLiteral("K1"));
+    wait(300);
+    check(!m_lastPopup.isEmpty() && gl->objectPath(sphere).value(0) == QLatin1String("2*t"),
+          QStringLiteral("2*t+ rifiutata: popup, resta 2*t"));
+    m_lastPopup.clear();
+    setPathFields(QStringLiteral("2*t+q"), QStringLiteral("mod(t,2)"), QStringLiteral("K1"));
+    wait(300);
+    check(!m_lastPopup.isEmpty() && gl->objectPath(sphere).value(0) == QLatin1String("2*t"),
+          QStringLiteral("variabile sconosciuta q: popup, resta 2*t"));
+    m_mw->refreshObjectsUi();
+    check(m_mw->m_objectPath[0]->text() == QLatin1String("2*t"),
+          QStringLiteral("il dock rimostra il path valido"));
+
+    // L'ambiente non ha path: campi spenti.
+    m_mw->selectSceneObject(0);
+    check(!m_mw->m_objectPath[0]->isEnabled() && m_mw->m_objectPath[0]->text().isEmpty(),
+          QStringLiteral("ambiente selezionato: campi del path vuoti e spenti"));
+    m_mw->selectSceneObject(sphere);
+
+    // Duplicate copia il path.
+    m_mw->duplicateSceneObject(sphere);
+    wait(300);
+    const int copy = gl->selectedObject();
+    check(copy != sphere && gl->objectPath(copy) == gl->objectPath(sphere),
+          QStringLiteral("Duplicate: la copia ha lo stesso path"));
+    m_mw->removeSceneObject(copy);
+    wait(200);
+
+    // Save e Load: il path resta.
+    PresetSerializer::MotionRunState run;
+    const QJsonObject json = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Path"), run, false);
+    const QString file = m_outDir + QStringLiteral("/scene-path.json");
+    {
+        QFile f(file);
+        if (f.open(QIODevice::WriteOnly)) { f.write(QJsonDocument(json).toJson()); f.close(); }
+    }
+    gl->setClocksDrivenByRecorder(false);
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))
+        && m_mw->loadSceneFile(file)) {
+        wait(300);
+        const QStringList loaded = gl->objectPath(1);
+        check(gl->objectCount() == 2 && gl->objectHasPath(1) && loaded.value(0) == QLatin1String("2*t")
+                  && loaded.value(1) == QLatin1String("mod(t,2)") && loaded.value(2) == QLatin1String("K1"),
+              QStringLiteral("Save/Load: path %1").arg(loaded.join(QStringLiteral(", "))));
     }
 }
 

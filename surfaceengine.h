@@ -599,6 +599,17 @@ public:
     QStringList appliedPath3D() const { return { pathEqX3D, pathEqY3D, pathEqZ3D, pathEqR3D }; }
     // Nessun path: la scena nuova non tiene compilato quello di prima.
     void clearPathEquations();
+
+    // IL PATH DELL'OGGETTO (2.0, timeline 2a): X(t), Y(t), Z(t), uno
+    // spostamento che si SOMMA alla posizione dell'oggetto nella scena. t e' il
+    // tempo dell'oggetto (SurfaceObject::pathTime); le costanti A..F/s sono le
+    // sue (setConstants); K1..K4 sono le variabili dei comandi da tastiera e
+    // mouse, per ora 0. Campi vuoti = 0; tutti vuoti = nessun path. (exprtk non
+    // distingue maiuscole e minuscole: niente T accanto a t.)
+    bool compileObjectPath(const QString &x, const QString &y, const QString &z);
+    QVector3D evaluateObjectPath(float t, const float controls[4]);
+    bool objectPathActive() const { return m_objectPathActive; }
+    QStringList objectPath() const { return { m_objectPathX, m_objectPathY, m_objectPathZ }; }
     bool path4DCompiled() const { return pathValid; }
     bool path3DCompiled() const { return path3DValid; }
 
@@ -741,6 +752,13 @@ private:
     // ==========================================================
     exprtk::symbol_table<float> m_pathSymbolTable;
     exprtk::symbol_table<float> m_surfaceSymbolTable;
+    // Path dell'oggetto: vedi compileObjectPath.
+    exprtk::symbol_table<float> m_objectPathSymbols;
+    CachedExpression m_exprObjX, m_exprObjY, m_exprObjZ;
+    float m_varObjT = 0.0f;
+    float m_varK[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    QString m_objectPathX, m_objectPathY, m_objectPathZ;
+    bool m_objectPathActive = false;
 
     // Variabili fisiche registrate nella tabella (ExprTk punta qui)
     float m_varU = 0.0f;

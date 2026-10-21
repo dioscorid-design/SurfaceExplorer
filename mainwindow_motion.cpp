@@ -425,7 +425,7 @@ bool MainWindow::motionsResetChangesSomething() const
         if (m_objectSessions[k].geoTime != 0.0) return true;
     }
     if (gl->anyClockAdvanced()) return true;
-    if (gl->hasTimeline() && gl->sceneTime() != 0.0f) return true;
+    if (gl->sceneClockMatters() && gl->sceneTime() != 0.0f) return true;
     return m_geoTime != 0.0;
 }
 

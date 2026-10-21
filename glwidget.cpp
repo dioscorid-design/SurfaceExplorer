@@ -1970,7 +1970,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         // falso avviso "il rendering rallenta" durante la registrazione.
         const bool animating = !m_isRecording &&
                                (anyObjectRotating() || anySurfaceAnimating || m_pathAnimating
-                                || (m_sceneTimeRunning && hasTimeline()));
+                                || (m_sceneTimeRunning && sceneClockMatters()));
         if (animating) {
             // Il PRIMO frame dopo l'avvio (o ri-avvio) dell'animazione non e' una
             // misura valida: l'intervallo dal frame precedente include il tempo da
@@ -5409,7 +5409,8 @@ bool GLWidget::anyClockAdvanced() const
     if (m_timeBg != 0.0f) return true;
     for (const auto &obj : m_objects) {
         const SurfaceObject &o = *obj;
-        if (o.timeGeom != 0.0f || o.timeTex != 0.0f || o.borderTimeTex != 0.0f) return true;
+        if (o.timeGeom != 0.0f || o.timeTex != 0.0f || o.borderTimeTex != 0.0f || o.pathTime != 0.0f)
+            return true;
         if (o.engine)
             for (const MeshPart &mp : o.engine->getMeshParts())
                 if (mp.timeTex != 0.0f) return true;
@@ -5423,6 +5424,7 @@ void GLWidget::resetObjectClocks(int index)
     SurfaceObject &o = *m_objects[index];
     o.timeGeom = 0.0f;
     o.timeTex = 0.0f;
+    o.pathTime = 0.0f;
     if (o.engine) {
         for (MeshPart &mp : o.engine->mutableMeshParts())
             mp.timeTex = 0.0f;
@@ -5730,6 +5732,7 @@ void GLWidget::resetAllClocks() {
                 mp.timeTex = 0.0f;
         }
         o.borderTimeTex = 0.0f;
+        o.pathTime = 0.0f;
         if (&o != m_obj) { o.timeGeom = 0.0f; o.timeTex = 0.0f; }
     }
     resetTime();
@@ -5796,12 +5799,59 @@ bool GLWidget::hasTimeline() const
     return false;
 }
 
+bool GLWidget::sceneClockMatters() const
+{
+    if (hasTimeline()) return true;
+    for (size_t k = 1; k < m_objects.size(); ++k)
+        if (m_objects[k]->engine && m_objects[k]->engine->objectPathActive()) return true;
+    return false;
+}
+
+bool GLWidget::setObjectPath(int index, const QString &x, const QString &y, const QString &z)
+{
+    if (index <= 0 || index >= int(m_objects.size()) || !m_objects[index]->engine) return false;
+    if (!m_objects[index]->engine->compileObjectPath(x, y, z)) return false;
+    setSceneTimeRunning(m_sceneTimeRunning);   // riaccende il tick se serve
+    update();
+    return true;
+}
+
+QStringList GLWidget::objectPath(int index) const
+{
+    if (index < 0 || index >= int(m_objects.size()) || !m_objects[index]->engine)
+        return { QString(), QString(), QString() };
+    return m_objects[index]->engine->objectPath();
+}
+
+bool GLWidget::objectHasPath(int index) const
+{
+    return index > 0 && index < int(m_objects.size()) && m_objects[index]->engine
+           && m_objects[index]->engine->objectPathActive();
+}
+
+float GLWidget::objectPathTime(int index) const
+{
+    return index >= 0 && index < int(m_objects.size()) ? m_objects[index]->pathTime : 0.0f;
+}
+
+QVector3D GLWidget::effectivePosition(SurfaceObject &o)
+{
+    if (isEnvironment(o) || !o.engine || !o.engine->objectPathActive()) return o.position;
+    return o.position + o.engine->evaluateObjectPath(o.pathTime, m_controlVars);
+}
+
+QVector3D GLWidget::objectEffectivePosition(int index) const
+{
+    if (index < 0 || index >= int(m_objects.size())) return QVector3D();
+    return const_cast<GLWidget *>(this)->effectivePosition(*m_objects[index]);
+}
+
 void GLWidget::setSceneTimeRunning(bool on)
 {
     m_sceneTimeRunning = on;
-    // Con una timeline T deve avanzare anche se nient'altro si muove: serve il
-    // tick dei fotogrammi (il render avanza gli orologi).
-    if (on && hasTimeline() && m_animTimer && !m_animTimer->isActive()) {
+    // Con una timeline o un path T deve avanzare anche se nient'altro si
+    // muove: serve il tick dei fotogrammi (il render avanza gli orologi).
+    if (on && sceneClockMatters() && m_animTimer && !m_animTimer->isActive()) {
         m_surfaceTimer.restart();
         m_animTimer->start();
     }
@@ -5830,6 +5880,8 @@ void GLWidget::advanceObjectClocksBy(SurfaceObject &o, float dt) {
     // Il passo del frame serve anche alla sezione dei tubi (smorzamento degli
     // scatti): preso qui, che e' il punto comune a render live e REC.
     o.tubeFrameDt = dt;
+    // Il tempo del path dell'oggetto: col tempo di scena (fermo col master).
+    if (m_sceneTimeRunning && o.engine && o.engine->objectPathActive()) o.pathTime += dt;
     if (o.surfaceAnimating) o.timeGeom += dt;
     if (o.texAnimating)     o.timeTex  += dt;
 

@@ -1783,6 +1783,10 @@ private:
     // Timeline: finestra di comparsa del selezionato e T nella barra di stato.
     QDoubleSpinBox *m_objectWindowIn = nullptr;
     QDoubleSpinBox *m_objectWindowOut = nullptr;
+    // Il path del selezionato: X(t), Y(t), Z(t) sommati alla posizione.
+    QLineEdit *m_objectPath[3] = { nullptr, nullptr, nullptr };
+    bool m_applyingObjectPath = false;
+    void applyObjectPathFromDock();
     QLabel *m_sceneTimeLabel = nullptr;
     QTimer *m_sceneTimeLabelTimer = nullptr;
     void refreshSceneTimeLabel();

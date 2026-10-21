@@ -251,6 +251,7 @@ private:
     void runSceneResetScenarios();
     // 2.0: la timeline, primo passo (finestre di comparsa).
     void runSceneTimelineScenarios();
+    void runScenePathScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
     // accesi i comandi del dock RENDERER. Il Run lo sganciava solo per le

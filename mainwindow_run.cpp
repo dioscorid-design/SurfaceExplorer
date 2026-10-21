@@ -1827,7 +1827,8 @@ MainWindow::MasterActivity MainWindow::masterActivity() const
         a.cameraRunning = pathRunning(CameraPaths::Path4D) || pathRunning(CameraPaths::Path3D);
         a.rotationAvailable = gl->selectedObject() != 0 && hasAnyRotationSpeed();
         a.rotationRunning = a.rotationAvailable && isRotationMotionRunning();
-        a.timelineAvailable = gl->hasTimeline();
+        // Il tempo di scena: finestre di comparsa o path degli oggetti.
+        a.timelineAvailable = gl->sceneClockMatters();
         a.timelineRunning = a.timelineAvailable && gl->isSceneTimeRunning();
     }
 
