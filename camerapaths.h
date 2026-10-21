@@ -42,6 +42,7 @@ public:
 
     float time(Path p) const;
     void resetTimes();                  // t = 0 per entrambi
+    void resetTime(Path p);             // t = 0 per uno (scorrimento della timeline)
     // Sessione nuova (load di un record, reset della scena): t = 0, e il
     // prossimo Departure e' di nuovo il PRIMO (orientamento neutro).
     void resetSession();

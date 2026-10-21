@@ -1061,6 +1061,16 @@ public:
     // Gli orologi di UN oggetto all'origine (geometria, texture, fasce, bordo):
     // il RESET dell'oggetto selezionato. resetAllClocks e' quello della scena.
     void resetObjectClocks(int index);
+    // LO SCORRIMENTO DELLA TIMELINE all'indietro: T e gli orologi che avanzano
+    // adesso (le stesse condizioni di advanceClocksBy) tornano a 0; uno fermo
+    // resta dov'e'. Il path di un oggetto segue T: si riavvolge sempre.
+    void rewindRunningClocks();
+    // Dopo un lavoro lungo a tempo virtuale (lo scorrimento): il prossimo dt
+    // dal vivo e' quello di un fotogramma, e il watchdog salta il transitorio.
+    void resyncFrameClock();
+    // Il tick di rotationTimer in secondi: il passo dello scorrimento, perche'
+    // le rotazioni si integrano e col passo dello schermo tornano come li'.
+    static constexpr double rotationTickSeconds() { return kRotationTickMs / 1000.0; }
     // Qualche orologio (di un oggetto qualunque, o dello sfondo) e' avanzato
     // dall'origine: il RESET dei moti cambierebbe qualcosa.
     bool anyClockAdvanced() const;

@@ -5738,6 +5738,29 @@ void GLWidget::resetAllClocks() {
     resetTime();
 }
 
+void GLWidget::rewindRunningClocks()
+{
+    m_sceneTime = 0.0f;
+    for (const auto &obj : m_objects) {
+        SurfaceObject &o = *obj;
+        if (o.engine && o.engine->objectPathActive()) o.pathTime = 0.0f;
+        if (o.surfaceAnimating) o.timeGeom = 0.0f;
+        if (o.texAnimating)     o.timeTex  = 0.0f;
+        if (o.engine)
+            for (MeshPart &mp : o.engine->mutableMeshParts())
+                if (mp.texAnimating) mp.timeTex = 0.0f;
+        if (o.borderTexAnimating) o.borderTimeTex = 0.0f;
+    }
+    if (m_bgAnimating) m_timeBg = 0.0f;
+    update();
+}
+
+void GLWidget::resyncFrameClock()
+{
+    m_lastRealTime = float(m_surfaceTimer.elapsed()) / 1000.0f;
+    m_perfGraceClock.start();
+}
+
 void GLWidget::setSurfaceAnimating(bool animating) {
     m_obj->surfaceAnimating = animating;
     if (animating && m_animTimer && !m_animTimer->isActive()) {

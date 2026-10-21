@@ -60,6 +60,11 @@ void CameraPaths::resetTimes()
     m_t3D = 0.0f;
 }
 
+void CameraPaths::resetTime(Path p)
+{
+    (p == Path4D ? m_t4D : m_t3D) = 0.0f;
+}
+
 void CameraPaths::resetSession()
 {
     resetTimes();

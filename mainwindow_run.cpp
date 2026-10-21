@@ -162,7 +162,10 @@ bool MainWindow::hasAnyRotationSpeed() const
            std::abs(ui->glWidget->getPsiSpeed()) > 0.001f;
 }
 
-void MainWindow::applyStartSideEffects()
+// Il moto della camera del master START (rotazioni dell'ambiente o un path):
+// la parte di applyStartSideEffects che usa anche lo scorrimento della
+// timeline a scena ferma, che non suona.
+void MainWindow::startCameraMotionForMaster()
 {
     if (!ui->glWidget) return;
 
@@ -207,6 +210,12 @@ void MainWindow::applyStartSideEffects()
             }
         }
     }
+}
+
+void MainWindow::applyStartSideEffects()
+{
+    if (!ui->glWidget) return;
+    startCameraMotionForMaster();
 
     // Non riaccendere il suono se l'utente l'ha fermato esplicitamente: un commit
     // di equazione/texture (Enter ad animazione attiva) arriva qui via onStartClicked

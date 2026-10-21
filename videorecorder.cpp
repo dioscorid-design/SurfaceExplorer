@@ -635,11 +635,6 @@ void VideoRecorder::toggleRecord()
 
     int totalFrames = seconds * fps;
     float timeStep = 1.0f / (float)fps;
-    // Tick/secondo REALI dei timer path (l'intervallo e' in ms): il passo per
-    // frame deve riprodurre la velocita' vista a schermo. Il vecchio 30.0f
-    // nominale (vs 33.3 reali) rendeva i path ~11% piu' lenti nel video.
-    float fpsScale4D = (1000.0f / (float)m_mainWindow->m_paths->interval(CameraPaths::Path4D)) / (float)fps;
-    float fpsScale3D = (1000.0f / (float)m_mainWindow->m_paths->interval(CameraPaths::Path3D)) / (float)fps;
 
 #ifdef Q_OS_ANDROID
     // Android: Usa la cache interna dell'app in modo che FFmpeg (C nativo) abbia i permessi
@@ -854,43 +849,13 @@ void VideoRecorder::toggleRecord()
 
         // STATO VIVO, non snapshot: i predicati sono quelli del tick live e i
         // toggle (GO/Departure/Reset) agiscono a meta' REC come a schermo.
-        if (m_mainWindow->pathRunning(CameraPaths::Path4D)) {
-            // Stesso identico avanzamento e camera del tick live
-            // (CameraPaths::advance): al recorder cambia solo quanti tick vale
-            // il frame. Niente copie locali di questa logica (divergevano:
-            // vista Center diversa, base 4D del Departure ignorata).
-            m_mainWindow->m_paths->advance(CameraPaths::Path4D, fpsScale4D);
-        }
-        else if (m_mainWindow->pathRunning(CameraPaths::Path3D)) {
-            m_mainWindow->m_paths->advance(CameraPaths::Path3D, fpsScale3D);
-        }
-        // Rotazioni: lo stesso predicato del tick live (rotationTimer in corsa e
-        // almeno un GO acceso) e la stessa cinematica (advanceRotationsBy, che
-        // avanza ogni oggetto col suo GO): al recorder cambia solo il dt, quello
-        // del frame virtuale. FUORI dalla catena dei path: in una scena gli
-        // oggetti ruotano mentre la camera segue un path. Le rotazioni
-        // dell'ambiente restano esclusive coi path (onStopClicked, Departure),
-        // quindi con un oggetto solo e' la stessa scelta di prima.
-        if (m_mainWindow->ui->glWidget->anyObjectRotating()) {
-            m_mainWindow->ui->glWidget->advanceRotationsBy(timeStep);
-        }
-
-        // Flusso geodetico: stessa identica logica del tick live
-        // (advanceGeodesicFlowBy), al recorder cambia solo il dt virtuale del
-        // frame. Prima il flusso restava CONGELATO nel video: il timer viene
-        // fermato all'avvio del REC e il loop non lo avanzava mai. Indipendente
-        // dai moti camera (a schermo convivono).
-        if (wasGeoAnimating) {
-            m_mainWindow->advanceGeodesicFlowBy(timeStep);
-        }
-        // Il flusso degli altri oggetti della scena: la stessa funzione del loro
-        // tick dal vivo (no-op durante il REC), col dt del frame.
-        m_mainWindow->advanceGeodesicObjectsBy(timeStep);
-
-        // Orologi di animazione (t di geometria, texture, sfondo, fasce): stessa
-        // identica logica del render live (advanceClocksBy), al recorder cambia
-        // solo il dt, quello del frame virtuale.
-        m_mainWindow->ui->glWidget->advanceClocksBy(timeStep);
+        // Path della camera, rotazioni, flussi geodetici e orologi: il passo
+        // della scena (advanceSceneBy, lo stesso dello scorrimento della
+        // timeline) col dt del frame virtuale. Niente copie locali di questa
+        // logica (divergevano: vista Center diversa, base 4D del Departure
+        // ignorata, flusso geodetico congelato nel video). Il flusso del
+        // selezionato avanza se il suo timer era acceso: lo si ferma all'avvio.
+        m_mainWindow->advanceSceneBy(timeStep, wasGeoAnimating);
 
         // 1. Estrazione del frame (con o senza FBO)
         QImage frame = m_mainWindow->ui->glWidget->getFrameForVideo(targetWidth, targetHeight, useFBO);

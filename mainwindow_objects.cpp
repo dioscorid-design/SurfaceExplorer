@@ -143,11 +143,13 @@ void MainWindow::advanceGeodesicObjectsBy(double dtSeconds)
         // La stessa velocita' del selezionato (advanceGeodesicFlowBy): 0.015
         // unita' per tick nominale di 16 ms.
         s.geoTime += 0.015 * (dtSeconds * 1000.0 / 16.0);
+        // Lo scorrimento della timeline: la mesh alla fine, una volta.
+        if (m_seekingScene) continue;
         // Un errore ferma il SUO flusso, in silenzio: i popup sono dell'oggetto
         // selezionato, e riselezionandolo il Run lo rimette in moto.
         if (!updateGeodesicObject(k)) s.geoAnimating = false;
     }
-    syncGeodesicObjectsTimer();
+    if (!m_seekingScene) syncGeodesicObjectsTimer();
 }
 
 bool MainWindow::updateGeodesicObject(int k)
@@ -276,6 +278,155 @@ void MainWindow::restartSceneTimeline()
     if (!ui->glWidget) return;
     ui->glWidget->setSceneTime(0.0f);
     ui->glWidget->setSceneTimeRunning(true);
+    m_sceneTimeReached = 0.0f;
+}
+
+void MainWindow::advanceSceneBy(double dt, bool selectedGeoFlow)
+{
+    GLWidget *gl = ui->glWidget;
+    // Path della camera: lo stesso avanzamento del tick live
+    // (CameraPaths::advance), in tick REALI del suo timer (l'intervallo e' in
+    // ms): la velocita' e' quella vista a schermo. Il vecchio 30.0f nominale
+    // del recorder (vs 33.3 reali) rendeva i path ~11% piu' lenti nel video.
+    for (CameraPaths::Path p : { CameraPaths::Path4D, CameraPaths::Path3D }) {
+        if (!pathRunning(p)) continue;
+        m_paths->advance(p, float(dt * 1000.0 / std::max(1, m_paths->interval(p))));
+        break;   // uno solo: i due path sono esclusivi
+    }
+    // Rotazioni: lo stesso predicato del tick live (rotationTimer in corsa e
+    // almeno un GO acceso) e la stessa cinematica (advanceRotationsBy, ogni
+    // oggetto col suo GO). FUORI dalla catena dei path: in una scena gli
+    // oggetti ruotano mentre la camera segue un path.
+    if (gl->anyObjectRotating()) gl->advanceRotationsBy(float(dt));
+    // Flussi geodetici, del selezionato e degli altri oggetti.
+    if (selectedGeoFlow) advanceGeodesicFlowBy(dt);
+    advanceGeodesicObjectsBy(dt);
+    // Orologi di animazione (t di geometria, texture, sfondo, fasce), tempo di
+    // scena e path degli oggetti.
+    gl->advanceClocksBy(float(dt));
+}
+
+void MainWindow::rewindRunningMotions()
+{
+    GLWidget *gl = ui->glWidget;
+    // Chi ha il GO in corso torna alla posa d'apertura (quella del RESET).
+    for (int k = 0; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k)
+        if (gl->isObjectRotating(k))
+            gl->setObjectOrientation(k, k == 0 ? m_startOrientation : m_objectSessions[k].startOrientation);
+    // Il path in corsa a t = 0, dopo l'orientamento: il path 4D scrive i
+    // propri angoli, come al tick.
+    for (CameraPaths::Path p : { CameraPaths::Path4D, CameraPaths::Path3D })
+        if (pathRunning(p)) {
+            m_paths->resetTime(p);
+            m_paths->applyCameraAt(p, 0.0f);
+        }
+    // I flussi geodetici in moto (le mesh le rifa' seekSceneTime alla fine).
+    if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoTime = 0.0;
+    const int selected = gl->selectedObject();
+    for (int k = 0; k < int(m_objectSessions.size()); ++k)
+        if (k != selected && m_objectSessions[k].geoAnimating) m_objectSessions[k].geoTime = 0.0;
+    gl->rewindRunningClocks();
+}
+
+void MainWindow::startSceneForSeek()
+{
+    // Come il master START (runScene, poi startObjectForMaster sugli altri),
+    // ma il selezionato non si ricompila e il suono resta spento: scorrere non
+    // e' un Run. Alla fine lo scorrimento rifa' il master STOP.
+    m_masterStopped = false;
+    m_userStoppedTexClock = false;
+    m_userStoppedBgClock = false;
+    m_userStoppedCameraMotion = false;
+    ui->glWidget->setSceneTimeRunning(true);
+    forEachOtherObject([this]() { startObjectForMaster(); });
+    startObjectForMaster();
+    startCameraMotionForMaster();
+}
+
+void MainWindow::seekSceneTime(float target)
+{
+    GLWidget *gl = ui->glWidget;
+    if (!gl || gl->objectCount() <= 1 || m_isRecording || m_seekingScene) return;
+    target = std::max(0.0f, target);
+
+    const bool paused = !sceneMasterState().any;
+    if (paused) startSceneForSeek();
+    // Il tempo di scena avanza (finestre, path degli oggetti) anche se era
+    // fermo da solo.
+    const bool sceneTimeWasRunning = gl->isSceneTimeRunning();
+    gl->setSceneTimeRunning(true);
+
+    m_seekingScene = true;
+    double from = gl->sceneTime();
+    if (target < from) {
+        rewindRunningMotions();
+        from = 0.0;
+    }
+    const bool geoFlow = m_geoAnimTimer && m_geoAnimTimer->isActive();
+    const double step = GLWidget::rotationTickSeconds();
+    for (double left = double(target) - from; left > 1e-6; left -= step)
+        advanceSceneBy(std::min(step, left), geoFlow);
+    m_seekingScene = false;
+    gl->setSceneTime(target);
+
+    // Le mesh dei flussi geodetici, una volta, al tempo raggiunto.
+    if (geoFlow) {
+        m_inGeoAnimTick = true;
+        updateGeodesicMesh(/*useAppliedLimits=*/true);
+        m_inGeoAnimTick = false;
+    }
+    const int selected = gl->selectedObject();
+    for (int k = 0; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k)
+        if (k != selected && m_objectSessions[k].geoAnimating && !updateGeodesicObject(k))
+            m_objectSessions[k].geoAnimating = false;
+    syncGeodesicObjectsTimer();
+
+    if (paused) performMasterStop();
+    else if (!sceneTimeWasRunning) gl->setSceneTimeRunning(false);
+    gl->resyncFrameClock();
+    m_sceneTimeReached = std::max(m_sceneTimeReached, target);
+    updateMasterButtonState();
+    refreshSceneTimeLabel();
+    gl->update();
+}
+
+void MainWindow::requestSceneSeek(float target)
+{
+    m_pendingSeek = target;
+    if (m_seekQueued) return;
+    m_seekQueued = true;
+    QTimer::singleShot(0, this, [this]() {
+        m_seekQueued = false;
+        seekSceneTime(m_pendingSeek);
+    });
+}
+
+// La scala del cursore: almeno 10 s, e fino al piu' lontano fra il T
+// raggiunto e i bordi delle finestre, a multipli di 5 s.
+float MainWindow::sceneTimeSpan() const
+{
+    const GLWidget *gl = ui->glWidget;
+    float span = std::max(10.0f, m_sceneTimeReached);
+    if (gl) {
+        span = std::max(span, gl->sceneTime());
+        for (int k = 1; k < gl->objectCount(); ++k)
+            span = std::max({ span, gl->objectWindowIn(k), gl->objectWindowOut(k) });
+    }
+    return std::ceil(span / 5.0f) * 5.0f;
+}
+
+void MainWindow::refreshSceneTimeSlider()
+{
+    if (!m_sceneTimeSlider || !ui->glWidget) return;
+    GLWidget *gl = ui->glWidget;
+    const float t = gl->sceneTime();
+    m_sceneTimeReached = std::max(m_sceneTimeReached, t);
+    m_sceneTimeSlider->setEnabled(gl->objectCount() > 1 && !m_isRecording);
+    m_sceneTimeValue->setText(QStringLiteral("%1 s").arg(double(t), 0, 'f', 1));
+    if (m_sceneTimeSlider->isSliderDown()) return;   // lo sta muovendo l'utente
+    const QSignalBlocker block(m_sceneTimeSlider);
+    m_sceneTimeSlider->setMaximum(int(std::lround(sceneTimeSpan() * 10.0f)));
+    m_sceneTimeSlider->setValue(int(std::lround(t * 10.0f)));
 }
 
 void MainWindow::setEnvironmentName(const QString &name)
@@ -617,6 +768,24 @@ void MainWindow::setupObjectsDock()
     m_objectWindowOut = makeWindowBox(QStringLiteral("end"));
     windowRow->addWidget(m_objectWindowOut, 1);
     lay->addLayout(windowRow);
+
+    // LO SCORRIMENTO: il cursore porta la scena al tempo T (seekSceneTime).
+    auto *seekRow = new QHBoxLayout();
+    seekRow->addWidget(new QLabel(QStringLiteral("T"), w));
+    m_sceneTimeSlider = new QSlider(Qt::Horizontal, w);
+    m_sceneTimeSlider->setRange(0, 100);
+    m_sceneTimeSlider->setSingleStep(1);
+    m_sceneTimeSlider->setPageStep(10);
+    seekRow->addWidget(m_sceneTimeSlider, 1);
+    m_sceneTimeValue = new QLabel(QStringLiteral("0.0 s"), w);
+    m_sceneTimeValue->setMinimumWidth(m_sceneTimeValue->fontMetrics().horizontalAdvance(QStringLiteral("0000.0 s")));
+    m_sceneTimeValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    seekRow->addWidget(m_sceneTimeValue);
+    lay->addLayout(seekRow);
+    connect(m_sceneTimeSlider, &QSlider::valueChanged, this, [this](int v) {
+        if (!m_refreshingObjects) requestSceneSeek(float(v) / 10.0f);
+    });
+
     for (QDoubleSpinBox *box : { m_objectWindowIn, m_objectWindowOut }) {
         connect(box, &QDoubleSpinBox::valueChanged, this, [this](double) {
             if (m_refreshingObjects) return;
@@ -753,24 +922,25 @@ void MainWindow::applyObjectPathFromDock()
     refreshSceneTimeLabel();
 }
 
-// T NELLA BARRA DI STATO, con una timeline o un path: aggiornato 5 volte al secondo.
+// T NELLA BARRA DI STATO (con una timeline o un path) e il cursore del dock
+// (in ogni scena): aggiornati 5 volte al secondo.
 void MainWindow::refreshSceneTimeLabel()
 {
     if (!m_sceneTimeLabel || !ui->glWidget) return;
-    const bool show = ui->glWidget->objectCount() > 1 && ui->glWidget->sceneClockMatters();
+    const bool scene = ui->glWidget->objectCount() > 1;
+    const bool show = scene && ui->glWidget->sceneClockMatters();
     m_sceneTimeLabel->setVisible(show);
-    if (!show) {
+    if (show)
+        m_sceneTimeLabel->setText(QStringLiteral("T %1 s").arg(double(ui->glWidget->sceneTime()), 0, 'f', 1));
+    refreshSceneTimeSlider();
+    if (!scene) {
         if (m_sceneTimeLabelTimer) m_sceneTimeLabelTimer->stop();
         return;
     }
-    m_sceneTimeLabel->setText(QStringLiteral("T %1 s").arg(double(ui->glWidget->sceneTime()), 0, 'f', 1));
     if (!m_sceneTimeLabelTimer) {
         m_sceneTimeLabelTimer = new QTimer(this);
         m_sceneTimeLabelTimer->setInterval(200);
-        connect(m_sceneTimeLabelTimer, &QTimer::timeout, this, [this]() {
-            if (m_sceneTimeLabel && ui->glWidget)
-                m_sceneTimeLabel->setText(QStringLiteral("T %1 s").arg(double(ui->glWidget->sceneTime()), 0, 'f', 1));
-        });
+        connect(m_sceneTimeLabelTimer, &QTimer::timeout, this, [this]() { refreshSceneTimeLabel(); });
     }
     if (!m_sceneTimeLabelTimer->isActive()) m_sceneTimeLabelTimer->start();
 }
