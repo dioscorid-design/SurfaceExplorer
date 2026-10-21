@@ -321,11 +321,16 @@ void MainWindow::onResetClicked()
         return;
     }
 
-    // E se la camera e' gia' all'inquadratura d'apertura View non farebbe
-    // nulla (un record di rotazioni: gira la superficie, non la camera): la
-    // scelta e' una sola, i moti (segnalato dall'utente, 2026-10-21).
-    if (!viewResetChangesSomething()) {
-        resetMotions(camPath);
+    // Se una delle due parti non ha niente da rimettere la scelta e' una sola
+    // (segnalato dall'utente, 2026-10-21): la camera gia' all'inquadratura
+    // d'apertura (un record di rotazioni: gira la superficie, non la camera)
+    // -> i moti; i moti gia' all'inizio (dopo un Motions a moti fermi) -> la
+    // vista. Il popup solo se tutte e due hanno qualcosa da rimettere.
+    const bool viewChanges = viewResetChangesSomething();
+    const bool motionsChange = motionsResetChangesSomething();
+    if (!viewChanges || !motionsChange) {
+        if (viewChanges) resetView();
+        if (motionsChange || !viewChanges) resetMotions(camPath);
         return;
     }
 
@@ -401,6 +406,26 @@ bool MainWindow::viewResetChangesSomething() const
                       // Il FOV lo rimette solo la superficie sola (resetView).
                       && (ui->glWidget->objectCount() > 1 || near(m_scene.fov, m_startFov));
     return !same;
+}
+
+bool MainWindow::motionsResetChangesSomething() const
+{
+    GLWidget *gl = ui->glWidget;
+    if (m_paths->time(CameraPaths::Path4D) != 0.0f || m_paths->time(CameraPaths::Path3D) != 0.0f)
+        return true;
+    auto turned = [](const GLWidget::Orientation &a, const GLWidget::Orientation &b) {
+        return std::abs(QQuaternion::dotProduct(a.rotation, b.rotation)) < 0.999999f
+               || std::abs(a.omega - b.omega) > 1e-4f || std::abs(a.phi - b.phi) > 1e-4f
+               || std::abs(a.psi - b.psi) > 1e-4f;
+    };
+    // L'ambiente (il RESET della scena si fa con l'ambiente selezionato) e gli oggetti.
+    if (turned(gl->objectOrientation(0), m_startOrientation)) return true;
+    for (int k = 1; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k) {
+        if (turned(gl->objectOrientation(k), m_objectSessions[k].startOrientation)) return true;
+        if (m_objectSessions[k].geoTime != 0.0) return true;
+    }
+    if (gl->anyClockAdvanced()) return true;
+    return m_geoTime != 0.0;
 }
 
 void MainWindow::resetView()

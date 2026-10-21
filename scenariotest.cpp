@@ -6672,6 +6672,7 @@ void ScenarioTest::runResetButtonScenarios()
         // Annulla: niente cambia, l'animazione prosegue. Con la camera mossa,
         // perche' View abbia qualcosa da fare e il popup compaia.
         gl->zoomCamera(0.5f);
+        wait(300);   // l'animazione va avanti: anche i moti hanno da rimettere
         const int popups = m_popupsClosed;
         const float g0 = gl->clockTimes().geom;
         m_mw->onResetClicked();  wait(300);
@@ -6718,6 +6719,16 @@ void ScenarioTest::runResetButtonScenarios()
                   && m_mw->m_btnStart->text() == QLatin1String("START"),
               QStringLiteral("Both, master fermo -> orologi all'origine e fermi (%1, %2, %3; master %4)")
                   .arg(c.geom).arg(c.tex).arg(c.bg).arg(m_mw->m_btnStart->text()));
+        // Moti gia' all'inizio (fermi), resta solo la vista: niente popup, View.
+        {
+            gl->zoomCamera(1.0f);
+            const int popups = m_popupsClosed;
+            m_mw->onResetClicked();  wait(300);
+            const GLWidget::ClockTimes c2 = gl->clockTimes();
+            check(m_popupsClosed == popups && sameCamera() && c2.geom == o,
+                  QStringLiteral("moti gia' all'inizio, camera mossa -> View senza popup (popup %1, t %2)")
+                      .arg(m_popupsClosed - popups).arg(c2.geom));
+        }
         m_mw->m_btnStart->click();  wait(300);
     }
 

@@ -278,6 +278,10 @@ private slots:
     // camera gia' li' View non fa nulla, e il RESET non lo chiede.
     GLWidget::Framing viewResetFraming() const;
     bool viewResetChangesSomething() const;
+    // Il gemello per i moti: un path non a t = 0, l'ambiente o un oggetto non
+    // all'orientamento d'apertura, un orologio o un flusso geodetico non
+    // all'origine. Se no Motions non fa nulla, e il RESET non lo chiede.
+    bool motionsResetChangesSomething() const;
     // IL RESET DI UN OGGETTO della scena (selezionato, non l'ambiente): solo i
     // suoi moti, senza chiedere (decisione dell'utente, 2026-10-21: la vista e'
     // della scena, non dell'oggetto). Orientamento d'apertura, orologi, flusso

@@ -5398,6 +5398,19 @@ void GLWidget::setObjectOrientation(int index, const Orientation &o)
     update();
 }
 
+bool GLWidget::anyClockAdvanced() const
+{
+    if (m_timeBg != 0.0f) return true;
+    for (const auto &obj : m_objects) {
+        const SurfaceObject &o = *obj;
+        if (o.timeGeom != 0.0f || o.timeTex != 0.0f || o.borderTimeTex != 0.0f) return true;
+        if (o.engine)
+            for (const MeshPart &mp : o.engine->getMeshParts())
+                if (mp.timeTex != 0.0f) return true;
+    }
+    return false;
+}
+
 void GLWidget::resetObjectClocks(int index)
 {
     if (index < 0 || index >= int(m_objects.size())) return;

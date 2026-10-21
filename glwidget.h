@@ -1029,6 +1029,9 @@ public:
     // Gli orologi di UN oggetto all'origine (geometria, texture, fasce, bordo):
     // il RESET dell'oggetto selezionato. resetAllClocks e' quello della scena.
     void resetObjectClocks(int index);
+    // Qualche orologio (di un oggetto qualunque, o dello sfondo) e' avanzato
+    // dall'origine: il RESET dei moti cambierebbe qualcosa.
+    bool anyClockAdvanced() const;
     void virtualMove(MoveDir dir, float speed3D, float speed4D);
 
     QVector3D getCameraPos() const { return m_cameraPos; }
