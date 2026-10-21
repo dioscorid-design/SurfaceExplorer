@@ -9,8 +9,11 @@ void MainWindow::performMasterStop()
 {
     m_masterStopped = true;
 
-    // Lo sfondo e' della scena.
-    if (ui->glWidget) ui->glWidget->setBackgroundTextureAnimating(false);
+    // Lo sfondo e l'orologio di scena (timeline) sono della scena.
+    if (ui->glWidget) {
+        ui->glWidget->setBackgroundTextureAnimating(false);
+        ui->glWidget->setSceneTimeRunning(false);
+    }
 
     // Gli OGGETTI: il selezionato, poi (in una scena) tutti gli altri.
     stopObjectForMaster();
@@ -229,6 +232,7 @@ void MainWindow::onStartClicked()
         runScene(RunOrigin::DockRun, static_cast<QPushButton *>(from));
     else if (from && from == m_btnStart) {
         const bool start = m_btnStart->text().toUpper() == "START";
+        if (start && ui->glWidget) ui->glWidget->setSceneTimeRunning(true);   // la timeline riparte
         runScene(RunOrigin::MasterButton);
         // In una scena lo START vale per tutti: l'oggetto selezionato l'ha
         // rilanciato runScene; gli altri ripartono senza ricompilare, e le
@@ -1823,6 +1827,8 @@ MainWindow::MasterActivity MainWindow::masterActivity() const
         a.cameraRunning = pathRunning(CameraPaths::Path4D) || pathRunning(CameraPaths::Path3D);
         a.rotationAvailable = gl->selectedObject() != 0 && hasAnyRotationSpeed();
         a.rotationRunning = a.rotationAvailable && isRotationMotionRunning();
+        a.timelineAvailable = gl->hasTimeline();
+        a.timelineRunning = a.timelineAvailable && gl->isSceneTimeRunning();
     }
 
     // SUONO: START suona sceneAudioSource(), che e' il testo in cui CERCARE le

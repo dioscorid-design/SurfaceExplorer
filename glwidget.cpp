@@ -1969,7 +1969,8 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         // costruzione, non per carico GPU. Saltiamo il watchdog per non dare un
         // falso avviso "il rendering rallenta" durante la registrazione.
         const bool animating = !m_isRecording &&
-                               (anyObjectRotating() || anySurfaceAnimating || m_pathAnimating);
+                               (anyObjectRotating() || anySurfaceAnimating || m_pathAnimating
+                                || (m_sceneTimeRunning && hasTimeline()));
         if (animating) {
             // Il PRIMO frame dopo l'avvio (o ri-avvio) dell'animazione non e' una
             // misura valida: l'intervallo dal frame precedente include il tempo da
@@ -2357,16 +2358,20 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         // dell'oggetto in vista: due oggetti compenetrati restano
         // approssimati), infine le linee, che non devono nascondere i
         // trasparenti. Con un oggetto solo e' l'ordine di sempre.
-        for (const auto &obj : m_objects) drawObject(*obj, cb, outputSize, DrawPhase::Opaque);
+        // Solo gli oggetti IN SCENA (finestre della timeline).
+        for (const auto &obj : m_objects)
+            if (isOnStage(*obj)) drawObject(*obj, cb, outputSize, DrawPhase::Opaque);
         std::vector<SurfaceObject *> byDepth;
-        for (const auto &obj : m_objects) byDepth.push_back(obj.get());
+        for (const auto &obj : m_objects)
+            if (isOnStage(*obj)) byDepth.push_back(obj.get());
         if (byDepth.size() > 1) {
             auto depthOf = [this](const SurfaceObject *s) { return (m_view * s->model).map(QVector3D()).z(); };
             std::stable_sort(byDepth.begin(), byDepth.end(),
                              [&](const SurfaceObject *a, const SurfaceObject *b) { return depthOf(a) < depthOf(b); });
         }
         for (SurfaceObject *obj : byDepth) drawObject(*obj, cb, outputSize, DrawPhase::Transparent);
-        for (const auto &obj : m_objects) drawObject(*obj, cb, outputSize, DrawPhase::Lines);
+        for (const auto &obj : m_objects)
+            if (isOnStage(*obj)) drawObject(*obj, cb, outputSize, DrawPhase::Lines);
     }
 
     cb->endPass();
@@ -2715,10 +2720,11 @@ void GLWidget::advanceRotationsBy(float dtSeconds) {
     float speedMult3D = 2.0f * ticks;
     float speedMult4D = 0.05f * ticks;
 
-    // Ogni oggetto col suo GO, alle sue velocita'.
+    // Ogni oggetto col suo GO, alle sue velocita'; fuori dalla sua finestra
+    // della timeline resta fermo.
     for (const auto &obj : m_objects) {
         SurfaceObject &o = *obj;
-        if (!o.rotating) continue;
+        if (!o.rotating || !isOnStage(o)) continue;
 
         float dPrec = o.precessionSpeed * speedMult3D;
         float dNut  = o.nutationSpeed   * speedMult3D;
@@ -5760,9 +5766,64 @@ void GLWidget::setSurfaceTextureAnimating(bool animating) {
 // modulo fermato dall'utente, dal vivo come nel video. Se corrono insieme,
 // avanzano dello stesso identico dt e restano in sincrono.
 void GLWidget::advanceClocksBy(float dt) {
-    // Gli orologi di ogni oggetto, poi quello dello sfondo (della vista).
-    for (const auto &obj : m_objects) advanceObjectClocksBy(*obj, dt);
+    // L'orologio di scena (timeline), poi quelli di ogni oggetto IN SCENA --
+    // fuori dalla sua finestra un oggetto resta fermo e quando entra parte da
+    // dove era --, poi quello dello sfondo (della vista).
+    if (m_sceneTimeRunning) m_sceneTime += dt;
+    for (const auto &obj : m_objects)
+        if (isOnStage(*obj)) advanceObjectClocksBy(*obj, dt);
     if (m_bgAnimating) m_timeBg += dt;
+}
+
+bool GLWidget::isOnStage(const SurfaceObject &o) const
+{
+    if (&o == m_objects.front().get()) return true;   // l'ambiente c'e' sempre
+    if (o.windowIn > 0.0f && m_sceneTime < o.windowIn) return false;
+    if (o.windowOut > 0.0f && m_sceneTime >= o.windowOut) return false;
+    return true;
+}
+
+bool GLWidget::isObjectOnStage(int index) const
+{
+    if (index < 0 || index >= int(m_objects.size())) return false;
+    return isOnStage(*m_objects[index]);
+}
+
+bool GLWidget::hasTimeline() const
+{
+    for (size_t k = 1; k < m_objects.size(); ++k)
+        if (m_objects[k]->windowIn > 0.0f || m_objects[k]->windowOut > 0.0f) return true;
+    return false;
+}
+
+void GLWidget::setSceneTimeRunning(bool on)
+{
+    m_sceneTimeRunning = on;
+    // Con una timeline T deve avanzare anche se nient'altro si muove: serve il
+    // tick dei fotogrammi (il render avanza gli orologi).
+    if (on && hasTimeline() && m_animTimer && !m_animTimer->isActive()) {
+        m_surfaceTimer.restart();
+        m_animTimer->start();
+    }
+}
+
+void GLWidget::setObjectWindow(int index, float in, float out)
+{
+    if (index <= 0 || index >= int(m_objects.size())) return;   // l'ambiente no
+    m_objects[index]->windowIn = std::max(0.0f, in);
+    m_objects[index]->windowOut = std::max(0.0f, out);
+    setSceneTimeRunning(m_sceneTimeRunning);   // riaccende il tick se serve
+    update();
+}
+
+float GLWidget::objectWindowIn(int index) const
+{
+    return index >= 0 && index < int(m_objects.size()) ? m_objects[index]->windowIn : 0.0f;
+}
+
+float GLWidget::objectWindowOut(int index) const
+{
+    return index >= 0 && index < int(m_objects.size()) ? m_objects[index]->windowOut : 0.0f;
 }
 
 void GLWidget::advanceObjectClocksBy(SurfaceObject &o, float dt) {

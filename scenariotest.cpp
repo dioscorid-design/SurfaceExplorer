@@ -1924,6 +1924,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-timeline")) {
+        runSceneTimelineScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-reset")) {
         runSceneResetScenarios();
         finish();
@@ -3778,6 +3783,7 @@ void ScenarioTest::run()
     runSceneMasterScenarios();
     runSceneSaveLoadScenarios();
     runSceneResetScenarios();
+    runSceneTimelineScenarios();
     runAnimatedLoadScenarios();
     runLoadOrderScenarios();
 
@@ -6527,6 +6533,92 @@ void ScenarioTest::runSceneResetScenarios()
                   && gl->isPathFollowing() && m_mw->m_paths->time(CameraPaths::Path3D) == 0.0f,
               QStringLiteral("RESET col path fermo: nessun popup, camera al punto di partenza del path%1")
                   .arg(m_lastPopup.isEmpty() ? QString() : QStringLiteral(" (popup: ") + m_lastPopup + QLatin1Char(')')));
+    }
+}
+
+void ScenarioTest::runSceneTimelineScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Timeline: finestre di comparsa degli oggetti =="));
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    QString spherePath;
+    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+        if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json")))
+            spherePath = it.filePath;
+    m_mw->addShapeToScene(spherePath);
+    wait(400);
+    const int sphere = gl->selectedObject();
+    check(!gl->hasTimeline() && !m_mw->m_sceneTimeLabel->isVisibleTo(m_mw),
+          QStringLiteral("senza finestre: nessuna timeline, T nascosto"));
+
+    // La finestra dal dock: In 1 s, Out 2 s.
+    m_mw->markWholeSceneClean();
+    m_mw->m_objectWindowIn->setValue(1.0);
+    m_mw->m_objectWindowOut->setValue(2.0);
+    check(gl->hasTimeline() && gl->objectWindowIn(sphere) == 1.0f && gl->objectWindowOut(sphere) == 2.0f
+              && m_mw->hasUnsavedWork() && m_mw->m_sceneTimeLabel->isVisibleTo(m_mw)
+              && m_mw->m_objectList->item(sphere)->text().contains(QLatin1String("[1 s - 2 s]")),
+          QStringLiteral("finestra 1-2 s dal dock: elenco \"%1\", T visibile, scena da salvare")
+              .arg(m_mw->m_objectList->item(sphere)->text()));
+
+    // A tempo controllato (come nel REC): prima, dentro, dopo la finestra.
+    gl->setSpinSpeed(0.6f);
+    m_mw->onStopClicked();          // la sfera ha il GO acceso
+    gl->stopAllTimers();
+    gl->setClocksDrivenByRecorder(true);
+    gl->setSceneTime(0.0f);
+    wait(300);
+    const QImage before = gl->grabFramebuffer();
+    const QQuaternion q0 = gl->getRotationQuat();
+    gl->advanceRotationsBy(0.5f);                 // fuori scena: non gira
+    const bool frozen = qFuzzyCompare(q0, gl->getRotationQuat());
+    check(!gl->isObjectOnStage(sphere) && frozen,
+          QStringLiteral("T = 0: la sfera non e' in scena e non ruota"));
+    gl->advanceClocksBy(1.5f);
+    wait(300);
+    const QImage inside = gl->grabFramebuffer();
+    gl->advanceRotationsBy(0.5f);
+    check(gl->isObjectOnStage(sphere) && inside != before && !qFuzzyCompare(q0, gl->getRotationQuat()),
+          QStringLiteral("T = %1: la sfera e' in scena, si vede e ruota").arg(gl->sceneTime()));
+    gl->advanceClocksBy(1.0f);
+    wait(300);
+    const QImage after = gl->grabFramebuffer();
+    check(!gl->isObjectOnStage(sphere) && after == before,
+          QStringLiteral("T = %1: la sfera e' uscita, immagine come prima").arg(gl->sceneTime()));
+
+    // Master: STOP ferma T, START lo fa ripartire; RESET lo riporta a 0.
+    m_mw->performMasterStop();
+    const float tStopped = gl->sceneTime();
+    gl->advanceClocksBy(1.0f);
+    check(!gl->isSceneTimeRunning() && gl->sceneTime() == tStopped,
+          QStringLiteral("master STOP: T fermo a %1").arg(tStopped));
+    m_mw->m_btnStart->setText(QStringLiteral("START"));
+    m_mw->m_btnStart->click();
+    wait(300);
+    check(gl->isSceneTimeRunning(), QStringLiteral("master START: T riparte"));
+    m_mw->selectSceneObject(0);
+    m_popupAnswer = QStringLiteral("Motions");
+    m_mw->onResetClicked();
+    wait(200);
+    m_popupAnswer.clear();
+    check(gl->sceneTime() < 0.5f, QStringLiteral("RESET dei moti: T da capo (%1)").arg(gl->sceneTime()));
+
+    // Save e Load: la finestra resta, T riparte da 0.
+    PresetSerializer::MotionRunState run;
+    const QJsonObject json = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Timeline"), run, false);
+    const QString path = m_outDir + QStringLiteral("/scene-timeline.json");
+    {
+        QFile f(path);
+        if (f.open(QIODevice::WriteOnly)) { f.write(QJsonDocument(json).toJson()); f.close(); }
+    }
+    gl->setClocksDrivenByRecorder(false);
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))
+        && m_mw->loadSceneFile(path)) {
+        wait(300);
+        check(gl->objectCount() == 2 && gl->objectWindowIn(1) == 1.0f && gl->objectWindowOut(1) == 2.0f
+                  && gl->sceneTime() < 1.0f,
+              QStringLiteral("Save/Load: finestra 1-2 s, T da capo (%1)").arg(gl->sceneTime()));
     }
 }
 

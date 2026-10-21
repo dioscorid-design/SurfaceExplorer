@@ -253,6 +253,23 @@ public:
     void setObjectScale(float s);
     float objectScale() const { return m_obj->scale; }
 
+    // LA TIMELINE DELLA SCENA (2.0, primo passo: finestre di comparsa).
+    // L'orologio di scena T, in secondi, avanza in advanceClocksBy (dal vivo e
+    // nel REC allo stesso modo) quando non e' in pausa; il master lo ferma e lo
+    // riavvia, il RESET dei moti e l'apertura di una scena lo riportano a 0.
+    // Un oggetto e' in scena dentro la sua finestra (SurfaceObject::windowIn/
+    // windowOut): fuori non si disegna e i suoi moti non avanzano.
+    float sceneTime() const { return m_sceneTime; }
+    void setSceneTime(float t) { m_sceneTime = std::max(0.0f, t); update(); }
+    bool isSceneTimeRunning() const { return m_sceneTimeRunning; }
+    void setSceneTimeRunning(bool on);
+    void setObjectWindow(int index, float in, float out);
+    float objectWindowIn(int index) const;
+    float objectWindowOut(int index) const;
+    bool isObjectOnStage(int index) const;
+    // Almeno un oggetto ha una finestra: T conta (master, RESET, barra di stato).
+    bool hasTimeline() const;
+
     // ==========================================================
     // ENGINE MODES
     // ==========================================================
@@ -1640,6 +1657,10 @@ private:
     bool m_externalClockActive = false; // vedi setExternalClockActive()
     bool setCustomMesh(SurfaceObject &o, const QVector<QVector<QVector4D>>& grid, bool tolerateTruncated,
                        float uMin, float uMax, float vMin, float vMax);
+    // Orologio di scena della timeline: vedi sceneTime.
+    float m_sceneTime = 0.0f;
+    bool m_sceneTimeRunning = true;
+    bool isOnStage(const SurfaceObject &o) const;
     // Rotazione 4D del path per gli oggetti: vedi setViewRotation4D.
     float m_viewOmega = 0.0f, m_viewPhi = 0.0f, m_viewPsi = 0.0f;
     bool isObjectRotating(const SurfaceObject &o) const {

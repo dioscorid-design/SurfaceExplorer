@@ -238,6 +238,12 @@ struct SurfaceObject
     // POSIZIONE nella scena: il modello e' traslazione * rotazione, quindi
     // l'oggetto ruota attorno al proprio centro. Zero = come fino alla 1.4.
     QVector3D position;
+    // FINESTRA DI COMPARSA (2.0, timeline, primo passo): l'oggetto e' in scena
+    // fra windowIn e windowOut secondi dell'orologio di scena (GLWidget::
+    // sceneTime). 0 = dall'inizio / fino alla fine. Fuori non si disegna e i
+    // suoi moti restano fermi. L'ambiente e' sempre in scena.
+    float windowIn = 0.0f;
+    float windowOut = 0.0f;
     // SCALA uniforme dell'oggetto (2.0): modello = traslazione * rotazione *
     // scala. 1 = come fino alla 1.4. La cambiano rotella, pinch, Back/Forward
     // con l'oggetto selezionato (GLWidget::zoomCamera) e il dock Objects.

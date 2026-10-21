@@ -1780,6 +1780,12 @@ private:
     QListWidget *m_objectList = nullptr;
     QDoubleSpinBox *m_objectPos[3] = { nullptr, nullptr, nullptr };
     QDoubleSpinBox *m_objectScale = nullptr;
+    // Timeline: finestra di comparsa del selezionato e T nella barra di stato.
+    QDoubleSpinBox *m_objectWindowIn = nullptr;
+    QDoubleSpinBox *m_objectWindowOut = nullptr;
+    QLabel *m_sceneTimeLabel = nullptr;
+    QTimer *m_sceneTimeLabelTimer = nullptr;
+    void refreshSceneTimeLabel();
     QPushButton *m_btnObjectDuplicate = nullptr;
     QPushButton *m_btnObjectRemove = nullptr;
     // IL SELETTORE COMPATTO nella barra di stato ("2/3 Sphere"): visibile solo
@@ -1816,6 +1822,9 @@ private:
     // Nomi nell'elenco degli oggetti: l'ambiente prende quello del preset
     // caricato, e due oggetti con lo stesso nome si distinguono con un numero.
     void setEnvironmentName(const QString &name);
+    // Scena nuova (load normale, reset, NEW): l'orologio della timeline da 0 e
+    // in corsa, anche se un master STOP l'aveva fermato.
+    void restartSceneTimeline();
     QString uniqueObjectName(const QString &base) const;
     void applyObjectMotion(const QJsonObject &motion);
     // Il messaggio della scena: quello dell'ambiente e, sotto, quello di ogni
@@ -2261,15 +2270,18 @@ private:
         // se': la camera sono i soli path (l'ambiente non ruota, gli oggetti
         // ruotano insieme ai path). Con un oggetto solo restano dentro la camera.
         bool rotationAvailable = false, rotationRunning = false;
+        // L'orologio di scena della timeline (finestre di comparsa): un modulo
+        // della scena, presente solo se almeno un oggetto ha una finestra.
+        bool timelineAvailable = false, timelineRunning = false;
         bool anyRunning() const {
             return eqRunning || texAnyRunning || bgRunning || borderRunning || cameraRunning || audioRunning
-                || rotationRunning;
+                || rotationRunning || timelineRunning;
         }
         bool allRunning() const {
             return (!eqAvailable || eqRunning) && (!texAvailable || texRunning)
                 && (!bgAvailable || bgRunning) && (!borderAvailable || borderRunning)
                 && (!cameraAvailable || cameraRunning) && (!audioAvailable || audioRunning)
-                && (!rotationAvailable || rotationRunning);
+                && (!rotationAvailable || rotationRunning) && (!timelineAvailable || timelineRunning);
         }
     };
     MasterActivity masterActivity() const;

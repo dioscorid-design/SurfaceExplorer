@@ -425,6 +425,7 @@ bool MainWindow::motionsResetChangesSomething() const
         if (m_objectSessions[k].geoTime != 0.0) return true;
     }
     if (gl->anyClockAdvanced()) return true;
+    if (gl->hasTimeline() && gl->sceneTime() != 0.0f) return true;
     return m_geoTime != 0.0;
 }
 
@@ -501,6 +502,7 @@ void MainWindow::resetMotions(std::optional<CameraPaths::Path> camPath)
     // a geoTime 0. I flag di moto non cambiano, quindi master e tasti dei dock
     // restano come sono.
     ui->glWidget->resetAllClocks();
+    ui->glWidget->setSceneTime(0.0f);   // la timeline da capo
     m_geoTime = 0.0;
 
     // Le animazioni in t leggono l'orologio nello shader al prossimo frame; il

@@ -136,7 +136,8 @@ void MainWindow::advanceGeodesicObjectsBy(double dtSeconds)
     const int selected = gl->selectedObject();
     for (int k = 0; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k) {
         ObjectSession &s = m_objectSessions[k];
-        if (k == selected || !s.geoAnimating) continue;
+        // Fuori dalla sua finestra della timeline il flusso resta fermo.
+        if (k == selected || !s.geoAnimating || !gl->isObjectOnStage(k)) continue;
         // La stessa velocita' del selezionato (advanceGeodesicFlowBy): 0.015
         // unita' per tick nominale di 16 ms.
         s.geoTime += 0.015 * (dtSeconds * 1000.0 / 16.0);
@@ -268,6 +269,13 @@ static bool pCoordinateIs4D(QString p)
 // quota p; una scena 4D oggetti 3D e 4D, e niente Cross Section. La decide
 // l'ambiente: parametrico con la P 4D. Il path 4D no: anche i record delle
 // Cross Section ne hanno uno.
+void MainWindow::restartSceneTimeline()
+{
+    if (!ui->glWidget) return;
+    ui->glWidget->setSceneTime(0.0f);
+    ui->glWidget->setSceneTimeRunning(true);
+}
+
 void MainWindow::setEnvironmentName(const QString &name)
 {
     if (m_objectSessions.empty()) return;
@@ -379,6 +387,9 @@ bool MainWindow::loadSceneFile(const QString &path)
                                                LibraryType::Motion, path);
     if (env.name.isEmpty()) return false;
     applyMotionExample(env);   // torna al solo ambiente e lo carica
+    // La timeline da capo.
+    ui->glWidget->setSceneTime(0.0f);
+    ui->glWidget->setSceneTimeRunning(true);
 
     GLWidget *gl = ui->glWidget;
     for (const QJsonValue &v : root.value(QStringLiteral("objects")).toArray()) {
@@ -395,6 +406,11 @@ bool MainWindow::loadSceneFile(const QString &path)
         gl->setObjectPosition(QVector3D(float(p.at(0).toDouble()), float(p.at(1).toDouble()),
                                         float(p.at(2).toDouble())));
         gl->setObjectScale(float(o.value(QStringLiteral("scale")).toDouble(1.0)));
+        {
+            const QJsonObject window = o.value(QStringLiteral("timeline")).toObject();
+            gl->setObjectWindow(gl->selectedObject(), float(window.value(QStringLiteral("in")).toDouble(0.0)),
+                                float(window.value(QStringLiteral("out")).toDouble(0.0)));
+        }
         applyObjectMotion(o.value(QStringLiteral("motion")).toObject());
         captureObjectStartPose();
     }
@@ -557,6 +573,38 @@ void MainWindow::setupObjectsDock()
     m_objectScale->setLocale(QLocale::c());
     scaleRow->addWidget(m_objectScale, 1);
     lay->addLayout(scaleRow);
+
+    // TIMELINE: la finestra di comparsa del selezionato, in secondi
+    // dell'orologio di scena (0 = dall'inizio / fino alla fine).
+    auto *windowRow = new QHBoxLayout();
+    auto makeWindowBox = [w](const QString &zeroText) {
+        auto *box = new QDoubleSpinBox(w);
+        box->setRange(0.0, 3600.0);
+        box->setSingleStep(0.5);
+        box->setDecimals(1);
+        box->setSuffix(QStringLiteral(" s"));
+        box->setSpecialValueText(zeroText);
+        box->setLocale(QLocale::c());
+        return box;
+    };
+    windowRow->addWidget(new QLabel(QStringLiteral("In"), w));
+    m_objectWindowIn = makeWindowBox(QStringLiteral("start"));
+    windowRow->addWidget(m_objectWindowIn, 1);
+    windowRow->addWidget(new QLabel(QStringLiteral("Out"), w));
+    m_objectWindowOut = makeWindowBox(QStringLiteral("end"));
+    windowRow->addWidget(m_objectWindowOut, 1);
+    lay->addLayout(windowRow);
+    for (QDoubleSpinBox *box : { m_objectWindowIn, m_objectWindowOut }) {
+        connect(box, &QDoubleSpinBox::valueChanged, this, [this](double) {
+            if (m_refreshingObjects) return;
+            ui->glWidget->setObjectWindow(ui->glWidget->selectedObject(),
+                                          float(m_objectWindowIn->value()),
+                                          float(m_objectWindowOut->value()));
+            m_sceneObjectsChanged = true;
+            refreshObjectsUi();
+            updateMasterButtonState();
+        });
+    }
     connect(m_objectScale, &QDoubleSpinBox::valueChanged, this, [this](double v) {
         if (m_refreshingObjects) return;
         ui->glWidget->setObjectScale(float(v));
@@ -600,10 +648,21 @@ void MainWindow::refreshObjectsUi()
         return k == 0 ? QStringLiteral("Environment") + (name.isEmpty() ? QString() : QStringLiteral(" — ") + name)
                       : (name.isEmpty() ? QStringLiteral("Object %1").arg(k) : name);
     };
+    // Nell'elenco anche la finestra della timeline, se c'e'.
+    auto listText = [this, gl, &nameOf](int k) {
+        QString text = nameOf(k);
+        const float in = gl->objectWindowIn(k), out = gl->objectWindowOut(k);
+        if (k > 0 && (in > 0.0f || out > 0.0f)) {
+            text += in > 0.0f && out > 0.0f ? QStringLiteral("   [%1 s - %2 s]").arg(in).arg(out)
+                  : in > 0.0f              ? QStringLiteral("   [from %1 s]").arg(in)
+                                           : QStringLiteral("   [until %1 s]").arg(out);
+        }
+        return text;
+    };
 
     m_refreshingObjects = true;
     m_objectList->clear();
-    for (int k = 0; k < n; ++k) m_objectList->addItem(nameOf(k));
+    for (int k = 0; k < n; ++k) m_objectList->addItem(listText(k));
     m_objectList->setCurrentRow(selected);
     const QVector3D p = gl->objectPosition();
     for (int i = 0; i < 3; ++i) {
@@ -612,6 +671,10 @@ void MainWindow::refreshObjectsUi()
     }
     m_objectScale->setValue(gl->objectScale());
     m_objectScale->setEnabled(selected > 0);
+    m_objectWindowIn->setValue(gl->objectWindowIn(selected));
+    m_objectWindowOut->setValue(gl->objectWindowOut(selected));
+    m_objectWindowIn->setEnabled(selected > 0);
+    m_objectWindowOut->setEnabled(selected > 0);
     m_btnObjectDuplicate->setEnabled(selected > 0);
     m_btnObjectRemove->setEnabled(selected > 0);
     if (m_btnObjectSelector) {
@@ -626,6 +689,29 @@ void MainWindow::refreshObjectsUi()
     // Il numero di oggetti o il selezionato possono essere cambiati: le
     // rotazioni dell'ambiente si spengono o si riaccendono.
     updateEnvironmentRotationGate();
+    refreshSceneTimeLabel();
+}
+
+// T NELLA BARRA DI STATO, solo con una timeline: aggiornato 5 volte al secondo.
+void MainWindow::refreshSceneTimeLabel()
+{
+    if (!m_sceneTimeLabel || !ui->glWidget) return;
+    const bool show = ui->glWidget->objectCount() > 1 && ui->glWidget->hasTimeline();
+    m_sceneTimeLabel->setVisible(show);
+    if (!show) {
+        if (m_sceneTimeLabelTimer) m_sceneTimeLabelTimer->stop();
+        return;
+    }
+    m_sceneTimeLabel->setText(QStringLiteral("T %1 s").arg(double(ui->glWidget->sceneTime()), 0, 'f', 1));
+    if (!m_sceneTimeLabelTimer) {
+        m_sceneTimeLabelTimer = new QTimer(this);
+        m_sceneTimeLabelTimer->setInterval(200);
+        connect(m_sceneTimeLabelTimer, &QTimer::timeout, this, [this]() {
+            if (m_sceneTimeLabel && ui->glWidget)
+                m_sceneTimeLabel->setText(QStringLiteral("T %1 s").arg(double(ui->glWidget->sceneTime()), 0, 'f', 1));
+        });
+    }
+    if (!m_sceneTimeLabelTimer->isActive()) m_sceneTimeLabelTimer->start();
 }
 
 void MainWindow::selectSceneObjectFromUi(int index)
@@ -661,6 +747,7 @@ void MainWindow::duplicateSceneObject(int index)
                                                                   /*includeSound=*/false);
     const QVector3D pos = gl->objectPosition();
     const float scale = gl->objectScale();
+    const float windowIn = gl->objectWindowIn(index), windowOut = gl->objectWindowOut(index);
     const QJsonObject motion = objectMotionJson();
     LibraryManager lm;
     LibraryItem copy = lm.parseJsonObject(shape, LibraryType::Motion, QString());
@@ -669,6 +756,7 @@ void MainWindow::duplicateSceneObject(int index)
     addPresetAsObject(copy, uniqueObjectName(source.name));
     gl->setObjectPosition(pos + QVector3D(0.5f, 0.5f, 0.0f));
     gl->setObjectScale(scale);
+    gl->setObjectWindow(gl->selectedObject(), windowIn, windowOut);
     applyObjectMotion(motion);
     captureObjectStartPose();
     m_sceneObjectsChanged = true;

@@ -974,6 +974,13 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
         o["name"] = objectName;
         o["position"] = QJsonArray{ p.x(), p.y(), p.z() };
         o["scale"] = double(gl->objectScale());
+        // La finestra della timeline, se c'e'.
+        if (gl->objectWindowIn(k) > 0.0f || gl->objectWindowOut(k) > 0.0f) {
+            QJsonObject window;
+            window["in"] = double(gl->objectWindowIn(k));
+            window["out"] = double(gl->objectWindowOut(k));
+            o["timeline"] = window;
+        }
         o["motion"] = m_mainWindow->objectMotionJson();
         // L'oggetto come un RECORD: la Shape non porta texture, fasce e moti
         // (se ne perdevano). Il moto della camera, lo sfondo e il suono che il

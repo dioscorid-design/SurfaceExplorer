@@ -249,6 +249,8 @@ private:
     void runSceneSaveLoadScenarios();
     // 2.0: il RESET dell'oggetto selezionato e quello di tutta la scena.
     void runSceneResetScenarios();
+    // 2.0: la timeline, primo passo (finestre di comparsa).
+    void runSceneTimelineScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
     // accesi i comandi del dock RENDERER. Il Run lo sganciava solo per le

@@ -1472,6 +1472,10 @@ void MainWindow::setupStatusBar()
     m_btnObjectSelector->setVisible(false);
     connect(m_btnObjectSelector, &QPushButton::clicked, this, &MainWindow::showObjectSelectorMenu);
     ui->statusbar->addWidget(m_btnObjectSelector);
+    // 2.0: l'orologio di scena della timeline, solo se c'e' una timeline.
+    m_sceneTimeLabel = new QLabel(QString(), this);
+    m_sceneTimeLabel->setVisible(false);
+    ui->statusbar->addWidget(m_sceneTimeLabel);
     ui->statusbar->addWidget(m_renderProgress);
     // m_statusLabel SENZA fattore di stretch: con stretch 1 rivendicava tutto
     // lo spazio residuo della barra, e i tasti dock (permanent widget, che il
