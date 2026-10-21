@@ -674,7 +674,9 @@ QJsonObject MainWindow::objectMotionJson() const
     speeds["psi"] = double(gl->getPsiSpeed());
     QJsonObject motion;
     motion["speeds"] = speeds;
-    motion["rotating"] = gl->isAnimating();
+    // Il GO, anche a tick fermo: un Save dal menu della Library avviene coi
+    // moti tenuti fermi (GLWidget::holdObjectMotion).
+    motion["rotating"] = gl->isGoOn();
     return motion;
 }
 

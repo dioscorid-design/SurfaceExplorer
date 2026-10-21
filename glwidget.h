@@ -1139,6 +1139,9 @@ public:
     // GO acceso E timer in corsa: stopAllTimers ferma tutto senza toccare i GO,
     // e il primo resumeMotion fa ripartire chi lo aveva acceso.
     bool isAnimating() const { return isObjectRotating(*m_obj); }
+    // Il GO dell'oggetto selezionato, anche a tick fermo (menu, dialoghi): e'
+    // cio' che la scena salva (MainWindow::objectMotionJson).
+    bool isGoOn() const { return m_obj->rotating; }
     bool isObjectRotating(int index) const;
     void setObjectRotating(int index, bool on);
     // Qualcosa da avanzare per il tick (o per il recorder): timer in corsa e
@@ -1147,14 +1150,16 @@ public:
     // Riparte il tick se qualche oggetto ha il GO acceso (dopo stopAllTimers:
     // il recorder lo usa a fine dialoghi per gli oggetti non selezionati).
     void resumeObjectRotations();
-    // MOTI TENUTI FERMI PER OGGETTO, per la durata di un menu: rotazioni e
-    // orologio della geometria di tutti gli oggetti, e alla fine di nuovo
-    // accesi proprio a chi li aveva. Non per selezione: una voce del menu puo'
-    // cambiare l'oggetto selezionato (Add to Scene), e "riprendi il
+    // MOTI TENUTI FERMI PER OGGETTO, per la durata di un menu: il tick delle
+    // rotazioni e l'orologio della geometria di tutti gli oggetti, e alla fine
+    // di nuovo in moto proprio chi lo era. Non per selezione: una voce del menu
+    // puo' cambiare l'oggetto selezionato (Add to Scene), e "riprendi il
     // selezionato" faceva girare il nuovo oggetto al posto di quello di prima.
-    // Un oggetto tolto nel frattempo si salta.
+    // Il GO degli oggetti (SurfaceObject::rotating) NON si spegne: una voce del
+    // menu puo' salvare la scena, che deve scriverlo com'e' (isGoOn). Un
+    // oggetto tolto nel frattempo si salta.
     struct ObjectMotionHold {
-        std::vector<const SurfaceObject *> rotating, geometryClock;
+        std::vector<const SurfaceObject *> geometryClock;
     };
     ObjectMotionHold holdObjectMotion();
     void releaseObjectMotion(const ObjectMotionHold &hold);

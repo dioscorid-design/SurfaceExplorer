@@ -2004,14 +2004,20 @@ void MainWindow::stopMotionForRecordLoad()
     if (ui->btnStart_2) ui->btnStart_2->setText("GO");
 }
 
-void MainWindow::applyRecordMode(const LibraryItem &data, const SceneState &file)
+void MainWindow::applyRecordMode(const LibraryItem &data, const SceneState &file, bool asObject)
 {
     const bool isImplicit = data.isImplicitMode;
     // Le superfici implicite da script sono gestite da applyCommonData: non sovrascrivere.
     const bool isImplicitScript = isImplicit && !data.scriptCode.isEmpty();
 
+    // La linguetta a segnali VIVI fa il reset della scena (applyModeTabReset ->
+    // resetScene): voluto per un record, che riscrive la scena intera. Per un
+    // OGGETTO della scena azzerava camera, path e posa di tutti: la modalita' si
+    // scrive a segnali bloccati, come per le Shape (applyCommonData).
+    if (asObject) setImplicitMode(isImplicit);
+
     if (isImplicit) {
-        ui->tabModeSelector->setCurrentIndex(1); // Forza Tab Ray Marching
+        if (!asObject) ui->tabModeSelector->setCurrentIndex(1); // Forza Tab Ray Marching
 
         // I dati parametrici del record di prima li svuota applyCommonData, in
         // testa (equationTextsFromItem). Il Run parametrico torna eseguibile
@@ -2092,7 +2098,7 @@ void MainWindow::applyRecordMode(const LibraryItem &data, const SceneState &file
         }
 
     } else {
-        ui->tabModeSelector->setCurrentIndex(0); // Forza Tab Parametrica
+        if (!asObject) ui->tabModeSelector->setCurrentIndex(0); // Forza Tab Parametrica
         // Distruggiamo i dati Ray Marching precedenti (a segnali bloccati; i
         // Run Ray Marching tornano eseguibili qui, come faceva il gestore
         // della digitazione).
@@ -2902,7 +2908,7 @@ void MainWindow::applyMotionExample(LibraryItem data, bool asObject)
         }
     } modeSwitchGuard{this};
 
-    applyRecordMode(data, file);
+    applyRecordMode(data, file, asObject);
 
     SE_TEXP("record:pre-reset-shader");
 

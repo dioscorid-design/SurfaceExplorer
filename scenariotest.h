@@ -245,6 +245,8 @@ private:
     void runSceneGeodesicScenarios();
     // 2.0: il master su tutta la scena (oggetti e moduli della scena).
     void runSceneMasterScenarios();
+    // 2.0: Save e Load di una scena vera (path, oggetti RM e parametrici).
+    void runSceneSaveLoadScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
     // accesi i comandi del dock RENDERER. Il Run lo sganciava solo per le

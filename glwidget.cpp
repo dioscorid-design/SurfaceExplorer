@@ -5549,11 +5549,10 @@ GLWidget::ObjectMotionHold GLWidget::holdObjectMotion()
     ObjectMotionHold hold;
     for (const auto &obj : m_objects) {
         SurfaceObject &o = *obj;
-        if (isObjectRotating(o)) hold.rotating.push_back(&o);
         if (o.surfaceAnimating) hold.geometryClock.push_back(&o);
-        o.rotating = false;
         o.surfaceAnimating = false;
     }
+    // Le rotazioni: fermo il tick, i GO restano (vedi ObjectMotionHold).
     if (rotationTimer) rotationTimer->stop();
     return hold;
 }
@@ -5565,10 +5564,7 @@ void GLWidget::releaseObjectMotion(const ObjectMotionHold &hold)
             if (obj.get() == p) return obj.get();
         return nullptr;
     };
-    bool anyRotating = false;
-    for (const SurfaceObject *p : hold.rotating)
-        if (SurfaceObject *o = alive(p)) { o->rotating = true; anyRotating = true; }
-    if (anyRotating && rotationTimer) rotationTimer->start();
+    resumeObjectRotations();   // chi ha il GO acceso riparte
     bool anyClock = false;
     for (const SurfaceObject *p : hold.geometryClock)
         if (SurfaceObject *o = alive(p)) { o->surfaceAnimating = true; anyClock = true; }

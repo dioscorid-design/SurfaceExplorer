@@ -1995,7 +1995,7 @@ private:
     // chiama (le guardie RAII del load restano a lei: valgono per tutti).
     void warnMissingRecordImages(const MissingImageScan &scan);
     void stopMotionForRecordLoad();
-    void applyRecordMode(const LibraryItem &data, const SceneState &file);
+    void applyRecordMode(const LibraryItem &data, const SceneState &file, bool asObject = false);
     void applyRecordColors(const LibraryItem &data);
     void applyRecordCamera(const LibraryItem &data, const SceneState &file, bool asObject = false);
     void applyRecordSurfaceTexture(const LibraryItem &data, const MissingImageScan &scan);

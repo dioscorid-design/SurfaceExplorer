@@ -1919,6 +1919,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-saveload")) {
+        runSceneSaveLoadScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("load-order")) {
         runLoadOrderScenarios();
         finish();
@@ -3766,6 +3771,7 @@ void ScenarioTest::run()
     runSceneDepthScenarios();
     runSceneGeodesicScenarios();
     runSceneMasterScenarios();
+    runSceneSaveLoadScenarios();
     runAnimatedLoadScenarios();
     runLoadOrderScenarios();
 
@@ -6299,6 +6305,122 @@ void ScenarioTest::runSceneMasterScenarios()
               && m_mw->m_objectSessions[flow].geoAnimating && gl->selectedObject() == 0
               && m_mw->m_btnStart->text() == QLatin1String("STOP"),
           QStringLiteral("master START: tutto in moto (%1)").arg(state()));
+}
+
+void ScenarioTest::runSceneSaveLoadScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Save e Load di una scena: path, oggetti RM e parametrici =="));
+    auto libraryPath = [this](const QString &rel) {
+        for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+            if (it.filePath.endsWith(rel)) return it.filePath;
+        return QString();
+    };
+    const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
+    const QString kRMSphere = QStringLiteral("surfaces/Implicit/3D/Sphere.json");
+    auto saveAndReload = [&](const QString &file) {
+        PresetSerializer::MotionRunState run;
+        run.path4D = m_mw->pathRunning(CameraPaths::Path4D);
+        const QJsonObject json = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("SaveLoad"), run, false);
+        const QString path = m_outDir + QLatin1Char('/') + file;
+        QFile f(path);
+        if (f.open(QIODevice::WriteOnly)) { f.write(QJsonDocument(json).toJson()); f.close(); }
+        if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))) return false;
+        const bool ok = m_mw->loadSceneFile(path);
+        wait(1500);
+        return ok;
+    };
+
+    // 1. AMBIENTE COL PATH 4D, una sfera RM e un toro che ruota.
+    if (loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S2xS1/Klein Racing.json"))) {
+        // Il toro PRIMA della sfera RM: al load il reset che il cambio di
+        // modalita' della sfera faceva partire fermava le rotazioni del toro.
+        m_mw->addShapeToScene(libraryPath(kTorus));
+        wait(400);
+        const int torus = gl->selectedObject();
+        gl->addObjectRotation(35.0f, 20.0f, 0.0f);
+        gl->setPrecessionSpeed(0.8f);
+        m_mw->onStopClicked();
+        wait(300);
+        m_mw->addShapeToScene(libraryPath(kRMSphere));
+        wait(600);
+        m_mw->selectSceneObject(0);
+        wait(200);
+        const float fov = gl->cameraFov();
+        const QString pathX = m_mw->m_scene.path.x;
+        const bool pathOn = m_mw->pathRunning(CameraPaths::Path4D);
+        check(pathOn && gl->objectCount() == 3 && gl->isObjectRotating(torus),
+              QStringLiteral("scena: path 4D in corsa, sfera RM, toro in rotazione"));
+        if (saveAndReload(QStringLiteral("scene-saveload-path.json"))) {
+            check(gl->objectCount() == 3 && m_mw->pathRunning(CameraPaths::Path4D)
+                      && m_mw->m_scene.path.x == pathX && std::abs(gl->cameraFov() - fov) < 1e-3f,
+                  QStringLiteral("riaperta: path 4D in corsa e uguale, FOV %1 (era %2), oggetti %3")
+                      .arg(gl->cameraFov()).arg(fov).arg(gl->objectCount()));
+            check(gl->isObjectRotating(torus),
+                  QStringLiteral("riaperta: il toro ruota ancora"));
+            // SALVATAGGIO DAL MENU della Library ("Save Scene Here"): avviene
+            // dentro showMenu, coi moti tenuti fermi. Il GO va scritto lo stesso.
+            {
+                const GLWidget::ObjectMotionHold held = gl->holdObjectMotion();
+                PresetSerializer::MotionRunState runHeld;
+                const QJsonObject heldJson = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Held"), runHeld, false);
+                gl->releaseObjectMotion(held);
+                bool torusGo = false;
+                for (const QJsonValue &v : heldJson.value(QStringLiteral("objects")).toArray()) {
+                    const QJsonObject mo = v.toObject().value(QStringLiteral("motion")).toObject();
+                    if (mo.value(QStringLiteral("speeds")).toObject().value(QStringLiteral("precession")).toDouble() > 0.5)
+                        torusGo = mo.value(QStringLiteral("rotating")).toBool();
+                }
+                check(torusGo, QStringLiteral("salvata dal menu (moti tenuti fermi): il toro e' scritto in rotazione"));
+                check(gl->isObjectRotating(torus), QStringLiteral("e dopo il menu continua a ruotare"));
+            }
+            m_mw->selectSceneObject(torus);
+            wait(100);
+            check(std::abs(gl->getPrecessionSpeed() - 0.8f) < 1e-4f && m_mw->ui->btnStart_2->text() == QLatin1String("STOP"),
+                  QStringLiteral("riaperta: velocita' del toro %1, tasto %2").arg(gl->getPrecessionSpeed())
+                      .arg(m_mw->ui->btnStart_2->text()));
+            m_mw->selectSceneObject(0);
+        }
+    }
+
+    // 2. AMBIENTE SENZA PATH e un oggetto RM: la camera e l'immagine tornano
+    // identiche.
+    if (loadSurface(kTorus)) {
+        m_mw->addShapeToScene(libraryPath(kRMSphere));
+        wait(600);
+        gl->addObjectRotation(25.0f, 10.0f, 0.0f);
+        m_mw->selectSceneObject(0);
+        wait(200);
+        gl->stopAllTimers();
+        gl->setClocksDrivenByRecorder(true);
+        wait(300);
+        const QVector3D cam = gl->getCameraPos();
+        const float fov = gl->cameraFov();
+        const QImage before = gl->grabFramebuffer();
+        gl->setClocksDrivenByRecorder(false);
+        if (saveAndReload(QStringLiteral("scene-saveload-rm.json"))) {
+            gl->stopAllTimers();
+            gl->setClocksDrivenByRecorder(true);
+            wait(300);
+            const QImage after = gl->grabFramebuffer();
+            after.save(m_outDir + QStringLiteral("/scene-saveload-rm.png"));
+            int diff = 0;
+            if (before.size() == after.size()) {
+                for (int y = 0; y < before.height(); y += 2)
+                    for (int x = 0; x < before.width(); x += 2)
+                        if (before.pixel(x, y) != after.pixel(x, y)) ++diff;
+            } else {
+                diff = -1;
+            }
+            check(gl->getCameraPos() == cam && std::abs(gl->cameraFov() - fov) < 1e-3f,
+                  QStringLiteral("riaperta: camera e FOV uguali (%1,%2,%3 / %4)")
+                      .arg(gl->getCameraPos().x()).arg(gl->getCameraPos().y()).arg(gl->getCameraPos().z())
+                      .arg(gl->cameraFov()));
+            check(diff >= 0 && diff < 50, QStringLiteral("riaperta: la stessa immagine (%1 pixel diversi su un quarto)").arg(diff));
+            gl->setClocksDrivenByRecorder(false);
+        }
+    }
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()
