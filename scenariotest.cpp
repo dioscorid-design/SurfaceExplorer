@@ -6490,10 +6490,47 @@ void ScenarioTest::runSceneResetScenarios()
     const float fovAfter = gl->cameraFov();
     m_mw->selectSceneObject(1);
     wait(100);
-    check(camAfter == startCam && std::abs(fovAfter - 70.0f) < 1e-3f,
-          QStringLiteral("RESET della scena: camera d'apertura, FOV invariato (%1)").arg(fovAfter));
+    // Direzione d'apertura, ma alla distanza di prima (lo zoom resta) e col FOV di adesso.
+    const QVector3D expectedCam = startCam.normalized() * zoomedCam.length();
+    check((camAfter - expectedCam).length() < 1e-4f && std::abs(fovAfter - 70.0f) < 1e-3f,
+          QStringLiteral("RESET della scena: direzione d'apertura, zoom e FOV invariati (%1,%2,%3 / FOV %4)")
+              .arg(camAfter.x()).arg(camAfter.y()).arg(camAfter.z()).arg(fovAfter));
     check(sameQ(gl->getRotationQuat(), startQ) && gl->objectPosition() == movedPos,
           QStringLiteral("e l'oggetto all'orientamento d'apertura, nella sua posizione"));
+
+    // AMBIENTE RM COL PATH 3D, come la scena dell'utente (NewScene): un oggetto
+    // RM non deve spostare la camera della scena, e View dopo il path fermato
+    // deve guardare gli oggetti, alla distanza di adesso.
+    if (loadRecord(QStringLiteral("records/Paths/Implicit/3D/CellNoiseSchwarz.json"))) {
+        check(m_mw->pathRunning(CameraPaths::Path3D), QStringLiteral("ambiente RM col path 3D in corsa"));
+        m_mw->onDeparture3DClicked();   // stop
+        wait(200);
+        const QVector3D camBefore = gl->getCameraPos();
+        QString rmSphere;
+        for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+            if (it.filePath.endsWith(QStringLiteral("surfaces/Implicit/3D/Sphere.json"))) rmSphere = it.filePath;
+        m_mw->addShapeToScene(rmSphere);
+        wait(500);
+        m_mw->addShapeToScene(spherePath);
+        wait(400);
+        check(gl->getCameraPos() == camBefore,
+              QStringLiteral("un oggetto RM aggiunto non sposta la camera della scena"));
+        m_mw->selectSceneObject(0);
+        wait(100);
+        const float distance = gl->getCameraPos().length();
+        m_popupAnswer = QStringLiteral("View");
+        m_mw->onResetClicked();
+        wait(300);
+        m_popupAnswer.clear();
+        const float yaw = qDegreesToRadians(gl->getCameraYaw());
+        const float pitch = qDegreesToRadians(gl->getCameraPitch());
+        const QVector3D front(std::sin(yaw) * std::cos(pitch), std::sin(pitch), -std::cos(yaw) * std::cos(pitch));
+        const QVector3D toCenter = (-gl->getCameraPos()).normalized();
+        const float aim = QVector3D::dotProduct(front, toCenter);
+        check(aim > 0.99f && std::abs(gl->getCameraPos().length() - distance) < 1e-3f,
+              QStringLiteral("View dopo il path: guarda il centro della scena (%1) alla distanza di prima (%2 / %3)")
+                  .arg(aim).arg(gl->getCameraPos().length()).arg(distance));
+    }
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()

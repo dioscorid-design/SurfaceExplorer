@@ -320,7 +320,7 @@ void MainWindow::onResetClicked()
     box.setWindowTitle("Reset");
     box.setText("What do you want to reset?");
     const bool scene = ui->glWidget && ui->glWidget->objectCount() > 1;
-    box.setInformativeText(QString(scene ? "View: camera and zoom (the field of view stays).\n"
+    box.setInformativeText(QString(scene ? "View: the camera direction (zoom and field of view stay).\n"
                                          : "View: camera, zoom and field of view.\n")
                            + QString("Motions: rotations, camera paths and everything that moves "
                                      "with t go back to the start.")
@@ -343,6 +343,15 @@ void MainWindow::captureStartPose()
 {
     if (!ui->glWidget) return;
     m_startFraming     = ui->glWidget->framing();
+    // In modalita' path la vista guarda il bersaglio del path e yaw/pitch
+    // grezzi restano quelli di prima: si fotografa la direzione EFFETTIVA, come
+    // fa il Save dei record (getEffectiveCameraYaw). Un path che ha gia' fatto
+    // il primo passo al momento della foto dava una posa con la posizione del
+    // path e la direzione salvata nel file, e il RESET View guardava altrove.
+    if (ui->glWidget->isPathFollowing()) {
+        m_startFraming.yaw = ui->glWidget->getEffectiveCameraYaw();
+        m_startFraming.pitch = ui->glWidget->getEffectiveCameraPitch();
+    }
     m_startOrientation = ui->glWidget->orientation();
     m_startFov         = m_scene.fov;
 }
@@ -362,7 +371,17 @@ void MainWindow::resetView()
     // Inquadratura d'apertura. Le velocita' e i moti non si toccano. Un path
     // FERMO lascia la camera: si torna alla vista libera (resetFraming spegne
     // la modalita' path).
-    ui->glWidget->resetFraming(m_startFraming);
+    // In una SCENA si rimette la direzione della camera ma si tiene la distanza
+    // di adesso dal centro (decisione dell'utente, 2026-10-21): allontanarsi
+    // per inquadrare tutti gli oggetti non si perde col RESET. Con una
+    // superficie sola la posa d'apertura intera, zoom compreso, come dalla 1.4.
+    GLWidget::Framing framing = m_startFraming;
+    if (ui->glWidget->objectCount() > 1) {
+        const float distance = ui->glWidget->getCameraPos().length();
+        if (framing.cameraPos.lengthSquared() > 1e-8f && distance > 1e-4f)
+            framing.cameraPos = framing.cameraPos.normalized() * distance;
+    }
+    ui->glWidget->resetFraming(framing);
 
     // Un path IN CORSA la camera la tiene: gliela si rimette subito al suo
     // tempo, invece di mostrare la vista libera per un fotogramma fino al

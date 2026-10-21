@@ -2744,6 +2744,18 @@ void GLWidget::setEngineMode(EngineMode mode)
 {
     if (m_obj->engineMode == mode) return;
 
+    // IN UNA SCENA la camera e la vista 2D sono della scena: il "banco di
+    // lavoro" per modalita' qui sotto e' della superficie sola. Un oggetto in
+    // ray marching caricato in una scena (Add to Scene, apertura di una scena)
+    // portava la camera della scena a quella vuota della modalita' RM, (0, 0,
+    // 4): la posa d'apertura nasceva li' e il RESET la "ingrandiva"
+    // (segnalato dall'utente, 2026-10-21). Si cambia solo la modalita'.
+    if (m_objects.size() > 1) {
+        m_obj->engineMode = mode;
+        update();
+        return;
+    }
+
     // 1. SALVA lo stato del "Banco di Lavoro" nello slot che stiamo abbandonando
     int oldIndex = (m_obj->engineMode == ModeParametric) ? 0 : 1;
     m_viewStates[oldIndex].cameraPos    = m_cameraPos;

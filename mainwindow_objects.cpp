@@ -401,7 +401,10 @@ bool MainWindow::loadSceneFile(const QString &path)
     selectSceneObject(0);
     // Il momento pulito: la scena e' quella del file (come a fine load).
     markWholeSceneClean();
-    captureStartPose();
+    // La posa d'apertura della SCENA e' quella fotografata dal load
+    // dell'ambiente (SceneCleanGuard), prima che un suo path muova la camera:
+    // rifotografarla qui, a path gia' partito, mescolava la posizione del path
+    // con la direzione salvata e il RESET View guardava fuori dagli oggetti.
     refreshObjectsUi();
     // Il messaggio della scena: ambiente e oggetti, ciascuno col suo nome.
     showComposedObjectsHint();
