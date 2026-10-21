@@ -1741,6 +1741,7 @@ private:
     QDockWidget *m_dockObjects = nullptr;
     QListWidget *m_objectList = nullptr;
     QDoubleSpinBox *m_objectPos[3] = { nullptr, nullptr, nullptr };
+    QDoubleSpinBox *m_objectScale = nullptr;
     QPushButton *m_btnObjectDuplicate = nullptr;
     QPushButton *m_btnObjectRemove = nullptr;
     // IL SELETTORE COMPATTO nella barra di stato ("2/3 Sphere"): visibile solo

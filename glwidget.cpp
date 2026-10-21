@@ -202,6 +202,12 @@ void GLWidget::setObjectPosition(const QVector3D &p)
     update();
 }
 
+void GLWidget::setObjectScale(float s)
+{
+    m_obj->scale = std::clamp(s, 0.01f, 100.0f);
+    update();
+}
+
 
 // ==========================================================
 // PROTECTED
@@ -5168,6 +5174,14 @@ void GLWidget::setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &t
 }
 
 void GLWidget::zoomCamera(float delta) {
+    // Con un oggetto della scena selezionato lo zoom e' il SUO: la scala, in
+    // proporzione (avvicinare di 1 = +10%), cosi' rotella e pinch hanno lo
+    // stesso passo a ogni grandezza.
+    if (objectZoomActive()) {
+        setObjectScale(m_obj->scale * std::exp(delta * 0.1f));
+        emit objectScaleChangedByUser(m_obj->scale);
+        return;
+    }
     // Calcoliamo il vettore "Avanti" completo
     float radYaw = m_cameraYaw * M_PI / 180.0f;
     float radPitch = m_cameraPitch * M_PI / 180.0f;
@@ -5383,6 +5397,13 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
     float radYaw = m_cameraYaw * M_PI / 180.0f;
     QVector3D front(sin(radYaw), 0, -cos(radYaw));
     QVector3D right(cos(radYaw), 0, sin(radYaw));
+
+    // Back/Forward con un oggetto della scena selezionato: la sua scala, come
+    // la rotella (zoomCamera).
+    if (objectZoomActive() && (dir == MoveForward || dir == MoveBack)) {
+        zoomCamera(dir == MoveForward ? speed : -speed);
+        return;
+    }
 
     switch (dir) {
     case MoveForward: m_cameraPos += front * speed; break;

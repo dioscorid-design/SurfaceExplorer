@@ -238,6 +238,10 @@ struct SurfaceObject
     // POSIZIONE nella scena: il modello e' traslazione * rotazione, quindi
     // l'oggetto ruota attorno al proprio centro. Zero = come fino alla 1.4.
     QVector3D position;
+    // SCALA uniforme dell'oggetto (2.0): modello = traslazione * rotazione *
+    // scala. 1 = come fino alla 1.4. La cambiano rotella, pinch, Back/Forward
+    // con l'oggetto selezionato (GLWidget::zoomCamera) e il dock Objects.
+    float scale = 1.0f;
     QQuaternion rotationQuat;
     // true se l'utente ha ruotato la superficie a mano (mouse/touch) dopo l'ultima
     // rotazione "di default" (setRotationQuat). Governa neutralizeDefaultRotationForPath.

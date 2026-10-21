@@ -211,8 +211,9 @@ bool InputHandler::handleTouch(QEvent* e)
                 float zoomFactor = 1.0f + (deltaDist * 0.005f);
                 m_glWidget->setFlatZoom(currentZoom * zoomFactor);
                 m_touchMovedView = true;
-            } else if (!m_glWidget->isPathAnimating()) {
-                // Modalità 3D: ZOOM della camera (bloccato durante un path)
+            } else if (m_glWidget->objectZoomActive() || !m_glWidget->isPathAnimating()) {
+                // Modalità 3D: ZOOM della camera (bloccato durante un path) o,
+                // con un oggetto della scena selezionato, la sua scala.
                 m_glWidget->zoomCamera(deltaDist * 0.05f);
                 m_touchMovedView = true;
             }
@@ -240,7 +241,8 @@ bool InputHandler::handleWheel(QWheelEvent* event)
     }
     // --- GESTIONE ZOOM 3D / 4D ---
     // Bloccato mentre un path controlla la telecamera (lo zoom 2D sopra resta libero).
-    else if (!m_glWidget->isPathAnimating()) {
+    // Con un oggetto della scena selezionato e' la sua scala, path o no.
+    else if (m_glWidget->objectZoomActive() || !m_glWidget->isPathAnimating()) {
         float zoomSpeed = 0.01f;
         m_glWidget->zoomCamera(delta * zoomSpeed);
         return true;

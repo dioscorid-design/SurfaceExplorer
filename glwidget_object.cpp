@@ -41,6 +41,7 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
         o.model.setToIdentity();
         o.model.translate(o.position);
         o.model.rotate(o.rotationQuat);
+        if (o.scale != 1.0f) o.model.scale(o.scale);   // a 1 la matrice di sempre
 
         mvp = rhi()->clipSpaceCorrMatrix() * m_projection * m_view * o.model;
         mv = m_view * o.model;

@@ -368,6 +368,7 @@ bool MainWindow::loadSceneFile(const QString &path)
         const QJsonArray p = o.value(QStringLiteral("position")).toArray();
         gl->setObjectPosition(QVector3D(float(p.at(0).toDouble()), float(p.at(1).toDouble()),
                                         float(p.at(2).toDouble())));
+        gl->setObjectScale(float(o.value(QStringLiteral("scale")).toDouble(1.0)));
         applyObjectMotion(o.value(QStringLiteral("motion")).toObject());
     }
     selectSceneObject(0);
@@ -515,6 +516,30 @@ void MainWindow::setupObjectsDock()
     }
     lay->addLayout(posRow);
 
+    // SCALA del selezionato: la stessa che cambiano rotella, pinch e
+    // Back/Forward con l'oggetto selezionato (GLWidget::zoomCamera).
+    auto *scaleRow = new QHBoxLayout();
+    scaleRow->addWidget(new QLabel(QStringLiteral("Scale"), w));
+    m_objectScale = new QDoubleSpinBox(w);
+    m_objectScale->setRange(0.01, 100.0);
+    m_objectScale->setSingleStep(0.1);
+    m_objectScale->setDecimals(2);
+    m_objectScale->setLocale(QLocale::c());
+    scaleRow->addWidget(m_objectScale, 1);
+    lay->addLayout(scaleRow);
+    connect(m_objectScale, &QDoubleSpinBox::valueChanged, this, [this](double v) {
+        if (m_refreshingObjects) return;
+        ui->glWidget->setObjectScale(float(v));
+        m_sceneObjectsChanged = true;
+    });
+    connect(ui->glWidget, &GLWidget::objectScaleChangedByUser, this, [this](float s) {
+        m_sceneObjectsChanged = true;
+        if (!m_objectScale) return;
+        m_refreshingObjects = true;
+        m_objectScale->setValue(s);
+        m_refreshingObjects = false;
+    });
+
     auto *btnRow = new QHBoxLayout();
     m_btnObjectDuplicate = new QPushButton(QStringLiteral("Duplicate"), w);
     m_btnObjectRemove = new QPushButton(QStringLiteral("Remove"), w);
@@ -555,6 +580,8 @@ void MainWindow::refreshObjectsUi()
         m_objectPos[i]->setValue(i == 0 ? p.x() : i == 1 ? p.y() : p.z());
         m_objectPos[i]->setEnabled(selected > 0);
     }
+    m_objectScale->setValue(gl->objectScale());
+    m_objectScale->setEnabled(selected > 0);
     m_btnObjectDuplicate->setEnabled(selected > 0);
     m_btnObjectRemove->setEnabled(selected > 0);
     if (m_btnObjectSelector) {
@@ -601,6 +628,7 @@ void MainWindow::duplicateSceneObject(int index)
     const ObjectSession source = m_objectSessions[index];
     const QJsonObject shape = m_presetSerializer->buildSurfaceJson(source.name);
     const QVector3D pos = gl->objectPosition();
+    const float scale = gl->objectScale();
     const QJsonObject motion = objectMotionJson();
     LibraryManager lm;
     LibraryItem copy = lm.parseJsonObject(shape, LibraryType::Surface, QString());
@@ -608,6 +636,7 @@ void MainWindow::duplicateSceneObject(int index)
     copy.hintSeconds = m_currentHintSeconds;
     addPresetAsObject(copy, uniqueObjectName(source.name));
     gl->setObjectPosition(pos + QVector3D(0.5f, 0.5f, 0.0f));
+    gl->setObjectScale(scale);
     applyObjectMotion(motion);
     m_sceneObjectsChanged = true;
     refreshObjectsUi();

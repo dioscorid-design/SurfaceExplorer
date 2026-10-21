@@ -242,6 +242,16 @@ public:
     // Posizione dell'oggetto selezionato nella scena.
     void setObjectPosition(const QVector3D &p);
     QVector3D objectPosition() const { return m_obj->position; }
+    // ZOOM SUL SINGOLO OGGETTO (decisione dell'utente, 2026-10-21): in una scena,
+    // con un oggetto selezionato (non l'ambiente), rotella, pinch e tasti
+    // Back/Forward ne cambiano la scala invece di muovere la camera; con
+    // l'ambiente selezionato muovono la camera come sempre. Il FOV resta della
+    // camera. Anche con un path in corsa: la scala non e' la camera.
+    bool objectZoomActive() const {
+        return m_objects.size() > 1 && m_obj != m_objects.front().get();
+    }
+    void setObjectScale(float s);
+    float objectScale() const { return m_obj->scale; }
 
     // ==========================================================
     // ENGINE MODES
@@ -1244,6 +1254,9 @@ public:
 
 signals:
     void rotationChanged();
+    // La scala dell'oggetto selezionato e' cambiata da rotella/pinch/tasti: il
+    // dock Objects la mostra e la scena e' da salvare.
+    void objectScaleChangedByUser(float scale);
     // L'utente ha toccato/cliccato la scena in quel punto (coordinate locali al
     // widget). Serve a MainWindow per chiudere il messaggio in sovrimpressione
     // quando il tocco cade dentro il suo riquadro: su iOS il gesto passa TUTTO

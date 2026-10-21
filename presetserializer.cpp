@@ -973,6 +973,7 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
         QJsonObject o;
         o["name"] = objectName;
         o["position"] = QJsonArray{ p.x(), p.y(), p.z() };
+        o["scale"] = double(gl->objectScale());
         o["motion"] = m_mainWindow->objectMotionJson();
         o["shape"] = buildSurfaceJson(objectName);
         objects.append(o);

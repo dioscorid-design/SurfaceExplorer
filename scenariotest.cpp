@@ -5667,6 +5667,52 @@ void ScenarioTest::runSceneObjectScenarios()
     wait(200);
     m_mw->m_dockObjects->grab().save(m_outDir + QStringLiteral("/scene-objects-dock-ui.png"));
     m_mw->m_dockObjects->close();
+
+    // ZOOM SUL SINGOLO OGGETTO: con l'oggetto selezionato rotella e Back/Forward
+    // ne cambiano la scala; con l'ambiente muovono la camera.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Zoom sull'oggetto selezionato, globale sull'ambiente =="));
+    m_mw->selectSceneObject(1);
+    wait(200);
+    const QVector3D cam0 = gl->getCameraPos();
+    m_mw->markWholeSceneClean();
+    gl->zoomCamera(1.2f);                  // uno scatto di rotella
+    const float s1 = gl->objectScale();
+    check(std::abs(s1 - std::exp(0.12f)) < 1e-4f && gl->getCameraPos() == cam0,
+          QStringLiteral("rotella sull'oggetto: scala %1, camera ferma").arg(s1));
+    check(std::abs(m_mw->m_objectScale->value() - s1) < 0.006 && m_mw->hasUnsavedWork(),
+          QStringLiteral("il dock mostra la scala (%1) e la scena e' da salvare").arg(m_mw->m_objectScale->value()));
+    gl->virtualMove(GLWidget::MoveBack, 0.05f, 0.05f);
+    check(gl->objectScale() < s1 && gl->getCameraPos() == cam0,
+          QStringLiteral("Back sull'oggetto: rimpicciolisce (%1), camera ferma").arg(gl->objectScale()));
+    m_mw->m_objectScale->setValue(2.0);
+    check(std::abs(gl->objectScale() - 2.0f) < 1e-6f, QStringLiteral("Scale = 2 dal dock"));
+    const QImage big = gl->grabFramebuffer();
+    m_mw->m_btnObjectDuplicate->click();
+    wait(400);
+    check(std::abs(gl->objectScale() - 2.0f) < 1e-6f, QStringLiteral("Duplicate copia la scala"));
+    m_mw->m_btnObjectRemove->click();
+    wait(300);
+    m_mw->selectSceneObject(0);
+    wait(200);
+    gl->zoomCamera(1.2f);
+    m_mw->selectSceneObject(1);
+    check(gl->getCameraPos() != cam0 && std::abs(gl->objectScale() - 2.0f) < 1e-6f,
+          QStringLiteral("rotella sull'ambiente: si muove la camera, la scala dell'oggetto resta"));
+    {
+        PresetSerializer::MotionRunState run2;
+        const QJsonObject scaled = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Scaled"), run2, false);
+        const QString path = m_outDir + QStringLiteral("/scene-objects-scaled.json");
+        QFile f(path);
+        if (f.open(QIODevice::WriteOnly)) { f.write(QJsonDocument(scaled).toJson()); f.close(); }
+        if (loadSurface(kSphere) && m_mw->loadSceneFile(path)) {
+            wait(600);
+            m_mw->selectSceneObject(1);
+            check(std::abs(gl->objectScale() - 2.0f) < 1e-6f,
+                  QStringLiteral("Save/Load: la scala dell'oggetto torna (%1)").arg(gl->objectScale()));
+        }
+    }
+    big.save(m_outDir + QStringLiteral("/scene-objects-scale2.png"));
 }
 
 void ScenarioTest::runSceneMotionScenarios()
