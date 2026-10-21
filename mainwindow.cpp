@@ -1536,9 +1536,10 @@ void MainWindow::setupStatusBar()
         QTimer::singleShot(100, dock, [this, dock]() {
             dock->setMinimumWidth(400);
 
-            // dockEquations e dockSurfaces (Library) bloccati a 400: non serve
-            // che si allarghino oltre. Cosi' i tab Library hanno larghezza nota.
-            if (dock == ui->dockEquations || dock == ui->dockSurfaces) {
+            // dockEquations, dockSurfaces (Library) e Objects bloccati a 400:
+            // non serve che si allarghino oltre. Cosi' i tab Library hanno
+            // larghezza nota.
+            if (dock == ui->dockEquations || dock == ui->dockSurfaces || dock == m_dockObjects) {
                 dock->setMaximumWidth(400);
             } else {
                 dock->setMaximumWidth(16777215);
@@ -1548,7 +1549,7 @@ void MainWindow::setupStatusBar()
             QTimer::singleShot(100, dock, [this, dock]() {
                 dock->setMinimumWidth(400);
 
-                if (dock == ui->dockEquations || dock == ui->dockSurfaces) {
+                if (dock == ui->dockEquations || dock == ui->dockSurfaces || dock == m_dockObjects) {
                     // Blocca l'espansione massima per Equations e Library
                     dock->setMaximumWidth(400);
                 } else {

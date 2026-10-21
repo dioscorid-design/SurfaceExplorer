@@ -6555,79 +6555,96 @@ void ScenarioTest::runSceneTimelineScenarios()
 {
     GLWidget *gl = m_mw->ui->glWidget;
     m_lines.append(QString());
-    m_lines.append(QStringLiteral("== Timeline: finestre di comparsa degli oggetti =="));
-    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    m_lines.append(QStringLiteral("== Timeline: T e' il tempo del path dell'ambiente, le finestre contano su T =="));
+    const QString kCoil = QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Cytherean Coil.json");
     QString spherePath;
     for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
         if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json")))
             spherePath = it.filePath;
+
+    // Ambiente senza path: T non corre, finestre e cursore spenti.
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    m_mw->addShapeToScene(spherePath);
+    wait(400);
+    m_mw->refreshSceneTimeLabel();
+    check(!m_mw->m_objectWindowIn->isEnabled() && !m_mw->m_sceneTimeSlider->isEnabled()
+              && !m_mw->m_sceneTimeLabel->isVisibleTo(m_mw),
+          QStringLiteral("ambiente senza path: In/Out e cursore spenti, T nascosto"));
+
+    // Ambiente col path 4D: T corre col path.
+    if (!loadRecord(kCoil)) return;
     m_mw->addShapeToScene(spherePath);
     wait(400);
     const int sphere = gl->selectedObject();
-    check(!gl->hasTimeline() && !m_mw->m_sceneTimeLabel->isVisibleTo(m_mw),
-          QStringLiteral("senza finestre: nessuna timeline, T nascosto"));
+    m_mw->refreshSceneTimeLabel();
+    check(m_mw->pathRunning(CameraPaths::Path4D) && m_mw->m_objectWindowIn->isEnabled()
+              && m_mw->m_sceneTimeSlider->isEnabled() && m_mw->m_sceneTimeLabel->isVisibleTo(m_mw),
+          QStringLiteral("ambiente col path 4D: In/Out e cursore attivi, T visibile"));
+    float t0 = gl->sceneTime();
+    wait(600);
+    check(gl->sceneTime() > t0 + 0.2f,
+          QStringLiteral("T corre col path: %1 -> %2 s").arg(t0).arg(gl->sceneTime()));
+
+    // I moti dei singoli oggetti non toccano T (il caso segnalato dall'utente).
+    m_mw->onDepartureClicked();   // il path si ferma
+    wait(100);
+    t0 = gl->sceneTime();
+    gl->setSpinSpeed(0.6f);
+    if (!gl->isObjectRotating(sphere)) m_mw->onStopClicked();
+    wait(500);
+    check(!m_mw->pathRunning(CameraPaths::Path4D) && gl->isObjectRotating(sphere) && gl->sceneTime() == t0,
+          QStringLiteral("path fermo, sfera in moto: T fermo a %1 s").arg(t0));
+    m_mw->onDepartureClicked();   // riparte
+    wait(500);
+    check(gl->sceneTime() > t0 + 0.1f,
+          QStringLiteral("path ripartito: T riparte (%1 s)").arg(gl->sceneTime()));
 
     // La finestra dal dock: In 1 s, Out 2 s.
     m_mw->markWholeSceneClean();
     m_mw->m_objectWindowIn->setValue(1.0);
     m_mw->m_objectWindowOut->setValue(2.0);
     check(gl->hasTimeline() && gl->objectWindowIn(sphere) == 1.0f && gl->objectWindowOut(sphere) == 2.0f
-              && m_mw->hasUnsavedWork() && m_mw->m_sceneTimeLabel->isVisibleTo(m_mw)
+              && m_mw->hasUnsavedWork()
               && m_mw->m_objectList->item(sphere)->text().contains(QLatin1String("[1 s - 2 s]")),
-          QStringLiteral("finestra 1-2 s dal dock: elenco \"%1\", T visibile, scena da salvare")
+          QStringLiteral("finestra 1-2 s dal dock: elenco \"%1\", scena da salvare")
               .arg(m_mw->m_objectList->item(sphere)->text()));
 
-    // A tempo controllato (come nel REC): prima, dentro, dopo la finestra.
-    gl->setSpinSpeed(0.6f);
-    m_mw->onStopClicked();          // la sfera ha il GO acceso
-    gl->stopAllTimers();
-    gl->setClocksDrivenByRecorder(true);
-    gl->setSceneTime(0.0f);
-    wait(300);
-    const QImage before = gl->grabFramebuffer();
-    const QQuaternion q0 = gl->getRotationQuat();
-    gl->advanceRotationsBy(0.5f);                 // fuori scena: non gira
-    const bool frozen = qFuzzyCompare(q0, gl->getRotationQuat());
-    check(!gl->isObjectOnStage(sphere) && frozen,
-          QStringLiteral("T = 0: la sfera non e' in scena e non ruota"));
-    gl->advanceClocksBy(1.5f);
-    wait(300);
-    const QImage inside = gl->grabFramebuffer();
-    gl->advanceRotationsBy(0.5f);
-    check(gl->isObjectOnStage(sphere) && inside != before && !qFuzzyCompare(q0, gl->getRotationQuat()),
-          QStringLiteral("T = %1: la sfera e' in scena, si vede e ruota").arg(gl->sceneTime()));
-    gl->advanceClocksBy(1.0f);
-    wait(300);
-    const QImage after = gl->grabFramebuffer();
-    check(!gl->isObjectOnStage(sphere) && after == before,
-          QStringLiteral("T = %1: la sfera e' uscita, immagine come prima").arg(gl->sceneTime()));
-
-    // Master: STOP ferma T, START lo fa ripartire; RESET lo riporta a 0.
+    // Master STOP: il path si ferma, e T con lui; il cursore lo sposta lo stesso.
     m_mw->performMasterStop();
-    const float tStopped = gl->sceneTime();
-    gl->advanceClocksBy(1.0f);
-    check(!gl->isSceneTimeRunning() && gl->sceneTime() == tStopped,
-          QStringLiteral("master STOP: T fermo a %1").arg(tStopped));
+    t0 = gl->sceneTime();
+    wait(400);
+    check(!m_mw->pathRunning(CameraPaths::Path4D) && gl->sceneTime() == t0,
+          QStringLiteral("master STOP: path e T fermi a %1 s").arg(t0));
+    m_mw->seekSceneTime(0.5f);
+    const bool before = gl->isObjectOnStage(sphere);
+    m_mw->seekSceneTime(1.5f);
+    const bool inside = gl->isObjectOnStage(sphere);
+    m_mw->seekSceneTime(2.5f);
+    const bool after = gl->isObjectOnStage(sphere);
+    check(!before && inside && !after && !m_mw->pathRunning(CameraPaths::Path4D),
+          QStringLiteral("cursore a 0.5 / 1.5 / 2.5 s: la sfera fuori, dentro, fuori; il path resta fermo"));
+
+    // START: il path riparte e T con lui; RESET lo riporta a 0.
     m_mw->m_btnStart->setText(QStringLiteral("START"));
     m_mw->m_btnStart->click();
-    wait(300);
-    check(gl->isSceneTimeRunning(), QStringLiteral("master START: T riparte"));
+    wait(500);
+    check(m_mw->pathRunning(CameraPaths::Path4D) && gl->sceneTime() > 2.5f,
+          QStringLiteral("master START: T riparte da 2.5 s (%1 s)").arg(gl->sceneTime()));
     m_mw->selectSceneObject(0);
-    m_popupAnswer = QStringLiteral("Motions");
     m_mw->onResetClicked();
-    wait(200);
-    m_popupAnswer.clear();
-    check(gl->sceneTime() < 0.5f, QStringLiteral("RESET dei moti: T da capo (%1)").arg(gl->sceneTime()));
+    wait(100);
+    check(gl->sceneTime() < 0.3f && m_mw->m_paths->time(CameraPaths::Path4D) < 0.3f,
+          QStringLiteral("RESET: path e T da capo (%1 s)").arg(gl->sceneTime()));
 
     // Save e Load: la finestra resta, T riparte da 0.
     PresetSerializer::MotionRunState run;
+    run.path4D = true;
     const QJsonObject json = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Timeline"), run, false);
     const QString path = m_outDir + QStringLiteral("/scene-timeline.json");
     {
         QFile f(path);
         if (f.open(QIODevice::WriteOnly)) { f.write(QJsonDocument(json).toJson()); f.close(); }
     }
-    gl->setClocksDrivenByRecorder(false);
     if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))
         && m_mw->loadSceneFile(path)) {
         wait(300);
@@ -6641,7 +6658,7 @@ void ScenarioTest::runScenePathScenarios()
 {
     GLWidget *gl = m_mw->ui->glWidget;
     m_lines.append(QString());
-    m_lines.append(QStringLiteral("== Timeline: il path di un oggetto, X(t) Y(t) Z(t) =="));
+    m_lines.append(QStringLiteral("== Timeline: il path di un oggetto, X(t) Y(t) Z(t), col suo orologio =="));
     if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
     QString spherePath;
     for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
@@ -6659,47 +6676,54 @@ void ScenarioTest::runScenePathScenarios()
         m_mw->applyObjectPathFromDock();
     };
 
+    // Il dock Objects largo come gli altri (400) e il suo contenuto ci sta.
+    check(m_mw->m_dockObjects->minimumWidth() == 400 && m_mw->m_dockObjects->maximumWidth() == 400
+              && m_mw->m_dockObjects->widget()->minimumSizeHint().width() <= 400,
+          QStringLiteral("dock Objects largo 400 come gli altri (contenuto: minimo %1)")
+              .arg(m_mw->m_dockObjects->widget()->minimumSizeHint().width()));
+
     // Dal dock: la virgola di mod(t,2) resta (niente sostituzione col punto).
     m_mw->markWholeSceneClean();
-    setPathFields(QStringLiteral("2*t"), QStringLiteral("mod(t,2)"), QStringLiteral("K1"));
+    setPathFields(QStringLiteral("2*t"), QStringLiteral("mod(t,2)"), QStringLiteral("0.7*floor(t)"));
     const QStringList path = gl->objectPath(sphere);
-    check(gl->objectHasPath(sphere) && path.value(1) == QLatin1String("mod(t,2)")
-              && m_mw->hasUnsavedWork() && m_mw->m_sceneTimeLabel->isVisibleTo(m_mw)
-              && m_mw->masterActivity().timelineAvailable,
-          QStringLiteral("path 2*t, mod(t,2), K1 dal dock: compilato, T visibile, master lo conta, scena da salvare"));
+    check(gl->objectHasPath(sphere) && gl->isObjectPathRunning(sphere) && path.value(1) == QLatin1String("mod(t,2)")
+              && m_mw->hasUnsavedWork() && m_mw->masterActivity().objectPathAvailable,
+          QStringLiteral("path 2*t, mod(t,2), 0.7*floor(t) dal dock: compilato e in corsa, il master lo conta"));
     check(near(gl->objectEffectivePosition(sphere), base),
           QStringLiteral("t = 0: la sfera e' nella sua posizione"));
 
-    // A tempo controllato (come nel REC).
+    // A tempo controllato (come nel REC): l'orologio del path e' dell'oggetto,
+    // non T (l'ambiente qui non ha path e T resta a 0).
     gl->setSpinSpeed(0.0f);
     m_mw->onStopClicked();
     gl->stopAllTimers();
     gl->setClocksDrivenByRecorder(true);
-    gl->setSceneTime(0.0f);
-    gl->setSceneTimeRunning(true);
     wait(300);
     const QImage before = gl->grabFramebuffer();
     gl->advanceClocksBy(1.5f);
-    gl->setControlVariable(0, 0.7f);
     wait(300);
     const QImage moved = gl->grabFramebuffer();
     const QVector3D at15 = gl->objectEffectivePosition(sphere);
-    check(qAbs(gl->objectPathTime(sphere) - 1.5f) < 1e-4f && near(at15, base + QVector3D(3.0f, 1.5f, 0.7f))
-              && moved != before,
-          QStringLiteral("t = 1.5, K1 = 0.7: spostamento (%1, %2, %3), atteso (3, 1.5, 0.7)")
-              .arg(at15.x() - base.x()).arg(at15.y() - base.y()).arg(at15.z() - base.z()));
-    gl->setControlVariable(0, 0.0f);
+    check(qAbs(gl->objectPathTime(sphere) - 1.5f) < 1e-4f && gl->sceneTime() == 0.0f
+              && near(at15, base + QVector3D(3.0f, 1.5f, 0.7f)) && moved != before,
+          QStringLiteral("t = 1.5 (T = %4): spostamento (%1, %2, %3), atteso (3, 1.5, 0.7)")
+              .arg(at15.x() - base.x()).arg(at15.y() - base.y()).arg(at15.z() - base.z()).arg(gl->sceneTime()));
     gl->advanceClocksBy(1.0f);
-    check(near(gl->objectEffectivePosition(sphere), base + QVector3D(5.0f, 0.5f, 0.0f)),
+    check(near(gl->objectEffectivePosition(sphere), base + QVector3D(5.0f, 0.5f, 1.4f)),
           QStringLiteral("t = 2.5: mod(t,2) torna a 0.5"));
 
-    // Master STOP ferma il tempo del path.
+    // Master STOP ferma l'orologio del path, START lo riaccende.
     m_mw->performMasterStop();
     const float tStopped = gl->objectPathTime(sphere);
     gl->advanceClocksBy(1.0f);
-    check(!gl->isSceneTimeRunning() && gl->objectPathTime(sphere) == tStopped,
+    check(!gl->isObjectPathRunning(sphere) && gl->objectPathTime(sphere) == tStopped
+              && !m_mw->masterActivity().objectPathRunning,
           QStringLiteral("master STOP: il path resta fermo a t = %1").arg(tStopped));
-    gl->setSceneTimeRunning(true);
+    m_mw->m_btnStart->setText(QStringLiteral("START"));
+    m_mw->m_btnStart->click();
+    wait(200);
+    gl->stopAllTimers();
+    check(gl->isObjectPathRunning(sphere), QStringLiteral("master START: il path riparte"));
 
     // RESET dell'oggetto: il path torna all'inizio, nessun popup.
     m_lastPopup.clear();
@@ -6709,25 +6733,26 @@ void ScenarioTest::runScenePathScenarios()
               && near(gl->objectEffectivePosition(sphere), base),
           QStringLiteral("RESET dell'oggetto: t = 0, sfera al suo posto, nessun popup"));
 
-    // Fuori dalla sua finestra il path non avanza.
+    // Fuori dalla sua finestra il path non avanza (T fermo a 0, In 5 s).
     m_mw->m_objectWindowIn->setValue(5.0);
-    gl->setSceneTime(0.0f);
     gl->advanceClocksBy(1.0f);
     check(!gl->isObjectOnStage(sphere) && gl->objectPathTime(sphere) == 0.0f,
-          QStringLiteral("fuori dalla finestra (In 5 s, T = 1): t fermo a 0"));
+          QStringLiteral("fuori dalla finestra (In 5 s, T = 0): t fermo a 0"));
     m_mw->m_objectWindowIn->setValue(0.0);
 
-    // Una formula sbagliata: popup, il path resta quello di prima.
-    m_lastPopup.clear();
-    setPathFields(QStringLiteral("2*t+"), QStringLiteral("mod(t,2)"), QStringLiteral("K1"));
-    wait(300);
-    check(!m_lastPopup.isEmpty() && gl->objectPath(sphere).value(0) == QLatin1String("2*t"),
-          QStringLiteral("2*t+ rifiutata: popup, resta 2*t"));
-    m_lastPopup.clear();
-    setPathFields(QStringLiteral("2*t+q"), QStringLiteral("mod(t,2)"), QStringLiteral("K1"));
-    wait(300);
-    check(!m_lastPopup.isEmpty() && gl->objectPath(sphere).value(0) == QLatin1String("2*t"),
-          QStringLiteral("variabile sconosciuta q: popup, resta 2*t"));
+    // Formule sbagliate: popup, il path resta quello di prima. K1..K4 sono dei
+    // path dell'ambiente (dock 3D e 4D), non degli oggetti.
+    auto refused = [&](const QString &x, const QString &z, const QString &what) {
+        m_lastPopup.clear();
+        setPathFields(x, QStringLiteral("mod(t,2)"), z);
+        wait(300);
+        check(!m_lastPopup.isEmpty() && gl->objectPath(sphere).value(0) == QLatin1String("2*t")
+                  && gl->objectPath(sphere).value(2) == QLatin1String("0.7*floor(t)"),
+              what + QStringLiteral(" rifiutata: popup, resta il path di prima"));
+    };
+    refused(QStringLiteral("2*t+"), QStringLiteral("0.7*floor(t)"), QStringLiteral("2*t+"));
+    refused(QStringLiteral("2*t+q"), QStringLiteral("0.7*floor(t)"), QStringLiteral("variabile sconosciuta q"));
+    refused(QStringLiteral("2*t"), QStringLiteral("K1"), QStringLiteral("K1 in un oggetto"));
     m_mw->refreshObjectsUi();
     check(m_mw->m_objectPath[0]->text() == QLatin1String("2*t"),
           QStringLiteral("il dock rimostra il path valido"));
@@ -6760,9 +6785,10 @@ void ScenarioTest::runScenePathScenarios()
         && m_mw->loadSceneFile(file)) {
         wait(300);
         const QStringList loaded = gl->objectPath(1);
-        check(gl->objectCount() == 2 && gl->objectHasPath(1) && loaded.value(0) == QLatin1String("2*t")
-                  && loaded.value(1) == QLatin1String("mod(t,2)") && loaded.value(2) == QLatin1String("K1"),
-              QStringLiteral("Save/Load: path %1").arg(loaded.join(QStringLiteral(", "))));
+        check(gl->objectCount() == 2 && gl->objectHasPath(1) && gl->isObjectPathRunning(1)
+                  && loaded.value(0) == QLatin1String("2*t") && loaded.value(1) == QLatin1String("mod(t,2)")
+                  && loaded.value(2) == QLatin1String("0.7*floor(t)"),
+              QStringLiteral("Save/Load: path %1, in corsa").arg(loaded.join(QStringLiteral(", "))));
     }
 }
 
@@ -6770,167 +6796,103 @@ void ScenarioTest::runSceneSeekScenarios()
 {
     GLWidget *gl = m_mw->ui->glWidget;
     m_lines.append(QString());
-    m_lines.append(QStringLiteral("== Timeline: lo scorrimento del tempo T =="));
+    m_lines.append(QStringLiteral("== Timeline: il cursore T muove il solo path dell'ambiente =="));
+    const QString kCoil = QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Cytherean Coil.json");
     if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    m_mw->refreshSceneTimeLabel();
+    m_mw->seekSceneTime(2.0f);
+    check(!m_mw->m_sceneTimeSlider->isEnabled() && gl->sceneTime() == 0.0f,
+          QStringLiteral("superficie senza path: cursore spento, T resta 0"));
+    if (!loadRecord(kCoil)) return;
+    m_mw->refreshSceneTimeLabel();
+    check(m_mw->m_sceneTimeSlider->isEnabled() && m_mw->pathRunning(CameraPaths::Path4D),
+          QStringLiteral("superficie col path 4D, anche senza oggetti: cursore attivo"));
+
     QString spherePath;
     for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
         if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json")))
             spherePath = it.filePath;
-    // Due sfere: la prima ruota e ha un path, la seconda e' ferma in una posa
-    // data a mano.
     m_mw->addShapeToScene(spherePath);
     wait(300);
-    const int moving = gl->selectedObject();
+    const int sphere = gl->selectedObject();
     gl->setSpinSpeed(0.6f);
-    if (!gl->isObjectRotating(moving)) m_mw->onStopClicked();
+    if (!gl->isObjectRotating(sphere)) m_mw->onStopClicked();
     m_mw->m_objectPath[0]->setText(QStringLiteral("t"));
     m_mw->applyObjectPathFromDock();
-    m_mw->addShapeToScene(spherePath);
-    wait(300);
-    const int still = gl->selectedObject();
-    if (gl->isObjectRotating(still)) m_mw->onStopClicked();
-    GLWidget::Orientation pose = gl->objectOrientation(still);
-    pose.rotation = QQuaternion::fromAxisAndAngle(QVector3D(1, 1, 0).normalized(), 40.0f);
-    gl->setObjectOrientation(still, pose);
-    m_mw->selectSceneObject(moving);
-    const QVector3D base = gl->objectPosition();
-    check(gl->isObjectRotating(moving) && !gl->isObjectRotating(still) && gl->objectHasPath(moving)
-              && m_mw->m_sceneTimeSlider->isEnabled(),
-          QStringLiteral("scena: una sfera ruota col path x = t, l'altra ferma; cursore attivo"));
 
-    // A tempo controllato: i tick dal vivo non avanzano nulla, i moduli
-    // restano "in moto" (come nel REC).
-    gl->setClocksDrivenByRecorder(true);
-    gl->setExternalClockActive(true);
-    auto rot = [gl](int k) { return gl->objectOrientation(k).rotation; };
+    struct Shot { float pathT; QVector3D camera, view; };
+    auto shot = [&]() {
+        return Shot{ m_mw->m_paths->time(CameraPaths::Path4D), gl->getCameraPos(), gl->viewRotation4D() };
+    };
+    auto equal = [](const Shot &a, const Shot &b) {
+        return std::abs(a.pathT - b.pathT) < 1e-4f && (a.camera - b.camera).length() < 1e-3f
+               && (a.view - b.view).length() < 1e-3f;
+    };
     auto same = [](const QQuaternion &a, const QQuaternion &b) {
         return std::abs(QQuaternion::dotProduct(a, b)) > 0.999999f;
     };
-
-    m_mw->seekSceneTime(0.0f);
-    const QQuaternion q0 = rot(moving);
-    check(gl->sceneTime() == 0.0f && gl->objectPathTime(moving) == 0.0f
-              && (gl->objectEffectivePosition(moving) - base).length() < 1e-4f,
-          QStringLiteral("T = 0: path all'inizio"));
-    m_mw->seekSceneTime(2.0f);
-    const QQuaternion q2 = rot(moving);
-    const QVector3D p2 = gl->objectEffectivePosition(moving) - base;
-    check(gl->sceneTime() == 2.0f && std::abs(p2.x() - 2.0f) < 1e-3f && !same(q0, q2),
-          QStringLiteral("avanti a T = 2: path a x = %1, la sfera ha ruotato").arg(p2.x()));
-    m_mw->seekSceneTime(3.5f);
-    m_mw->seekSceneTime(2.0f);
-    check(same(rot(moving), q2) && std::abs(gl->objectPathTime(moving) - 2.0f) < 1e-3f,
-          QStringLiteral("a 3.5 s e di nuovo a 2 s: stessa rotazione e stesso path"));
-    check(same(rot(still), pose.rotation),
-          QStringLiteral("la sfera ferma resta nella sua posa anche tornando indietro"));
-    m_mw->seekSceneTime(0.0f);
-    check(same(rot(moving), q0) && gl->objectPathTime(moving) == 0.0f,
-          QStringLiteral("di nuovo a 0: rotazione e path d'apertura"));
-
-    // Finestra: In 1 s. Prima e' fuori scena, dopo il suo path parte da li'.
-    m_mw->m_objectWindowIn->setValue(1.0);
-    m_mw->seekSceneTime(0.5f);
-    const bool offStage = !gl->isObjectOnStage(moving);
-    m_mw->seekSceneTime(1.5f);
-    check(offStage && gl->isObjectOnStage(moving) && std::abs(gl->objectPathTime(moving) - 0.5f) < 0.02f,
-          QStringLiteral("In 1 s: fuori a 0.5 s; a 1.5 s in scena, t del path %1").arg(gl->objectPathTime(moving)));
-    m_mw->m_objectWindowIn->setValue(0.0);
-
-    // A scena ferma (master STOP): si scorre cio' che START metterebbe in moto,
-    // e la scena resta ferma.
-    m_mw->seekSceneTime(0.0f);
-    m_mw->performMasterStop();
-    m_mw->seekSceneTime(2.0f);
-    check(!m_mw->sceneMasterState().any && !gl->isSceneTimeRunning() && gl->sceneTime() == 2.0f
-              && !same(rot(moving), q0) && std::abs(gl->objectPathTime(moving) - 2.0f) < 1e-3f,
-          QStringLiteral("scena ferma, scorsa a 2 s: rotazione e path avanzati, resta ferma"));
-
-    // Il cursore del dock: l'ultimo valore, dopo il giro degli eventi.
-    m_mw->m_sceneTimeSlider->setValue(25);
-    wait(200);
-    check(std::abs(gl->sceneTime() - 2.5f) < 1e-4f && m_mw->m_sceneTimeValue->text() == QLatin1String("2.5 s"),
-          QStringLiteral("cursore a 25: T = %1, etichetta \"%2\"").arg(gl->sceneTime()).arg(m_mw->m_sceneTimeValue->text()));
-
-    // Il costo: un minuto di scena rifatto da capo.
-    m_mw->m_btnStart->setText(QStringLiteral("START"));
-    m_mw->m_btnStart->click();
-    wait(200);
-    m_mw->seekSceneTime(0.0f);
-    QElapsedTimer clock;
-    clock.start();
-    m_mw->seekSceneTime(60.0f);
-    const qint64 ms = clock.elapsed();
-    check(gl->sceneTime() == 60.0f && ms < 1500,
-          QStringLiteral("scorrimento di 60 s in %1 ms").arg(ms));
-    check(m_mw->m_sceneTimeSlider->maximum() >= 600,
-          QStringLiteral("la scala del cursore arriva a %1 s").arg(m_mw->m_sceneTimeSlider->maximum() / 10.0));
-
-    gl->setExternalClockActive(false);
-    gl->setClocksDrivenByRecorder(false);
-
-    // COL PATH 4D DELL'AMBIENTE: camera e rotazione 4D del path seguono T.
-    // Niente attese fra un passo e l'altro: il tick del path gira dal vivo.
-    if (!loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Cytherean Coil.json"))) return;
-    QString torusPath;
-    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
-        if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json")))
-            torusPath = it.filePath;
-    m_mw->addShapeToScene(torusPath);
-    wait(400);
-    const int torus = gl->selectedObject();
-    gl->setPrecessionSpeed(1.0f);
-    if (!gl->isObjectRotating(torus)) m_mw->onStopClicked();
-    check(m_mw->pathRunning(CameraPaths::Path4D) && gl->isObjectRotating(torus),
-          QStringLiteral("ambiente col path 4D in corsa, toro che ruota"));
-    gl->setClocksDrivenByRecorder(true);
-    gl->setExternalClockActive(true);
-    struct Shot { float pathT; QVector3D camera, view; QQuaternion q; };
-    auto shot = [&]() {
-        return Shot{ m_mw->m_paths->time(CameraPaths::Path4D), gl->getCameraPos(), gl->viewRotation4D(), rot(torus) };
-    };
-    auto equal = [&](const Shot &a, const Shot &b) {
-        return std::abs(a.pathT - b.pathT) < 1e-4f && (a.camera - b.camera).length() < 1e-3f
-               && (a.view - b.view).length() < 1e-3f && same(a.q, b.q);
-    };
+    // Niente attese fra un passo e l'altro: i tick dal vivo restano fuori.
+    const QQuaternion q = gl->objectOrientation(sphere).rotation;
+    const float objT = gl->objectPathTime(sphere);
     m_mw->seekSceneTime(0.0f);
     const Shot s0 = shot();
     m_mw->seekSceneTime(2.0f);
     const Shot s2 = shot();
+    m_mw->seekSceneTime(3.0f);
+    const Shot s3 = shot();
     m_mw->seekSceneTime(4.0f);
-    const Shot s4 = shot();
     m_mw->seekSceneTime(2.0f);
     const Shot back2 = shot();
-    check(s0.pathT == 0.0f && s2.pathT > 0.0f && !equal(s2, s4) && equal(back2, s2),
-          QStringLiteral("path 4D: t %1 a 2 s, %2 a 4 s; tornando a 2 s camera, rotazione 4D e toro come prima")
-              .arg(s2.pathT).arg(s4.pathT));
-    m_mw->performMasterStop();
-    m_mw->seekSceneTime(4.0f);
-    const Shot paused4 = shot();
-    check(equal(paused4, s4) && !m_mw->pathRunning(CameraPaths::Path4D) && !m_mw->sceneMasterState().any,
-          QStringLiteral("scena ferma, scorsa a 4 s: come a 4 s in moto, il path resta fermo"));
-    m_mw->m_btnStart->setText(QStringLiteral("START"));
-    m_mw->m_btnStart->click();
-    m_mw->seekSceneTime(0.0f);
-    QElapsedTimer pathClock;
-    pathClock.start();
-    m_mw->seekSceneTime(60.0f);
-    const qint64 pathMs = pathClock.elapsed();
-    const float t60 = m_mw->m_paths->time(CameraPaths::Path4D);
-    check(pathMs < 1500 && m_mw->pathRunning(CameraPaths::Path4D) && std::abs(t60 - 30.0f * s2.pathT) < 0.05f,
-          QStringLiteral("col path 4D: 60 s in %1 ms, t del path %2 (atteso %3)").arg(pathMs).arg(t60).arg(30.0f * s2.pathT));
-    // Il passo del REC (1/30 s): il path avanza come con la vecchia formula
-    // del recorder, (1000 / intervallo) / fps tick per frame.
+    const float speed = m_mw->m_scene.pathSpeed4D / float(m_mw->m_paths->interval(CameraPaths::Path4D));
+    check(s0.pathT == 0.0f && std::abs(s2.pathT - 2.0f * speed) < 1e-4f && gl->sceneTime() == 2.0f
+              && !equal(s2, s3) && equal(back2, s2),
+          QStringLiteral("path 4D: t %1 a 2 s; a 4 s e di nuovo a 2 s camera e rotazione 4D come prima")
+              .arg(s2.pathT));
+    check(same(gl->objectOrientation(sphere).rotation, q) && gl->objectPathTime(sphere) == objT,
+          QStringLiteral("gli oggetti non si toccano: rotazione e path della sfera come prima"));
+
+    // Le finestre seguono T.
+    m_mw->m_objectWindowIn->setValue(1.0);
+    m_mw->seekSceneTime(0.5f);
+    const bool offStage = !gl->isObjectOnStage(sphere);
+    m_mw->seekSceneTime(1.5f);
+    check(offStage && gl->isObjectOnStage(sphere),
+          QStringLiteral("In 1 s: la sfera fuori a 0.5 s, dentro a 1.5 s"));
+    m_mw->m_objectWindowIn->setValue(0.0);
+
+    // Il passo del REC (1/30 s): T avanza di 1/30 s e il path come con la
+    // vecchia formula del recorder, (1000 / intervallo) / fps tick per frame.
     {
         const float before = m_mw->m_paths->time(CameraPaths::Path4D);
+        const float tBefore = gl->sceneTime();
         m_mw->advanceSceneBy(1.0f / 30.0f, false);
         const float got = m_mw->m_paths->time(CameraPaths::Path4D) - before;
         const float expected = m_mw->m_scene.pathSpeed4D / 1000.0f
                                * ((1000.0f / float(m_mw->m_paths->interval(CameraPaths::Path4D))) / 30.0f);
-        check(std::abs(got - expected) < 1e-5f,
-              QStringLiteral("passo del REC a 30 fps: il path avanza di %1 (atteso %2)").arg(got).arg(expected));
+        check(std::abs(got - expected) < 1e-5f && std::abs(gl->sceneTime() - tBefore - 1.0f / 30.0f) < 1e-4f,
+              QStringLiteral("passo del REC a 30 fps: path +%1 (atteso %2), T +%3 s")
+                  .arg(got).arg(expected).arg(gl->sceneTime() - tBefore));
     }
-    gl->setExternalClockActive(false);
-    gl->setClocksDrivenByRecorder(false);
+
+    // Col path fermo: il cursore lo sposta e resta fermo.
+    m_mw->onDepartureClicked();
+    m_mw->seekSceneTime(1.0f);
+    m_mw->seekSceneTime(3.0f);
+    const Shot stopped3 = shot();
+    check(!m_mw->pathRunning(CameraPaths::Path4D) && equal(stopped3, s3) && m_mw->m_sceneTimeSlider->isEnabled(),
+          QStringLiteral("path fermo, cursore a 3 s: camera come a 3 s in corsa, il path resta fermo "
+                         "(t %1/%2, camera %3, vista %4)")
+              .arg(stopped3.pathT).arg(s3.pathT).arg((stopped3.camera - s3.camera).length())
+              .arg((stopped3.view - s3.view).length()));
+
+    // Il cursore del dock.
+    m_mw->m_sceneTimeSlider->setValue(25);
+    check(std::abs(gl->sceneTime() - 2.5f) < 1e-4f && m_mw->m_sceneTimeValue->text() == QLatin1String("2.5 s"),
+          QStringLiteral("cursore a 25: T = %1, etichetta \"%2\"").arg(gl->sceneTime()).arg(m_mw->m_sceneTimeValue->text()));
+    m_mw->seekSceneTime(60.0f);
+    m_mw->refreshSceneTimeLabel();
+    check(m_mw->m_sceneTimeSlider->maximum() >= 600,
+          QStringLiteral("la scala del cursore arriva a %1 s").arg(m_mw->m_sceneTimeSlider->maximum() / 10.0));
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()

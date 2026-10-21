@@ -58,11 +58,13 @@ void CameraPaths::resetTimes()
 {
     m_t4D = 0.0f;
     m_t3D = 0.0f;
+    m_view->setSceneTime(0.0f);   // T e' il tempo del path
 }
 
 void CameraPaths::resetTime(Path p)
 {
     (p == Path4D ? m_t4D : m_t3D) = 0.0f;
+    m_view->setSceneTime(0.0f);
 }
 
 void CameraPaths::resetSession()
@@ -128,6 +130,9 @@ void CameraPaths::tick(Path p)
 
 void CameraPaths::advance(Path p, float ticks)
 {
+    // T, il tempo della scena, e' quello del path: i secondi dei suoi tick (al
+    // loro intervallo, come il recorder), qualunque sia la velocita'.
+    m_view->advanceSceneTime(ticks * float(interval(p)) / 1000.0f);
     // Velocita': unita' dello slider (1..100), un millesimo per tick.
     if (p == Path4D) {
         m_t4D += m_scene.pathSpeed4D / 1000.0f * ticks;

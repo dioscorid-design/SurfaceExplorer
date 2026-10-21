@@ -244,10 +244,12 @@ struct SurfaceObject
     // suoi moti restano fermi. L'ambiente e' sempre in scena.
     float windowIn = 0.0f;
     float windowOut = 0.0f;
-    // Il TEMPO DEL SUO PATH (timeline 2a, SurfaceEngine::compileObjectPath):
-    // avanza col tempo di scena solo mentre l'oggetto e' in scena e ha un path;
-    // si azzera col RESET (suo o della scena).
+    // Il TEMPO DEL SUO PATH (SurfaceEngine::compileObjectPath): un orologio
+    // suo, che avanza mentre l'oggetto e' in scena, ha un path e pathRunning
+    // (il master lo spegne e lo riaccende); si azzera col RESET (suo o della
+    // scena).
     float pathTime = 0.0f;
+    bool pathRunning = true;
     // SCALA uniforme dell'oggetto (2.0): modello = traslazione * rotazione *
     // scala. 1 = come fino alla 1.4. La cambiano rotella, pinch, Back/Forward
     // con l'oggetto selezionato (GLWidget::zoomCamera) e il dock Objects.

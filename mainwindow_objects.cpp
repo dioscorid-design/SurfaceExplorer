@@ -143,13 +143,11 @@ void MainWindow::advanceGeodesicObjectsBy(double dtSeconds)
         // La stessa velocita' del selezionato (advanceGeodesicFlowBy): 0.015
         // unita' per tick nominale di 16 ms.
         s.geoTime += 0.015 * (dtSeconds * 1000.0 / 16.0);
-        // Lo scorrimento della timeline: la mesh alla fine, una volta.
-        if (m_seekingScene) continue;
         // Un errore ferma il SUO flusso, in silenzio: i popup sono dell'oggetto
         // selezionato, e riselezionandolo il Run lo rimette in moto.
         if (!updateGeodesicObject(k)) s.geoAnimating = false;
     }
-    if (!m_seekingScene) syncGeodesicObjectsTimer();
+    syncGeodesicObjectsTimer();
 }
 
 bool MainWindow::updateGeodesicObject(int k)
@@ -277,7 +275,6 @@ void MainWindow::restartSceneTimeline()
 {
     if (!ui->glWidget) return;
     ui->glWidget->setSceneTime(0.0f);
-    ui->glWidget->setSceneTimeRunning(true);
     m_sceneTimeReached = 0.0f;
 }
 
@@ -301,104 +298,35 @@ void MainWindow::advanceSceneBy(double dt, bool selectedGeoFlow)
     // Flussi geodetici, del selezionato e degli altri oggetti.
     if (selectedGeoFlow) advanceGeodesicFlowBy(dt);
     advanceGeodesicObjectsBy(dt);
-    // Orologi di animazione (t di geometria, texture, sfondo, fasce), tempo di
-    // scena e path degli oggetti.
+    // Orologi di animazione (t di geometria, texture, sfondo, fasce) e path
+    // degli oggetti. T avanza col path della camera, qui sopra.
     gl->advanceClocksBy(float(dt));
-}
-
-void MainWindow::rewindRunningMotions()
-{
-    GLWidget *gl = ui->glWidget;
-    // Chi ha il GO in corso torna alla posa d'apertura (quella del RESET).
-    for (int k = 0; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k)
-        if (gl->isObjectRotating(k))
-            gl->setObjectOrientation(k, k == 0 ? m_startOrientation : m_objectSessions[k].startOrientation);
-    // Il path in corsa a t = 0, dopo l'orientamento: il path 4D scrive i
-    // propri angoli, come al tick.
-    for (CameraPaths::Path p : { CameraPaths::Path4D, CameraPaths::Path3D })
-        if (pathRunning(p)) {
-            m_paths->resetTime(p);
-            m_paths->applyCameraAt(p, 0.0f);
-        }
-    // I flussi geodetici in moto (le mesh le rifa' seekSceneTime alla fine).
-    if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoTime = 0.0;
-    const int selected = gl->selectedObject();
-    for (int k = 0; k < int(m_objectSessions.size()); ++k)
-        if (k != selected && m_objectSessions[k].geoAnimating) m_objectSessions[k].geoTime = 0.0;
-    gl->rewindRunningClocks();
-}
-
-void MainWindow::startSceneForSeek()
-{
-    // Come il master START (runScene, poi startObjectForMaster sugli altri),
-    // ma il selezionato non si ricompila e il suono resta spento: scorrere non
-    // e' un Run. Alla fine lo scorrimento rifa' il master STOP.
-    m_masterStopped = false;
-    m_userStoppedTexClock = false;
-    m_userStoppedBgClock = false;
-    m_userStoppedCameraMotion = false;
-    ui->glWidget->setSceneTimeRunning(true);
-    forEachOtherObject([this]() { startObjectForMaster(); });
-    startObjectForMaster();
-    startCameraMotionForMaster();
 }
 
 void MainWindow::seekSceneTime(float target)
 {
     GLWidget *gl = ui->glWidget;
-    if (!gl || gl->objectCount() <= 1 || m_isRecording || m_seekingScene) return;
+    const std::optional<CameraPaths::Path> path = cameraPath();
+    if (!gl || !path || m_isRecording) return;
     target = std::max(0.0f, target);
-
-    const bool paused = !sceneMasterState().any;
-    if (paused) startSceneForSeek();
-    // Il tempo di scena avanza (finestre, path degli oggetti) anche se era
-    // fermo da solo.
-    const bool sceneTimeWasRunning = gl->isSceneTimeRunning();
-    gl->setSceneTimeRunning(true);
-
-    m_seekingScene = true;
-    double from = gl->sceneTime();
-    if (target < from) {
-        rewindRunningMotions();
-        from = 0.0;
-    }
-    const bool geoFlow = m_geoAnimTimer && m_geoAnimTimer->isActive();
-    const double step = GLWidget::rotationTickSeconds();
-    for (double left = double(target) - from; left > 1e-6; left -= step)
-        advanceSceneBy(std::min(step, left), geoFlow);
-    m_seekingScene = false;
-    gl->setSceneTime(target);
-
-    // Le mesh dei flussi geodetici, una volta, al tempo raggiunto.
-    if (geoFlow) {
-        m_inGeoAnimTick = true;
-        updateGeodesicMesh(/*useAppliedLimits=*/true);
-        m_inGeoAnimTick = false;
-    }
-    const int selected = gl->selectedObject();
-    for (int k = 0; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k)
-        if (k != selected && m_objectSessions[k].geoAnimating && !updateGeodesicObject(k))
-            m_objectSessions[k].geoAnimating = false;
-    syncGeodesicObjectsTimer();
-
-    if (paused) performMasterStop();
-    else if (!sceneTimeWasRunning) gl->setSceneTimeRunning(false);
-    gl->resyncFrameClock();
+    // Indietro si riparte da 0 (T compreso), poi avanti con CameraPaths::advance,
+    // lo stesso del tick, UN TICK ALLA VOLTA alla velocita' di adesso: la
+    // camera del path 4D dipende anche dal passo prima (la proiezione usa
+    // l'osservatore precedente, l'anti-ribaltamento l'"up" precedente), e con
+    // un salto unico il punto d'arrivo cambiava secondo da dove si partiva. Un
+    // minuto sono 2000 tick: istantaneo. In corsa o fermo, il path resta
+    // com'era; gli oggetti non si toccano (il cursore e' solo dell'ambiente).
+    if (target < gl->sceneTime()) m_paths->resetTime(*path);
+    float ticks = (target - gl->sceneTime()) * 1000.0f / float(std::max(1, m_paths->interval(*path)));
+    // Prima il pezzo di tick, poi i tick interi: l'ultimo passo e' sempre un
+    // tick, come dal vivo, e l'arrivo non dipende dalla partenza.
+    const float fraction = ticks - std::floor(ticks);
+    if (ticks <= 0.0f) m_paths->applyCameraAt(*path, m_paths->time(*path));
+    else if (fraction > 1e-4f) m_paths->advance(*path, fraction);
+    for (int k = int(std::floor(ticks)); k > 0; --k) m_paths->advance(*path, 1.0f);
+    gl->setSceneTime(target);   // esatto, senza gli arrotondamenti dei tick
     m_sceneTimeReached = std::max(m_sceneTimeReached, target);
-    updateMasterButtonState();
     refreshSceneTimeLabel();
-    gl->update();
-}
-
-void MainWindow::requestSceneSeek(float target)
-{
-    m_pendingSeek = target;
-    if (m_seekQueued) return;
-    m_seekQueued = true;
-    QTimer::singleShot(0, this, [this]() {
-        m_seekQueued = false;
-        seekSceneTime(m_pendingSeek);
-    });
 }
 
 // La scala del cursore: almeno 10 s, e fino al piu' lontano fra il T
@@ -421,7 +349,12 @@ void MainWindow::refreshSceneTimeSlider()
     GLWidget *gl = ui->glWidget;
     const float t = gl->sceneTime();
     m_sceneTimeReached = std::max(m_sceneTimeReached, t);
-    m_sceneTimeSlider->setEnabled(gl->objectCount() > 1 && !m_isRecording);
+    // Il cursore muove il path dell'ambiente: serve che la camera ne segua uno.
+    m_sceneTimeSlider->setEnabled(cameraPath().has_value() && !m_isRecording);
+    // Le finestre contano su T: senza un path dell'ambiente T non corre.
+    const bool windows = gl->selectedObject() > 0 && (hasPath4DInput() || hasPath3DInput());
+    m_objectWindowIn->setEnabled(windows);
+    m_objectWindowOut->setEnabled(windows);
     m_sceneTimeValue->setText(QStringLiteral("%1 s").arg(double(t), 0, 'f', 1));
     if (m_sceneTimeSlider->isSliderDown()) return;   // lo sta muovendo l'utente
     const QSignalBlocker block(m_sceneTimeSlider);
@@ -542,7 +475,6 @@ bool MainWindow::loadSceneFile(const QString &path)
     applyMotionExample(env);   // torna al solo ambiente e lo carica
     // La timeline da capo.
     ui->glWidget->setSceneTime(0.0f);
-    ui->glWidget->setSceneTimeRunning(true);
 
     GLWidget *gl = ui->glWidget;
     for (const QJsonValue &v : root.value(QStringLiteral("objects")).toArray()) {
@@ -687,6 +619,10 @@ void MainWindow::setupObjectsDock()
 {
     m_dockObjects = new QDockWidget(QStringLiteral("OBJECTS"), this);
     m_dockObjects->setObjectName(QStringLiteral("dockObjects"));
+    // Largo come gli altri dock (400 nel .ui): senza, le righe di campi
+    // affiancati lo allargavano, e su iPhone avrebbe preso tutto lo schermo.
+    m_dockObjects->setMinimumWidth(400);
+    m_dockObjects->setMaximumWidth(400);
     auto *w = new QWidget(m_dockObjects);
     auto *lay = new QVBoxLayout(w);
 
@@ -767,9 +703,12 @@ void MainWindow::setupObjectsDock()
     windowRow->addWidget(new QLabel(QStringLiteral("Out"), w));
     m_objectWindowOut = makeWindowBox(QStringLiteral("end"));
     windowRow->addWidget(m_objectWindowOut, 1);
+    for (QDoubleSpinBox *box : { m_objectWindowIn, m_objectWindowOut })
+        box->setToolTip(QStringLiteral("In and Out count on T, the time of the environment's path."));
     lay->addLayout(windowRow);
 
-    // LO SCORRIMENTO: il cursore porta la scena al tempo T (seekSceneTime).
+    // LO SCORRIMENTO: il cursore porta il path dell'ambiente al tempo T
+    // (seekSceneTime).
     auto *seekRow = new QHBoxLayout();
     seekRow->addWidget(new QLabel(QStringLiteral("T"), w));
     m_sceneTimeSlider = new QSlider(Qt::Horizontal, w);
@@ -783,7 +722,7 @@ void MainWindow::setupObjectsDock()
     seekRow->addWidget(m_sceneTimeValue);
     lay->addLayout(seekRow);
     connect(m_sceneTimeSlider, &QSlider::valueChanged, this, [this](int v) {
-        if (!m_refreshingObjects) requestSceneSeek(float(v) / 10.0f);
+        if (!m_refreshingObjects) seekSceneTime(float(v) / 10.0f);
     });
 
     for (QDoubleSpinBox *box : { m_objectWindowIn, m_objectWindowOut }) {
@@ -872,8 +811,6 @@ void MainWindow::refreshObjectsUi()
     }
     m_objectWindowIn->setValue(gl->objectWindowIn(selected));
     m_objectWindowOut->setValue(gl->objectWindowOut(selected));
-    m_objectWindowIn->setEnabled(selected > 0);
-    m_objectWindowOut->setEnabled(selected > 0);
     m_btnObjectDuplicate->setEnabled(selected > 0);
     m_btnObjectRemove->setEnabled(selected > 0);
     if (m_btnObjectSelector) {
@@ -913,36 +850,34 @@ void MainWindow::applyObjectPathFromDock()
         ok = false;
         QMessageBox::warning(this, QStringLiteral("Error"),
                              QStringLiteral("Object path compilation error.\nCheck the syntax: "
-                                            "t, the constants A-F and s, K1-K4."));
+                                            "t and the constants A-F and s."));
     }
     m_applyingObjectPath = false;
     if (!ok) return;   // il testo resta, per correggerlo; il path e' quello di prima
+    // Il suo orologio corre, se il master non ha fermato la scena.
+    gl->setObjectPathRunning(selected, !m_masterStopped);
     m_sceneObjectsChanged = true;
     updateMasterButtonState();
     refreshSceneTimeLabel();
 }
 
-// T NELLA BARRA DI STATO (con una timeline o un path) e il cursore del dock
-// (in ogni scena): aggiornati 5 volte al secondo.
+// T NELLA BARRA DI STATO (in una scena con la camera su un path) e il
+// cursore del dock: aggiornati 5 volte al secondo, sempre (il path parte e si
+// ferma da tanti punti).
 void MainWindow::refreshSceneTimeLabel()
 {
     if (!m_sceneTimeLabel || !ui->glWidget) return;
-    const bool scene = ui->glWidget->objectCount() > 1;
-    const bool show = scene && ui->glWidget->sceneClockMatters();
+    const bool show = ui->glWidget->objectCount() > 1 && cameraPath().has_value();
     m_sceneTimeLabel->setVisible(show);
     if (show)
         m_sceneTimeLabel->setText(QStringLiteral("T %1 s").arg(double(ui->glWidget->sceneTime()), 0, 'f', 1));
     refreshSceneTimeSlider();
-    if (!scene) {
-        if (m_sceneTimeLabelTimer) m_sceneTimeLabelTimer->stop();
-        return;
-    }
     if (!m_sceneTimeLabelTimer) {
         m_sceneTimeLabelTimer = new QTimer(this);
         m_sceneTimeLabelTimer->setInterval(200);
         connect(m_sceneTimeLabelTimer, &QTimer::timeout, this, [this]() { refreshSceneTimeLabel(); });
+        m_sceneTimeLabelTimer->start();
     }
-    if (!m_sceneTimeLabelTimer->isActive()) m_sceneTimeLabelTimer->start();
 }
 
 void MainWindow::selectSceneObjectFromUi(int index)

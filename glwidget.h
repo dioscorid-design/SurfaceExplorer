@@ -253,37 +253,34 @@ public:
     void setObjectScale(float s);
     float objectScale() const { return m_obj->scale; }
 
-    // LA TIMELINE DELLA SCENA (2.0, primo passo: finestre di comparsa).
-    // L'orologio di scena T, in secondi, avanza in advanceClocksBy (dal vivo e
-    // nel REC allo stesso modo) quando non e' in pausa; il master lo ferma e lo
-    // riavvia, il RESET dei moti e l'apertura di una scena lo riportano a 0.
-    // Un oggetto e' in scena dentro la sua finestra (SurfaceObject::windowIn/
-    // windowOut): fuori non si disegna e i suoi moti non avanzano.
+    // IL TEMPO T DELLA SCENA, in secondi: e' il tempo del PATH DELL'AMBIENTE
+    // (decisione dell'utente, 2026-10-21). Lo fa avanzare solo
+    // CameraPaths::advance (tick dal vivo, REC, scorrimento), e i reset dei
+    // tempi dei path lo riportano a 0: corre e si ferma col path. Un oggetto
+    // e' in scena dentro la sua finestra (SurfaceObject::windowIn/windowOut):
+    // fuori non si disegna e i suoi moti non avanzano.
     float sceneTime() const { return m_sceneTime; }
     void setSceneTime(float t) { m_sceneTime = std::max(0.0f, t); update(); }
-    bool isSceneTimeRunning() const { return m_sceneTimeRunning; }
-    void setSceneTimeRunning(bool on);
+    void advanceSceneTime(float dt) { m_sceneTime = std::max(0.0f, m_sceneTime + dt); }
     void setObjectWindow(int index, float in, float out);
     float objectWindowIn(int index) const;
     float objectWindowOut(int index) const;
     bool isObjectOnStage(int index) const;
     // Almeno un oggetto ha una finestra: T conta (master, RESET, barra di stato).
     bool hasTimeline() const;
-    // IL PATH DI UN OGGETTO (timeline 2a): X(t), Y(t), Z(t) che si sommano alla
-    // sua posizione, t = SurfaceObject::pathTime. Mai l'ambiente. false =
-    // sintassi sbagliata (resta il path di prima).
+    // IL PATH DI UN OGGETTO: X(t), Y(t), Z(t) che si sommano alla sua
+    // posizione, t = SurfaceObject::pathTime, un orologio SUO (non T): corre
+    // col flag pathRunning (il master lo ferma e lo riavvia), si azzera col
+    // RESET. Mai l'ambiente. false = sintassi sbagliata (resta quello di prima).
     bool setObjectPath(int index, const QString &x, const QString &y, const QString &z);
     QStringList objectPath(int index) const;
     bool objectHasPath(int index) const;
     float objectPathTime(int index) const;
+    void setObjectPathRunning(int index, bool on);
+    bool isObjectPathRunning(int index) const;
+    bool anyObjectPathRunning() const;
     // Dove l'oggetto si disegna adesso: posizione + path.
     QVector3D objectEffectivePosition(int index) const;
-    // L'orologio di scena conta: finestre o path (master, tick dei fotogrammi).
-    bool sceneClockMatters() const;
-    // Le variabili dei comandi (K1..K4 nelle formule dei path): per ora 0, le
-    // muoveranno tastiera e mouse.
-    void setControlVariable(int i, float v) { if (i >= 0 && i < 4) m_controlVars[i] = v; }
-    float controlVariable(int i) const { return (i >= 0 && i < 4) ? m_controlVars[i] : 0.0f; }
 
     // ==========================================================
     // ENGINE MODES
@@ -1061,16 +1058,6 @@ public:
     // Gli orologi di UN oggetto all'origine (geometria, texture, fasce, bordo):
     // il RESET dell'oggetto selezionato. resetAllClocks e' quello della scena.
     void resetObjectClocks(int index);
-    // LO SCORRIMENTO DELLA TIMELINE all'indietro: T e gli orologi che avanzano
-    // adesso (le stesse condizioni di advanceClocksBy) tornano a 0; uno fermo
-    // resta dov'e'. Il path di un oggetto segue T: si riavvolge sempre.
-    void rewindRunningClocks();
-    // Dopo un lavoro lungo a tempo virtuale (lo scorrimento): il prossimo dt
-    // dal vivo e' quello di un fotogramma, e il watchdog salta il transitorio.
-    void resyncFrameClock();
-    // Il tick di rotationTimer in secondi: il passo dello scorrimento, perche'
-    // le rotazioni si integrano e col passo dello schermo tornano come li'.
-    static constexpr double rotationTickSeconds() { return kRotationTickMs / 1000.0; }
     // Qualche orologio (di un oggetto qualunque, o dello sfondo) e' avanzato
     // dall'origine: il RESET dei moti cambierebbe qualcosa.
     bool anyClockAdvanced() const;
@@ -1684,8 +1671,6 @@ private:
                        float uMin, float uMax, float vMin, float vMax);
     // Orologio di scena della timeline: vedi sceneTime.
     float m_sceneTime = 0.0f;
-    bool m_sceneTimeRunning = true;
-    float m_controlVars[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     QVector3D effectivePosition(SurfaceObject &o);
     bool isOnStage(const SurfaceObject &o) const;
     // Rotazione 4D del path per gli oggetti: vedi setViewRotation4D.

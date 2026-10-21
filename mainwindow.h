@@ -208,7 +208,6 @@ private slots:
     void performMasterStop();
     void performEquationsStop();
     void applyStartSideEffects();
-    void startCameraMotionForMaster();
 
     // ==========================================================
     // RENDERING & VISUALS
@@ -1833,27 +1832,15 @@ private:
     // Scena nuova (load normale, reset, NEW): l'orologio della timeline da 0 e
     // in corsa, anche se un master STOP l'aveva fermato.
     void restartSceneTimeline();
-    // UN PASSO DELLA SCENA di dt secondi: path della camera, rotazioni, flussi
-    // geodetici e orologi, coi predicati del tick dal vivo. Unica
-    // implementazione per il loop di registrazione (dt del fotogramma
-    // virtuale) e per lo scorrimento della timeline. selectedGeoFlow: il
-    // flusso del selezionato avanza (il recorder ne ferma il timer all'avvio).
+    // UN PASSO DELLA SCENA di dt secondi: path della camera (e con lui T),
+    // rotazioni, flussi geodetici e orologi, coi predicati del tick dal vivo:
+    // il loop di registrazione, col dt del fotogramma virtuale.
+    // selectedGeoFlow: il flusso del selezionato avanza (il recorder ne ferma
+    // il timer all'avvio).
     void advanceSceneBy(double dt, bool selectedGeoFlow);
-    // LO SCORRIMENTO DELLA TIMELINE: la scena al tempo T = target. In avanti
-    // si prosegue da qui; indietro si riavvolge cio' che e' in moto
-    // (rewindRunningMotions) e si rifa' il tempo a passi del tick. Una scena
-    // ferma si scorre con cio' che START metterebbe in moto, e resta ferma.
+    // LO SCORRIMENTO: il path dell'ambiente (e T) al tempo target, in corsa o
+    // fermo. Solo l'ambiente: gli oggetti non si toccano.
     void seekSceneTime(float target);
-    // Dal cursore: solo l'ultimo valore, se ne arrivano piu' d'uno per evento.
-    void requestSceneSeek(float target);
-    // Al tempo 0 solo cio' che si muove adesso: un modulo fermo resta dov'e',
-    // anche una posa data a mano.
-    void rewindRunningMotions();
-    // Il moto del master START senza ricompilare e senza suono.
-    void startSceneForSeek();
-    bool m_seekingScene = false;
-    bool m_seekQueued = false;
-    float m_pendingSeek = 0.0f;
     // Il T piu' lontano raggiunto: con le finestre fa la scala del cursore.
     float m_sceneTimeReached = 0.0f;
     float sceneTimeSpan() const;
@@ -2303,18 +2290,17 @@ private:
         // se': la camera sono i soli path (l'ambiente non ruota, gli oggetti
         // ruotano insieme ai path). Con un oggetto solo restano dentro la camera.
         bool rotationAvailable = false, rotationRunning = false;
-        // L'orologio di scena della timeline (finestre di comparsa): un modulo
-        // della scena, presente solo se almeno un oggetto ha una finestra.
-        bool timelineAvailable = false, timelineRunning = false;
+        // Il path dell'oggetto selezionato (dock Objects), col suo orologio.
+        bool objectPathAvailable = false, objectPathRunning = false;
         bool anyRunning() const {
             return eqRunning || texAnyRunning || bgRunning || borderRunning || cameraRunning || audioRunning
-                || rotationRunning || timelineRunning;
+                || rotationRunning || objectPathRunning;
         }
         bool allRunning() const {
             return (!eqAvailable || eqRunning) && (!texAvailable || texRunning)
                 && (!bgAvailable || bgRunning) && (!borderAvailable || borderRunning)
                 && (!cameraAvailable || cameraRunning) && (!audioAvailable || audioRunning)
-                && (!rotationAvailable || rotationRunning) && (!timelineAvailable || timelineRunning);
+                && (!rotationAvailable || rotationRunning) && (!objectPathAvailable || objectPathRunning);
         }
     };
     MasterActivity masterActivity() const;

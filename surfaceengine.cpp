@@ -40,10 +40,6 @@ SurfaceEngine::SurfaceEngine()
     m_objectPathSymbols.add_variable("E", m_varE);
     m_objectPathSymbols.add_variable("F", m_varF);
     m_objectPathSymbols.add_variable("s", m_varS);
-    m_objectPathSymbols.add_variable("K1", m_varK[0]);
-    m_objectPathSymbols.add_variable("K2", m_varK[1]);
-    m_objectPathSymbols.add_variable("K3", m_varK[2]);
-    m_objectPathSymbols.add_variable("K4", m_varK[3]);
     m_objectPathSymbols.add_constants();
 
     // Tabella Surface
@@ -364,11 +360,10 @@ bool SurfaceEngine::compileObjectPath(const QString &x, const QString &y, const 
     return true;
 }
 
-QVector3D SurfaceEngine::evaluateObjectPath(float t, const float controls[4])
+QVector3D SurfaceEngine::evaluateObjectPath(float t)
 {
     if (!m_objectPathActive) return QVector3D();
     m_varObjT = t;
-    for (int i = 0; i < 4; ++i) m_varK[i] = controls[i];
     auto value = [](CachedExpression &e) {
         if (!e.isValid) return 0.0f;
         const float v = e.expr.value();

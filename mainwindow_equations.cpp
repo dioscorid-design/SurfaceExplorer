@@ -3047,9 +3047,6 @@ bool MainWindow::advanceGeodesicFlowBy(double dtSeconds)
                                ? m_geoAnimTimer->interval() : 16;
     const double step = 0.015 * (dtSeconds * 1000.0 / intervalMs);
     m_geoTime += step;
-    // Lo scorrimento della timeline avanza solo il tempo: la mesh si calcola
-    // una volta, a quello raggiunto (seekSceneTime).
-    if (m_seekingScene) return true;
 
     m_inGeoAnimTick = true;
     // useAppliedLimits: il tick del moto NON deve raccogliere il testo dei campi

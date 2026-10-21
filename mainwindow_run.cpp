@@ -9,11 +9,8 @@ void MainWindow::performMasterStop()
 {
     m_masterStopped = true;
 
-    // Lo sfondo e l'orologio di scena (timeline) sono della scena.
-    if (ui->glWidget) {
-        ui->glWidget->setBackgroundTextureAnimating(false);
-        ui->glWidget->setSceneTimeRunning(false);
-    }
+    // Lo sfondo e' della scena (T si ferma col path, qui sotto).
+    if (ui->glWidget) ui->glWidget->setBackgroundTextureAnimating(false);
 
     // Gli OGGETTI: il selezionato, poi (in una scena) tutti gli altri.
     stopObjectForMaster();
@@ -67,6 +64,8 @@ void MainWindow::stopObjectForMaster()
 
     // Ferma le rotazioni 3D/4D delegando al suo tasto dedicato
     if (ui->glWidget && ui->glWidget->isAnimating()) onStopClicked();
+    // E il path dell'oggetto (dock Objects), che ha un orologio suo.
+    if (ui->glWidget) ui->glWidget->setObjectPathRunning(ui->glWidget->selectedObject(), false);
 }
 
 // La meta' "oggetto" del master START per gli oggetti che runScene non
@@ -90,6 +89,8 @@ void MainWindow::startObjectForMaster()
         gl->resumeMotion();
         if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
     }
+    // Il path dell'oggetto (dock Objects).
+    gl->setObjectPathRunning(gl->selectedObject(), true);
 }
 
 // Ogni altro oggetto della scena, selezionato uno alla volta (le sessioni si
@@ -123,9 +124,11 @@ MainWindow::SceneMasterState MainWindow::sceneMasterState() const
         const bool eqRunning = o.fromGeo ? s.geoAnimating : o.eqRunning;
         const bool rotationAvailable = k != 0 && o.rotationAvailable;
         const bool rotationRunning = gl->isObjectRotating(k);
-        st.any = st.any || eqRunning || o.texAnyRunning || o.borderRunning || rotationRunning;
+        const bool pathAvailable = gl->objectHasPath(k), pathRunning = gl->isObjectPathRunning(k);
+        st.any = st.any || eqRunning || o.texAnyRunning || o.borderRunning || rotationRunning || pathRunning;
         st.all = st.all && (!o.eqAvailable || eqRunning) && (!o.texAvailable || o.texRunning)
-                 && (!o.borderAvailable || o.borderRunning) && (!rotationAvailable || rotationRunning);
+                 && (!o.borderAvailable || o.borderRunning) && (!rotationAvailable || rotationRunning)
+                 && (!pathAvailable || pathRunning);
     }
     return st;
 }
@@ -162,10 +165,7 @@ bool MainWindow::hasAnyRotationSpeed() const
            std::abs(ui->glWidget->getPsiSpeed()) > 0.001f;
 }
 
-// Il moto della camera del master START (rotazioni dell'ambiente o un path):
-// la parte di applyStartSideEffects che usa anche lo scorrimento della
-// timeline a scena ferma, che non suona.
-void MainWindow::startCameraMotionForMaster()
+void MainWindow::applyStartSideEffects()
 {
     if (!ui->glWidget) return;
 
@@ -210,12 +210,6 @@ void MainWindow::startCameraMotionForMaster()
             }
         }
     }
-}
-
-void MainWindow::applyStartSideEffects()
-{
-    if (!ui->glWidget) return;
-    startCameraMotionForMaster();
 
     // Non riaccendere il suono se l'utente l'ha fermato esplicitamente: un commit
     // di equazione/texture (Enter ad animazione attiva) arriva qui via onStartClicked
@@ -241,7 +235,6 @@ void MainWindow::onStartClicked()
         runScene(RunOrigin::DockRun, static_cast<QPushButton *>(from));
     else if (from && from == m_btnStart) {
         const bool start = m_btnStart->text().toUpper() == "START";
-        if (start && ui->glWidget) ui->glWidget->setSceneTimeRunning(true);   // la timeline riparte
         runScene(RunOrigin::MasterButton);
         // In una scena lo START vale per tutti: l'oggetto selezionato l'ha
         // rilanciato runScene; gli altri ripartono senza ricompilare, e le
@@ -1836,9 +1829,9 @@ MainWindow::MasterActivity MainWindow::masterActivity() const
         a.cameraRunning = pathRunning(CameraPaths::Path4D) || pathRunning(CameraPaths::Path3D);
         a.rotationAvailable = gl->selectedObject() != 0 && hasAnyRotationSpeed();
         a.rotationRunning = a.rotationAvailable && isRotationMotionRunning();
-        // Il tempo di scena: finestre di comparsa o path degli oggetti.
-        a.timelineAvailable = gl->sceneClockMatters();
-        a.timelineRunning = a.timelineAvailable && gl->isSceneTimeRunning();
+        // Il path dell'oggetto selezionato (dock Objects).
+        a.objectPathAvailable = gl->objectHasPath(gl->selectedObject());
+        a.objectPathRunning = gl->isObjectPathRunning(gl->selectedObject());
     }
 
     // SUONO: START suona sceneAudioSource(), che e' il testo in cui CERCARE le
