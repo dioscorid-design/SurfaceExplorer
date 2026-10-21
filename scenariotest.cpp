@@ -6517,19 +6517,16 @@ void ScenarioTest::runSceneResetScenarios()
               QStringLiteral("un oggetto RM aggiunto non sposta la camera della scena"));
         m_mw->selectSceneObject(0);
         wait(100);
-        const float distance = gl->getCameraPos().length();
-        m_popupAnswer = QStringLiteral("View");
+        // La camera e' del path (fermo): il RESET fa i moti, senza popup, e la
+        // porta al punto di partenza del path, da cui ripartira' senza salti.
+        const QVector3D pathStart = gl->environmentEngine()->evaluatePath3DPosition(0.0f).toVector3D();
+        m_lastPopup.clear();
         m_mw->onResetClicked();
         wait(300);
-        m_popupAnswer.clear();
-        const float yaw = qDegreesToRadians(gl->getCameraYaw());
-        const float pitch = qDegreesToRadians(gl->getCameraPitch());
-        const QVector3D front(std::sin(yaw) * std::cos(pitch), std::sin(pitch), -std::cos(yaw) * std::cos(pitch));
-        const QVector3D toCenter = (-gl->getCameraPos()).normalized();
-        const float aim = QVector3D::dotProduct(front, toCenter);
-        check(aim > 0.99f && std::abs(gl->getCameraPos().length() - distance) < 1e-3f,
-              QStringLiteral("View dopo il path: guarda il centro della scena (%1) alla distanza di prima (%2 / %3)")
-                  .arg(aim).arg(gl->getCameraPos().length()).arg(distance));
+        check(m_lastPopup.isEmpty() && (gl->getCameraPos() - pathStart).length() < 1e-3f
+                  && gl->isPathFollowing() && m_mw->m_paths->time(CameraPaths::Path3D) == 0.0f,
+              QStringLiteral("RESET col path fermo: nessun popup, camera al punto di partenza del path%1")
+                  .arg(m_lastPopup.isEmpty() ? QString() : QStringLiteral(" (popup: ") + m_lastPopup + QLatin1Char(')')));
     }
 }
 
@@ -6734,51 +6731,37 @@ void ScenarioTest::runResetButtonScenarios()
         check(running && kept, QStringLiteral("path in corsa, View -> la camera resta al path (in corsa %1, ferma %2)")
                                    .arg(running).arg(kept));
 
-        // In corsa, il popup: View e Both spenti (la vista segue il path).
-        m_popupAnswer = QStringLiteral("View");
-        m_mw->onResetClicked();  wait(200);
-        QStringList disabled = m_lastPopupDisabled;
-        disabled.sort();
-        check(disabled == QStringList({ QStringLiteral("Both"), QStringLiteral("View") })
-                  && m_mw->pathRunning(CameraPaths::Path3D),
-              QStringLiteral("path in corsa, popup del RESET -> View e Both spenti (spenti: %1)")
-                  .arg(disabled.join(QStringLiteral(", "))));
-
-        // In corsa, Motions: riparte da capo e prosegue.
+        // La camera e' del path, in corsa come da fermo: il RESET fa i moti
+        // senza popup (decisione dell'utente, 2026-10-21). In corsa: riparte
+        // da capo e prosegue.
         wait(300);
-        m_popupAnswer = QStringLiteral("Motions");
+        int popups = m_popupsClosed;
+        m_lastPopup.clear();
         m_mw->onResetClicked();
         const bool runStart = atStart() && m_mw->m_paths->time(CameraPaths::Path3D) == 0.0f;
         wait(300);
-        check(runStart && m_mw->pathRunning(CameraPaths::Path3D) && !atStart(),
-              QStringLiteral("path in corsa, Motions -> camera al punto di partenza, poi prosegue (%1)")
+        check(m_lastPopup.isEmpty() && m_popupsClosed == popups && runStart
+                  && m_mw->pathRunning(CameraPaths::Path3D) && !atStart(),
+              QStringLiteral("path in corsa, RESET -> nessun popup, camera al punto di partenza, poi prosegue (%1)")
                   .arg(runStart));
 
-        // Fermo, Motions: camera al punto di partenza, t = 0, resta fermo; al
-        // Departure riparte dall'inizio.
+        // Fermo: camera al punto di partenza, t = 0, resta fermo; al Departure
+        // riparte dall'inizio, senza salti.
         wait(300);
         ui->btnDeparture3D->click();  wait(200);
         const float t0 = m_mw->m_paths->time(CameraPaths::Path3D);
         const bool movedAway = !atStart();
-        m_popupAnswer = QStringLiteral("Motions");
+        m_lastPopup.clear();
         m_mw->onResetClicked();  wait(200);
         const float t1 = m_mw->m_paths->time(CameraPaths::Path3D);
         const bool still = !m_mw->pathRunning(CameraPaths::Path3D);
-        const bool back = atStart();
+        const bool back = atStart() && gl->isPathFollowing();
         ui->btnDeparture3D->click();  wait(300);
         const float t2 = m_mw->m_paths->time(CameraPaths::Path3D);
-        check(t0 > 0.0f && movedAway && t1 == 0.0f && still && back && t2 < t0,
-              QStringLiteral("path fermo, Motions -> t %1 -> %2, camera al punto di partenza (%3), resta fermo; "
-                             "al Departure riparte dall'inizio (%4)")
+        check(m_lastPopup.isEmpty() && t0 > 0.0f && movedAway && t1 == 0.0f && still && back && t2 < t0,
+              QStringLiteral("path fermo, RESET -> nessun popup, t %1 -> %2, camera al punto di partenza (%3), "
+                             "resta fermo; al Departure riparte dall'inizio (%4)")
                   .arg(t0).arg(t1).arg(back).arg(t2));
-
-        // Fermo, Both: anche qui la camera e' del path, al punto di partenza.
-        wait(300);
-        ui->btnDeparture3D->click();  wait(200);
-        m_popupAnswer = QStringLiteral("Both");
-        m_mw->onResetClicked();  wait(200);
-        check(atStart() && gl->isPathFollowing() && !m_mw->pathRunning(CameraPaths::Path3D),
-              QStringLiteral("path fermo, Both -> camera al punto di partenza del path, fermo"));
     }
 
     // Fasce: anche gli orologi per-mesh tornano all'origine.

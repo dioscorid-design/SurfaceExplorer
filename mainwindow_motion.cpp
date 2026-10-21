@@ -299,6 +299,17 @@ void MainWindow::onResetClicked()
     // fermo gliela toglie: e' quello che i moti rimettono al punto di partenza.
     const std::optional<CameraPaths::Path> camPath = cameraPath();
 
+    // LA CAMERA E' DI UN PATH, in corsa o fermo (decisione dell'utente,
+    // 2026-10-21, con e senza oggetti): il RESET e' quello dei moti, senza
+    // domande. Camera al punto di partenza del path, t = 0. View la portava
+    // alla vista libera e alla ripartenza il path la riprendeva di colpo dal
+    // tempo a cui era arrivato; a path in corsa era spento, e il popup offriva
+    // una scelta sola.
+    if (camPath) {
+        resetMotions(camPath);
+        return;
+    }
+
     // Se niente si muove -- ne' rotazioni, ne' path, ne' animazioni in t -- la
     // domanda non ha senso: si rimette tutto (anche l'orientamento girato col
     // mouse). Che cosa si muove lo dice la stessa sede del master (masterActivity).
@@ -310,11 +321,6 @@ void MainWindow::onResetClicked()
         return;
     }
 
-    // Con un path IN CORSA la camera e' del path: View non la sposterebbe
-    // (resetView la rimette subito al suo tempo), e Both farebbe solo Motions.
-    // Si spengono, invece di offrire scelte che non fanno nulla.
-    const bool pathMoving = pathRunning(CameraPaths::Path4D) || pathRunning(CameraPaths::Path3D);
-
     QMessageBox box(this);
     box.setIcon(QMessageBox::Question);
     box.setWindowTitle("Reset");
@@ -323,15 +329,12 @@ void MainWindow::onResetClicked()
     box.setInformativeText(QString(scene ? "View: the camera direction (zoom and field of view stay).\n"
                                          : "View: camera, zoom and field of view.\n")
                            + QString("Motions: rotations, camera paths and everything that moves "
-                                     "with t go back to the start.")
-                           + (pathMoving ? QString("\n\nA camera path is running: the view follows it.") : QString()));
+                                     "with t go back to the start."));
     QPushButton *viewBtn   = box.addButton("View",    QMessageBox::ActionRole);
     QPushButton *motionBtn = box.addButton("Motions", QMessageBox::ActionRole);
     QPushButton *bothBtn   = box.addButton("Both",    QMessageBox::AcceptRole);
     box.addButton("Cancel", QMessageBox::RejectRole);
-    box.setDefaultButton(pathMoving ? motionBtn : bothBtn);
-    viewBtn->setEnabled(!pathMoving);
-    bothBtn->setEnabled(!pathMoving);
+    box.setDefaultButton(bothBtn);
     box.exec();
 
     const QAbstractButton *choice = box.clickedButton();
