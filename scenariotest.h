@@ -243,6 +243,8 @@ private:
     void runSceneDepthScenarios();
     // 2.0: flussi geodetici come oggetti, col loro tempo anche non selezionati.
     void runSceneGeodesicScenarios();
+    // 2.0: il master su tutta la scena (oggetti e moduli della scena).
+    void runSceneMasterScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
     // accesi i comandi del dock RENDERER. Il Run lo sganciava solo per le

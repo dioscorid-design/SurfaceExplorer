@@ -1914,6 +1914,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-master")) {
+        runSceneMasterScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("load-order")) {
         runLoadOrderScenarios();
         finish();
@@ -3760,6 +3765,7 @@ void ScenarioTest::run()
     runSceneMotionScenarios();
     runSceneDepthScenarios();
     runSceneGeodesicScenarios();
+    runSceneMasterScenarios();
     runAnimatedLoadScenarios();
     runLoadOrderScenarios();
 
@@ -6182,6 +6188,61 @@ void ScenarioTest::runSceneGeodesicScenarios()
     wait(300);
     check(gl->objectCount() == 2 && gl->getEngine()->geodesicFlowKey() == key,
           QStringLiteral("scena ricaricata: il flusso dell'oggetto e' lo stesso"));
+}
+
+void ScenarioTest::runSceneMasterScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Il master su tutta la scena =="));
+    // Ambiente col path 4D, un toro che ruota, un flusso geodetico animato.
+    if (!loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Cytherean Coil.json"))) return;
+    QString torusPath;
+    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+        if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json")))
+            torusPath = it.filePath;
+    if (torusPath.isEmpty()) { check(false, QStringLiteral("toro non trovato")); return; }
+    m_mw->addShapeToScene(torusPath);
+    wait(400);
+    const int torus = gl->selectedObject();
+    gl->setPrecessionSpeed(1.0f);
+    m_mw->onStopClicked();
+    LibraryManager lm;
+    LibraryItem breathing = lm.parseJson(m_root + QStringLiteral("/records/Animations/Parametric/Surfaces/Geodesic Flows/Breathing Hyperboloid.json"),
+                                         LibraryType::Motion);
+    breathing.type = LibraryType::Surface;
+    const int flow = m_mw->addPresetAsObject(breathing, QStringLiteral("Breathing"));
+    wait(2500);
+    m_mw->selectSceneObject(0);
+    wait(300);
+    m_mw->updateMasterButtonState();
+    auto state = [&]() {
+        return QStringLiteral("path %1, toro %2, flusso %3, tasto %4")
+            .arg(m_mw->pathRunning(CameraPaths::Path4D)).arg(gl->isObjectRotating(torus))
+            .arg(m_mw->m_objectSessions[flow].geoAnimating).arg(m_mw->m_btnStart->text());
+    };
+    check(m_mw->pathRunning(CameraPaths::Path4D) && gl->isObjectRotating(torus)
+              && m_mw->m_objectSessions[flow].geoAnimating,
+          QStringLiteral("scena in moto: %1").arg(state()));
+
+    // STOP: tutto fermo, oggetti non selezionati compresi.
+    m_mw->m_btnStart->setText(QStringLiteral("STOP"));   // il tasto come lo mostra la scena in moto
+    m_mw->m_btnStart->click();
+    wait(400);
+    check(!m_mw->pathRunning(CameraPaths::Path4D) && !gl->isObjectRotating(torus)
+              && !m_mw->m_objectSessions[flow].geoAnimating && !gl->anyObjectRotating()
+              && !(m_mw->m_geoObjectsTimer && m_mw->m_geoObjectsTimer->isActive())
+              && !m_mw->isAnythingMoving() && m_mw->m_btnStart->text() == QLatin1String("START")
+              && gl->selectedObject() == 0,
+          QStringLiteral("master STOP: tutto fermo (%1)").arg(state()));
+
+    // START: tutto in moto, senza cambiare l'oggetto selezionato.
+    m_mw->m_btnStart->click();
+    wait(1500);
+    check(m_mw->pathRunning(CameraPaths::Path4D) && gl->isObjectRotating(torus)
+              && m_mw->m_objectSessions[flow].geoAnimating && gl->selectedObject() == 0
+              && m_mw->m_btnStart->text() == QLatin1String("STOP"),
+          QStringLiteral("master START: tutto in moto (%1)").arg(state()));
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()

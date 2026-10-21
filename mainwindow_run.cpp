@@ -9,11 +9,40 @@ void MainWindow::performMasterStop()
 {
     m_masterStopped = true;
 
+    // Lo sfondo e' della scena.
+    if (ui->glWidget) ui->glWidget->setBackgroundTextureAnimating(false);
+
+    // Gli OGGETTI: il selezionato, poi (in una scena) tutti gli altri.
+    stopObjectForMaster();
+    forEachOtherObject([this]() { stopObjectForMaster(); });
+
+    // Ferma i path delegando ai loro tasti dedicati (che spengono gia' il flag
+    // di animazione nel GLWidget). Lo forziamo comunque a false come rete di
+    // sicurezza per il watchdog. NB: NON tocchiamo m_isPathFollowing (modalita'
+    // camera tangent): deve persistere dopo lo stop, altrimenti la vista
+    // tornerebbe a center view al primo render (es. resize/fullscreen).
+    if (pathRunning(CameraPaths::Path4D)) onDepartureClicked();
+    if (pathRunning(CameraPaths::Path3D)) onDeparture3DClicked();
+    if (ui->glWidget) ui->glWidget->setPathAnimating(false);
+    updateViewButtonsEnabled();
+
+    // Ferma l'audio
+    if (m_audioController && m_audioController->isPlaying()) {
+        m_audioController->stopAll();
+        updateScriptButtonText();
+    }
+
+    // Sincronizza il bottone principale
+    updateMasterButtonState();
+}
+
+// La meta' "oggetto" del master STOP, sull'oggetto selezionato.
+void MainWindow::stopObjectForMaster()
+{
     // Ferma le animazioni delle variabili t
     if (ui->glWidget) {
         ui->glWidget->setSurfaceAnimating(false);
         ui->glWidget->setSurfaceTextureAnimating(false);
-        ui->glWidget->setBackgroundTextureAnimating(false);
         // OROLOGI PER-MESH: hanno un flag PROPRIO in MeshPart, quindi spegnere i
         // tre clock globali non li tocca. Senza questa riga il master fermava
         // tutto tranne le texture delle fasce, che continuavano a girare: e
@@ -35,25 +64,67 @@ void MainWindow::performMasterStop()
 
     // Ferma le rotazioni 3D/4D delegando al suo tasto dedicato
     if (ui->glWidget && ui->glWidget->isAnimating()) onStopClicked();
+}
 
-    // Ferma i path delegando ai loro tasti dedicati (che spengono gia' il flag
-    // di animazione nel GLWidget). Lo forziamo comunque a false come rete di
-    // sicurezza per il watchdog. NB: NON tocchiamo m_isPathFollowing (modalita'
-    // camera tangent): deve persistere dopo lo stop, altrimenti la vista
-    // tornerebbe a center view al primo render (es. resize/fullscreen).
-    if (pathRunning(CameraPaths::Path4D)) onDepartureClicked();
-    if (pathRunning(CameraPaths::Path3D)) onDeparture3DClicked();
-    if (ui->glWidget) ui->glWidget->setPathAnimating(false);
-    updateViewButtonsEnabled();
-
-    // Ferma l'audio
-    if (m_audioController && m_audioController->isPlaying()) {
-        m_audioController->stopAll();
-        updateScriptButtonText();
+// La meta' "oggetto" del master START per gli oggetti che runScene non
+// rilancia: senza ricompilare, sulle equazioni gia' applicate.
+void MainWindow::startObjectForMaster()
+{
+    GLWidget *gl = ui->glWidget;
+    if (!gl) return;
+    // Come il master START (runScene): i "fermato dall'utente" si azzerano.
+    m_userStoppedGeomClock = false;
+    m_userStoppedTexClock = false;
+    m_userStoppedMeshTexClock = false;
+    m_userStoppedBorderTexClock = false;
+    // Orologi: le stesse regole del Run.
+    applyAnimationState(hasTimeVariable(equationModuleCode()));
+    // Flusso geodetico: lo riaccende il suo ricalcolo (updateGeodesicMesh
+    // avvia il timer se il flusso ha 't'), sul dominio applicato.
+    if (isGeodesicRoutingActive()) updateGeodesicMesh(/*useAppliedLimits=*/true);
+    // Rotazioni dell'oggetto (l'ambiente di una scena non ruota).
+    if (gl->selectedObject() != 0 && hasAnyRotationSpeed() && !gl->isAnimating()) {
+        gl->resumeMotion();
+        if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
     }
+}
 
-    // Sincronizza il bottone principale
-    updateMasterButtonState();
+// Ogni altro oggetto della scena, selezionato uno alla volta (le sessioni si
+// aprono e si chiudono come al clic sull'elenco), poi di nuovo quello di prima.
+void MainWindow::forEachOtherObject(const std::function<void()> &fn)
+{
+    GLWidget *gl = ui->glWidget;
+    if (!gl || gl->objectCount() <= 1) return;
+    const int selected = gl->selectedObject();
+    for (int k = 0; k < gl->objectCount(); ++k) {
+        if (k == selected) continue;
+        selectSceneObject(k);
+        fn();
+    }
+    selectSceneObject(selected);
+}
+
+MainWindow::SceneMasterState MainWindow::sceneMasterState() const
+{
+    const MasterActivity a = masterActivity();
+    SceneMasterState st;
+    st.any = a.anyRunning();
+    st.all = a.allRunning();
+    GLWidget *gl = ui->glWidget;
+    if (!gl || gl->objectCount() <= 1) return st;
+    const int selected = gl->selectedObject();
+    for (int k = 0; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k) {
+        if (k == selected) continue;
+        const ObjectSession &s = m_objectSessions[k];
+        const ObjectSession::Activity &o = s.activity;
+        const bool eqRunning = o.fromGeo ? s.geoAnimating : o.eqRunning;
+        const bool rotationAvailable = k != 0 && o.rotationAvailable;
+        const bool rotationRunning = gl->isObjectRotating(k);
+        st.any = st.any || eqRunning || o.texAnyRunning || o.borderRunning || rotationRunning;
+        st.all = st.all && (!o.eqAvailable || eqRunning) && (!o.texAvailable || o.texRunning)
+                 && (!o.borderAvailable || o.borderRunning) && (!rotationAvailable || rotationRunning);
+    }
+    return st;
 }
 
 void MainWindow::performEquationsStop()
@@ -156,8 +227,18 @@ void MainWindow::onStartClicked()
     QObject *from = sender();
     if (from == ui->btnRunParametric || from == ui->btnImplicit)
         runScene(RunOrigin::DockRun, static_cast<QPushButton *>(from));
-    else if (from && from == m_btnStart)
+    else if (from && from == m_btnStart) {
+        const bool start = m_btnStart->text().toUpper() == "START";
         runScene(RunOrigin::MasterButton);
+        // In una scena lo START vale per tutti: l'oggetto selezionato l'ha
+        // rilanciato runScene; gli altri ripartono senza ricompilare, e le
+        // rotazioni del selezionato ripartono anche se la camera e' un path.
+        if (start && ui->glWidget && ui->glWidget->objectCount() > 1) {
+            forEachOtherObject([this]() { startObjectForMaster(); });
+            startObjectForMaster();
+            updateMasterButtonState();
+        }
+    }
     else
         runScene(RunOrigin::Program);
 }
@@ -1735,6 +1816,14 @@ MainWindow::MasterActivity MainWindow::masterActivity() const
     a.cameraRunning = isRotationMotionRunning()
                       || pathRunning(CameraPaths::Path4D)
                       || pathRunning(CameraPaths::Path3D);
+    // In una SCENA la camera sono i path, e le rotazioni sono dell'oggetto
+    // selezionato (l'ambiente non ruota): due moduli distinti.
+    if (gl->objectCount() > 1) {
+        a.cameraAvailable = hasPath4DInput() || hasPath3DInput();
+        a.cameraRunning = pathRunning(CameraPaths::Path4D) || pathRunning(CameraPaths::Path3D);
+        a.rotationAvailable = gl->selectedObject() != 0 && hasAnyRotationSpeed();
+        a.rotationRunning = a.rotationAvailable && isRotationMotionRunning();
+    }
 
     // SUONO: START suona sceneAudioSource(), che e' il testo in cui CERCARE le
     // direttive audio (suono, script, texture, sfondo): c'e' un suono solo se
@@ -1874,7 +1963,9 @@ void MainWindow::updateMasterButtonState()
     // per avere STOP: con una parte accesa, accendere il resto voleva due
     // pressioni (STOP, poi START). I singoli moduli si accendono e si spengono
     // coi loro tasti.
-    m_btnStart->setText(act.anyRunning() && act.allRunning() ? "STOP" : "START");
+    // Su tutta la scena: con un oggetto solo e' act (vedi sceneMasterState).
+    const SceneMasterState scene = sceneMasterState();
+    m_btnStart->setText(scene.any && scene.all ? "STOP" : "START");
 
     updateScriptButtonText();
 }

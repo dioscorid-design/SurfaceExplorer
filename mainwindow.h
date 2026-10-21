@@ -1703,6 +1703,17 @@ private:
         // advanceGeodesicObjectsBy; alla selezione torna a m_geoTime e al timer.
         double geoTime = 0.0;
         bool geoAnimating = false;
+        // I SUOI MODULI PER IL MASTER, quando lo si e' lasciato (masterActivity
+        // dell'oggetto in quel momento): finche' non e' selezionato non
+        // cambiano, tranne il flusso geodetico (fromGeo: il suo moto e'
+        // geoAnimating) e le rotazioni (lette dal motore). Vedi sceneMasterState.
+        struct Activity {
+            bool eqAvailable = false, eqRunning = false;
+            bool texAvailable = false, texRunning = false, texAnyRunning = false;
+            bool borderAvailable = false, borderRunning = false;
+            bool rotationAvailable = false;
+            bool fromGeo = false;
+        } activity;
     };
     std::vector<ObjectSession> m_objectSessions = std::vector<ObjectSession>(1);
     // L'oggetto selezionato: chiude la sua sessione nella copia, apre quella
@@ -2219,20 +2230,40 @@ private:
         bool borderAvailable = false, borderRunning = false;
         bool cameraAvailable = false, cameraRunning = false;  // rotazioni e path (uno alla volta)
         bool audioAvailable = false, audioRunning = false;
+        // In una SCENA le rotazioni dell'oggetto selezionato sono un modulo a
+        // se': la camera sono i soli path (l'ambiente non ruota, gli oggetti
+        // ruotano insieme ai path). Con un oggetto solo restano dentro la camera.
+        bool rotationAvailable = false, rotationRunning = false;
         bool anyRunning() const {
-            return eqRunning || texAnyRunning || bgRunning || borderRunning || cameraRunning || audioRunning;
+            return eqRunning || texAnyRunning || bgRunning || borderRunning || cameraRunning || audioRunning
+                || rotationRunning;
         }
         bool allRunning() const {
             return (!eqAvailable || eqRunning) && (!texAvailable || texRunning)
                 && (!bgAvailable || bgRunning) && (!borderAvailable || borderRunning)
-                && (!cameraAvailable || cameraRunning) && (!audioAvailable || audioRunning);
+                && (!cameraAvailable || cameraRunning) && (!audioAvailable || audioRunning)
+                && (!rotationAvailable || rotationRunning);
         }
     };
     MasterActivity masterActivity() const;
+    // IL MASTER SU TUTTA LA SCENA (2.0, richiesta dell'utente 2026-10-21):
+    // l'oggetto selezionato e la scena dal vivo (masterActivity), gli altri
+    // oggetti dal riepilogo della loro sessione. any = qualcosa si muove, all =
+    // tutto cio' che puo' muoversi si muove (il master dice STOP solo cosi').
+    // Con un oggetto solo e' masterActivity.
+    struct SceneMasterState { bool any = false, all = true; };
+    SceneMasterState sceneMasterState() const;
+    // Le due meta' "oggetto" del master, sull'oggetto selezionato: STOP ferma
+    // orologi, texture, flusso geodetico e rotazioni; START li riaccende senza
+    // ricompilare (le equazioni restano quelle applicate). Per gli altri oggetti
+    // le chiama forEachOtherObject, selezionandoli uno alla volta.
+    void stopObjectForMaster();
+    void startObjectForMaster();
+    void forEachOtherObject(const std::function<void()> &fn);
     // Qualcosa si muove o suona. Era il significato del "STOP" del master prima
     // che il tasto seguisse la regola di tutti i moduli: chi lo leggeva per
     // sapere se fermare e poi ripristinare le animazioni chiede a questa.
-    bool isAnythingMoving() const { return masterActivity().anyRunning(); }
+    bool isAnythingMoving() const { return sceneMasterState().any; }
     void updateMasterButtonState();
     void applyAnimationState(bool animated, bool dockOnly = false);
     bool hasAnyRotationSpeed() const;

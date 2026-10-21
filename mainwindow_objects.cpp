@@ -53,6 +53,17 @@ void MainWindow::saveObjectSession(ObjectSession &s) const
     // si riseleziona, lo porta avanti advanceGeodesicObjectsBy.
     s.geoTime = m_geoTime;
     s.geoAnimating = m_geoAnimTimer && m_geoAnimTimer->isActive();
+    // I suoi moduli per il master della scena (sceneMasterState).
+    const MasterActivity a = masterActivity();
+    s.activity.eqAvailable = a.eqAvailable;
+    s.activity.eqRunning = a.eqRunning;
+    s.activity.texAvailable = a.texAvailable;
+    s.activity.texRunning = a.texRunning;
+    s.activity.texAnyRunning = a.texAnyRunning;
+    s.activity.borderAvailable = a.borderAvailable;
+    s.activity.borderRunning = a.borderRunning;
+    s.activity.rotationAvailable = hasAnyRotationSpeed();
+    s.activity.fromGeo = s.geoAnimating;
     s.textureViewTouched = m_textureViewTouched;
     // Si chiude modificato? Le modifiche di un oggetto non selezionato non
     // cambiano finche' non lo si riapre: basta ricordarlo qui.
