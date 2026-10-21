@@ -49,6 +49,10 @@ void MainWindow::saveObjectSession(ObjectSession &s) const
     s.cleanSound = m_cleanSound;
     s.pickedSound = m_pickedSound;
     s.viewTouched = m_viewTouched;
+    // Il flusso geodetico: dove e' arrivato e se avanza. Da qui, finche' non lo
+    // si riseleziona, lo porta avanti advanceGeodesicObjectsBy.
+    s.geoTime = m_geoTime;
+    s.geoAnimating = m_geoAnimTimer && m_geoAnimTimer->isActive();
     s.textureViewTouched = m_textureViewTouched;
     // Si chiude modificato? Le modifiche di un oggetto non selezionato non
     // cambiano finche' non lo si riapre: basta ricordarlo qui.
@@ -102,10 +106,74 @@ void MainWindow::selectSceneObject(int index)
     const int current = gl->selectedObject();
     if (index < 0 || index >= gl->objectCount() || index == current) return;
     saveObjectSession(m_objectSessions[current]);
+    // m_geoAnimTimer e' il flusso del SELEZIONATO: passa all'oggetto aperto.
+    // Quello lasciato, se era in moto, continua con m_geoObjectsTimer.
+    if (m_geoAnimTimer) m_geoAnimTimer->stop();
     gl->selectObject(index);
     openObjectSession(m_objectSessions[index]);
+    m_geoTime = m_objectSessions[index].geoTime;
+    if (m_objectSessions[index].geoAnimating && m_geoAnimTimer) m_geoAnimTimer->start();
     showSelectedObject();
     refreshObjectsUi();
+    syncGeodesicObjectsTimer();
+}
+
+void MainWindow::advanceGeodesicObjectsBy(double dtSeconds)
+{
+    GLWidget *gl = ui->glWidget;
+    if (!gl) return;
+    const int selected = gl->selectedObject();
+    for (int k = 0; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k) {
+        ObjectSession &s = m_objectSessions[k];
+        if (k == selected || !s.geoAnimating) continue;
+        SurfaceEngine *engine = gl->objectEngine(k);
+        if (!engine) continue;
+        // La stessa velocita' del selezionato (advanceGeodesicFlowBy): 0.015
+        // unita' per tick nominale di 16 ms.
+        s.geoTime += 0.015 * (dtSeconds * 1000.0 / 16.0);
+        // Gli ingressi APPLICATI, come fa il selezionato a moto in corso: le
+        // equazioni dell'ultimo Run, il dominio e le costanti del suo motore.
+        const EquationTexts &eq = s.eqApplied ? *s.eqApplied : s.state.eq;
+        GeodesicInputs in;
+        in.x = eq.x; in.y = eq.y; in.z = eq.z; in.p = eq.p;
+        in.u = eq.geoU; in.v = eq.geoV; in.w = eq.geoW;
+        in.du = eq.geoDU; in.dv = eq.geoDV; in.dw = eq.geoDW;
+        in.conform = eq.conform;
+        in.metric = s.metricScriptBody;
+        in.uMin = engine->getUMin(); in.uMax = engine->getUMax();
+        in.vMin = engine->getVMin(); in.vMax = engine->getVMax();
+        in.steps = std::min(s.state.steps, 500);
+        in.constants = gl->objectConstants(k);
+        QString error;
+        // Un errore ferma il SUO flusso, in silenzio: i popup sono dell'oggetto
+        // selezionato, e riselezionandolo il Run lo rimette in moto.
+        if (computeGeodesicMesh(k, in, s.geoTime, &error) != GeoMeshResult::Ok)
+            s.geoAnimating = false;
+    }
+    syncGeodesicObjectsTimer();
+}
+
+void MainWindow::syncGeodesicObjectsTimer()
+{
+    GLWidget *gl = ui->glWidget;
+    if (!gl) return;
+    bool any = false;
+    for (int k = 0; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k)
+        if (k != gl->selectedObject() && m_objectSessions[k].geoAnimating) any = true;
+    if (!any || !isVisible()) {
+        if (m_geoObjectsTimer) m_geoObjectsTimer->stop();
+        return;
+    }
+    if (!m_geoObjectsTimer) {
+        m_geoObjectsTimer = new QTimer(this);
+        m_geoObjectsTimer->setInterval(16);
+        connect(m_geoObjectsTimer, &QTimer::timeout, this, [this]() {
+            // Durante il REC lo avanza il loop del recorder, col dt del frame.
+            if (m_isRecording || !ui->glWidget || !ui->glWidget->getRhi()) return;
+            advanceGeodesicObjectsBy(m_geoObjectsTimer->interval() / 1000.0);
+        });
+    }
+    if (!m_geoObjectsTimer->isActive()) m_geoObjectsTimer->start();
 }
 
 int MainWindow::addSceneObject(const QString &name)
@@ -152,6 +220,7 @@ void MainWindow::removeSceneObject(int index)
     m_objectSessions.erase(m_objectSessions.begin() + index);
     m_sceneObjectsChanged = true;
     refreshObjectsUi();
+    syncGeodesicObjectsTimer();
 }
 
 // P "4D": un'espressione, o un numero non nullo. Lo stesso criterio del tasto
@@ -211,17 +280,6 @@ void MainWindow::addShapeToScene(const QString &shapePath)
 {
     const LibraryItem *d = m_libraryManager.getSurfaceByPath(shapePath);
     if (!d || d->name.isEmpty()) return;
-    // FLUSSO GEODETICO: per ora solo come ambiente. Il suo tempo e il suo timer
-    // stanno ancora in MainWindow (m_geoTime, m_geoAnimTimer), uno per tutti.
-    static const QRegularExpression kMetricReturnRe(R"(\breturn\s+mat3\s*\()");
-    const bool geodesic = !d->geoU0.trimmed().isEmpty() || !d->geoDU.trimmed().isEmpty()
-                          || d->scriptCode.contains(kMetricReturnRe);
-    if (geodesic) {
-        QMessageBox::information(this, QStringLiteral("Add to Scene"),
-            QStringLiteral("Geodesic flows can be the environment of a scene (open them from the "
-                           "Library), but they cannot be added as objects yet."));
-        return;
-    }
     const bool crossSection = d->isImplicitMode && d->usesCrossSection;
     const bool object4D = !d->isImplicitMode && (d->isTube ? pCoordinateIs4D(d->tubeP)
                                                           : pCoordinateIs4D(d->w));

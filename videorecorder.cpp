@@ -883,6 +883,9 @@ void VideoRecorder::toggleRecord()
         if (wasGeoAnimating) {
             m_mainWindow->advanceGeodesicFlowBy(timeStep);
         }
+        // Il flusso degli altri oggetti della scena: la stessa funzione del loro
+        // tick dal vivo (no-op durante il REC), col dt del frame.
+        m_mainWindow->advanceGeodesicObjectsBy(timeStep);
 
         // Orologi di animazione (t di geometria, texture, sfondo, fasce): stessa
         // identica logica del render live (advanceClocksBy), al recorder cambia

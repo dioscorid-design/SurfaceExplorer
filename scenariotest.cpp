@@ -1909,6 +1909,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-geodesic")) {
+        runSceneGeodesicScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("load-order")) {
         runLoadOrderScenarios();
         finish();
@@ -3754,6 +3759,7 @@ void ScenarioTest::run()
     runSceneObjectScenarios();
     runSceneMotionScenarios();
     runSceneDepthScenarios();
+    runSceneGeodesicScenarios();
     runAnimatedLoadScenarios();
     runLoadOrderScenarios();
 
@@ -5964,6 +5970,113 @@ void ScenarioTest::runSceneDepthScenarios()
         wait(800);
         check(gl->objectCount() == 2, QStringLiteral("scena 4D: un oggetto 3D entra"));
     }
+}
+
+void ScenarioTest::runSceneGeodesicScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Flussi geodetici come oggetti della scena =="));
+    auto libraryPath = [this](const QString &rel) {
+        for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+            if (it.filePath.endsWith(rel)) return it.filePath;
+        return QString();
+    };
+    auto diffFraction = [](const QImage &a, const QImage &b) {
+        if (a.size() != b.size() || a.isNull()) return 1.0;
+        const QImage x = a.convertToFormat(QImage::Format_RGB32);
+        const QImage y = b.convertToFormat(QImage::Format_RGB32);
+        qint64 diff = 0;
+        for (int r = 0; r < x.height(); ++r) {
+            const QRgb *p = reinterpret_cast<const QRgb *>(x.constScanLine(r));
+            const QRgb *q = reinterpret_cast<const QRgb *>(y.constScanLine(r));
+            for (int c = 0; c < x.width(); ++c)
+                if (p[c] != q[c]) ++diff;
+        }
+        return double(diff) / double(qint64(x.width()) * x.height());
+    };
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    wait(300);
+    const QImage torusAlone = gl->grabFramebuffer();
+
+    // UN FLUSSO STATICO (le Shape geodetiche non hanno t): si aggiunge e resta.
+    const QString helicoid = libraryPath(QStringLiteral("Geodesic Flows/R3/Helicoid.json"));
+    check(!helicoid.isEmpty(), QStringLiteral("l'Helicoid geodetico e' nella libreria"));
+    if (helicoid.isEmpty()) return;
+    m_lastPopup.clear();
+    m_mw->addShapeToScene(helicoid);
+    wait(1200);
+    const QByteArray key = gl->getEngine()->geodesicFlowKey();
+    check(gl->objectCount() == 2 && !key.isEmpty() && m_lastPopup.isEmpty(),
+          QStringLiteral("Add to Scene di un flusso geodetico: oggetto aggiunto, flusso calcolato%1")
+              .arg(m_lastPopup.isEmpty() ? QString() : QStringLiteral(" (popup: ") + m_lastPopup + QLatin1Char(')')));
+    const QImage withFlow = gl->grabFramebuffer();
+    check(diffFraction(torusAlone, withFlow) > 0.01, QStringLiteral("il flusso si vede accanto al toro"));
+    m_mw->selectSceneObject(0);
+    wait(300);
+    m_mw->selectSceneObject(1);
+    wait(300);
+    check(gl->getEngine()->geodesicFlowKey() == key && diffFraction(withFlow, gl->grabFramebuffer()) < 0.001,
+          QStringLiteral("riselezionato: lo stesso flusso, la stessa immagine"));
+
+    // UN FLUSSO ANIMATO (la superficie di un record con t): avanza anche quando
+    // e' selezionato un altro oggetto, e riprende dal suo tempo.
+    LibraryManager lm;
+    LibraryItem breathing = lm.parseJson(m_root + QStringLiteral("/records/Animations/Parametric/Surfaces/Geodesic Flows/Breathing Hyperboloid.json"),
+                                         LibraryType::Motion);
+    breathing.type = LibraryType::Surface;   // la sola superficie del record
+    if (breathing.name.isEmpty()) { check(false, QStringLiteral("Breathing Hyperboloid non caricabile")); return; }
+    const int idx = m_mw->addPresetAsObject(breathing, QStringLiteral("Breathing"));
+    gl->setObjectPosition(QVector3D(-2.5f, 0.0f, 0.0f));
+    wait(2500);
+    check(m_mw->m_geoAnimTimer && m_mw->m_geoAnimTimer->isActive(),
+          QStringLiteral("flusso animato selezionato: il suo timer gira (t = %1)").arg(m_mw->m_geoTime));
+    m_mw->selectSceneObject(0);
+    wait(100);
+    const double t1 = m_mw->m_objectSessions[idx].geoTime;
+    const QImage f1 = gl->grabFramebuffer();
+    wait(600);
+    const double t2 = m_mw->m_objectSessions[idx].geoTime;
+    const QImage f2 = gl->grabFramebuffer();
+    check(m_mw->m_objectSessions[idx].geoAnimating && m_mw->m_geoObjectsTimer
+              && m_mw->m_geoObjectsTimer->isActive() && t2 > t1 + 0.1,
+          QStringLiteral("ambiente selezionato: il flusso dell'oggetto avanza da solo (t %1 -> %2)").arg(t1).arg(t2));
+    check(diffFraction(f1, f2) > 0.0005, QStringLiteral("e a schermo si muove"));
+    // Il recorder: la stessa funzione col dt del frame.
+    m_mw->m_geoObjectsTimer->stop();
+    const double t3 = m_mw->m_objectSessions[idx].geoTime;
+    m_mw->advanceGeodesicObjectsBy(0.5);
+    check(std::abs(m_mw->m_objectSessions[idx].geoTime - t3 - 0.015 * 500.0 / 16.0) < 1e-6,
+          QStringLiteral("advanceGeodesicObjectsBy(0.5): t avanza come 31 tick (%1)")
+              .arg(m_mw->m_objectSessions[idx].geoTime - t3));
+    const double t4 = m_mw->m_objectSessions[idx].geoTime;
+    m_mw->selectSceneObject(idx);
+    wait(100);
+    check(m_mw->m_geoTime >= t4 && m_mw->m_geoAnimTimer->isActive()
+              && !(m_mw->m_geoObjectsTimer && m_mw->m_geoObjectsTimer->isActive()),
+          QStringLiteral("riselezionato: riprende dal suo tempo (%1) col timer del selezionato").arg(m_mw->m_geoTime));
+    m_mw->selectSceneObject(0);
+    m_mw->removeSceneObject(idx);
+    wait(200);
+    check(!(m_mw->m_geoObjectsTimer && m_mw->m_geoObjectsTimer->isActive()),
+          QStringLiteral("tolto il flusso animato: il suo timer si ferma"));
+
+    // SAVE E LOAD della scena col flusso come oggetto.
+    PresetSerializer::MotionRunState run;
+    const QJsonObject sceneJson = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Geo Scene"), run, false);
+    const QString scenePath = m_outDir + QStringLiteral("/scene-geodesic.json");
+    {
+        QFile f(scenePath);
+        check(f.open(QIODevice::WriteOnly) && f.write(QJsonDocument(sceneJson).toJson()) > 0,
+              QStringLiteral("scena col flusso scritta"));
+    }
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))) return;
+    check(m_mw->loadSceneFile(scenePath), QStringLiteral("loadSceneFile della scena col flusso"));
+    wait(1500);
+    m_mw->selectSceneObject(1);
+    wait(300);
+    check(gl->objectCount() == 2 && gl->getEngine()->geodesicFlowKey() == key,
+          QStringLiteral("scena ricaricata: il flusso dell'oggetto e' lo stesso"));
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()

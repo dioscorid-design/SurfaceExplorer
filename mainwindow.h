@@ -640,6 +640,26 @@ private:
     bool m_transparencyGuardActive = false;
     QHash<QLineEdit*, float> m_lastValidConst;
     QTimer* m_geoAnimTimer = nullptr;   // timer del flusso geodetico (creato al primo updateGeodesicMesh)
+    QTimer* m_geoObjectsTimer = nullptr; // flusso degli oggetti non selezionati (syncGeodesicObjectsTimer)
+    // IL FLUSSO GEODETICO DEGLI OGGETTI NON SELEZIONATI (2.0): ognuno col suo
+    // tempo e coi suoi ingressi gia' applicati (sessione, motore, costanti
+    // dell'oggetto). Unica implementazione per il tick (m_geoObjectsTimer) e il
+    // loop di registrazione, come advanceGeodesicFlowBy per il selezionato.
+    void advanceGeodesicObjectsBy(double dtSeconds);
+    // m_geoObjectsTimer acceso se almeno un oggetto non selezionato ha il
+    // flusso in moto (e la finestra e' visibile).
+    void syncGeodesicObjectsTimer();
+    // Il calcolo del flusso di UN oggetto: la griglia al tempo t dal suo motore,
+    // poi la sua mesh. Lo usano updateGeodesicMesh (il selezionato) e
+    // advanceGeodesicObjectsBy (gli altri).
+    struct GeodesicInputs {
+        QString x, y, z, p, u, v, w, du, dv, dw, conform, metric;
+        float uMin = 0, uMax = 0, vMin = 0, vMax = 0;
+        int steps = 0;
+        QMap<QString, float> constants;
+    };
+    enum class GeoMeshResult { Ok, EmptyGrid, MeshRejected };
+    GeoMeshResult computeGeodesicMesh(int index, const GeodesicInputs &in, double t, QString *shaderError);
     bool m_geodesicErrorPending = false;
     bool m_inGeoAnimTick = false;
     // Esito dell'ultimo calcolo del flusso geodetico e popup gia' mostrato per
@@ -1678,6 +1698,11 @@ private:
         // Il messaggio della sua Shape (hintText), mostrato alla selezione.
         QString hintText;
         float hintSeconds = 6.0f;
+        // FLUSSO GEODETICO dell'oggetto quando non e' selezionato: il suo
+        // tempo (m_geoTime) e se avanza (m_geoAnimTimer acceso). Lo fa avanzare
+        // advanceGeodesicObjectsBy; alla selezione torna a m_geoTime e al timer.
+        double geoTime = 0.0;
+        bool geoAnimating = false;
     };
     std::vector<ObjectSession> m_objectSessions = std::vector<ObjectSession>(1);
     // L'oggetto selezionato: chiude la sua sessione nella copia, apre quella

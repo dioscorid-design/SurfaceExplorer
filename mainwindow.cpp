@@ -2124,6 +2124,9 @@ void MainWindow::hideEvent(QHideEvent* event)
         m_geoAnimTimer->stop();
         m_geoAnimTimerWasRunning = true;
     }
+    // Il flusso degli altri oggetti: fermo con la finestra nascosta, lo
+    // riaccende showEvent (syncGeodesicObjectsTimer guarda isVisible).
+    if (m_geoObjectsTimer) m_geoObjectsTimer->stop();
 
     QMainWindow::hideEvent(event);
 }
@@ -2131,6 +2134,9 @@ void MainWindow::hideEvent(QHideEvent* event)
 void MainWindow::showEvent(QShowEvent* event)
 {
     QMainWindow::showEvent(event);
+
+    // Il flusso degli altri oggetti, con lo stesso ritardo del selezionato.
+    QTimer::singleShot(300, this, [this]() { syncGeodesicObjectsTimer(); });
 
     // Riavvia il timer geodetico solo se era stato fermato da hideEvent.
     // Il delay (300 ms) serve a dare al backend grafico il tempo di

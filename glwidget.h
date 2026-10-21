@@ -325,6 +325,14 @@ public:
                        float uMax = std::numeric_limits<float>::quiet_NaN(),
                        float vMin = std::numeric_limits<float>::quiet_NaN(),
                        float vMax = std::numeric_limits<float>::quiet_NaN());
+    // Di un oggetto qualunque della scena (2.0): il flusso geodetico degli
+    // oggetti non selezionati avanza fuori dai dock (MainWindow::advanceGeodesicObjectsBy).
+    bool setObjectCustomMesh(int index, const QVector<QVector<QVector4D>>& grid, bool tolerateTruncated,
+                             float uMin, float uMax, float vMin, float vMax);
+    SurfaceEngine *objectEngine(int index) const {
+        return index >= 0 && index < int(m_objects.size()) ? m_objects[index]->engine.get() : nullptr;
+    }
+    const QMap<QString, float> &objectConstants(int index) const { return m_objects[index]->constants; }
     const QMap<QString, float>& getConstantsMap() const { return m_obj->constants; }
 
     SurfaceEngine* getEngine() const { return m_obj->engine.get(); }
@@ -1581,6 +1589,8 @@ private:
     float m_cameraRoll = 0.0f;
     float m_cameraFov = 45.0f; // gradi, vedi setCameraFov()
     bool m_externalClockActive = false; // vedi setExternalClockActive()
+    bool setCustomMesh(SurfaceObject &o, const QVector<QVector<QVector4D>>& grid, bool tolerateTruncated,
+                       float uMin, float uMax, float vMin, float vMax);
     // Rotazione 4D del path per gli oggetti: vedi setViewRotation4D.
     float m_viewOmega = 0.0f, m_viewPhi = 0.0f, m_viewPsi = 0.0f;
     bool isObjectRotating(const SurfaceObject &o) const {

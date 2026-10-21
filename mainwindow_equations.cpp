@@ -2885,23 +2885,24 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
 
     QString shaderError; // <--- Prepariamo la stringa per l'errore
 
-    // 3. CALCOLO SINCRONO SU GPU
-    QVector<QVector<QVector4D>> grid = engine->computeGeodesicFlow(
-                rhi,
-                rawX, rawY, rawZ, rawP,
-                rawU, rawV, rawW,
-                rawDU, rawDV, rawDW,
-                rawConf,
-                m_metricScriptBody,
-                uMin, uMax, safeSteps,
-                vMin, vMax, safeSteps,
-                constantsMap,
-                static_cast<float>(t),       // <--- NUOVO: tempo come uniform
-                &shaderError
-                );
+    // 3. CALCOLO SINCRONO SU GPU e 4. MESH: il calcolo comune agli oggetti
+    // della scena (computeGeodesicMesh), sull'oggetto selezionato.
+    // uMin/uMax/vMin/vMax: il dominio appena integrato. Ancora le coordinate
+    // texture al dominio invece che agli indici di griglia, cosi' restringere
+    // l'intervallo TAGLIA la texture invece di comprimerla (vedi setCustomMesh).
+    GeodesicInputs in;
+    in.x = rawX; in.y = rawY; in.z = rawZ; in.p = rawP;
+    in.u = rawU; in.v = rawV; in.w = rawW;
+    in.du = rawDU; in.dv = rawDV; in.dw = rawDW;
+    in.conform = rawConf;
+    in.metric = m_metricScriptBody;
+    in.uMin = uMin; in.uMax = uMax; in.vMin = vMin; in.vMax = vMax;
+    in.steps = safeSteps;
+    in.constants = constantsMap;
+    const GeoMeshResult result = computeGeodesicMesh(ui->glWidget->selectedObject(), in, t, &shaderError);
 
     // --- GESTIONE DEGLI ERRORI ---
-    if (grid.isEmpty()) {
+    if (result == GeoMeshResult::EmptyGrid) {
         if (!shaderError.isEmpty()) {
             m_geodesicErrorPending = true;
             if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
@@ -2915,13 +2916,7 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
         }
         return false;
     }
-
-    // 4. APPLICHIAMO IMMEDIATAMENTE IL RISULTATO (grid non vuota: verificato sopra)
-    // uMin/uMax/vMin/vMax: il dominio appena integrato. Ancora le coordinate
-    // texture al dominio invece che agli indici di griglia, cosi' restringere
-    // l'intervallo TAGLIA la texture invece di comprimerla (vedi setCustomMesh).
-    if (!ui->glWidget->setCustomMesh(grid, !m_metricScriptBody.trimmed().isEmpty(),
-                                     uMin, uMax, vMin, vMax)) {
+    if (result == GeoMeshResult::MeshRejected) {
         m_geodesicErrorPending = true;
         if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
         m_geoErrorType = GeoError::Singularity;
@@ -3022,6 +3017,24 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
     m_geoErrorShown = false;
     m_geodesicErrorPending = false;
     return true;
+}
+
+MainWindow::GeoMeshResult MainWindow::computeGeodesicMesh(int index, const GeodesicInputs &in,
+                                                          double t, QString *shaderError)
+{
+    GLWidget *gl = ui->glWidget;
+    SurfaceEngine *engine = gl ? gl->objectEngine(index) : nullptr;
+    QRhi *rhi = gl ? gl->getRhi() : nullptr;
+    if (!engine || !rhi) return GeoMeshResult::EmptyGrid;
+    const QVector<QVector<QVector4D>> grid = engine->computeGeodesicFlow(
+        rhi, in.x, in.y, in.z, in.p, in.u, in.v, in.w, in.du, in.dv, in.dw, in.conform, in.metric,
+        in.uMin, in.uMax, in.steps, in.vMin, in.vMax, in.steps, in.constants,
+        static_cast<float>(t), shaderError);
+    if (grid.isEmpty()) return GeoMeshResult::EmptyGrid;
+    if (!gl->setObjectCustomMesh(index, grid, !in.metric.trimmed().isEmpty(),
+                                 in.uMin, in.uMax, in.vMin, in.vMax))
+        return GeoMeshResult::MeshRejected;
+    return GeoMeshResult::Ok;
 }
 
 bool MainWindow::advanceGeodesicFlowBy(double dtSeconds)

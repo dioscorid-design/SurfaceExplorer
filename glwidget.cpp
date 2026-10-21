@@ -3230,8 +3230,21 @@ void GLWidget::setRaySteps(int steps) {
 bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool tolerateTruncated,
                              float uMin, float uMax, float vMin, float vMax)
 {
-    bool wasCustom = m_obj->isCustomMesh; // Salviamo lo stato precedente
-    m_obj->isCustomMesh = true;
+    return setCustomMesh(*m_obj, grid, tolerateTruncated, uMin, uMax, vMin, vMax);
+}
+
+bool GLWidget::setObjectCustomMesh(int index, const QVector<QVector<QVector4D>>& grid, bool tolerateTruncated,
+                                   float uMin, float uMax, float vMin, float vMax)
+{
+    if (index < 0 || index >= int(m_objects.size())) return false;
+    return setCustomMesh(*m_objects[index], grid, tolerateTruncated, uMin, uMax, vMin, vMax);
+}
+
+bool GLWidget::setCustomMesh(SurfaceObject &o, const QVector<QVector<QVector4D>>& grid, bool tolerateTruncated,
+                             float uMin, float uMax, float vMin, float vMax)
+{
+    bool wasCustom = o.isCustomMesh; // Salviamo lo stato precedente
+    o.isCustomMesh = true;
 
     if (grid.isEmpty() || grid[0].isEmpty()) return false;
 
@@ -3244,7 +3257,7 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
     int deadTrajectories = 0;
 
     // Soglia coerente con safeLim in GeodesicCalculator, scalata in base alla scena.
-    const float limitThreshold = 999.0f * m_obj->surfaceScale / 2.0f;
+    const float limitThreshold = 999.0f * o.surfaceScale / 2.0f;
 
     // NUOVO: Limite di salto. Se un singolo step schizza oltre 20 unità,
     // l'equazione differenziale sta esplodendo generando artefatti.
@@ -3352,12 +3365,12 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
     // con l'aspetto con cui e' stato salvato (texCoord 0..1 esatte, come prima
     // di questa modifica) e sono le MODIFICHE SUCCESSIVE dell'intervallo a
     // tagliare la texture invece di comprimerla.
-    if (domainUV && !m_obj->uvRefValid) {
-        m_obj->uvRefUMin  = uMin;
-        m_obj->uvRefUSpan = uMax - uMin;
-        m_obj->uvRefVMin  = vMin;
-        m_obj->uvRefVSpan = vMax - vMin;
-        m_obj->uvRefValid = true;
+    if (domainUV && !o.uvRefValid) {
+        o.uvRefUMin  = uMin;
+        o.uvRefUSpan = uMax - uMin;
+        o.uvRefVMin  = vMin;
+        o.uvRefVSpan = vMax - vMin;
+        o.uvRefValid = true;
     }
 
     // Costruzione Vertici e Normali
@@ -3441,7 +3454,7 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
             //
             // Senza limiti validi (chiamante che non li passa) si ricade sulle
             // UV normalizzate storiche: nessun preset cambia aspetto.
-            if (domainUV && m_obj->uvRefValid) {
+            if (domainUV && o.uvRefValid) {
                 // Frazione del dominio di RIFERIMENTO, non dell'intervallo
                 // corrente: la texture resta ancorata alla geometria e
                 // restringendo l'intervallo se ne vede la porzione
@@ -3450,8 +3463,8 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
                 // pan della trasformazione 2D continuano a girare attorno a
                 // 0.5 come sempre, e il cutout (che ricostruisce u,v con
                 // mix(u_min,u_max,texCoord)) resta coerente.
-                v.texCoord = QVector2D((uMin + (float)i / numU * (uMax - uMin) - m_obj->uvRefUMin) / m_obj->uvRefUSpan,
-                                       (vMin + (float)j / numV * (vMax - vMin) - m_obj->uvRefVMin) / m_obj->uvRefVSpan);
+                v.texCoord = QVector2D((uMin + (float)i / numU * (uMax - uMin) - o.uvRefUMin) / o.uvRefUSpan,
+                                       (vMin + (float)j / numV * (vMax - vMin) - o.uvRefVMin) / o.uvRefVSpan);
             } else {
                 v.texCoord = QVector2D((float)i / numU, (float)j / numV);
             }
@@ -3576,18 +3589,18 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
     // setParametricEquations falliva e RIMETTEVA il tubo. Rimasto acceso,
     // il motore leggeva la curva al posto delle equazioni (costanti in uso)
     // e lo shader disegnava la curva al posto della superficie, che spariva.
-    const bool wasTube = m_obj->engine->isTubeModeActive();
-    m_obj->engine->setTubeMode(false);
+    const bool wasTube = o.engine->isTubeModeActive();
+    o.engine->setTubeMode(false);
 
     // Lati della mesh disegnata per il bordo (lo shader non sa ricalcolarli).
     setBorderEdges(grid, drawnQuad);
 
     // 3. Invia i dati al SurfaceEngine
-    m_obj->engine->setCustomMesh(vertices, indices, isUClosed, isVClosed);
+    o.engine->setCustomMesh(vertices, indices, isUClosed, isVClosed);
 
     buildWireframeGeometry();
 
-    m_obj->meshNeedsUpdate = true;
+    o.meshNeedsUpdate = true;
 
     if (!wasCustom || wasTube) {
         rebuildShader();
@@ -3598,7 +3611,7 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
     // multi-mesh l'ambito restava "Mesh" sul flusso geodetico e l'ambito del
     // preset restava in sospeso. Solo al passaggio, non a ogni frame
     // dell'animazione geodetica.
-    if (!wasCustom) emit meshPartsChanged();
+    if (!wasCustom && &o == m_obj) emit meshPartsChanged();   // i dock seguono il selezionato
 
     update();
     return true; // Costruzione completata con successo!

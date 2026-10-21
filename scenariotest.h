@@ -241,6 +241,8 @@ private:
     void runSceneMotionScenarios();
     // 2.0, tappa 5: oggetti in ray marching e mesh si coprono per distanza.
     void runSceneDepthScenarios();
+    // 2.0: flussi geodetici come oggetti, col loro tempo anche non selezionati.
+    void runSceneGeodesicScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
     // accesi i comandi del dock RENDERER. Il Run lo sganciava solo per le
