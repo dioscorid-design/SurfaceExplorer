@@ -5719,6 +5719,62 @@ void ScenarioTest::runSceneObjectScenarios()
         }
     }
     big.save(m_outDir + QStringLiteral("/scene-objects-scale2.png"));
+
+    // SAVE DI UN OGGETTO CON TEXTURE E MOTI: la scena scrive ogni oggetto come
+    // un record (prima come Shape, e texture e rotazioni si perdevano).
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Save della scena: texture, orientamento e moti degli oggetti =="));
+    if (!loadSurface(kTorus)) return;
+    {
+        QString spherePath2;
+        for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+            if (it.filePath.endsWith(kSphere)) spherePath2 = it.filePath;
+        m_mw->addShapeToScene(spherePath2);
+        wait(400);
+    }
+    selectTexture(QStringLiteral("textures/Procedurals/Plasma.json"));
+    wait(600);
+    // Ruotato a mano, con una velocita' ma col GO spento: l'orientamento si
+    // confronta fermo (il GO salvato e riaperto lo prova scene-motion).
+    gl->addObjectRotation(40.0f, 25.0f, 0.0f);
+    gl->setSpinSpeed(0.7f);
+    wait(200);
+    const QString texBefore = m_mw->surfaceTextureScript().trimmed();
+    const bool texOnBefore = m_mw->m_scene.surfaceTextureState;
+    const QQuaternion qBefore = gl->getRotationQuat();
+    check(texOnBefore && !texBefore.isEmpty() && !gl->isAnimating(),
+          QStringLiteral("oggetto con texture Plasma, ruotato, velocita' 0.7 a GO spento"));
+    PresetSerializer::MotionRunState run3;
+    const QJsonObject textured = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Textured"), run3, false);
+    check(textured.value(QStringLiteral("objects")).toArray().at(0).toObject().contains(QStringLiteral("record")),
+          QStringLiteral("l'oggetto e' scritto come record"));
+    const QString texturedPath = m_outDir + QStringLiteral("/scene-objects-textured.json");
+    {
+        QFile f(texturedPath);
+        if (f.open(QIODevice::WriteOnly)) { f.write(QJsonDocument(textured).toJson()); f.close(); }
+    }
+    if (loadSurface(kSphere) && m_mw->loadSceneFile(texturedPath)) {
+        wait(800);
+        m_mw->selectSceneObject(1);
+        wait(300);
+        const QQuaternion qAfter = gl->getRotationQuat();
+        check(m_mw->m_scene.surfaceTextureState && m_mw->surfaceTextureScript().trimmed() == texBefore,
+              QStringLiteral("riaperta: la texture dell'oggetto c'e' ancora (stato %1, motore %2, uguale %3, lunghezze %4/%5, oggetti %6, selezionato %7)")
+                  .arg(m_mw->m_scene.surfaceTextureState).arg(gl->isTextureEnabled())
+                  .arg(m_mw->surfaceTextureScript() == texBefore)
+                  .arg(m_mw->surfaceTextureScript().size()).arg(texBefore.size())
+                  .arg(gl->objectCount()).arg(gl->selectedObject()));
+        check(!gl->isAnimating() && std::abs(gl->getSpinSpeed() - 0.7f) < 1e-4f,
+              QStringLiteral("riaperta: velocita' %1, GO spento").arg(gl->getSpinSpeed()));
+        check(std::abs(QQuaternion::dotProduct(qBefore, qAfter)) > 0.9999f,
+              QStringLiteral("riaperta: orientamento conservato (prodotto %1)")
+                  .arg(std::abs(QQuaternion::dotProduct(qBefore, qAfter))));
+    }
+    // Le scene di prima (oggetti come Shape) si aprono ancora.
+    if (loadSurface(kSphere) && m_mw->loadSceneFile(scenePath)) {
+        wait(600);
+        check(gl->objectCount() == 2, QStringLiteral("una scena del formato di prima (\"shape\") si apre ancora"));
+    }
 }
 
 void ScenarioTest::runSceneMotionScenarios()

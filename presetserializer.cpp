@@ -975,7 +975,10 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
         o["position"] = QJsonArray{ p.x(), p.y(), p.z() };
         o["scale"] = double(gl->objectScale());
         o["motion"] = m_mainWindow->objectMotionJson();
-        o["shape"] = buildSurfaceJson(objectName);
+        // L'oggetto come un RECORD: la Shape non porta texture, fasce e moti
+        // (se ne perdevano). Il moto della camera, lo sfondo e il suono che il
+        // record contiene sono della scena: il load come oggetto li ignora.
+        o["record"] = buildMotionJson(objectName, MotionRunState{}, /*includeSound=*/false);
         objects.append(o);
     }
     scene["objects"] = objects;

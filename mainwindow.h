@@ -405,7 +405,12 @@ private slots:
     // (addPresetAsObject), e la scena non si tocca: camera, FOV, proiezione,
     // sfondo, path, suono, luce 4D e di riempimento, quota di sezione, hint.
     void applySurfaceExample(LibraryItem data, bool asObject = false);
-    void applyMotionExample(LibraryItem data);
+    // asObject: il record come OGGETTO della scena (il salvataggio della scena
+    // scrive ogni oggetto come un record, per non perdere texture e moti). Si
+    // applica la sola parte dell'oggetto: superficie, colori, texture, fasce,
+    // rotazione, angoli, velocita', luce e bordo, orologi. Camera, path,
+    // sfondo, suono, luce 4D e quota della sezione restano della scena.
+    void applyMotionExample(LibraryItem data, bool asObject = false);
     void deleteSelectedExample();
     void onUndoDelete();
     // I quattro bool sono lo stato dei moti PRIMA che showMenu li fermasse: la
@@ -1992,14 +1997,14 @@ private:
     void stopMotionForRecordLoad();
     void applyRecordMode(const LibraryItem &data, const SceneState &file);
     void applyRecordColors(const LibraryItem &data);
-    void applyRecordCamera(const LibraryItem &data, const SceneState &file);
+    void applyRecordCamera(const LibraryItem &data, const SceneState &file, bool asObject = false);
     void applyRecordSurfaceTexture(const LibraryItem &data, const MissingImageScan &scan);
     void applyRecordBackgroundTexture(const LibraryItem &data);
     void syncTextureControlsAfterRecordLoad(const LibraryItem &data);
-    void applyRecordSpeedsAndAngles(const LibraryItem &data);
+    void applyRecordSpeedsAndAngles(const LibraryItem &data, bool asObject = false);
     void startRecordCameraMotion(const LibraryItem &data);
     bool runRecordGeometry(const LibraryItem &data);   // true: scena da script
-    void restartRecordClocks(const LibraryItem &data);
+    void restartRecordClocks(const LibraryItem &data, bool asObject = false);
     void startRecordSound();
     // PASSI DEL CLIC SU UNA VOCE DELLA LIBRARY (onExampleItemClicked).
     // false = l'utente ha annullato nel popup del lavoro non salvato.

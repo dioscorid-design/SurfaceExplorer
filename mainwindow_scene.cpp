@@ -2132,8 +2132,19 @@ void MainWindow::applyRecordColors(const LibraryItem &data)
     ui->glWidget->setBackgroundColor(m_scene.bgColor);
 }
 
-void MainWindow::applyRecordCamera(const LibraryItem &data, const SceneState &file)
+void MainWindow::applyRecordCamera(const LibraryItem &data, const SceneState &file, bool asObject)
 {
+    // Un OGGETTO prende solo il suo orientamento: la camera e i path sono della scena.
+    if (asObject) {
+        if (!data.hasCamera3D) {
+            ui->glWidget->setRotationQuat(QQuaternion());
+            ui->glWidget->addObjectRotation(30.0f, 30.0f, 0.0f);
+        } else {
+            ui->glWidget->setRotationQuat(QQuaternion(data.rotW, data.rotX, data.rotY, data.rotZ));
+            ui->glWidget->markUserRotated();
+        }
+        return;
+    }
     // CAMERA E MOTI: dalla struttura, non piu' dal file (come sfondo e suono).
     // Qui il load RILEGGEVA il JSON del record ("bypassiamo la limitazione della
     // libreria": LibraryItem non portava sfondo, ancore e moti). Ora parseJson
@@ -2451,7 +2462,7 @@ void MainWindow::syncTextureControlsAfterRecordLoad(const LibraryItem &data)
     updateRenderState();
 }
 
-void MainWindow::applyRecordSpeedsAndAngles(const LibraryItem &data)
+void MainWindow::applyRecordSpeedsAndAngles(const LibraryItem &data, bool asObject)
 {
     const bool isImplicit = data.isImplicitMode;
     // 6. VELOCITÀ E ANGOLI
@@ -2488,9 +2499,12 @@ void MainWindow::applyRecordSpeedsAndAngles(const LibraryItem &data)
         want4D = (!wText.isEmpty() && wText != "0" && wText != "0.0");
     }
 
-    m_scene.lightingMode4D = savedMode;
     ui->glWidget->set4DLighting(want4D);
-    ui->glWidget->setLightingMode4D(savedMode);
+    // Il modo della luce 4D e' della scena (SceneState::lightingMode4D).
+    if (!asObject) {
+        m_scene.lightingMode4D = savedMode;
+        ui->glWidget->setLightingMode4D(savedMode);
+    }
 
     QString btnText;
     switch(savedMode) {
@@ -2524,7 +2538,8 @@ void MainWindow::applyRecordSpeedsAndAngles(const LibraryItem &data)
     // Cross Section, insieme ai tre angoli qui sopra. Fuori da restoreAngles: e'
     // stato APPICCICOSO del motore, quindi va scritta SEMPRE (anche a 0), o un
     // record caricato dopo averne visto un altro sezionato eredita la p precedente.
-    if (ui->glWidget)
+    // La quota della sezione e' della scena: le Cross Section la condividono.
+    if (ui->glWidget && !asObject)
         ui->glWidget->setCrossSectionP(isImplicit ? data.crossSectionP : 0.0f);
 
     ui->glWidget->update();
@@ -2703,7 +2718,7 @@ bool MainWindow::runRecordGeometry(const LibraryItem &data)
     return isScript;
 }
 
-void MainWindow::restartRecordClocks(const LibraryItem &data)
+void MainWindow::restartRecordClocks(const LibraryItem &data, bool asObject)
 {
     // =======================================================
     // RIATTIVAZIONE ANIMAZIONI TEXTURE AL CARICAMENTO
@@ -2712,7 +2727,8 @@ void MainWindow::restartRecordClocks(const LibraryItem &data)
         if (data.textureEnabled && hasTimeVariable(allSurfaceTextureCode())) {
             ui->glWidget->setSurfaceTextureAnimating(true);
         }
-        if (data.bgTextureEnabled && hasTimeVariable(m_scene.bgTextureCode)) {
+        // Lo sfondo e' della scena.
+        if (!asObject && data.bgTextureEnabled && hasTimeVariable(m_scene.bgTextureCode)) {
             ui->glWidget->setBackgroundTextureAnimating(true);
         }
     }
@@ -2788,10 +2804,12 @@ void MainWindow::startRecordSound()
     }
 }
 
-void MainWindow::applyMotionExample(LibraryItem data)
+void MainWindow::applyMotionExample(LibraryItem data, bool asObject)
 {
-    // All'uscita la scena e' quella del file: e' il momento pulito.
-    SceneCleanGuard sceneCleanGuard{this};
+    // All'uscita la scena e' quella del file: e' il momento pulito. Un oggetto
+    // aggiunto non tocca la scena: lo dichiara pulito chi lo aggiunge.
+    std::optional<SceneCleanGuard> sceneCleanGuard;
+    if (!asObject) sceneCleanGuard.emplace(SceneCleanGuard{this});
     discardPendingLimitEdits();
 
     SE_TEXP("record:ENTRATA");
@@ -2818,8 +2836,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     // Un record riscrive la scena intera: si torna al solo ambiente (dopo
     // l'avviso, che deve ancora mostrare la scena di prima).
-    resetToSingleObject();
-    setEnvironmentName(data.name);   // il record e' l'ambiente
+    if (!asObject) {
+        resetToSingleObject();
+        setEnvironmentName(data.name);   // il record e' l'ambiente
+    }
 
     // LA SCENA DEL FILE, calcolata una volta (con la scansione appena fatta):
     // applyCommonData la assegna in testa, e da qui la leggono sotto-tab e moti.
@@ -2856,7 +2876,8 @@ void MainWindow::applyMotionExample(LibraryItem data)
         ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(prev); }
     } meshBypassGuard{this, prevBypass};
 
-    stopMotionForRecordLoad();
+    // I moti della SCENA (path, suono, posa, master) restano com'erano.
+    if (!asObject) stopMotionForRecordLoad();
 
     // =================================================================
     // 1.5 SANIFICAZIONE E SEPARAZIONE DEI MODI (Parametrico vs Ray Marching)
@@ -2906,7 +2927,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // JSON ai campi e all'UBO. Se F cambia fra queste due righe, la resa cambia
     // anche a codice texture IDENTICO.
     SE_TEXP("record:pre-applyCommonData");
-    applyCommonData(data, file);
+    applyCommonData(data, file, asObject);
     SE_TEXP("record:post-applyCommonData");
 
     // Record che da qui in poi E' la scena. Lo legge "Sync Focused Texture" per
@@ -2919,24 +2940,26 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // reset del caricamento stesso, e il comando restava disabilitato su ogni
     // record -- la voce appariva cliccabile ma Qt non emette nulla su un'azione
     // disabilitata.
-    m_currentRecordPath = data.filePath;
+    if (!asObject) m_currentRecordPath = data.filePath;
 
     applyRecordColors(data);
 
-    applyRecordCamera(data, file);
+    applyRecordCamera(data, file, asObject);
     applyRecordSurfaceTexture(data, missingScan);
-    applyRecordBackgroundTexture(data);
+    if (!asObject) applyRecordBackgroundTexture(data);
     syncTextureControlsAfterRecordLoad(data);
 
-    applyRecordSpeedsAndAngles(data);
+    applyRecordSpeedsAndAngles(data, asObject);
 
-    startRecordCameraMotion(data);
+    // Il moto della camera e' della scena; quello di un oggetto (il suo GO) lo
+    // rimette chi lo aggiunge (applyObjectMotion).
+    if (!asObject) startRecordCameraMotion(data);
 
     const bool isScript = runRecordGeometry(data);
 
-    restartRecordClocks(data);
+    restartRecordClocks(data, asObject);
 
-    startRecordSound();
+    if (!asObject) startRecordSound();
 
     // 9. HIGHLIGHT AUTOMATICO: SELEZIONA TEXTURE E SUONI NELL'ALBERO
     // A. Sincronizzazione Suoni (Cerca l'audio in TUTTI gli script attivi!)
@@ -2944,9 +2967,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
                                         + "\n" + m_scene.bgTextureCode;
     // Il nome vale solo se in scena c'e' davvero un audio: il testo cercato
     // contiene anche i codici delle texture, che non sono un suono.
-    LibraryTreeFocus::selectSound(ui->treeSounds, m_libraryManager, fullAudioSearchCode,
-                                  m_scene.soundScriptText.trimmed().isEmpty()
-                                      ? QString() : m_scene.soundLibName);
+    if (!asObject)
+        LibraryTreeFocus::selectSound(ui->treeSounds, m_libraryManager, fullAudioSearchCode,
+                                      m_scene.soundScriptText.trimmed().isEmpty()
+                                          ? QString() : m_scene.soundLibName);
 
     // B. Sincronizzazione Texture: stessa funzione dei cambi di mesh e di modalita'.
     // Qui c'era una COPIA della scelta "quale texture cercare" senza il ramo
@@ -2965,7 +2989,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     updateScriptButtonText();
 
     // isScript: da runRecordGeometry.
-    QTimer::singleShot(20, this, [this, isScript]() {
+    auto finishLimits = [this, isScript]() {
         if (ui->glWidget) {
             updateULimits();
             updateVLimits();
@@ -2979,7 +3003,11 @@ void MainWindow::applyMotionExample(LibraryItem data)
                 ui->glWidget->update(); // Facciamo solo un refresh visivo
             }
         }
-    });
+    };
+    // Un oggetto subito, come per le Shape (applySurfaceExample): fra 20 ms
+    // l'oggetto selezionato puo' essere gia' un altro (load di una scena).
+    if (asObject) finishLimits();
+    else QTimer::singleShot(20, this, finishLimits);
 
     m_textureModified = false;
 
@@ -2997,17 +3025,23 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     // Il record caricato diventa il riferimento dei campi del dock 4D, come per
     // le superfici. In coda: setRotation4D/setCrossSectionP scrivono poco sopra.
-    resetNav4DBaseline();
-
-    m_sceneHintFromSurfacePreset = false;
-    showSceneHint(data.hintText, data.hintSeconds);
+    if (!asObject) {
+        resetNav4DBaseline();
+        m_sceneHintFromSurfacePreset = false;
+        showSceneHint(data.hintText, data.hintSeconds);
+    } else {
+        // Il messaggio e' dell'oggetto: lo mostra la selezione, o il messaggio
+        // composto della scena.
+        m_currentHintText = data.hintText.trimmed();
+        m_currentHintSeconds = data.hintSeconds;
+    }
 
     // COSTANTI: giudizio finale a scena completa (vedi applySurfaceExample).
     refreshConstants(/*restoreTextOnNegative=*/false);
 
     // Lettere A-F condivise fra superficie, texture e sfondo del record: in coda
     // all'evento, a scena completa (vedi la funzione).
-    warnSharedConstantsOnRecordLoad(data.filePath);
+    if (!asObject) warnSharedConstantsOnRecordLoad(data.filePath);
 
     SE_TEXP("record:USCITA");
 }

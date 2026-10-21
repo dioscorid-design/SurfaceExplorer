@@ -218,7 +218,10 @@ int MainWindow::addPresetAsObject(const LibraryItem &d, const QString &name)
     // della Shape si scrive qui, nell'oggetto selezionato.
     m_currentHintText = d.hintText.trimmed();
     m_currentHintSeconds = d.hintSeconds;
-    applySurfaceExample(d, /*asObject=*/true);
+    // Un record (gli oggetti di una scena salvata, i duplicati) porta anche
+    // texture, fasce e moti: il suo load, ristretto all'oggetto.
+    if (d.type == LibraryType::Motion) applyMotionExample(d, /*asObject=*/true);
+    else applySurfaceExample(d, /*asObject=*/true);
     m_loadingAsObject = wasLoading;
     // L'oggetto e' quello del preset: pulito rispetto a se stesso. Che la
     // SCENA sia cambiata lo dice chi lo aggiunge (m_sceneObjectsChanged).
@@ -372,8 +375,12 @@ bool MainWindow::loadSceneFile(const QString &path)
     GLWidget *gl = ui->glWidget;
     for (const QJsonValue &v : root.value(QStringLiteral("objects")).toArray()) {
         const QJsonObject o = v.toObject();
-        const LibraryItem shape = lm.parseJsonObject(o.value(QStringLiteral("shape")).toObject(),
-                                                     LibraryType::Surface, path);
+        // L'oggetto e' un record ("record", dal 2026-10-21: texture e moti
+        // compresi); le scene di prima avevano la sola Shape ("shape").
+        const bool asRecord = o.contains(QStringLiteral("record"));
+        const LibraryItem shape = lm.parseJsonObject(
+            o.value(asRecord ? QStringLiteral("record") : QStringLiteral("shape")).toObject(),
+            asRecord ? LibraryType::Motion : LibraryType::Surface, path);
         if (shape.name.isEmpty()) continue;
         addPresetAsObject(shape, o.value(QStringLiteral("name")).toString(shape.name));
         const QJsonArray p = o.value(QStringLiteral("position")).toArray();
@@ -637,12 +644,14 @@ void MainWindow::duplicateSceneObject(int index)
     if (index <= 0 || index >= gl->objectCount()) return;
     selectSceneObject(index);
     const ObjectSession source = m_objectSessions[index];
-    const QJsonObject shape = m_presetSerializer->buildSurfaceJson(source.name);
+    // Come un record: texture, fasce e orientamento compresi.
+    const QJsonObject shape = m_presetSerializer->buildMotionJson(source.name, PresetSerializer::MotionRunState{},
+                                                                  /*includeSound=*/false);
     const QVector3D pos = gl->objectPosition();
     const float scale = gl->objectScale();
     const QJsonObject motion = objectMotionJson();
     LibraryManager lm;
-    LibraryItem copy = lm.parseJsonObject(shape, LibraryType::Surface, QString());
+    LibraryItem copy = lm.parseJsonObject(shape, LibraryType::Motion, QString());
     copy.hintText = m_currentHintText;       // l'oggetto e' quello selezionato
     copy.hintSeconds = m_currentHintSeconds;
     addPresetAsObject(copy, uniqueObjectName(source.name));
