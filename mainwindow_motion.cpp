@@ -289,6 +289,12 @@ void MainWindow::stopRotationMotion()
 
 void MainWindow::onResetClicked()
 {
+    // Con un OGGETTO della scena selezionato il RESET e' suo; con l'ambiente e'
+    // di tutta la scena (qui sotto).
+    if (ui->glWidget && ui->glWidget->objectCount() > 1 && ui->glWidget->selectedObject() != 0) {
+        resetSelectedObject();
+        return;
+    }
     // Il path che ha la camera si guarda PRIMA di resettare la vista, che da
     // fermo gliela toglie: e' quello che i moti rimettono al punto di partenza.
     const std::optional<CameraPaths::Path> camPath = cameraPath();
@@ -393,6 +399,16 @@ void MainWindow::resetMotions(std::optional<CameraPaths::Path> camPath)
     // ROTAZIONI: posa d'apertura. Le velocita' restano: un GO in corso
     // continua a girare da li'.
     ui->glWidget->resetOrientation(m_startOrientation);
+    // In una scena anche gli oggetti, ciascuno alla sua posa d'apertura, e i
+    // loro flussi geodetici da capo (l'ambiente e' il selezionato).
+    for (int k = 1; k < ui->glWidget->objectCount() && k < int(m_objectSessions.size()); ++k) {
+        ObjectSession &s = m_objectSessions[k];
+        ui->glWidget->setObjectOrientation(k, s.startOrientation);
+        if (s.geoTime != 0.0) {
+            s.geoTime = 0.0;
+            updateGeodesicObject(k);
+        }
+    }
 
     // La camera del path torna al punto di partenza, SUBITO: da fermo
     // resterebbe dov'era fino al Departure (il reset sembrava non fare nulla),
@@ -415,6 +431,73 @@ void MainWindow::resetMotions(std::optional<CameraPaths::Path> camPath)
 
     // Gli angoli 4D sono cambiati: nuovo zero dei campi del dock 4D.
     resetNav4DBaseline();
+}
+
+void MainWindow::captureObjectStartPose()
+{
+    GLWidget *gl = ui->glWidget;
+    const int k = gl ? gl->selectedObject() : 0;
+    if (k <= 0 || k >= int(m_objectSessions.size())) return;
+    ObjectSession &s = m_objectSessions[k];
+    s.startOrientation = gl->orientation();
+    s.startPosition = gl->objectPosition();
+    s.startScale = gl->objectScale();
+}
+
+void MainWindow::resetObjectPlacement()
+{
+    GLWidget *gl = ui->glWidget;
+    const int k = gl->selectedObject();
+    if (k <= 0 || k >= int(m_objectSessions.size())) return;
+    const ObjectSession &s = m_objectSessions[k];
+    gl->setObjectPosition(s.startPosition);
+    gl->setObjectScale(s.startScale);
+    refreshObjectsUi();
+}
+
+void MainWindow::resetObjectMotions()
+{
+    GLWidget *gl = ui->glWidget;
+    const int k = gl->selectedObject();
+    if (k <= 0 || k >= int(m_objectSessions.size())) return;
+    // Le velocita' restano: un GO in corso continua a girare da li'.
+    gl->resetOrientation(m_objectSessions[k].startOrientation);
+    gl->resetObjectClocks(k);
+    m_geoTime = 0.0;   // il flusso del selezionato
+    checkAndTriggerMeshUpdate(/*useAppliedEquations=*/true);
+    updateMasterButtonState();
+}
+
+void MainWindow::resetSelectedObject()
+{
+    // Come il RESET della scena: si chiede solo se c'e' qualcosa che si muove
+    // (rotazioni, geometria o texture con t, flusso geodetico).
+    const MasterActivity act = masterActivity();
+    const bool moves = act.eqAvailable || act.eqRunning || act.texAvailable
+                       || act.borderAvailable || act.rotationAvailable;
+    if (!moves) {
+        resetObjectPlacement();
+        resetObjectMotions();
+        return;
+    }
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Question);
+    box.setWindowTitle("Reset");
+    box.setText("What do you want to reset in the selected object?");
+    box.setInformativeText("Placement: position and scale.\n"
+                           "Motions: rotations and everything that moves with t go back to the start.\n\n"
+                           "The camera, the paths and the other objects stay as they are "
+                           "(to reset the whole scene, select the environment).");
+    QPushButton *placeBtn  = box.addButton("Placement", QMessageBox::ActionRole);
+    QPushButton *motionBtn = box.addButton("Motions",   QMessageBox::ActionRole);
+    QPushButton *bothBtn   = box.addButton("Both",      QMessageBox::AcceptRole);
+    box.addButton("Cancel", QMessageBox::RejectRole);
+    box.setDefaultButton(bothBtn);
+    UiStyleManager::widenMessageBoxButtons(&box, 108);
+    box.exec();
+    const QAbstractButton *choice = box.clickedButton();
+    if (choice == placeBtn  || choice == bothBtn) resetObjectPlacement();
+    if (choice == motionBtn || choice == bothBtn) resetObjectMotions();
 }
 
 void MainWindow::onNavTimerTick()

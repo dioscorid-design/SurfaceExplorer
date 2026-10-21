@@ -1924,6 +1924,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-reset")) {
+        runSceneResetScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("load-order")) {
         runLoadOrderScenarios();
         finish();
@@ -3772,6 +3777,7 @@ void ScenarioTest::run()
     runSceneGeodesicScenarios();
     runSceneMasterScenarios();
     runSceneSaveLoadScenarios();
+    runSceneResetScenarios();
     runAnimatedLoadScenarios();
     runLoadOrderScenarios();
 
@@ -6421,6 +6427,66 @@ void ScenarioTest::runSceneSaveLoadScenarios()
             gl->setClocksDrivenByRecorder(false);
         }
     }
+}
+
+void ScenarioTest::runSceneResetScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== RESET dell'oggetto selezionato e di tutta la scena =="));
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    QString spherePath;
+    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+        if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json")))
+            spherePath = it.filePath;
+    m_mw->addShapeToScene(spherePath);
+    wait(400);
+    const QVector3D startPos = gl->objectPosition();
+    const QQuaternion startQ = gl->getRotationQuat();
+    auto sameQ = [](const QQuaternion &a, const QQuaternion &b) {
+        return std::abs(QQuaternion::dotProduct(a, b)) > 0.99999f;
+    };
+
+    // L'oggetto spostato, scalato, ruotato e con una rotazione in corso.
+    gl->setObjectPosition(QVector3D(1.0f, 0.5f, 0.0f));
+    gl->setObjectScale(2.0f);
+    gl->addObjectRotation(40.0f, 10.0f, 0.0f);
+    gl->setSpinSpeed(0.5f);
+    m_mw->onStopClicked();
+    m_mw->selectSceneObject(0);
+    gl->zoomCamera(1.5f);                       // la camera dell'ambiente si avvicina
+    const QVector3D zoomedCam = gl->getCameraPos();
+    m_mw->selectSceneObject(1);
+    wait(200);
+
+    // RESET DELL'OGGETTO: solo lui, alla sua posa d'apertura.
+    m_popupAnswer = QStringLiteral("Both");
+    m_mw->onResetClicked();
+    // Subito: col GO acceso l'oggetto riprende a ruotare dalla posa d'apertura.
+    const QQuaternion qReset = gl->getRotationQuat();
+    check(gl->objectPosition() == startPos && std::abs(gl->objectScale() - 1.0f) < 1e-6f
+              && sameQ(qReset, startQ) && gl->getCameraPos() == zoomedCam,
+          QStringLiteral("RESET dell'oggetto: posizione, scala e orientamento d'apertura; la camera resta"));
+    wait(300);
+    check(gl->isAnimating(), QStringLiteral("e la sua rotazione continua (le velocita' restano)"));
+    m_mw->onStopClicked();
+
+    // RESET DELLA SCENA (ambiente selezionato): camera e orientamento di tutti,
+    // non le posizioni degli oggetti.
+    gl->setObjectPosition(QVector3D(1.0f, 0.5f, 0.0f));
+    gl->addObjectRotation(30.0f, 0.0f, 0.0f);
+    m_mw->selectSceneObject(0);
+    wait(200);
+    m_popupAnswer = QStringLiteral("Both");
+    m_mw->onResetClicked();
+    wait(300);
+    m_popupAnswer.clear();
+    const QVector3D camAfter = gl->getCameraPos();
+    m_mw->selectSceneObject(1);
+    wait(100);
+    check(camAfter != zoomedCam && sameQ(gl->getRotationQuat(), startQ)
+              && gl->objectPosition() == QVector3D(1.0f, 0.5f, 0.0f),
+          QStringLiteral("RESET della scena: camera d'apertura, oggetto all'orientamento d'apertura, posizione invariata"));
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()

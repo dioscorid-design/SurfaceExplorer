@@ -247,6 +247,8 @@ private:
     void runSceneMasterScenarios();
     // 2.0: Save e Load di una scena vera (path, oggetti RM e parametrici).
     void runSceneSaveLoadScenarios();
+    // 2.0: il RESET dell'oggetto selezionato e quello di tutta la scena.
+    void runSceneResetScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
     // accesi i comandi del dock RENDERER. Il Run lo sganciava solo per le

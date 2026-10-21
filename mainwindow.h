@@ -273,6 +273,17 @@ private slots:
     // prima di un eventuale reset della vista, che a path fermo gliela toglie.
     void resetMotions(std::optional<CameraPaths::Path> camPath);
     void resetMotions() { resetMotions(cameraPath()); }
+    // IL RESET DI UN OGGETTO della scena (selezionato, non l'ambiente): solo
+    // lui, alla sua posa d'apertura. Placement = posizione e scala (il suo
+    // "zoom"); Motions = orientamento, orologi, flusso geodetico. Path, camera
+    // e gli altri oggetti restano.
+    void resetSelectedObject();
+    void resetObjectPlacement();
+    void resetObjectMotions();
+    void captureObjectStartPose();
+    // Il flusso geodetico di un oggetto non selezionato al suo tempo (dalla
+    // sessione): il passo di advanceGeodesicObjectsBy, e il RESET della scena.
+    bool updateGeodesicObject(int index);
     // Il path che ha la camera: quello in corsa, o l'ultimo partito se la
     // camera lo segue ancora da fermo (la modalita' path persiste dopo lo stop).
     std::optional<CameraPaths::Path> cameraPath() const;
@@ -1708,6 +1719,11 @@ private:
         // advanceGeodesicObjectsBy; alla selezione torna a m_geoTime e al timer.
         double geoTime = 0.0;
         bool geoAnimating = false;
+        // POSA D'APERTURA dell'oggetto (aggiunto, duplicato, scena aperta): a
+        // questa lo riporta il RESET (captureObjectStartPose).
+        GLWidget::Orientation startOrientation;
+        QVector3D startPosition;
+        float startScale = 1.0f;
         // I SUOI MODULI PER IL MASTER, quando lo si e' lasciato (masterActivity
         // dell'oggetto in quel momento): finche' non e' selezionato non
         // cambiano, tranne il flusso geodetico (fromGeo: il suo moto e'

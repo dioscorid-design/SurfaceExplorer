@@ -5353,15 +5353,50 @@ void GLWidget::resetFraming(const Framing &f)
 
 void GLWidget::resetOrientation(const Orientation &o)
 {
-    m_obj->precession = 0.0f;
-    m_obj->nutation = 0.0f;
-    m_obj->spin = 0.0f;
+    setObjectOrientation(selectedObject(), o);
+}
 
-    m_obj->rotationQuat = o.rotation;
-    setShownAngles4D(*m_obj, o.omega, o.phi, o.psi);
-    m_obj->userRotatedManually = o.userRotated;
+GLWidget::Orientation GLWidget::objectOrientation(int index) const
+{
+    Orientation o;
+    if (index < 0 || index >= int(m_objects.size())) return o;
+    const SurfaceObject &obj = *m_objects[index];
+    o.rotation = obj.rotationQuat;
+    const QVector3D angles = shownAngles4D(obj);
+    o.omega = angles.x();
+    o.phi = angles.y();
+    o.psi = angles.z();
+    o.userRotated = obj.userRotatedManually;
+    return o;
+}
 
-    m_obj->meshNeedsUpdate = true;
+void GLWidget::setObjectOrientation(int index, const Orientation &o)
+{
+    if (index < 0 || index >= int(m_objects.size())) return;
+    SurfaceObject &obj = *m_objects[index];
+    obj.precession = 0.0f;
+    obj.nutation = 0.0f;
+    obj.spin = 0.0f;
+
+    obj.rotationQuat = o.rotation;
+    setShownAngles4D(obj, o.omega, o.phi, o.psi);
+    obj.userRotatedManually = o.userRotated;
+
+    obj.meshNeedsUpdate = true;
+    update();
+}
+
+void GLWidget::resetObjectClocks(int index)
+{
+    if (index < 0 || index >= int(m_objects.size())) return;
+    SurfaceObject &o = *m_objects[index];
+    o.timeGeom = 0.0f;
+    o.timeTex = 0.0f;
+    if (o.engine) {
+        for (MeshPart &mp : o.engine->mutableMeshParts())
+            mp.timeTex = 0.0f;
+    }
+    o.borderTimeTex = 0.0f;
     update();
 }
 

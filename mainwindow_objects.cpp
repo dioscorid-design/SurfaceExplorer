@@ -137,31 +137,38 @@ void MainWindow::advanceGeodesicObjectsBy(double dtSeconds)
     for (int k = 0; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k) {
         ObjectSession &s = m_objectSessions[k];
         if (k == selected || !s.geoAnimating) continue;
-        SurfaceEngine *engine = gl->objectEngine(k);
-        if (!engine) continue;
         // La stessa velocita' del selezionato (advanceGeodesicFlowBy): 0.015
         // unita' per tick nominale di 16 ms.
         s.geoTime += 0.015 * (dtSeconds * 1000.0 / 16.0);
-        // Gli ingressi APPLICATI, come fa il selezionato a moto in corso: le
-        // equazioni dell'ultimo Run, il dominio e le costanti del suo motore.
-        const EquationTexts &eq = s.eqApplied ? *s.eqApplied : s.state.eq;
-        GeodesicInputs in;
-        in.x = eq.x; in.y = eq.y; in.z = eq.z; in.p = eq.p;
-        in.u = eq.geoU; in.v = eq.geoV; in.w = eq.geoW;
-        in.du = eq.geoDU; in.dv = eq.geoDV; in.dw = eq.geoDW;
-        in.conform = eq.conform;
-        in.metric = s.metricScriptBody;
-        in.uMin = engine->getUMin(); in.uMax = engine->getUMax();
-        in.vMin = engine->getVMin(); in.vMax = engine->getVMax();
-        in.steps = std::min(s.state.steps, 500);
-        in.constants = gl->objectConstants(k);
-        QString error;
         // Un errore ferma il SUO flusso, in silenzio: i popup sono dell'oggetto
         // selezionato, e riselezionandolo il Run lo rimette in moto.
-        if (computeGeodesicMesh(k, in, s.geoTime, &error) != GeoMeshResult::Ok)
-            s.geoAnimating = false;
+        if (!updateGeodesicObject(k)) s.geoAnimating = false;
     }
     syncGeodesicObjectsTimer();
+}
+
+bool MainWindow::updateGeodesicObject(int k)
+{
+    GLWidget *gl = ui->glWidget;
+    if (!gl || k < 0 || k >= gl->objectCount() || k >= int(m_objectSessions.size())) return false;
+    SurfaceEngine *engine = gl->objectEngine(k);
+    if (!engine) return false;
+    const ObjectSession &s = m_objectSessions[k];
+    // Gli ingressi APPLICATI, come fa il selezionato a moto in corso: le
+    // equazioni dell'ultimo Run, il dominio e le costanti del suo motore.
+    const EquationTexts &eq = s.eqApplied ? *s.eqApplied : s.state.eq;
+    GeodesicInputs in;
+    in.x = eq.x; in.y = eq.y; in.z = eq.z; in.p = eq.p;
+    in.u = eq.geoU; in.v = eq.geoV; in.w = eq.geoW;
+    in.du = eq.geoDU; in.dv = eq.geoDV; in.dw = eq.geoDW;
+    in.conform = eq.conform;
+    in.metric = s.metricScriptBody;
+    in.uMin = engine->getUMin(); in.uMax = engine->getUMax();
+    in.vMin = engine->getVMin(); in.vMax = engine->getVMax();
+    in.steps = std::min(s.state.steps, 500);
+    in.constants = gl->objectConstants(k);
+    QString error;
+    return computeGeodesicMesh(k, in, s.geoTime, &error) == GeoMeshResult::Ok;
 }
 
 void MainWindow::syncGeodesicObjectsTimer()
@@ -351,6 +358,7 @@ void MainWindow::addShapeToScene(const QString &shapePath)
     }
     const int index = addPresetAsObject(*d, uniqueObjectName(d->name));
     ui->glWidget->setObjectPosition(QVector3D(2.5f * float(index), 0.0f, 0.0f));
+    captureObjectStartPose();   // la posa a cui lo riporta il RESET
     m_sceneObjectsChanged = true;
     refreshObjectsUi();
 }
@@ -388,6 +396,7 @@ bool MainWindow::loadSceneFile(const QString &path)
                                         float(p.at(2).toDouble())));
         gl->setObjectScale(float(o.value(QStringLiteral("scale")).toDouble(1.0)));
         applyObjectMotion(o.value(QStringLiteral("motion")).toObject());
+        captureObjectStartPose();
     }
     selectSceneObject(0);
     // Il momento pulito: la scena e' quella del file (come a fine load).
@@ -658,6 +667,7 @@ void MainWindow::duplicateSceneObject(int index)
     gl->setObjectPosition(pos + QVector3D(0.5f, 0.5f, 0.0f));
     gl->setObjectScale(scale);
     applyObjectMotion(motion);
+    captureObjectStartPose();
     m_sceneObjectsChanged = true;
     refreshObjectsUi();
 }

@@ -1022,6 +1022,13 @@ public:
     // corsa si riprende la camera al suo tick.
     void resetFraming(const Framing &f);
     void resetOrientation(const Orientation &o);
+    // Di un oggetto qualunque della scena (2.0): il RESET di tutta la scena
+    // rimette ogni oggetto alla sua posa d'apertura senza selezionarlo.
+    Orientation objectOrientation(int index) const;
+    void setObjectOrientation(int index, const Orientation &o);
+    // Gli orologi di UN oggetto all'origine (geometria, texture, fasce, bordo):
+    // il RESET dell'oggetto selezionato. resetAllClocks e' quello della scena.
+    void resetObjectClocks(int index);
     void virtualMove(MoveDir dir, float speed3D, float speed4D);
 
     QVector3D getCameraPos() const { return m_cameraPos; }
