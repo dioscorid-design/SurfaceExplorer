@@ -6435,45 +6435,50 @@ void ScenarioTest::runSceneResetScenarios()
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== RESET dell'oggetto selezionato e di tutta la scena =="));
     if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    const QVector3D startCam = gl->getCameraPos();
     QString spherePath;
     for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
         if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json")))
             spherePath = it.filePath;
     m_mw->addShapeToScene(spherePath);
     wait(400);
-    const QVector3D startPos = gl->objectPosition();
     const QQuaternion startQ = gl->getRotationQuat();
     auto sameQ = [](const QQuaternion &a, const QQuaternion &b) {
         return std::abs(QQuaternion::dotProduct(a, b)) > 0.99999f;
     };
 
     // L'oggetto spostato, scalato, ruotato e con una rotazione in corso.
-    gl->setObjectPosition(QVector3D(1.0f, 0.5f, 0.0f));
+    const QVector3D movedPos(1.0f, 0.5f, 0.0f);
+    gl->setObjectPosition(movedPos);
     gl->setObjectScale(2.0f);
     gl->addObjectRotation(40.0f, 10.0f, 0.0f);
     gl->setSpinSpeed(0.5f);
     m_mw->onStopClicked();
     m_mw->selectSceneObject(0);
     gl->zoomCamera(1.5f);                       // la camera dell'ambiente si avvicina
+    m_mw->applyCameraFov(70.0f);                // e allarga il campo visivo
     const QVector3D zoomedCam = gl->getCameraPos();
     m_mw->selectSceneObject(1);
     wait(200);
 
-    // RESET DELL'OGGETTO: solo lui, alla sua posa d'apertura.
-    m_popupAnswer = QStringLiteral("Both");
+    // RESET DELL'OGGETTO: solo i suoi moti, senza domande. Posizione, scala e
+    // camera sono della scena e restano.
+    m_lastPopup.clear();
     m_mw->onResetClicked();
     // Subito: col GO acceso l'oggetto riprende a ruotare dalla posa d'apertura.
     const QQuaternion qReset = gl->getRotationQuat();
-    check(gl->objectPosition() == startPos && std::abs(gl->objectScale() - 1.0f) < 1e-6f
-              && sameQ(qReset, startQ) && gl->getCameraPos() == zoomedCam,
-          QStringLiteral("RESET dell'oggetto: posizione, scala e orientamento d'apertura; la camera resta"));
+    check(m_lastPopup.isEmpty() && sameQ(qReset, startQ),
+          QStringLiteral("RESET dell'oggetto: orientamento d'apertura, senza popup%1")
+              .arg(m_lastPopup.isEmpty() ? QString() : QStringLiteral(" (popup: ") + m_lastPopup + QLatin1Char(')')));
+    check(gl->objectPosition() == movedPos && std::abs(gl->objectScale() - 2.0f) < 1e-6f
+              && gl->getCameraPos() == zoomedCam,
+          QStringLiteral("e posizione, scala e camera restano"));
     wait(300);
-    check(gl->isAnimating(), QStringLiteral("e la sua rotazione continua (le velocita' restano)"));
+    check(gl->isAnimating(), QStringLiteral("la sua rotazione continua (le velocita' restano)"));
     m_mw->onStopClicked();
 
-    // RESET DELLA SCENA (ambiente selezionato): camera e orientamento di tutti,
-    // non le posizioni degli oggetti.
-    gl->setObjectPosition(QVector3D(1.0f, 0.5f, 0.0f));
+    // RESET DELLA SCENA (ambiente selezionato): camera d'apertura col FOV di
+    // adesso, orientamento d'apertura di tutti, posizioni degli oggetti invariate.
     gl->addObjectRotation(30.0f, 0.0f, 0.0f);
     m_mw->selectSceneObject(0);
     wait(200);
@@ -6482,11 +6487,13 @@ void ScenarioTest::runSceneResetScenarios()
     wait(300);
     m_popupAnswer.clear();
     const QVector3D camAfter = gl->getCameraPos();
+    const float fovAfter = gl->cameraFov();
     m_mw->selectSceneObject(1);
     wait(100);
-    check(camAfter != zoomedCam && sameQ(gl->getRotationQuat(), startQ)
-              && gl->objectPosition() == QVector3D(1.0f, 0.5f, 0.0f),
-          QStringLiteral("RESET della scena: camera d'apertura, oggetto all'orientamento d'apertura, posizione invariata"));
+    check(camAfter == startCam && std::abs(fovAfter - 70.0f) < 1e-3f,
+          QStringLiteral("RESET della scena: camera d'apertura, FOV invariato (%1)").arg(fovAfter));
+    check(sameQ(gl->getRotationQuat(), startQ) && gl->objectPosition() == movedPos,
+          QStringLiteral("e l'oggetto all'orientamento d'apertura, nella sua posizione"));
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()

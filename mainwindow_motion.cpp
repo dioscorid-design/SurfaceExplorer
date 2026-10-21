@@ -319,9 +319,11 @@ void MainWindow::onResetClicked()
     box.setIcon(QMessageBox::Question);
     box.setWindowTitle("Reset");
     box.setText("What do you want to reset?");
-    box.setInformativeText(QString("View: camera, zoom and field of view.\n"
-                                   "Motions: rotations, camera paths and everything that moves "
-                                   "with t go back to the start.")
+    const bool scene = ui->glWidget && ui->glWidget->objectCount() > 1;
+    box.setInformativeText(QString(scene ? "View: camera and zoom (the field of view stays).\n"
+                                         : "View: camera, zoom and field of view.\n")
+                           + QString("Motions: rotations, camera paths and everything that moves "
+                                     "with t go back to the start.")
                            + (pathMoving ? QString("\n\nA camera path is running: the view follows it.") : QString()));
     QPushButton *viewBtn   = box.addButton("View",    QMessageBox::ActionRole);
     QPushButton *motionBtn = box.addButton("Motions", QMessageBox::ActionRole);
@@ -370,7 +372,11 @@ void MainWindow::resetView()
         if (pathRunning(p)) m_paths->applyCameraAt(p, m_paths->time(p));
 
     // Il FOV della scena, slider compreso: anche lui e' uno zoom.
-    applyCameraFov(m_startFov);
+    // Il CAMPO VISIVO d'apertura solo con una superficie sola (come dalla
+    // 1.4). In una scena il RESET dell'ambiente rimette la posizione della
+    // camera e lascia il FOV: quello d'apertura, piu' stretto, lasciava gli
+    // oggetti fuori campo (segnalato dall'utente, 2026-10-21).
+    if (!ui->glWidget || ui->glWidget->objectCount() <= 1) applyCameraFov(m_startFov);
 
     // Aggiorna in sicurezza la mesh. useAppliedEquations: il ripristino della
     // vista non e' un Run e non deve applicare equazioni in sospeso.
@@ -438,21 +444,7 @@ void MainWindow::captureObjectStartPose()
     GLWidget *gl = ui->glWidget;
     const int k = gl ? gl->selectedObject() : 0;
     if (k <= 0 || k >= int(m_objectSessions.size())) return;
-    ObjectSession &s = m_objectSessions[k];
-    s.startOrientation = gl->orientation();
-    s.startPosition = gl->objectPosition();
-    s.startScale = gl->objectScale();
-}
-
-void MainWindow::resetObjectPlacement()
-{
-    GLWidget *gl = ui->glWidget;
-    const int k = gl->selectedObject();
-    if (k <= 0 || k >= int(m_objectSessions.size())) return;
-    const ObjectSession &s = m_objectSessions[k];
-    gl->setObjectPosition(s.startPosition);
-    gl->setObjectScale(s.startScale);
-    refreshObjectsUi();
+    m_objectSessions[k].startOrientation = gl->orientation();
 }
 
 void MainWindow::resetObjectMotions()
@@ -470,34 +462,9 @@ void MainWindow::resetObjectMotions()
 
 void MainWindow::resetSelectedObject()
 {
-    // Come il RESET della scena: si chiede solo se c'e' qualcosa che si muove
-    // (rotazioni, geometria o texture con t, flusso geodetico).
-    const MasterActivity act = masterActivity();
-    const bool moves = act.eqAvailable || act.eqRunning || act.texAvailable
-                       || act.borderAvailable || act.rotationAvailable;
-    if (!moves) {
-        resetObjectPlacement();
-        resetObjectMotions();
-        return;
-    }
-    QMessageBox box(this);
-    box.setIcon(QMessageBox::Question);
-    box.setWindowTitle("Reset");
-    box.setText("What do you want to reset in the selected object?");
-    box.setInformativeText("Placement: position and scale.\n"
-                           "Motions: rotations and everything that moves with t go back to the start.\n\n"
-                           "The camera, the paths and the other objects stay as they are "
-                           "(to reset the whole scene, select the environment).");
-    QPushButton *placeBtn  = box.addButton("Placement", QMessageBox::ActionRole);
-    QPushButton *motionBtn = box.addButton("Motions",   QMessageBox::ActionRole);
-    QPushButton *bothBtn   = box.addButton("Both",      QMessageBox::AcceptRole);
-    box.addButton("Cancel", QMessageBox::RejectRole);
-    box.setDefaultButton(bothBtn);
-    UiStyleManager::widenMessageBoxButtons(&box, 108);
-    box.exec();
-    const QAbstractButton *choice = box.clickedButton();
-    if (choice == placeBtn  || choice == bothBtn) resetObjectPlacement();
-    if (choice == motionBtn || choice == bothBtn) resetObjectMotions();
+    // Solo i moti: la vista (camera, zoom) e' della scena, e l'oggetto ci sta
+    // dentro. Nessuna domanda: c'e' una sola cosa da rimettere.
+    resetObjectMotions();
 }
 
 void MainWindow::onNavTimerTick()
