@@ -1080,7 +1080,17 @@ public:
     // ==========================================================
     // ANIMATION & MOTION CONTROL
     // ==========================================================
+    // L'AMBIENTE DI UNA SCENA NON RUOTA (decisione dell'utente, 2026-10-21): con
+    // oggetti nella scena si muove solo coi path. Una superficie che ruota e'
+    // un oggetto; per girare tutto l'ambiente si definisce un path. Vero con
+    // l'ambiente selezionato e almeno un oggetto: trascinamento, GO e tasti a
+    // scatto delle rotazioni 4D non fanno nulla. Con un oggetto solo (la
+    // modalita' Superficie) tutto come in 1.x.
+    bool environmentRotationLocked() const {
+        return m_objects.size() > 1 && m_obj == m_objects.front().get();
+    }
     void addObjectRotation(float dPrecession, float dNutation, float dSpin) {
+        if (environmentRotationLocked()) return;
         addObjectRotation(*m_obj, dPrecession, dNutation, dSpin);
     }
     void addObjectRotation(SurfaceObject &o, float dPrecession, float dNutation, float dSpin);

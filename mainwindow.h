@@ -1763,6 +1763,13 @@ private:
     QJsonObject objectMotionJson() const;
     // La scena e' 4D se l'ambiente parametrico ha la P 4D (vedi addShapeToScene).
     bool sceneIs4D() const;
+    // I TASTI DELLE ROTAZIONI con l'ambiente di una scena selezionato
+    // (GLWidget::environmentRotationLocked): GO, velocita' 3D e 4D, rotazioni 4D
+    // a scatto spenti. Chiamata in coda a chi li accende (updateRenderState,
+    // setNavControlsEnabled) e a ogni cambio di oggetto selezionato o di numero
+    // di oggetti; all'uscita dal blocco li riaccende con le condizioni di sempre.
+    void updateEnvironmentRotationGate();
+    bool m_environmentRotationGated = false;
     // Lo stato dell'AMBIENTE (oggetto 0): m_scene se e' selezionato, altrimenti
     // la sua sessione. Serve a cio' che e' suo anche con un altro oggetto
     // selezionato: i path, il tipo di scena.

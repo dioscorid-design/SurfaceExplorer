@@ -848,6 +848,10 @@ void MainWindow::updateViewButtonsEnabled()
 
 void MainWindow::setNavControlsEnabled(bool enabled)
 {
+    // In coda, qualunque ramo esca: le rotazioni dell'ambiente di una scena
+    // restano spente (updateEnvironmentRotationGate).
+    struct GateAfter { MainWindow *mw; ~GateAfter() { mw->updateEnvironmentRotationGate(); } } gateAfter{this};
+
     // Tasti di spostamento a click dei dock 3D/4D (X±, Y±, left/right, roll, ...).
     for (QPushButton* btn : m_navButtons) {
         if (btn) btn->setEnabled(enabled);
@@ -964,6 +968,9 @@ void MainWindow::setupSpeedControl(QPushButton* btnPlus, QPushButton* btnMinus,
     disconnect(btnMinus, &QPushButton::clicked, nullptr, nullptr);
 
     auto changeVal = [this, getter, setter](int direction) {
+        // L'ambiente di una scena non ruota (i tasti sono spenti; questa e' la
+        // rete se qualcuno li riaccende).
+        if (ui->glWidget && ui->glWidget->environmentRotationLocked()) return;
         // Usiamo un passo di 0.1
         float step = 0.1f;
 

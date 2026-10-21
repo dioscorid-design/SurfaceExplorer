@@ -178,6 +178,13 @@ void MainWindow::syncGeodesicObjectsTimer()
 
 int MainWindow::addSceneObject(const QString &name)
 {
+    // Il primo oggetto fa dell'ambiente l'ambiente di una scena, che non ruota:
+    // le sue rotazioni si fermano, e non sono piu' il moto da riavviare.
+    if (ui->glWidget->objectCount() == 1) {
+        ui->glWidget->setObjectRotating(0, false);
+        if (m_scene.lastCameraMotion == QLatin1String("rotation")) m_scene.lastCameraMotion.clear();
+        if (ui->btnStart_2) ui->btnStart_2->setText("GO");
+    }
     const int index = ui->glWidget->addObject();
     m_objectSessions.resize(index + 1);
     m_objectSessions[index].name = name;
@@ -266,6 +273,39 @@ const ObjectState &MainWindow::environmentState() const
     if (ui->glWidget->selectedObject() == 0 || m_objectSessions.empty())
         return static_cast<const ObjectState &>(m_scene);
     return m_objectSessions[0].state;
+}
+
+void MainWindow::updateEnvironmentRotationGate()
+{
+    GLWidget *gl = ui->glWidget;
+    if (!gl) return;
+    const QList<QPushButton *> rotation3D = {
+        ui->btnStart_2,
+        ui->btnPrecessionPlus, ui->btnPrecessionMinus,
+        ui->btnNutationPlus, ui->btnNutationMinus,
+        ui->btnSpinPlus, ui->btnSpinMinus };
+    const QList<QPushButton *> rotation4D = {
+        ui->btnOmegaPlus, ui->btnOmegaMinus, ui->btnPhiPlus, ui->btnPhiMinus,
+        ui->btnPsiPlus, ui->btnPsiMinus,
+        ui->btnOmegaAhead, ui->btnOmegaRear, ui->btnPhiAhead, ui->btnPhiRear,
+        ui->btnPsiAhead, ui->btnPsiRear };
+    if (gl->environmentRotationLocked()) {
+        for (QPushButton *b : rotation3D) if (b) b->setEnabled(false);
+        for (QPushButton *b : rotation4D) if (b) b->setEnabled(false);
+        m_environmentRotationGated = true;
+        return;
+    }
+    if (!m_environmentRotationGated) return;
+    // Uscita dal blocco: le condizioni di sempre. Le velocita' 3D e GO non hanno
+    // altre condizioni; le velocita' 4D quella di updateRenderState; i tasti a
+    // scatto quelle dei tasti di navigazione (path in corsa, modalita').
+    m_environmentRotationGated = false;
+    for (QPushButton *b : rotation3D) if (b) b->setEnabled(true);
+    const bool rot4DUsable = !implicitMode() || crossSectionTab();
+    for (QPushButton *b : { ui->btnOmegaPlus, ui->btnOmegaMinus, ui->btnPhiPlus,
+                            ui->btnPhiMinus, ui->btnPsiPlus, ui->btnPsiMinus })
+        if (b) b->setEnabled(rot4DUsable);
+    updateViewButtonsEnabled();
 }
 
 bool MainWindow::sceneIs4D() const
@@ -417,6 +457,7 @@ void MainWindow::showSelectedObject()
     refreshRotationSpeedLabels();
     // Il GO e' dell'oggetto: il tasto dice se ruota QUESTO.
     if (ui->btnStart_2) ui->btnStart_2->setText(gl->isAnimating() ? "STOP" : "GO");
+    updateEnvironmentRotationGate();
 
     // COSTANTI, SCRIPT, LIBRARY, PULSANTI.
     refreshConstantSliders();
@@ -525,6 +566,9 @@ void MainWindow::refreshObjectsUi()
         m_btnObjectSelector->setText(QStringLiteral("%1/%2 %3").arg(selected + 1).arg(n).arg(name));
     }
     m_refreshingObjects = false;
+    // Il numero di oggetti o il selezionato possono essere cambiati: le
+    // rotazioni dell'ambiente si spengono o si riaccendono.
+    updateEnvironmentRotationGate();
 }
 
 void MainWindow::selectSceneObjectFromUi(int index)

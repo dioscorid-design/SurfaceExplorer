@@ -5732,15 +5732,26 @@ void ScenarioTest::runSceneMotionScenarios()
     wait(300);
     check(qFuzzyCompare(envQ1, gl->getRotationQuat()),
           QStringLiteral("la rotazione dell'oggetto non muove l'ambiente"));
-    // Il GO dell'AMBIENTE e' un moto della camera: ferma il path, come in 1.x.
+    // L'AMBIENTE DI UNA SCENA NON RUOTA (decisione dell'utente, 2026-10-21):
+    // GO, velocita', tasti a scatto e trascinamento non fanno nulla.
+    check(!m_mw->ui->btnStart_2->isEnabled() && !m_mw->ui->btnPrecessionPlus->isEnabled()
+              && !m_mw->ui->btnOmegaPlus->isEnabled() && !m_mw->ui->btnOmegaAhead->isEnabled(),
+          QStringLiteral("ambiente di una scena: i tasti delle rotazioni sono spenti"));
     m_mw->onStopClicked();
+    const QQuaternion envQ2 = gl->getRotationQuat();
+    const float envOmega = gl->getOmega();
+    gl->addObjectRotation(30.0f, 20.0f, 0.0f);            // come il trascinamento
+    gl->virtualMove(GLWidget::RotOmegaPos, 0.05f, 0.05f);  // come il tasto a scatto
     wait(200);
-    check(gl->isObjectRotating(0) && !m_mw->pathRunning(CameraPaths::Path4D) && gl->isObjectRotating(1),
-          QStringLiteral("GO dell'ambiente: ferma il path, l'oggetto continua"));
-    m_mw->onDepartureClicked();
-    wait(200);
-    check(!gl->isObjectRotating(0) && m_mw->pathRunning(CameraPaths::Path4D) && gl->isObjectRotating(1),
-          QStringLiteral("Departure: ferma le rotazioni dell'ambiente, non quelle dell'oggetto"));
+    check(!gl->isObjectRotating(0) && m_mw->pathRunning(CameraPaths::Path4D) && gl->isObjectRotating(1)
+              && qFuzzyCompare(envQ2, gl->getRotationQuat()) && envOmega == gl->getOmega(),
+          QStringLiteral("GO, trascinamento e scatto 4D sull'ambiente: niente, il path continua"));
+    m_mw->selectSceneObject(1);
+    wait(100);
+    check(m_mw->ui->btnStart_2->isEnabled() && m_mw->ui->btnPrecessionPlus->isEnabled(),
+          QStringLiteral("selezionato l'oggetto: i tasti delle rotazioni si riaccendono"));
+    m_mw->selectSceneObject(0);
+    wait(100);
 
     // RECORDER: stessa funzione del tick, solo chi ha il GO acceso.
     {
@@ -5805,6 +5816,25 @@ void ScenarioTest::runSceneMotionScenarios()
     m_mw->removeSceneObject(1);
     wait(200);
     check(!gl->anyObjectRotating(), QStringLiteral("tolto l'oggetto: il tick delle rotazioni si ferma"));
+
+    // UN RECORD CHE RUOTA, POI UN OGGETTO: l'ambiente si ferma; tolto l'oggetto
+    // (modalita' Superficie) le sue rotazioni tornano disponibili.
+    if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Wireframes/Pseudo-Iwasawa Torus.json"))) {
+        check(gl->isObjectRotating(0), QStringLiteral("record con rotazioni: l'ambiente ruota"));
+        m_mw->addShapeToScene(torusPath);
+        wait(500);
+        check(!gl->isObjectRotating(0) && m_mw->m_scene.lastCameraMotion != QLatin1String("rotation"),
+              QStringLiteral("aggiunto un oggetto: le rotazioni dell'ambiente si fermano"));
+        m_mw->removeSceneObject(1);
+        wait(200);
+        check(gl->objectCount() == 1 && m_mw->ui->btnStart_2->isEnabled()
+                  && m_mw->ui->btnPrecessionPlus->isEnabled() && m_mw->ui->btnOmegaAhead->isEnabled(),
+              QStringLiteral("tolto l'oggetto: i tasti delle rotazioni tornano accesi"));
+        m_mw->onStopClicked();
+        wait(200);
+        check(gl->isObjectRotating(0), QStringLiteral("e il GO dell'ambiente lo fa ruotare di nuovo"));
+        m_mw->onStopClicked();
+    }
 }
 
 void ScenarioTest::runSceneDepthScenarios()
