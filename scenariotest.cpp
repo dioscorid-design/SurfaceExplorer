@@ -6229,7 +6229,11 @@ void ScenarioTest::runSceneGeodesicScenarios()
           QStringLiteral("Add to Scene di un flusso geodetico: oggetto aggiunto, flusso calcolato%1")
               .arg(m_lastPopup.isEmpty() ? QString() : QStringLiteral(" (popup: ") + m_lastPopup + QLatin1Char(')')));
     const QImage withFlow = gl->grabFramebuffer();
-    check(diffFraction(torusAlone, withFlow) > 0.01, QStringLiteral("il flusso si vede accanto al toro"));
+    torusAlone.save(m_outDir + QStringLiteral("/scene-geodesic-torus.png"));
+    withFlow.save(m_outDir + QStringLiteral("/scene-geodesic-with-flow.png"));
+    const double flowDiff = diffFraction(torusAlone, withFlow);
+    check(flowDiff > 0.01, QStringLiteral("il flusso si vede accanto al toro (%1% di pixel diversi, oggetti %2)")
+                               .arg(flowDiff * 100.0, 0, 'f', 2).arg(gl->objectCount()));
     m_mw->selectSceneObject(0);
     wait(300);
     m_mw->selectSceneObject(1);
@@ -7468,7 +7472,7 @@ void ScenarioTest::runLibraryRenameScenarios()
               QStringLiteral("Cut Scene: la scena negli appunti (%1)").arg(m_mw->m_cutFilePaths.join(QStringLiteral(", "))));
 
         // DRAG AND DROP della scena su una cartella: il file ci si sposta. Il
-        // drop come lo riceve il filtro del viewport, al centro della cartella.
+        // drop al centro della cartella.
         const QString destDir = root + QStringLiteral("/Routes/Dest");
         QDir().mkpath(destDir);
         auto *folder = new QTreeWidgetItem(&tree);
@@ -7482,8 +7486,10 @@ void ScenarioTest::runLibraryRenameScenarios()
         const QPointF at = QRectF(tree.visualItemRect(folder)).center();
         QMimeData mime;
         QDropEvent drop(at, Qt::MoveAction, &mime, Qt::LeftButton, Qt::NoModifier);
-        tree.viewport()->installEventFilter(m_mw->m_dragDropHandler);
-        QCoreApplication::sendEvent(tree.viewport(), &drop);
+        // Direttamente al filtro del gestore (come lo chiama Qt per il viewport
+        // di un albero della Library): un drop sintetico mandato al widget Qt
+        // non lo consegna, fuori da un trascinamento vero.
+        static_cast<QObject *>(m_mw->m_dragDropHandler)->eventFilter(tree.viewport(), &drop);
         wait(300);
         check(QFile::exists(destDir + QStringLiteral("/s.json")) && !QFile::exists(scenePath),
               QStringLiteral("drag and drop della scena su una cartella: spostata"));
@@ -7570,7 +7576,15 @@ void ScenarioTest::runLibraryFolderScenarios()
     m_lines.append(QStringLiteral("== Library: aprire e chiudere una cartella non sposta il focus =="));
 
     // Clic VERI sul viewport: la selezione la fa Qt al press, come per l'utente,
-    // quindi l'albero dev'essere a schermo.
+    // quindi l'albero dev'essere a schermo. All'uscita (anche anticipata) il
+    // dock torna com'era: lasciato aperto stringeva la vista 3D delle sezioni
+    // dopo, e un oggetto della scena accanto all'ambiente usciva dalla foto
+    // (scene-geodesic, "il flusso si vede accanto al toro").
+    struct DockGuard {
+        QDockWidget *dock;
+        bool wasVisible;
+        ~DockGuard() { if (!wasVisible) dock->hide(); }
+    } dockGuard{ ui->dockSurfaces, ui->dockSurfaces->isVisible() };
     ui->dockSurfaces->show();
     ui->dockSurfaces->raise();
     ui->tabWidget->setCurrentWidget(ui->Surface);
