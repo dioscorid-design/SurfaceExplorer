@@ -6470,6 +6470,46 @@ void ScenarioTest::runSceneSaveLoadScenarios()
             gl->setClocksDrivenByRecorder(false);
         }
     }
+
+    // 3. AMBIENTE VUOTO (NEW, poi un oggetto: la scena col solo sfondo). Si
+    // riapre senza popup, con l'ambiente vuoto e l'oggetto: il Run del load
+    // validava le equazioni vuote ("exactly 2 or 3 valid spatial variables")
+    // e la scena si apriva lo stesso. Lo stesso ambiente aperto come record
+    // da solo da' la scena vuota di NEW, controlli spenti compresi.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Save e Load di una scena con l'ambiente vuoto =="));
+    if (loadSurface(kTorus)) {
+        m_discardOnPrompt = true;
+        m_mw->onNewSceneClicked();
+        m_discardOnPrompt = false;
+        wait(500);
+        m_mw->addShapeToScene(libraryPath(kTorus));
+        wait(600);
+        m_mw->selectSceneObject(0);
+        wait(200);
+        m_lastPopup.clear();
+        if (saveAndReload(QStringLiteral("scene-saveload-empty-env.json"))) {
+            check(m_lastPopup.isEmpty() && gl->objectCount() == 2 && gl->selectedObject() == 0 && m_mw->isSceneEmpty(),
+                  QStringLiteral("ambiente vuoto: riaperta senza popup, ambiente vuoto e l'oggetto (oggetti %1, vuota %2%3)")
+                      .arg(gl->objectCount()).arg(m_mw->isSceneEmpty())
+                      .arg(m_lastPopup.isEmpty() ? QString() : QStringLiteral(", popup: ") + m_lastPopup));
+            QFile f(m_outDir + QStringLiteral("/scene-saveload-empty-env.json"));
+            LibraryItem env;
+            if (f.open(QIODevice::ReadOnly)) {
+                LibraryManager lm;
+                env = lm.parseJsonObject(QJsonDocument::fromJson(f.readAll()).object()
+                                             .value(QStringLiteral("environment")).toObject(),
+                                         LibraryType::Motion, f.fileName());
+            }
+            m_lastPopup.clear();
+            m_mw->applyMotionExample(env);
+            wait(800);
+            check(m_lastPopup.isEmpty() && gl->objectCount() == 1 && m_mw->isSceneEmpty() && m_mw->m_emptySceneGated,
+                  QStringLiteral("l'ambiente vuoto aperto come record: la scena vuota di NEW, senza popup (vuota %1, controlli spenti %2%3)")
+                      .arg(m_mw->isSceneEmpty()).arg(m_mw->m_emptySceneGated)
+                      .arg(m_lastPopup.isEmpty() ? QString() : QStringLiteral(", popup: ") + m_lastPopup));
+        }
+    }
 }
 
 void ScenarioTest::runSceneResetScenarios()
@@ -6996,6 +7036,65 @@ void ScenarioTest::runShapeBackgroundScenarios()
                   QStringLiteral("poi una Shape senza colore di sfondo -> grigio di default (%1)")
                       .arg(m_mw->m_scene.bgColor.name()));
     }
+
+    // NIENTE DA SALVARE, e la texture dello SFONDO coi SUOI colori. Da una
+    // scena vuota la Shape si scriveva con le equazioni vuote (riaperta, il
+    // Run del load mostrava un popup); dallo sfondo di default la texture si
+    // scriveva col segnaposto "// Texture Preset" (riaperta, il gradiente di
+    // ripiego); e la texture di sfondo prendeva i colori della superficie.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Save: niente da salvare; la texture dello sfondo coi suoi colori =="));
+    Ui::MainWindow *ui = m_mw->ui;
+    auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
+    m_discardOnPrompt = true;
+    m_mw->onNewSceneClicked();
+    m_discardOnPrompt = false;
+    wait(500);
+    const QString emptyShape = m_outDir + QStringLiteral("/empty-shape.json");
+    QFile::remove(emptyShape);
+    m_lastPopup.clear();
+    m_mw->m_presetSerializer->saveSurface(emptyShape);
+    wait(300);
+    check(!QFile::exists(emptyShape) && m_lastPopup.contains(QLatin1String("no surface")),
+          QStringLiteral("scena vuota -> Save Shape rifiutato (%1)").arg(m_lastPopup));
+    click(ui->radioBackground);
+    if (!ui->chkBoxTexture->isChecked()) click(ui->chkBoxTexture);   // lo sfondo di default
+    const QString defaultBg = m_outDir + QStringLiteral("/default-background.json");
+    QFile::remove(defaultBg);
+    m_lastPopup.clear();
+    m_mw->m_presetSerializer->saveTexture(defaultBg);
+    wait(300);
+    check(!QFile::exists(defaultBg) && m_lastPopup.contains(QLatin1String("no background texture")),
+          QStringLiteral("sfondo di default -> Save Texture rifiutato (%1)").arg(m_lastPopup));
+    if (selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json"))) {
+        const QColor c1(QStringLiteral("#aa3311")), c2(QStringLiteral("#113355"));
+        m_mw->m_scene.bgTexColor1 = c1;
+        m_mw->m_scene.bgTexColor2 = c2;
+        gl->setBackgroundTexColors(c1, c2);
+        const QString bgPath = m_outDir + QStringLiteral("/background-mandelbrot.json");
+        QFile::remove(bgPath);
+        m_acceptNextDialog = true;   // il messaggio della texture
+        m_mw->m_presetSerializer->saveTexture(bgPath);
+        m_acceptNextDialog = false;
+        wait(300);
+        QFile f(bgPath);
+        const QJsonObject json = f.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(f.readAll()).object() : QJsonObject();
+        f.close();
+        check(json.value(QStringLiteral("color1")).toString() == c1.name()
+                  && json.value(QStringLiteral("color2")).toString() == c2.name(),
+              QStringLiteral("texture di sfondo salvata coi colori dello sfondo (%1, %2)")
+                  .arg(json.value(QStringLiteral("color1")).toString(), json.value(QStringLiteral("color2")).toString()));
+        // Riaperta sullo sfondo: gli stessi colori.
+        m_mw->m_scene.bgTexColor1 = Qt::white;
+        LibraryManager lm;
+        const LibraryItem item = lm.parseJson(bgPath, LibraryType::Texture);
+        if (!item.name.isEmpty()) m_mw->applyLibraryTextureToBackground(item);
+        wait(300);
+        check(m_mw->m_scene.bgTexColor1.name() == c1.name() && m_mw->m_scene.bgTexColor2.name() == c2.name(),
+              QStringLiteral("riaperta sullo sfondo: gli stessi colori (%1, %2)")
+                  .arg(m_mw->m_scene.bgTexColor1.name(), m_mw->m_scene.bgTexColor2.name()));
+    }
+    click(ui->radioSurface);
 }
 
 void ScenarioTest::runBorderAuditScenarios()

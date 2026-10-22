@@ -60,6 +60,11 @@ public:
 
 private:
     void saveRecordOrScene(const QString &suggestedPath, bool scene);
+    // NIENTE DA SALVARE: una Shape da una scena senza superficie, una texture
+    // dal bersaglio senza texture. Lo dicono con un messaggio e ritornano true
+    // (il chiamante esce prima del dialogo).
+    bool refuseEmptyShape();
+    bool refuseEmptyTexture();
     // Scrive i sei limiti parametrici in `limits`: sempre la chiave numerica
     // (uMin/uMax/...), piu' la gemella "...Expr" con il testo grezzo quando
     // l'utente ha scritto una formula anziche' un numero. Per il Save degli

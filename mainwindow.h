@@ -2089,6 +2089,10 @@ private:
     void applyRecordSpeedsAndAngles(const LibraryItem &data, bool asObject = false);
     void startRecordCameraMotion(const LibraryItem &data);
     bool runRecordGeometry(const LibraryItem &data);   // true: scena da script
+    // Il record non ha una superficie: salvato da una scena vuota (NEW), come
+    // l'ambiente di una scena col solo sfondo. Niente script e vuoti i campi
+    // della superficie della sua modalita'.
+    static bool recordHasNoSurface(const LibraryItem &data);
     void restartRecordClocks(const LibraryItem &data, bool asObject = false);
     void startRecordSound();
     // PASSI DEL CLIC SU UNA VOCE DELLA LIBRARY (onExampleItemClicked).
@@ -2117,6 +2121,9 @@ private:
     void resetRotationsForNewScene();
     void resetEngineToImplicit(bool loadDefaultSurface);
     void resetEngineToParametric(bool loadDefaultSurface);
+    // LA SUPERFICIE VUOTA nel motore, nella modalita' e nel sotto-tab attuali:
+    // la scena del tasto NEW e di un record senza superficie.
+    void applyEmptySurfaceToEngine();
     void finishSceneReset();
     void clearLibrarySelectionAfterReset();
     // ASSEGNA una scena intera a m_scene, con la vista dei campi: equazioni,
