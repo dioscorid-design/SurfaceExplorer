@@ -1001,7 +1001,8 @@ private:
     bool m_texModeSwitchInProgress = false;
     // Il ramo della Library da cui arriva cio' che ha IMPOSTO il cambio:
     // treeTextures per la texture incompatibile, treeMotions per il record di
-    // modo opposto. resetScene non lo deseleziona. Lo dichiara chi alza il flag
+    // modo opposto, treeScenes per l'ambiente di una scena (m_loadingSceneFile).
+    // resetScene non lo deseleziona. Lo dichiara chi alza il flag
     // qui sopra, invece di dedurlo da m_lastLoadedLibraryItem: le texture non
     // aggiornano quel puntatore, quindi dopo un record una texture incompatibile
     // lasciava "protetto" il ramo Record e il vecchio record restava evidenziato
@@ -1518,6 +1519,33 @@ private:
     void updateWatcherPaths();
     void copyPath(QString src, QString dst);
     QTreeWidgetItem* getCurrentLibraryItem();
+    // I RAMI DELLA LIBRARY lato interfaccia, sede unica: per ciascuno il ramo
+    // sul disco (LibraryFolders::branches, stesso ordine = ordine delle
+    // linguette), il tipo dei suoi preset (che e' anche il ruolo delle sue
+    // voci, LibraryManager::itemRole), il suo albero e la sua linguetta. Chi
+    // deve fare qualcosa "per ogni ramo" (rilettura, osservatore, reset, menu)
+    // gira su questa lista: un ramo nuovo si aggiunge qui e in branches().
+    struct LibraryBranch {
+        LibraryFolders::BranchInfo info;
+        LibraryType type;
+        QTreeWidget *tree;
+        QWidget *tab;
+    };
+    const QList<LibraryBranch> &libraryBranches() const;
+    // Il ramo di un albero o di un tipo di preset; nullptr se non e' uno dei rami.
+    const LibraryBranch *libraryBranch(const QTreeWidget *tree) const;
+    const LibraryBranch *libraryBranch(LibraryType type) const;
+    // L'albero della linguetta aperta della Library, e il ramo di un albero
+    // (None se non e' uno dei rami): con LibraryFolders::branchDir danno la
+    // radice del ramo da cui l'utente sta lavorando.
+    QTreeWidget *currentLibraryTree() const;
+    LibraryFolders::Branch branchOfTree(const QTreeWidget *tree) const;
+    // Il SALVATAGGIO di un ramo nella cartella dir: "Save ... Here" e "Save New
+    // ..." senza sorgente, "Save ... As" a partire dal preset `source`. Unica
+    // scelta per ramo della funzione di salvataggio (il menu la ripeteva tre
+    // volte).
+    void saveInBranch(LibraryFolders::Branch branch, const QString &dir, const QString &source = QString());
+    mutable QList<LibraryBranch> m_libraryBranches;   // vedi libraryBranches()
     // Collassa e ingrigisce (grayed=true) o ripristina (false) il ramo Texture del
     // dock Library. Usato per riflettere che in surface-wireframe la texture non e'
     // applicabile. Idempotente sul colore; il collasso e' one-shot (non riespande).
@@ -1714,6 +1742,11 @@ private:
         int meshTextureScriptPart = -1;
         QString borderTextureScriptText, borderTextureScriptBase;
         int surfaceOrigin = 0;   // m_surfaceOrigin: equazioni, script o entrambi
+        // I Run "one-shot" dei suoi dock (m_parametricApplied & co.): true =
+        // niente da applicare, come all'avvio. Senza, il load di un oggetto
+        // parametrico (che riarma i Run Ray Marching) lasciava acceso il Run
+        // di un ambiente implicito gia' applicato.
+        bool parametricApplied = true, implicitApplied = true, rmTextureApplied = true;
         // LAVORO NON SALVATO dell'oggetto: le sue impronte pulite (vedi
         // markSceneClean) e, alla chiusura della sessione, se era modificato.
         SceneFingerprint cleanScene, appliedSurface, cleanTexture, pickedTexture, cleanSound, pickedSound;
@@ -1767,6 +1800,7 @@ private:
     // e i reset, che riscrivono la scena intera.
     void resetToSingleObject();
     bool m_loadingAsObject = false;   // dentro addPresetAsObject
+    bool m_loadingSceneFile = false;  // dentro loadSceneFile: il record e' l'ambiente
     // Una scena dalla linguetta Scenes: ambiente e oggetti (vedi il formato in
     // PresetSerializer::buildSceneJson). False se il file non e' una scena.
     bool loadSceneFile(const QString &path);

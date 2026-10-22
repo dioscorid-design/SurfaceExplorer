@@ -335,8 +335,36 @@ void LibraryManager::clear()
 }
 
 const LibraryItem& LibraryManager::getSurface(int index) const {
-    if (index >= 0 && index < m_surfaces.size()) return m_surfaces[index];
+    return item(LibraryType::Surface, index);
+}
+
+const LibraryItem &LibraryManager::item(LibraryType type, int index) const {
+    const QList<LibraryItem> &list = listOf(type);
+    if (index >= 0 && index < list.size()) return list[index];
     static LibraryItem dummy; return dummy;
+}
+
+QList<LibraryItem> &LibraryManager::listOf(LibraryType type) {
+    switch (type) {
+    case LibraryType::Surface: return m_surfaces;
+    case LibraryType::Texture: return m_textures;
+    case LibraryType::Motion:  return m_motions;
+    case LibraryType::Sound:   return m_sounds;
+    case LibraryType::Scene:   return m_scenes;
+    }
+    return m_surfaces;
+}
+
+const QList<LibraryItem> &LibraryManager::listOf(LibraryType type) const {
+    return const_cast<LibraryManager *>(this)->listOf(type);
+}
+
+std::optional<LibraryType> LibraryManager::itemType(const QTreeWidgetItem *node) {
+    if (!node) return std::nullopt;
+    for (LibraryType type : { LibraryType::Surface, LibraryType::Texture, LibraryType::Motion,
+                              LibraryType::Sound, LibraryType::Scene })
+        if (node->data(0, itemRole(type)).isValid()) return type;
+    return std::nullopt;
 }
 
 const LibraryItem* LibraryManager::getSurfaceByPath(const QString &filePath) const {
@@ -354,13 +382,16 @@ const LibraryItem* LibraryManager::getMotionByPath(const QString &filePath) cons
 }
 
 const LibraryItem& LibraryManager::getTexture(int index) const {
-    if (index >= 0 && index < m_textures.size()) return m_textures[index];
-    static LibraryItem dummy; return dummy;
+    return item(LibraryType::Texture, index);
 }
 
 const LibraryItem& LibraryManager::getScene(int index) const {
-    if (index >= 0 && index < m_scenes.size()) return m_scenes[index];
-    static LibraryItem dummy; return dummy;
+    return item(LibraryType::Scene, index);
+}
+
+QString LibraryManager::itemFilePath(const QTreeWidgetItem *node) const {
+    const std::optional<LibraryType> type = itemType(node);
+    return type ? item(*type, node->data(0, itemRole(*type)).toInt()).filePath : QString();
 }
 
 const LibraryItem* LibraryManager::getSceneByPath(const QString &filePath) const {
@@ -371,13 +402,11 @@ const LibraryItem* LibraryManager::getSceneByPath(const QString &filePath) const
 }
 
 const LibraryItem& LibraryManager::getMotion(int index) const {
-    if (index >= 0 && index < m_motions.size()) return m_motions[index];
-    static LibraryItem dummy; return dummy;
+    return item(LibraryType::Motion, index);
 }
 
 const LibraryItem& LibraryManager::getSound(int index) const {
-    if (index >= 0 && index < m_sounds.size()) return m_sounds[index];
-    static LibraryItem dummy; return dummy;
+    return item(LibraryType::Sound, index);
 }
 
 void LibraryManager::loadFromDirectory(const QString &dirPath, QTreeWidget *tree, LibraryType type)
@@ -455,12 +484,7 @@ void LibraryManager::loadFromDirectory(const QString &dirPath, QTreeWidget *tree
             continue;
         }
 
-        QList<LibraryItem> *targetList = nullptr;
-        if (type == LibraryType::Surface) targetList = &m_surfaces;
-        else if (type == LibraryType::Texture) targetList = &m_textures;
-        else if (type == LibraryType::Motion) targetList = &m_motions;
-        else if (type == LibraryType::Sound) targetList = &m_sounds;
-        else if (type == LibraryType::Scene) targetList = &m_scenes;
+        QList<LibraryItem> *targetList = &listOf(type);
 
         bool alreadyLoaded = false;
         for (const auto &item : *targetList) {
@@ -496,9 +520,10 @@ void LibraryManager::loadFromDirectory(const QString &dirPath, QTreeWidget *tree
         targetList->append(item);
         int listIndex = targetList->size() - 1;
 
-        // Costruzione Albero per il FILE
+        // Costruzione Albero per il FILE: le sue cartelle (se non sta nella
+        // radice del ramo), poi la voce, col suo indice nel ruolo del tipo.
+        QTreeWidgetItem *parentNode = nullptr;
         if (rootIndex != -1 && rootIndex < pathParts.size() - 1) {
-            QTreeWidgetItem *parentNode = nullptr;
             for (int i = rootIndex + 1; i < pathParts.size() - 1; ++i) {
                 parentNode = getOrCreateSubCategory(tree, parentNode, pathParts[i]);
 
@@ -508,48 +533,20 @@ void LibraryManager::loadFromDirectory(const QString &dirPath, QTreeWidget *tree
 #endif
                 parentNode->setData(0, Qt::UserRole + 10, segmentPath);
             }
-
-            QTreeWidgetItem *fileItem = new QTreeWidgetItem();
-            QString displayText = item.name;
-            if (type == LibraryType::Texture && item.isImage) displayText = "[IMG] " + item.name;
-            // ---> FIX 3: Aggiunge la scritta [AUDIO] prima del nome nell'albero <---
-            else if (type == LibraryType::Sound && !rawFullPath.endsWith(".json", Qt::CaseInsensitive)) displayText = "[AUDIO] " + item.name;
-
-            fileItem->setText(0, displayText);
-            fileItem->setToolTip(0, item.filePath);
-
-            int roleOffset = 0;
-            if (type == LibraryType::Surface) roleOffset = 0;
-            else if (type == LibraryType::Texture) roleOffset = 1;
-            else if (type == LibraryType::Motion) roleOffset = 2;
-            else if (type == LibraryType::Sound) roleOffset = 3;
-            else if (type == LibraryType::Scene) roleOffset = 4;
-
-            fileItem->setData(0, Qt::UserRole + roleOffset, listIndex);
-
-            if (parentNode) parentNode->addChild(fileItem);
-            else tree->addTopLevelItem(fileItem);
-        } else {
-            // Caso file nella root
-            QTreeWidgetItem *fileItem = new QTreeWidgetItem();
-            QString displayText = item.name;
-            if (type == LibraryType::Texture && item.isImage) displayText = "[IMG] " + item.name;
-            // ---> FIX 3: Ripetuto per i file nella radice principale <---
-            else if (type == LibraryType::Sound && !rawFullPath.endsWith(".json", Qt::CaseInsensitive)) displayText = "[AUDIO] " + item.name;
-
-            fileItem->setText(0, displayText);
-            fileItem->setToolTip(0, item.filePath);
-
-            int roleOffset = 0;
-            if (type == LibraryType::Surface) roleOffset = 0;
-            else if (type == LibraryType::Texture) roleOffset = 1;
-            else if (type == LibraryType::Motion) roleOffset = 2;
-            else if (type == LibraryType::Sound) roleOffset = 3;
-            else if (type == LibraryType::Scene) roleOffset = 4;
-
-            fileItem->setData(0, Qt::UserRole + roleOffset, listIndex);
-            tree->addTopLevelItem(fileItem);
         }
+
+        QTreeWidgetItem *fileItem = new QTreeWidgetItem();
+        QString displayText = item.name;
+        if (type == LibraryType::Texture && item.isImage) displayText = "[IMG] " + item.name;
+        // ---> FIX 3: Aggiunge la scritta [AUDIO] prima del nome nell'albero <---
+        else if (type == LibraryType::Sound && !rawFullPath.endsWith(".json", Qt::CaseInsensitive)) displayText = "[AUDIO] " + item.name;
+
+        fileItem->setText(0, displayText);
+        fileItem->setToolTip(0, item.filePath);
+        fileItem->setData(0, itemRole(type), listIndex);
+
+        if (parentNode) parentNode->addChild(fileItem);
+        else tree->addTopLevelItem(fileItem);
     }
     tree->sortItems(0, Qt::AscendingOrder);
 }
@@ -886,12 +883,7 @@ DeletionBackup LibraryManager::softDelete(int index, LibraryType type)
     DeletionBackup backup;
     backup.isValid = false; // Default: azione fallita
 
-    QList<LibraryItem> *targetList = nullptr;
-    if (type == LibraryType::Surface) targetList = &m_surfaces;
-    else if (type == LibraryType::Texture) targetList = &m_textures;
-    else if (type == LibraryType::Motion) targetList = &m_motions;
-    else if (type == LibraryType::Sound) targetList = &m_sounds;
-    else if (type == LibraryType::Scene) targetList = &m_scenes;
+    QList<LibraryItem> *targetList = &listOf(type);
 
     // Controlli di sicurezza standard
     if (!targetList || index < 0 || index >= targetList->size()) return backup;
@@ -944,11 +936,7 @@ bool LibraryManager::restore(const DeletionBackup &backup)
     QFile file(backup.backupPath);
 
     if (file.rename(backup.originalPath)) {
-        if (backup.data.type == LibraryType::Surface) m_surfaces.append(backup.data);
-        else if (backup.data.type == LibraryType::Texture) m_textures.append(backup.data);
-        else if (backup.data.type == LibraryType::Motion) m_motions.append(backup.data);
-        else if (backup.data.type == LibraryType::Sound) m_sounds.append(backup.data);
-        else if (backup.data.type == LibraryType::Scene) m_scenes.append(backup.data);
+        listOf(backup.data.type).append(backup.data);
         return true;
     }
     return false;

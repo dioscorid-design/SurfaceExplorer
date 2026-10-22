@@ -111,24 +111,47 @@ QString LibraryFolders::root() {
 // <radice>/<ramo>: una chiave rimasta su una sottocartella non lo fa sparire.
 // Maiuscole ignorate: il disco del Mac non le distingue, e i rami storici
 // possono averle ("Surfaces").
+const QList<LibraryFolders::BranchInfo> &LibraryFolders::branches()
+{
+    static const QList<BranchInfo> list = {
+        // "Shapes" e non "Surfaces": il ramo tiene superfici, curve solide e
+        // forme implicite, e "Surface" e' gia' il sotto-tab del Parametrico.
+        // Solo l'etichetta: la cartella resta surfaces/, come chiavi e codice.
+        { Branch::Surfaces, "pathSurfaces", "surfaces", "Shapes",   "Shape"   },
+        { Branch::Textures, "pathTextures", "textures", "Textures", "Texture" },
+        { Branch::Sounds,   "pathSounds",   "sounds",   "Sounds",   "Sound"   },
+        { Branch::Records,  "pathRecords",  "records",  "Records",  "Record"  },
+        { Branch::Scenes,   "pathScenes",   "scenes",   "Scenes",   "Scene"   },
+    };
+    return list;
+}
+
+QString LibraryFolders::branchDir(Branch branch)
+{
+    for (const BranchInfo &b : branches())
+        if (b.branch == branch)
+            return QSettings().value(QLatin1String(b.key),
+                                     root() + QLatin1Char('/') + QLatin1String(b.folder)).toString();
+    return QString();
+}
+
+void LibraryFolders::forgetBranchDirs()
+{
+    QSettings settings;
+    for (const BranchInfo &b : branches()) settings.remove(QLatin1String(b.key));
+    settings.remove(QStringLiteral("pathMotions"));
+}
+
 LibraryFolders::Branch LibraryFolders::branchOf(const QString &path)
 {
     const QString p = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
     const QString rootDir = root();
-    struct Entry { Branch branch; const char *key; const char *name; };
-    static const Entry entries[] = {
-        { Branch::Surfaces, "pathSurfaces", "surfaces" },
-        { Branch::Textures, "pathTextures", "textures" },
-        { Branch::Sounds,   "pathSounds",   "sounds"   },
-        { Branch::Records,  "pathRecords",  "records"  },
-        { Branch::Scenes,   "pathScenes",   "scenes"   },
-    };
     QSettings settings;
     Branch best = Branch::None;
     qsizetype bestLen = -1;
-    for (const Entry &e : entries) {
+    for (const BranchInfo &e : branches()) {
         QStringList dirs;
-        if (!rootDir.isEmpty()) dirs << rootDir + QLatin1Char('/') + QLatin1String(e.name);
+        if (!rootDir.isEmpty()) dirs << rootDir + QLatin1Char('/') + QLatin1String(e.folder);
         const QString chosen = settings.value(QLatin1String(e.key)).toString();
         if (!chosen.isEmpty()) dirs << chosen;
         for (const QString &raw : dirs) {
@@ -198,12 +221,9 @@ bool LibraryFolders::isLibraryRoot(const QDir &dir)
     // entryList (non exists("surfaces")): il confronto va fatto sui nomi REALI
     // su disco, per riconoscere anche i rami con la maiuscola.
     const QStringList entries = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    static const QStringList branches = {
-        QStringLiteral("surfaces"), QStringLiteral("textures"),
-        QStringLiteral("records"),  QStringLiteral("sounds"),   QStringLiteral("scenes")
-    };
     for (const QString &entry : entries) {
-        if (branches.contains(entry.toLower())) return true;
+        for (const BranchInfo &b : branches())
+            if (entry.toLower() == QLatin1String(b.folder)) return true;
     }
     return false;
 }

@@ -1633,12 +1633,11 @@ void PresetSerializer::saveScript()
     QSettings settings;
     QString settingsKey = isSurface ? "lastFolder" : (isSound ? "lastSoundDir" : "lastCustomTexDir");
     QString currentMem = settings.value(settingsKey).toString();
-    QString rootPath = settings.value("libraryRootPath").toString();
+    using B = LibraryFolders::Branch;
+    const B typeBranch = isSurface ? B::Surfaces : (isSound ? B::Sounds : B::Textures);
 
     if (currentMem.isEmpty() || currentMem.contains("build", Qt::CaseInsensitive) || !QDir(currentMem).exists()) {
-        if (isSurface) currentMem = settings.value("pathSurfaces", rootPath + "/surfaces").toString();
-        else if (isSound) currentMem = settings.value("pathSounds", rootPath + "/sounds").toString();
-        else currentMem = settings.value("pathTextures", rootPath + "/textures").toString();
+        currentMem = LibraryFolders::branchDir(typeBranch);
     }
 
     // Il tipo e' gia' deciso, quindi il dialogo deve aprirsi NEL SUO RAMO. La
@@ -1653,12 +1652,11 @@ void PresetSerializer::saveScript()
     // autorevole di dov'e' finito. Con il solo percorso costruito a mano, un
     // ramo spostato risultava sempre "fuori ramo" e il dialogo veniva dirottato
     // su una cartella che nella libreria non e' piu' quel ramo.
+    // LibraryFolders::branchDir e' proprio "chiave, altrimenti radice/ramo".
     {
-        const QString rootFallback = LibraryFolders::root();
-        const QString typeKey  = isSurface ? "pathSurfaces" : (isSound ? "pathSounds" : "pathTextures");
-        const QString typeName = isSurface ? "/surfaces"    : (isSound ? "/sounds"    : "/textures");
-        QString typeRoot = settings.value(typeKey, rootFallback + typeName).toString();
-        if (typeRoot.isEmpty()) typeRoot = rootFallback + typeName;
+        const QString typeName = isSurface ? "/surfaces" : (isSound ? "/sounds" : "/textures");
+        QString typeRoot = LibraryFolders::branchDir(typeBranch);
+        if (typeRoot.isEmpty()) typeRoot = LibraryFolders::root() + typeName;
 
         // Appartenenza al ramo: dentro la cartella del ramo, non "il testo
         // comincia per". Senza il separatore ".../textures2" passerebbe per

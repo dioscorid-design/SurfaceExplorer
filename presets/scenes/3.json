@@ -1,0 +1,465 @@
+{
+    "environment": {
+        "activeMotion": "none",
+        "angles": {
+            "omega": 9.999999747378752e-05,
+            "phi": 9.999999747378752e-05,
+            "psi": 9.999999747378752e-05
+        },
+        "background": {
+            "code": "// --- FUNZIONI DI SUPPORTO (RUMORE) ---\n\n// Simple Hash function to generate pseudo-randomness\nfloat random (in vec2 st) {\n    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);\n}\n\n// Noise semplice (interpolazione di valori casuali)\nfloat noise (in vec2 st) {\n    vec2 i = floor(st);\n    vec2 f = fract(st);\n\n    // Smoothstep standard (rende le curve morbide)\n    // Formula: t * t * (3.0 - 2.0 * t)\n    vec2 u = f * f * (3.0 - 2.0 * f);\n\n    return mix(mix(random(i + vec2(0.0,0.0)), \n                   random(i + vec2(1.0,0.0)), u.x),\n               mix(random(i + vec2(0.0,1.0)), \n                   random(i + vec2(1.0,1.0)), u.x), u.y);\n}\n\n// FBM (Fractal Brownian Motion)\n// Adds several layers of noise to create detail\n#define OCTAVES 6\nfloat fbm (in vec2 st) {\n    float value = 0.0;\n    float amplitude = .5;\n    float frequency = 0.;\n    \n    // Loop per aggiungere dettagli sempre più fini\n    for (int i = 0; i < OCTAVES; i++) {\n        value += amplitude * noise(st);\n        st *= 2.;\n        amplitude *= .5;\n    }\n    return value;\n}\n\n// --- MAIN SHADER ---\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // We normalize the coordinates (from 0 to 1)\n    vec2 st = fragCoord.xy/iResolution.xy;\n    st.x *= iResolution.x/iResolution.y; // Correzione aspect ratio\n\n    // DOMAIN WARPING\n    // This is where the magic happens. We shift 'st' using time and noise.\n    \n    vec2 q = vec2(0.);\n    q.x = fbm( st + 0.00*iTime);\n    q.y = fbm( st + vec2(1.0));\n\n    vec2 r = vec2(0.);\n    r.x = fbm( st + 1.0*q + vec2(1.7,9.2)+ 0.15*iTime );\n    r.y = fbm( st + 1.0*q + vec2(8.3,2.8)+ 0.126*iTime);\n\n    // The final value 'f' is the noise computed on the distorted coordinates 'r'\n    float f = fbm(st + r);\n\n    // --- COLORAZIONE ---\n    \n    // We blend the colors according to the resulting value 'f'.\n    // Color 1 (Dark/Base)\n    vec3 color = mix(vec3(0.101961,0.619608,0.666667),\n                     vec3(0.666667,0.666667,0.498039),\n                     clamp((f*f)*4.0,0.0,1.0));\n\n    // Colore 2 (Chiaro/Highlight)\n    color = mix(color,\n                vec3(0,0,0.164706),\n                clamp(length(q),0.0,1.0));\n\n    // Colore 3 (Dettagli finali)\n    color = mix(color,\n                vec3(0.666667,1,1),\n                clamp(length(r.x),0.0,1.0));\n\n    // Output finale su schermo\n    fragColor = vec4((f*f*f+.6*f*f+.5*f)*color,1.);\n}",
+            "col1": "#33cc33",
+            "col2": "#000000",
+            "color": "#4d4d4d",
+            "enabled": true,
+            "libName": "Warped Clouds",
+            "pan_x": 0,
+            "pan_y": 0,
+            "rotation": 0,
+            "skyMode": "fixed",
+            "zoom": 1
+        },
+        "camera3D": {
+            "pitch": 0,
+            "roll": 0,
+            "rot_w": 1,
+            "rot_x": 0,
+            "rot_y": 0,
+            "rot_z": 0,
+            "x": 0,
+            "y": 0,
+            "yaw": 0,
+            "z": 4
+        },
+        "cameraFov": 45,
+        "colors": {
+            "alpha": 1,
+            "surfColor": "#33cc33"
+        },
+        "constants": {
+            "A": 1,
+            "B": 1,
+            "C": 1,
+            "D": 1,
+            "E": 1,
+            "F": 1,
+            "S": 0
+        },
+        "equations": {
+            "defU": "",
+            "defV": "",
+            "defW": "",
+            "explicitU": "",
+            "explicitV": "",
+            "explicitW": "",
+            "p": "",
+            "x": "",
+            "y": "",
+            "z": ""
+        },
+        "fillLight": 0,
+        "fov3D": 45,
+        "fov4D": 45,
+        "geodesic": {
+            "conform": "",
+            "du": "",
+            "dv": "",
+            "dw": "",
+            "u0": "",
+            "v0": "",
+            "w0": ""
+        },
+        "isImplicitMode": false,
+        "lightIntensity": 1,
+        "lightingMode": 0,
+        "limits": {
+            "uMax": 0,
+            "uMin": 0,
+            "vMax": 0,
+            "vMin": 0,
+            "wMax": 0,
+            "wMin": 0,
+            "xMax": 1000,
+            "xMin": -1000,
+            "yMax": 1000,
+            "yMin": -1000,
+            "zMax": 1000,
+            "zMin": -1000
+        },
+        "meshScopeAll": true,
+        "name": "3",
+        "observer4D": 4,
+        "path3D": {
+            "roll": "",
+            "x": "",
+            "y": "",
+            "z": ""
+        },
+        "path4D": {
+            "alpha": "",
+            "beta": "",
+            "gamma": "",
+            "w": "",
+            "x": "",
+            "y": "",
+            "z": ""
+        },
+        "pathMode": 0,
+        "pathMode3D": 0,
+        "projectionMode": 1,
+        "renderMode": 0,
+        "speeds": {
+            "nutation": 0,
+            "omega": 0,
+            "path3D": 10,
+            "path4D": 10,
+            "phi": 0,
+            "precession": 0,
+            "psi": 0,
+            "spin": 0
+        },
+        "steps": 895,
+        "texture": {
+            "code": "",
+            "col1": "#33cc33",
+            "col2": "#000000",
+            "enabled": false,
+            "pan_x": 0,
+            "pan_y": 0,
+            "rotation": 0,
+            "zoom": 1
+        },
+        "type": "motion",
+        "use4DLighting": false,
+        "wireframe": {
+            "uStep": 4,
+            "vStep": 4
+        }
+    },
+    "formatVersion": 1,
+    "name": "3",
+    "objects": [
+        {
+            "motion": {
+                "rotating": false,
+                "speeds": {
+                    "nutation": 0,
+                    "omega": 0,
+                    "phi": 0,
+                    "precession": 0,
+                    "psi": 0,
+                    "spin": 0
+                }
+            },
+            "name": "Torus",
+            "position": [
+                0,
+                0,
+                0
+            ],
+            "record": {
+                "activeMotion": "none",
+                "angles": {
+                    "omega": 0,
+                    "phi": 0,
+                    "psi": 0
+                },
+                "background": {
+                    "code": "// --- FUNZIONI DI SUPPORTO (RUMORE) ---\n\n// Simple Hash function to generate pseudo-randomness\nfloat random (in vec2 st) {\n    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);\n}\n\n// Noise semplice (interpolazione di valori casuali)\nfloat noise (in vec2 st) {\n    vec2 i = floor(st);\n    vec2 f = fract(st);\n\n    // Smoothstep standard (rende le curve morbide)\n    // Formula: t * t * (3.0 - 2.0 * t)\n    vec2 u = f * f * (3.0 - 2.0 * f);\n\n    return mix(mix(random(i + vec2(0.0,0.0)), \n                   random(i + vec2(1.0,0.0)), u.x),\n               mix(random(i + vec2(0.0,1.0)), \n                   random(i + vec2(1.0,1.0)), u.x), u.y);\n}\n\n// FBM (Fractal Brownian Motion)\n// Adds several layers of noise to create detail\n#define OCTAVES 6\nfloat fbm (in vec2 st) {\n    float value = 0.0;\n    float amplitude = .5;\n    float frequency = 0.;\n    \n    // Loop per aggiungere dettagli sempre più fini\n    for (int i = 0; i < OCTAVES; i++) {\n        value += amplitude * noise(st);\n        st *= 2.;\n        amplitude *= .5;\n    }\n    return value;\n}\n\n// --- MAIN SHADER ---\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // We normalize the coordinates (from 0 to 1)\n    vec2 st = fragCoord.xy/iResolution.xy;\n    st.x *= iResolution.x/iResolution.y; // Correzione aspect ratio\n\n    // DOMAIN WARPING\n    // This is where the magic happens. We shift 'st' using time and noise.\n    \n    vec2 q = vec2(0.);\n    q.x = fbm( st + 0.00*iTime);\n    q.y = fbm( st + vec2(1.0));\n\n    vec2 r = vec2(0.);\n    r.x = fbm( st + 1.0*q + vec2(1.7,9.2)+ 0.15*iTime );\n    r.y = fbm( st + 1.0*q + vec2(8.3,2.8)+ 0.126*iTime);\n\n    // The final value 'f' is the noise computed on the distorted coordinates 'r'\n    float f = fbm(st + r);\n\n    // --- COLORAZIONE ---\n    \n    // We blend the colors according to the resulting value 'f'.\n    // Color 1 (Dark/Base)\n    vec3 color = mix(vec3(0.101961,0.619608,0.666667),\n                     vec3(0.666667,0.666667,0.498039),\n                     clamp((f*f)*4.0,0.0,1.0));\n\n    // Colore 2 (Chiaro/Highlight)\n    color = mix(color,\n                vec3(0,0,0.164706),\n                clamp(length(q),0.0,1.0));\n\n    // Colore 3 (Dettagli finali)\n    color = mix(color,\n                vec3(0.666667,1,1),\n                clamp(length(r.x),0.0,1.0));\n\n    // Output finale su schermo\n    fragColor = vec4((f*f*f+.6*f*f+.5*f)*color,1.);\n}",
+                    "col1": "#33cc33",
+                    "col2": "#000000",
+                    "color": "#4d4d4d",
+                    "enabled": true,
+                    "libName": "Warped Clouds",
+                    "pan_x": 0,
+                    "pan_y": 0,
+                    "rotation": 0,
+                    "skyMode": "fixed",
+                    "zoom": 1
+                },
+                "camera3D": {
+                    "pitch": 0,
+                    "roll": 0,
+                    "rot_w": 0.9330127239227295,
+                    "rot_x": 0.2500000298023224,
+                    "rot_y": 0.2499999701976776,
+                    "rot_z": -0.06698719412088394,
+                    "x": 0,
+                    "y": 0,
+                    "yaw": 0,
+                    "z": 4
+                },
+                "cameraFov": 45,
+                "colors": {
+                    "alpha": 1,
+                    "surfColor": "#33cc33"
+                },
+                "constants": {
+                    "A": 0.800000011920929,
+                    "B": 0.30000001192092896,
+                    "C": 1,
+                    "D": 1,
+                    "E": 1,
+                    "F": 1,
+                    "S": 0
+                },
+                "equations": {
+                    "defU": "",
+                    "defV": "",
+                    "defW": "",
+                    "explicitU": "",
+                    "explicitV": "",
+                    "explicitW": "",
+                    "p": "0.0",
+                    "x": "(A + B*cos(v))*cos(u)",
+                    "y": "(A + B*cos(v))*sin(u)",
+                    "z": "B*sin(v)"
+                },
+                "fillLight": 0,
+                "fov3D": 45,
+                "fov4D": 45,
+                "geodesic": {
+                    "conform": "1.0",
+                    "du": "",
+                    "dv": "",
+                    "dw": "",
+                    "u0": "",
+                    "v0": "",
+                    "w0": ""
+                },
+                "hintSeconds": 6,
+                "hintText": "Sliders\nA: ring radius\nB: tube radius",
+                "isImplicitMode": false,
+                "lightIntensity": 1,
+                "lightingMode": 0,
+                "limits": {
+                    "uMax": 6.283199787139893,
+                    "uMin": 0,
+                    "vMax": 6.283199787139893,
+                    "vMin": 0,
+                    "wMax": 0,
+                    "wMin": 0,
+                    "xMax": 1000,
+                    "xMin": -1000,
+                    "yMax": 1000,
+                    "yMin": -1000,
+                    "zMax": 1000,
+                    "zMin": -1000
+                },
+                "meshScopeAll": true,
+                "name": "Torus",
+                "observer4D": 4,
+                "path3D": {
+                    "roll": "",
+                    "x": "",
+                    "y": "",
+                    "z": ""
+                },
+                "path4D": {
+                    "alpha": "",
+                    "beta": "",
+                    "gamma": "",
+                    "w": "",
+                    "x": "",
+                    "y": "",
+                    "z": ""
+                },
+                "pathMode": 0,
+                "pathMode3D": 0,
+                "projectionMode": 1,
+                "renderMode": 1,
+                "speeds": {
+                    "nutation": 0,
+                    "omega": 0,
+                    "path3D": 10,
+                    "path4D": 10,
+                    "phi": 0,
+                    "precession": 0,
+                    "psi": 0,
+                    "spin": 0
+                },
+                "steps": 100,
+                "texture": {
+                    "code": "",
+                    "col1": "#33cc33",
+                    "col2": "#000000",
+                    "enabled": true,
+                    "pan_x": 0,
+                    "pan_y": 0,
+                    "rotation": 0,
+                    "zoom": 1
+                },
+                "type": "motion",
+                "use4DLighting": false,
+                "wireframe": {
+                    "uStep": 4,
+                    "vStep": 4
+                }
+            },
+            "scale": 1
+        },
+        {
+            "motion": {
+                "rotating": true,
+                "speeds": {
+                    "nutation": 0.30000001192092896,
+                    "omega": 0,
+                    "phi": 0,
+                    "precession": 0.4000000059604645,
+                    "psi": 0,
+                    "spin": 0.30000001192092896
+                }
+            },
+            "name": "Sphere",
+            "path": [
+                "cos(t)-1",
+                "sin(t)",
+                ""
+            ],
+            "position": [
+                2,
+                0,
+                0
+            ],
+            "record": {
+                "activeMotion": "none",
+                "angles": {
+                    "omega": 0,
+                    "phi": 0,
+                    "psi": 0
+                },
+                "background": {
+                    "code": "// --- FUNZIONI DI SUPPORTO (RUMORE) ---\n\n// Simple Hash function to generate pseudo-randomness\nfloat random (in vec2 st) {\n    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);\n}\n\n// Noise semplice (interpolazione di valori casuali)\nfloat noise (in vec2 st) {\n    vec2 i = floor(st);\n    vec2 f = fract(st);\n\n    // Smoothstep standard (rende le curve morbide)\n    // Formula: t * t * (3.0 - 2.0 * t)\n    vec2 u = f * f * (3.0 - 2.0 * f);\n\n    return mix(mix(random(i + vec2(0.0,0.0)), \n                   random(i + vec2(1.0,0.0)), u.x),\n               mix(random(i + vec2(0.0,1.0)), \n                   random(i + vec2(1.0,1.0)), u.x), u.y);\n}\n\n// FBM (Fractal Brownian Motion)\n// Adds several layers of noise to create detail\n#define OCTAVES 6\nfloat fbm (in vec2 st) {\n    float value = 0.0;\n    float amplitude = .5;\n    float frequency = 0.;\n    \n    // Loop per aggiungere dettagli sempre più fini\n    for (int i = 0; i < OCTAVES; i++) {\n        value += amplitude * noise(st);\n        st *= 2.;\n        amplitude *= .5;\n    }\n    return value;\n}\n\n// --- MAIN SHADER ---\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // We normalize the coordinates (from 0 to 1)\n    vec2 st = fragCoord.xy/iResolution.xy;\n    st.x *= iResolution.x/iResolution.y; // Correzione aspect ratio\n\n    // DOMAIN WARPING\n    // This is where the magic happens. We shift 'st' using time and noise.\n    \n    vec2 q = vec2(0.);\n    q.x = fbm( st + 0.00*iTime);\n    q.y = fbm( st + vec2(1.0));\n\n    vec2 r = vec2(0.);\n    r.x = fbm( st + 1.0*q + vec2(1.7,9.2)+ 0.15*iTime );\n    r.y = fbm( st + 1.0*q + vec2(8.3,2.8)+ 0.126*iTime);\n\n    // The final value 'f' is the noise computed on the distorted coordinates 'r'\n    float f = fbm(st + r);\n\n    // --- COLORAZIONE ---\n    \n    // We blend the colors according to the resulting value 'f'.\n    // Color 1 (Dark/Base)\n    vec3 color = mix(vec3(0.101961,0.619608,0.666667),\n                     vec3(0.666667,0.666667,0.498039),\n                     clamp((f*f)*4.0,0.0,1.0));\n\n    // Colore 2 (Chiaro/Highlight)\n    color = mix(color,\n                vec3(0,0,0.164706),\n                clamp(length(q),0.0,1.0));\n\n    // Colore 3 (Dettagli finali)\n    color = mix(color,\n                vec3(0.666667,1,1),\n                clamp(length(r.x),0.0,1.0));\n\n    // Output finale su schermo\n    fragColor = vec4((f*f*f+.6*f*f+.5*f)*color,1.);\n}",
+                    "col1": "#33cc33",
+                    "col2": "#000000",
+                    "color": "#4d4d4d",
+                    "enabled": true,
+                    "libName": "Warped Clouds",
+                    "pan_x": 0,
+                    "pan_y": 0,
+                    "rotation": 0,
+                    "skyMode": "fixed",
+                    "zoom": 1
+                },
+                "camera3D": {
+                    "pitch": 0,
+                    "roll": 0,
+                    "rot_w": -0.5298237204551697,
+                    "rot_x": 0.6948205828666687,
+                    "rot_y": 0.36686280369758606,
+                    "rot_z": 0.31925326585769653,
+                    "x": 0,
+                    "y": 0,
+                    "yaw": 0,
+                    "z": 4
+                },
+                "cameraFov": 45,
+                "colors": {
+                    "alpha": 1,
+                    "surfColor": "#33cc33"
+                },
+                "constants": {
+                    "A": 1,
+                    "B": 1,
+                    "C": 1,
+                    "D": 1,
+                    "E": 1,
+                    "F": 1,
+                    "S": 0
+                },
+                "equations": {
+                    "defU": "",
+                    "defV": "",
+                    "defW": "",
+                    "explicitU": "",
+                    "explicitV": "",
+                    "explicitW": "",
+                    "p": "0",
+                    "x": "cos(u)*cos(v)",
+                    "y": "sin(u)*cos(v)",
+                    "z": "sin(v)"
+                },
+                "fillLight": 0,
+                "fov3D": 45,
+                "fov4D": 45,
+                "geodesic": {
+                    "conform": "1.0",
+                    "du": "",
+                    "dv": "",
+                    "dw": "",
+                    "u0": "",
+                    "v0": "",
+                    "w0": ""
+                },
+                "isImplicitMode": false,
+                "lightIntensity": 1,
+                "lightingMode": 0,
+                "limits": {
+                    "uMax": 6.283180236816406,
+                    "uMin": 0,
+                    "vMax": 1.5707963705062866,
+                    "vMin": -1.5707999467849731,
+                    "wMax": 0,
+                    "wMin": 0,
+                    "xMax": 1000,
+                    "xMin": -1000,
+                    "yMax": 1000,
+                    "yMin": -1000,
+                    "zMax": 1000,
+                    "zMin": -1000
+                },
+                "meshScopeAll": true,
+                "name": "Sphere",
+                "observer4D": 4,
+                "path3D": {
+                    "roll": "",
+                    "x": "",
+                    "y": "",
+                    "z": ""
+                },
+                "path4D": {
+                    "alpha": "",
+                    "beta": "",
+                    "gamma": "",
+                    "w": "",
+                    "x": "",
+                    "y": "",
+                    "z": ""
+                },
+                "pathMode": 0,
+                "pathMode3D": 0,
+                "projectionMode": 1,
+                "renderMode": 1,
+                "speeds": {
+                    "nutation": 0.30000001192092896,
+                    "omega": 0,
+                    "path3D": 10,
+                    "path4D": 10,
+                    "phi": 0,
+                    "precession": 0.4000000059604645,
+                    "psi": 0,
+                    "spin": 0.30000001192092896
+                },
+                "steps": 100,
+                "texture": {
+                    "code": "",
+                    "col1": "#33cc33",
+                    "col2": "#000000",
+                    "enabled": true,
+                    "pan_x": 0,
+                    "pan_y": 0,
+                    "rotation": 0,
+                    "zoom": 1
+                },
+                "type": "motion",
+                "use4DLighting": false,
+                "wireframe": {
+                    "uStep": 4,
+                    "vStep": 4
+                }
+            },
+            "scale": 0.2426830232143402
+        }
+    ],
+    "type": "scene"
+}

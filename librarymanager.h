@@ -13,6 +13,7 @@
 #include <QJsonDocument>
 #include <QFile>
 #include <QDir>
+#include <optional>
 
 // ==========================================================
 // ENUMS
@@ -359,6 +360,22 @@ public:
     const LibraryItem& getMotion(int index) const;
     const LibraryItem& getSound(int index) const;
     const LibraryItem& getScene(int index) const;
+    // La voce di un tipo per indice (vuota se fuori dalla lista), e la lista.
+    const LibraryItem &item(LibraryType type, int index) const;
+    QList<LibraryItem> &listOf(LibraryType type);
+    const QList<LibraryItem> &listOf(LibraryType type) const;
+
+    // LE VOCI DELL'ALBERO. Una voce-file porta l'indice nella lista del suo
+    // tipo nel ruolo itemRole(tipo): l'ordine di LibraryType E' la numerazione
+    // dei ruoli (Surface = UserRole + 0 ... Scene = UserRole + 4); le cartelle
+    // stanno su UserRole + 10. Sede unica: ogni comando ricopiava la catena
+    // dei ruoli, e le copie avevano dimenticato le scene.
+    static int itemRole(LibraryType type) { return Qt::UserRole + int(type); }
+    // Il tipo di una voce-file; vuoto per una cartella o una voce senza file.
+    static std::optional<LibraryType> itemType(const QTreeWidgetItem *node);
+    // Il FILE di una voce dell'albero; vuoto per una cartella o una voce
+    // senza file.
+    QString itemFilePath(const QTreeWidgetItem *node) const;
 
     // Lookup per percorso file (univoco), robusto al disallineamento degli indici
     // posizionali: dopo un refresh (fsWatcher) la lista m_surfaces viene ricostruita

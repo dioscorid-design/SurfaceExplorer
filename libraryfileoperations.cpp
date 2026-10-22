@@ -42,24 +42,11 @@ void LibraryFileOperations::performCut(QTreeWidgetItem* targetItem)
 
     for (QTreeWidgetItem *item : items) {
         bool success = false;
-        if (item->data(0, Qt::UserRole).isValid()) {
-            int index = item->data(0, Qt::UserRole).toInt();
-            m_mainWindow->m_cutFilePaths.append(m_mainWindow->m_libraryManager.getSurface(index).filePath);
-            success = true;
-        }
-        else if (item->data(0, Qt::UserRole + 2).isValid()) {
-            int index = item->data(0, Qt::UserRole + 2).toInt();
-            m_mainWindow->m_cutFilePaths.append(m_mainWindow->m_libraryManager.getMotion(index).filePath);
-            success = true;
-        }
-        else if (item->data(0, Qt::UserRole + 1).isValid()) {
-            int index = item->data(0, Qt::UserRole + 1).toInt();
-            m_mainWindow->m_cutTexturePaths.append(m_mainWindow->m_libraryManager.getTexture(index).filePath);
-            success = true;
-        }
-        else if (item->data(0, Qt::UserRole + 3).isValid()) {
-            int index = item->data(0, Qt::UserRole + 3).toInt();
-            m_mainWindow->m_cutFilePaths.append(m_mainWindow->m_libraryManager.getSound(index).filePath);
+        const QString filePath = m_mainWindow->m_libraryManager.itemFilePath(item);
+        if (!filePath.isEmpty()) {
+            // Le texture hanno appunti propri (l'Incolla le porta nel loro ramo).
+            (item->data(0, LibraryManager::itemRole(LibraryType::Texture)).isValid() ? m_mainWindow->m_cutTexturePaths
+                                                       : m_mainWindow->m_cutFilePaths).append(filePath);
             success = true;
         }
         else if (item->data(0, Qt::UserRole + 10).isValid()) {
@@ -97,17 +84,10 @@ void LibraryFileOperations::performCopy(QTreeWidgetItem* targetItem)
     m_mainWindow->m_isCopyOperation = true;
 
     for (QTreeWidgetItem *item : items) {
-        if (item->data(0, Qt::UserRole).isValid()) {
-            m_mainWindow->m_cutFilePaths.append(m_mainWindow->m_libraryManager.getSurface(item->data(0, Qt::UserRole).toInt()).filePath);
-        }
-        else if (item->data(0, Qt::UserRole + 2).isValid()) {
-            m_mainWindow->m_cutFilePaths.append(m_mainWindow->m_libraryManager.getMotion(item->data(0, Qt::UserRole + 2).toInt()).filePath);
-        }
-        else if (item->data(0, Qt::UserRole + 1).isValid()) {
-            m_mainWindow->m_cutTexturePaths.append(m_mainWindow->m_libraryManager.getTexture(item->data(0, Qt::UserRole + 1).toInt()).filePath);
-        }
-        else if (item->data(0, Qt::UserRole + 3).isValid()) {
-            m_mainWindow->m_cutFilePaths.append(m_mainWindow->m_libraryManager.getSound(item->data(0, Qt::UserRole + 3).toInt()).filePath);
+        const QString filePath = m_mainWindow->m_libraryManager.itemFilePath(item);
+        if (!filePath.isEmpty()) {
+            (item->data(0, LibraryManager::itemRole(LibraryType::Texture)).isValid() ? m_mainWindow->m_cutTexturePaths
+                                                       : m_mainWindow->m_cutFilePaths).append(filePath);
         }
         else if (item->data(0, Qt::UserRole + 10).isValid()) {
             m_mainWindow->m_cutFilePaths.append(item->data(0, Qt::UserRole + 10).toString());
@@ -201,8 +181,6 @@ void LibraryFileOperations::performPasteExample(const QString &destDirOverride)
         return;
     }
 
-    QSettings settings;
-
     // Destinazione esplicita (ramo principale): il menu ci passa gia' la root della
     // categoria, quindi saltiamo del tutto la deduzione da item selezionato/euristica.
     QString destDir = destDirOverride;
@@ -213,36 +191,23 @@ void LibraryFileOperations::performPasteExample(const QString &destDirOverride)
         if (currentItem && currentItem->data(0, Qt::UserRole + 10).isValid()) {
             destDir = currentItem->data(0, Qt::UserRole + 10).toString();
         }
-        else if (currentItem && currentItem->data(0, Qt::UserRole).isValid()) {
-            destDir = QFileInfo(m_mainWindow->m_libraryManager.getSurface(currentItem->data(0, Qt::UserRole).toInt()).filePath).absolutePath();
-        }
-        else if (currentItem && currentItem->data(0, Qt::UserRole + 2).isValid()) {
-            destDir = QFileInfo(m_mainWindow->m_libraryManager.getMotion(currentItem->data(0, Qt::UserRole + 2).toInt()).filePath).absolutePath();
-        }        else if (currentItem && currentItem->data(0, Qt::UserRole + 4).isValid()) {
-            destDir = QFileInfo(currentItem->toolTip(0)).absolutePath();   // una scena
+        // Accanto alla voce selezionata (i suoni mancavano, e si finiva nella
+        // radice). Una texture no: le texture hanno il loro Incolla, e un
+        // preset incollato su una texture va nel suo ramo, qui sotto.
+        else if (currentItem && !currentItem->data(0, LibraryManager::itemRole(LibraryType::Texture)).isValid()) {
+            const QString filePath = m_mainWindow->m_libraryManager.itemFilePath(currentItem);
+            if (!filePath.isEmpty()) destDir = QFileInfo(filePath).absolutePath();
         }
     }
 
     if (destDir.isEmpty()) {
-        QString rootPath = settings.value("libraryRootPath").toString();
-        QString firstFile = m_mainWindow->m_cutFilePaths.first();
-
-        // 2.0: le scene prima dei record ("scenes" non contiene "record").
-        if (firstFile.contains("/scenes/", Qt::CaseInsensitive)) {
-            destDir = settings.value("pathScenes", rootPath + "/scenes").toString();
-        } else if (firstFile.contains("records", Qt::CaseInsensitive) || firstFile.contains("record", Qt::CaseInsensitive)
-            || firstFile.contains("motions", Qt::CaseInsensitive) || firstFile.contains("motion", Qt::CaseInsensitive)) {
-            // I Record (ex "Motion") stanno in pathRecords -> .../records; il vecchio
-            // ramo cercava solo "motion" e usava pathMotions, cosi' un path .../records
-            // cadeva nell'else (Surfaces) e usava la chiave sbagliata.
-            destDir = settings.value("pathRecords", rootPath + "/records").toString();
-        } else if (firstFile.contains("sounds", Qt::CaseInsensitive) || firstFile.contains("sound", Qt::CaseInsensitive)) {
-            destDir = settings.value("pathSounds", rootPath + "/sounds").toString();
-        } else {
-            // Case MINUSCOLO: la cartella reale e' "/surfaces" (mainwindow ~7430);
-            // "/Surfaces" non esiste su iOS case-sensitive.
-            destDir = settings.value("pathSurfaces", rootPath + "/surfaces").toString();
-        }
+        // Nessuna voce: la radice del ramo da cui viene il primo file, per
+        // POSIZIONE (LibraryFolders::branchOf). Prima lo si indovinava cercando
+        // "record", "motion", "sound" nel percorso: una Shape con una di quelle
+        // parole nel nome o nelle cartelle finiva in un altro ramo.
+        const LibraryFolders::Branch branch = LibraryFolders::branchOf(m_mainWindow->m_cutFilePaths.first());
+        destDir = LibraryFolders::branchDir(branch == LibraryFolders::Branch::None
+                                            ? LibraryFolders::Branch::Surfaces : branch);
     }
 
     // Su iOS/Android la sottocartella di destinazione puo' non esistere ancora nel
@@ -350,8 +315,6 @@ void LibraryFileOperations::performPasteTexture(const QString &destDirOverride)
 {
     if (m_mainWindow->m_cutTexturePaths.isEmpty()) return;
 
-    QSettings settings;
-
     // Destinazione esplicita dal ramo principale (vedi performPasteExample).
     QString destDir = destDirOverride;
 
@@ -361,13 +324,11 @@ void LibraryFileOperations::performPasteTexture(const QString &destDirOverride)
         if (currentItem && currentItem->data(0, Qt::UserRole + 10).isValid()) {
             destDir = currentItem->data(0, Qt::UserRole + 10).toString();
         }
-        else if (currentItem && currentItem->data(0, Qt::UserRole + 1).isValid()) {
-            destDir = QFileInfo(m_mainWindow->m_libraryManager.getTexture(currentItem->data(0, Qt::UserRole + 1).toInt()).filePath).absolutePath();
+        else if (currentItem && currentItem->data(0, LibraryManager::itemRole(LibraryType::Texture)).isValid()) {
+            destDir = QFileInfo(m_mainWindow->m_libraryManager.getTexture(currentItem->data(0, LibraryManager::itemRole(LibraryType::Texture)).toInt()).filePath).absolutePath();
         }
         else {
-            QString rootPath = settings.value("libraryRootPath").toString();
-            // Case MINUSCOLO: cartella reale "/textures" (mainwindow ~7431).
-            destDir = settings.value("pathTextures", rootPath + "/textures").toString();
+            destDir = LibraryFolders::branchDir(LibraryFolders::Branch::Textures);
         }
     }
 
@@ -454,11 +415,10 @@ void LibraryFileOperations::deleteSelected()
     if (currentItem) {
         targetTree = currentItem->treeWidget();
     } else {
-        if (!m_mainWindow->ui->treeSurfaces->selectedItems().isEmpty()) targetTree = m_mainWindow->ui->treeSurfaces;
-        else if (!m_mainWindow->ui->treeTextures->selectedItems().isEmpty()) targetTree = m_mainWindow->ui->treeTextures;
-        else if (!m_mainWindow->ui->treeMotions->selectedItems().isEmpty()) targetTree = m_mainWindow->ui->treeMotions;
-        else if (!m_mainWindow->ui->treeSounds->selectedItems().isEmpty()) targetTree = m_mainWindow->ui->treeSounds;
-        else if (!m_mainWindow->ui->treeScenes->selectedItems().isEmpty()) targetTree = m_mainWindow->ui->treeScenes;
+        // Nessuna selezione nella linguetta aperta: il primo albero che ne ha una.
+        for (const MainWindow::LibraryBranch &b : m_mainWindow->libraryBranches()) {
+            if (!b.tree->selectedItems().isEmpty()) { targetTree = b.tree; break; }
+        }
     }
 
     if (!targetTree) return;
@@ -474,11 +434,8 @@ void LibraryFileOperations::deleteSelected()
     QSettings settings;
 
     for (QTreeWidgetItem *item : items) {
-        if (item->data(0, Qt::UserRole).isValid()) filesToDelete.append({item->data(0, Qt::UserRole).toInt(), LibraryType::Surface});
-        else if (item->data(0, Qt::UserRole + 1).isValid()) filesToDelete.append({item->data(0, Qt::UserRole + 1).toInt(), LibraryType::Texture});
-        else if (item->data(0, Qt::UserRole + 2).isValid()) filesToDelete.append({item->data(0, Qt::UserRole + 2).toInt(), LibraryType::Motion});
-        else if (item->data(0, Qt::UserRole + 3).isValid()) filesToDelete.append({item->data(0, Qt::UserRole + 3).toInt(), LibraryType::Sound});
-        else if (item->data(0, Qt::UserRole + 4).isValid()) filesToDelete.append({item->data(0, Qt::UserRole + 4).toInt(), LibraryType::Scene});
+        if (const std::optional<LibraryType> type = LibraryManager::itemType(item))
+            filesToDelete.append({item->data(0, LibraryManager::itemRole(*type)).toInt(), *type});
         else if (item->data(0, Qt::UserRole + 10).isValid()) {
             physicalFoldersToDelete.append(QDir::cleanPath(item->data(0, Qt::UserRole + 10).toString()));
         }

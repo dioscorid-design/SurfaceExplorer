@@ -5,6 +5,7 @@
 // Gli alberi della Library e i dialoghi di scelta restano a MainWindow.
 #pragma once
 
+#include <QList>
 #include <QString>
 
 class QDir;
@@ -15,8 +16,8 @@ namespace LibraryFolders {
 // La radice della libreria: su desktop quella scelta dall'utente
 // ("libraryRootPath"), su iOS e Android una cartella fissa dei Documenti.
 QString root();
-// La cartella e' una radice di libreria: contiene almeno uno dei quattro rami
-// (surfaces, textures, records, sounds; anche con la maiuscola).
+// La cartella e' una radice di libreria: contiene almeno uno dei rami
+// (vedi branches(); anche con la maiuscola).
 bool isLibraryRoot(const QDir &dir);
 // Il ramo che contiene `path` (file o cartella), per POSIZIONE rispetto alle
 // radici dei rami -- la cartella scelta con Change Folder (pathSurfaces, ...)
@@ -24,6 +25,22 @@ bool isLibraryRoot(const QDir &dir);
 // records/ resta records. None = fuori da tutti i rami.
 enum class Branch { None, Surfaces, Textures, Sounds, Records, Scenes };
 Branch branchOf(const QString &path);
+// I RAMI, sede unica: per ciascuno la chiave delle impostazioni (la cartella
+// scelta con Change Folder), la cartella sotto la radice -- che e' anche
+// quella dei preset di fabbrica, :/library/presets/<cartella> --, il nome
+// della linguetta e quello di una sua voce nel menu ("Rename Scene...").
+// Ordine = ordine delle linguette. Un ramo nuovo si aggiunge qui (e in
+// MainWindow::libraryBranches, per il suo albero): le copie sparse della
+// tabella avevano dimenticato le scene (Restore Factory, menu, drag and drop).
+struct BranchInfo { Branch branch; const char *key; const char *folder; const char *label; const char *item; };
+const QList<BranchInfo> &branches();
+// La cartella di un ramo come la legge la libreria (refreshRepositories): la
+// scelta con Change Folder, altrimenti <radice>/<cartella>. Vuota per None.
+QString branchDir(Branch branch);
+// Dimentica le cartelle scelte con Change Folder (le chiavi di tutti i rami,
+// piu' la vecchia "pathMotions" dei record): da qui ogni ramo torna a
+// <radice>/<cartella>.
+void forgetBranchDirs();
 // La cartella vive dentro iCloud Drive o un altro servizio di
 // sincronizzazione (solo macOS; altrove false).
 bool isCloudSynced(const QString &path);

@@ -44,6 +44,9 @@ void MainWindow::saveObjectSession(ObjectSession &s) const
     s.borderTextureScriptText = m_borderTextureScriptText;
     s.borderTextureScriptBase = m_borderTextureScriptBase;
     s.surfaceOrigin = int(m_surfaceOrigin);
+    s.parametricApplied = m_parametricApplied;
+    s.implicitApplied = m_implicitApplied;
+    s.rmTextureApplied = m_rmTextureApplied;
     s.cleanScene = m_cleanScene;
     s.appliedSurface = m_appliedSurface;
     s.cleanTexture = m_cleanTexture;
@@ -103,6 +106,9 @@ void MainWindow::openObjectSession(const ObjectSession &s)
     m_borderTextureScriptText = s.borderTextureScriptText;
     m_borderTextureScriptBase = s.borderTextureScriptBase;
     m_surfaceOrigin = static_cast<decltype(m_surfaceOrigin)>(s.surfaceOrigin);
+    m_parametricApplied = s.parametricApplied;
+    m_implicitApplied = s.implicitApplied;
+    m_rmTextureApplied = s.rmTextureApplied;
     m_cleanScene = s.cleanScene;
     m_appliedSurface = s.appliedSurface;
     m_cleanTexture = s.cleanTexture;
@@ -472,7 +478,11 @@ bool MainWindow::loadSceneFile(const QString &path)
     const LibraryItem env = lm.parseJsonObject(root.value(QStringLiteral("environment")).toObject(),
                                                LibraryType::Motion, path);
     if (env.name.isEmpty()) return false;
+    // Il record e' l'ambiente di una scena: se il cambio di modalita' resetta la
+    // scena, l'item da tenere evidenziato e' la scena (m_modeSwitchSourceTree).
+    m_loadingSceneFile = true;
     applyMotionExample(env);   // torna al solo ambiente e lo carica
+    m_loadingSceneFile = false;
     // La timeline da capo.
     ui->glWidget->setSceneTime(0.0f);
 

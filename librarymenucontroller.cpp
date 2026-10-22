@@ -174,75 +174,43 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
             });
         }
         else {
-            bool isSurface = refItem->data(0, Qt::UserRole).isValid();
-            bool isTexture = refItem->data(0, Qt::UserRole + 1).isValid();
-            bool isMotion  = refItem->data(0, Qt::UserRole + 2).isValid();
-            bool isSound   = refItem->data(0, Qt::UserRole + 3).isValid();
-            bool isScene   = refItem->data(0, Qt::UserRole + 4).isValid();
+            // UNA VOCE: i comandi comuni a ogni ramo (Rename, Copy, Cut, Delete,
+            // col nome del ramo: "Rename Scene...") e le voci proprie di un
+            // ramo. Il ramo lo dice la voce (LibraryManager::itemType), il
+            // salvataggio MainWindow::saveInBranch.
+            const std::optional<LibraryType> itemType = LibraryManager::itemType(refItem);
+            const MainWindow::LibraryBranch *itemBranch = itemType ? m_mainWindow->libraryBranch(*itemType) : nullptr;
             bool isFolder  = refItem->data(0, Qt::UserRole + 10).isValid();
 
-            if (isSurface) {
-                int index = refItem->data(0, Qt::UserRole).toInt();
-                QString path = m_mainWindow->m_libraryManager.getSurface(index).filePath;
+            if (itemBranch) {
+                const LibraryFolders::Branch branch = itemBranch->info.branch;
+                const QString item = QLatin1String(itemBranch->info.item);
+                const QString path = m_mainWindow->m_libraryManager.itemFilePath(refItem);
 
                 // 2.0: la Shape come OGGETTO della scena a schermo, che resta.
-                contextMenu->addAction("Add to Scene", m_mainWindow, [this, path, executeAction](){
-                    executeAction([this, path](){ m_mainWindow->addShapeToScene(path); });
-                });
-                contextMenu->addSeparator();
-                contextMenu->addAction("Save Shape As...", m_mainWindow, [this, path, executeAction](){
-                    executeAction([this, path](){ m_mainWindow->m_presetSerializer->saveSurfaceAs(QFileInfo(path).absolutePath(), path); });
-                });
-                contextMenu->addAction("Rename Shape...", m_mainWindow, [this, refItem, executeAction](){
-                    executeAction([this, refItem](){ m_mainWindow->renameLibraryItem(refItem); });
-                });
-                contextMenu->addAction("Copy Shape", m_mainWindow, [this, refItem, executeAction](){
-                    executeAction([this, refItem](){ m_mainWindow->m_fileOps->performCopy(refItem); });
-                });
-                contextMenu->addAction("Cut Shape", m_mainWindow, [this, refItem, executeAction](){
-                    executeAction([this, refItem](){ m_mainWindow->m_fileOps->performCut(refItem); });
-                });
-                contextMenu->addAction("Delete Shape", m_mainWindow, [this, executeAction](){
-                    executeAction([this](){ m_mainWindow->deleteSelectedExample(); });
-                });
-            }
-            else if (isTexture) {
-                int index = refItem->data(0, Qt::UserRole + 1).toInt();
-                const LibraryItem &data = m_mainWindow->m_libraryManager.getTexture(index);
+                if (branch == LibraryFolders::Branch::Surfaces) {
+                    contextMenu->addAction("Add to Scene", m_mainWindow, [this, path, executeAction](){
+                        executeAction([this, path](){ m_mainWindow->addShapeToScene(path); });
+                    });
+                    contextMenu->addSeparator();
+                }
+                // Un suono che non e' un preset (.wav, .mp3...) non ha "Save As".
+                if (branch != LibraryFolders::Branch::Sounds || path.endsWith(".json", Qt::CaseInsensitive)) {
+                    contextMenu->addAction("Save " + item + " As...", m_mainWindow, [this, branch, path, executeAction](){
+                        executeAction([this, branch, path](){
+                            m_mainWindow->saveInBranch(branch, QFileInfo(path).absolutePath(), path);
+                        });
+                    });
+                }
 
-                contextMenu->addAction("Save Texture As...", m_mainWindow, [this, data, executeAction](){
-                    executeAction([this, data](){ m_mainWindow->m_presetSerializer->saveTextureAs(QFileInfo(data.filePath).absolutePath(), data.filePath); });
-                });
-
-                contextMenu->addAction("Rename Texture...", m_mainWindow, [this, refItem, executeAction](){
-                    executeAction([this, refItem](){ m_mainWindow->renameLibraryItem(refItem); });
-                });
-                contextMenu->addAction("Copy Texture", m_mainWindow, [this, refItem, executeAction](){
-                    executeAction([this, refItem](){ m_mainWindow->performCopy(refItem); });
-                });
-                contextMenu->addAction("Cut Texture", m_mainWindow, [this, refItem, executeAction](){
-                    executeAction([this, refItem](){ m_mainWindow->performCut(refItem); });
-                });
-                contextMenu->addAction("Delete Texture", m_mainWindow, [this, executeAction](){
-                    executeAction([this](){ m_mainWindow->deleteSelectedExample(); });
-                });
-            }
-            else if (isMotion) {
-                int index = refItem->data(0, Qt::UserRole + 2).toInt();
-                QString path = m_mainWindow->m_libraryManager.getMotion(index).filePath;
-
-                contextMenu->addAction("Save Record As...", m_mainWindow, [this, path, executeAction](){
-                    executeAction([this, path](){ m_mainWindow->m_presetSerializer->saveMotionAs(QFileInfo(path).absolutePath(), path); });
-                });
-
-                // SYNC FOCUSED TEXTURE: solo sul record CARICATO, e solo se la sua
-                // texture di libreria e' stata modificata dopo il salvataggio.
-                // Il record cliccato puo' non essere quello in scena (la selezione
-                // dell'albero segue il click), e agire su un altro significherebbe
-                // aggiornare una scena che l'utente non sta guardando.
-                // Voce sempre PRESENTE ma disabilitata quando non farebbe nulla:
-                // farla sparire lascerebbe intendere che la funzione non esista.
-                {
+                if (branch == LibraryFolders::Branch::Records) {
+                    // SYNC FOCUSED TEXTURE: solo sul record CARICATO, e solo se la sua
+                    // texture di libreria e' stata modificata dopo il salvataggio.
+                    // Il record cliccato puo' non essere quello in scena (la selezione
+                    // dell'albero segue il click), e agire su un altro significherebbe
+                    // aggiornare una scena che l'utente non sta guardando.
+                    // Voce sempre PRESENTE ma disabilitata quando non farebbe nulla:
+                    // farla sparire lascerebbe intendere che la funzione non esista.
                     const bool isLoaded = !m_mainWindow->currentRecordPath().isEmpty()
                                           && QFileInfo(m_mainWindow->currentRecordPath()) == QFileInfo(path);
                     // Superficie O sfondo: basta che una delle due texture del
@@ -272,87 +240,30 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                                       : QStringLiteral("Textures already up to date."));
                     contextMenu->setToolTipsVisible(true);
                 }
-                contextMenu->addAction("Rename Record...", m_mainWindow, [this, refItem, executeAction](){
+                contextMenu->addAction("Rename " + item + "...", m_mainWindow, [this, refItem, executeAction](){
                     executeAction([this, refItem](){ m_mainWindow->renameLibraryItem(refItem); });
                 });
-                contextMenu->addAction("Copy Record", m_mainWindow, [this, refItem, executeAction](){
-                    executeAction([this, refItem](){ m_mainWindow->m_fileOps->performCopy(refItem); });
-                });
-                contextMenu->addAction("Cut Record", m_mainWindow, [this, refItem, executeAction](){
-                    executeAction([this, refItem](){ m_mainWindow->m_fileOps->performCut(refItem); });
-                });
-                contextMenu->addAction("Delete Record", m_mainWindow, [this, executeAction](){
-                    executeAction([this](){ m_mainWindow->deleteSelectedExample(); });
-                });
-            }
-            else if (isScene) {
-                const QString path = refItem->toolTip(0);
-                contextMenu->addAction("Save Scene As...", m_mainWindow, [this, path, executeAction](){
-                    executeAction([this, path](){ m_mainWindow->m_presetSerializer->saveScene(QFileInfo(path).absolutePath()); });
-                });
-                contextMenu->addAction("Rename Scene...", m_mainWindow, [this, refItem, executeAction](){
-                    executeAction([this, refItem](){ m_mainWindow->renameLibraryItem(refItem); });
-                });
-                contextMenu->addAction("Copy Scene", m_mainWindow, [this, refItem, executeAction](){
-                    executeAction([this, refItem](){ m_mainWindow->m_fileOps->performCopy(refItem); });
-                });
-                contextMenu->addAction("Cut Scene", m_mainWindow, [this, refItem, executeAction](){
-                    executeAction([this, refItem](){ m_mainWindow->m_fileOps->performCut(refItem); });
-                });
-                contextMenu->addAction("Delete Scene", m_mainWindow, [this, executeAction](){
-                    executeAction([this](){ m_mainWindow->deleteSelectedExample(); });
-                });
-            }
-            else if (isSound) {
-                int index = refItem->data(0, Qt::UserRole + 3).toInt();
-                const LibraryItem &data = m_mainWindow->m_libraryManager.getSound(index);
-
-                if (data.filePath.endsWith(".json", Qt::CaseInsensitive)) {
-                    contextMenu->addAction("Save Sound As...", m_mainWindow, [this, data, executeAction](){
-                        // Finestra di dialogo (2 argomenti: cartella base e file sorgente)
-                        executeAction([this, data](){ m_mainWindow->m_presetSerializer->saveSoundAs(QFileInfo(data.filePath).absolutePath(), data.filePath); });
-                    });
-                }
-
-                contextMenu->addAction("Rename Sound...", m_mainWindow, [this, refItem, executeAction](){
-                    executeAction([this, refItem](){ m_mainWindow->renameLibraryItem(refItem); });
-                });
-                contextMenu->addAction("Copy Sound", m_mainWindow, [this, refItem, executeAction](){
+                contextMenu->addAction("Copy " + item, m_mainWindow, [this, refItem, executeAction](){
                     executeAction([this, refItem](){ m_mainWindow->performCopy(refItem); });
                 });
-                contextMenu->addAction("Cut Sound", m_mainWindow, [this, refItem, executeAction](){
+                contextMenu->addAction("Cut " + item, m_mainWindow, [this, refItem, executeAction](){
                     executeAction([this, refItem](){ m_mainWindow->performCut(refItem); });
                 });
-                contextMenu->addAction("Delete Sound", m_mainWindow, [this, executeAction](){
+                contextMenu->addAction("Delete " + item, m_mainWindow, [this, executeAction](){
                     executeAction([this](){ m_mainWindow->deleteSelectedExample(); });
                 });
             }
             else if (isFolder) {
                 QString folderPath = refItem->data(0, Qt::UserRole + 10).toString();
 
-                if (senderTree == m_mainWindow->ui->treeSurfaces) {
-                    // folderPath passato anche su desktop (come Texture/Sound):
-                    // il vecchio ramo senza argomento ripiegava sulla selezione
-                    // corrente e, in sua assenza, su lastFolder ("ultima usata").
-                    contextMenu->addAction("Save Shape Here...", m_mainWindow, [this, folderPath, executeAction](){
-                        executeAction([this, folderPath](){ m_mainWindow->saveSurfaceToFile(folderPath); });
-                    });
-                } else if (senderTree == m_mainWindow->ui->treeTextures) {
-                    contextMenu->addAction("Save Texture Here...", m_mainWindow, [this, folderPath, executeAction](){
-                        executeAction([this, folderPath](){ m_mainWindow->m_presetSerializer->saveTextureAs(folderPath); });
-                    });
-                } else if (senderTree == m_mainWindow->ui->treeMotions) {
-                    // folderPath anche su desktop, vedi Save Surface Here sopra.
-                    contextMenu->addAction("Save Record Here...", m_mainWindow, [this, folderPath, executeAction](){
-                        executeAction([this, folderPath](){ m_mainWindow->m_presetSerializer->saveMotion(folderPath); });
-                    });
-                } else if (senderTree == m_mainWindow->ui->treeSounds) {
-                    contextMenu->addAction("Save Sound Here...", m_mainWindow, [this, folderPath, executeAction](){
-                        executeAction([this, folderPath](){ m_mainWindow->m_presetSerializer->saveSoundAs(folderPath, ""); });
-                    });
-                } else if (senderTree == m_mainWindow->ui->treeScenes) {
-                    contextMenu->addAction("Save Scene Here...", m_mainWindow, [this, folderPath, executeAction](){
-                        executeAction([this, folderPath](){ m_mainWindow->m_presetSerializer->saveScene(folderPath); });
+                // folderPath passato sempre (anche su desktop): il vecchio ramo
+                // Shape senza argomento ripiegava sulla selezione corrente e, in
+                // sua assenza, su lastFolder ("ultima usata").
+                if (const MainWindow::LibraryBranch *treeBranch = m_mainWindow->libraryBranch(senderTree)) {
+                    const LibraryFolders::Branch branch = treeBranch->info.branch;
+                    contextMenu->addAction("Save " + QLatin1String(treeBranch->info.item) + " Here...", m_mainWindow,
+                                           [this, branch, folderPath, executeAction](){
+                        executeAction([this, branch, folderPath](){ m_mainWindow->saveInBranch(branch, folderPath); });
                     });
                 }
                 contextMenu->addSeparator();
@@ -396,35 +307,12 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
         // (come fanno gia' Texture e Sound); senza path, saveSurface/saveMotion
         // ricadono sull'item selezionato / lastDir -> il dialog si apre in un ramo
         // secondario.
-        QString rootPath = QSettings().value("libraryRootPath").toString();
-        if (senderTree == m_mainWindow->ui->treeSurfaces) {
-            QString startDir = QSettings().value("pathSurfaces", rootPath + "/surfaces").toString();
-            contextMenu->addAction("Save New Shape...", m_mainWindow, [this, startDir, executeAction](){
-                executeAction([this, startDir](){ m_mainWindow->saveSurfaceToFile(startDir); });
-            });
-        } else if (senderTree == m_mainWindow->ui->treeTextures) {
-            contextMenu->addAction("Save New Texture...", m_mainWindow, [this, executeAction](){
-                executeAction([this](){
-                    QString rootPath = QSettings().value("libraryRootPath").toString();
-                    m_mainWindow->m_presetSerializer->saveTextureAs(QSettings().value("pathTextures", rootPath + "/textures").toString());
-                });
-            });
-        } else if (senderTree == m_mainWindow->ui->treeMotions) {
-            QString startDir = QSettings().value("pathRecords", rootPath + "/records").toString();
-            contextMenu->addAction("Save New Record...", m_mainWindow, [this, startDir, executeAction](){
-                executeAction([this, startDir](){ m_mainWindow->m_presetSerializer->saveMotion(startDir); });
-            });
-        } else if (senderTree == m_mainWindow->ui->treeScenes) {
-            QString startDir = QSettings().value("pathScenes", rootPath + "/scenes").toString();
-            contextMenu->addAction("Save New Scene...", m_mainWindow, [this, startDir, executeAction](){
-                executeAction([this, startDir](){ m_mainWindow->m_presetSerializer->saveScene(startDir); });
-            });
-        } else if (senderTree == m_mainWindow->ui->treeSounds) {
-            contextMenu->addAction("Save New Sound...", m_mainWindow, [this, executeAction](){
-                executeAction([this](){
-                    QString rootPath = QSettings().value("libraryRootPath").toString();
-                    m_mainWindow->m_presetSerializer->saveSoundAs(QSettings().value("pathSounds", rootPath + "/sounds").toString(), "");
-                });
+        if (const MainWindow::LibraryBranch *treeBranch = m_mainWindow->libraryBranch(senderTree)) {
+            const LibraryFolders::Branch branch = treeBranch->info.branch;
+            const QString startDir = LibraryFolders::branchDir(branch);
+            contextMenu->addAction("Save New " + QLatin1String(treeBranch->info.item) + "...", m_mainWindow,
+                                   [this, branch, startDir, executeAction](){
+                executeAction([this, branch, startDir](){ m_mainWindow->saveInBranch(branch, startDir); });
             });
         }
 
@@ -435,20 +323,10 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     if (!clickedOnFolder && (!m_mainWindow->m_cutFilePaths.isEmpty() || !m_mainWindow->m_cutTexturePaths.isEmpty())) {
         // Paste nel ramo PRINCIPALE: qui non c'e' un item da cui dedurre la
         // destinazione (su mobile getCurrentLibraryItem() e' nullo). Passiamo la
-        // root della CATEGORIA corrente col case corretto (/surfaces, /records...
-        // minuscoli, come nel resto del codice): il vecchio fallback su Surface
-        // usava "/Surfaces" (maiuscolo, inesistente su iOS case-sensitive) -> copy
-        // fallita -> paste inerte.
-        QString rootPath = QSettings().value("libraryRootPath").toString();
-        QString destRoot;
-        // Case MINUSCOLO per tutte: le cartelle reali sono create minuscole
-        // (mainwindow ~7430). Su iOS/APFS case-sensitive "/Textures"/"/Sounds"
-        // non esistono -> copy fallita -> paste inerte (stesso bug di Surface).
-        if (senderTree == m_mainWindow->ui->treeSurfaces)      destRoot = QSettings().value("pathSurfaces", rootPath + "/surfaces").toString();
-        else if (senderTree == m_mainWindow->ui->treeMotions)  destRoot = QSettings().value("pathRecords",  rootPath + "/records").toString();
-        else if (senderTree == m_mainWindow->ui->treeSounds)   destRoot = QSettings().value("pathSounds",   rootPath + "/sounds").toString();
-        else if (senderTree == m_mainWindow->ui->treeTextures) destRoot = QSettings().value("pathTextures", rootPath + "/textures").toString();
-        else if (senderTree == m_mainWindow->ui->treeScenes)   destRoot = QSettings().value("pathScenes",   rootPath + "/scenes").toString();
+        // root della CATEGORIA corrente (LibraryFolders::branchDir: cartelle
+        // minuscole, come le crea la libreria; il vecchio fallback su Surface
+        // usava "/Surfaces", inesistente su iOS case-sensitive -> paste inerte).
+        const QString destRoot = LibraryFolders::branchDir(m_mainWindow->branchOfTree(senderTree));
 
         if (!m_mainWindow->m_cutFilePaths.isEmpty()) {
             contextMenu->addAction(QString("Paste %1 Item(s)").arg(m_mainWindow->m_cutFilePaths.count()), m_mainWindow, [this, destRoot, executeAction](){
@@ -492,27 +370,21 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     // Records...") e la seconda dice esplicitamente che vale per tutto
     // ("Change Library Folder..."): la differenza si vede dai nomi, senza
     // doverla scoprire per tentativi.
-    QString branchLabel = "Shapes";
-    if (senderTree == m_mainWindow->ui->treeTextures)     branchLabel = "Textures";
-    else if (senderTree == m_mainWindow->ui->treeMotions) branchLabel = "Records";
-    else if (senderTree == m_mainWindow->ui->treeSounds)  branchLabel = "Sounds";
-    else if (senderTree == m_mainWindow->ui->treeScenes)  branchLabel = "Scenes";
+    // Il ramo dell'albero (Shapes se non e' uno dei cinque, come prima).
+    LibraryFolders::BranchInfo branch = LibraryFolders::branches().first();
+    for (const LibraryFolders::BranchInfo &b : LibraryFolders::branches())
+        if (b.branch == m_mainWindow->branchOfTree(senderTree)) branch = b;
+    const QString branchLabel = QLatin1String(branch.label);
 
     // Nascondiamo l'apertura cartella Workspace su Mobile per evitare problemi di file system
     contextMenu->addAction(QString("Change Folder for %1...").arg(branchLabel), m_mainWindow,
-                           [this, senderTree, executeAction,
+                           [this, branch, executeAction,
                             motionRotating, motionPath4D, motionPath3D, motionTimeAnim](){
-        executeAction([this, senderTree,
+        executeAction([this, branch,
                        motionRotating, motionPath4D, motionPath3D, motionTimeAnim](){
             QSettings settings;
-            QString rootPath = settings.value("libraryRootPath").toString();
-            QString key;
-            QString currentPath;
-            if (senderTree == m_mainWindow->ui->treeTextures) { key = "pathTextures"; currentPath = settings.value(key, rootPath + "/Textures").toString(); }
-            else if (senderTree == m_mainWindow->ui->treeMotions) { key = "pathRecords"; currentPath = settings.value(key, rootPath + "/records").toString(); }
-            else if (senderTree == m_mainWindow->ui->treeSounds) { key = "pathSounds"; currentPath = settings.value(key, rootPath + "/Sounds").toString(); }
-            else if (senderTree == m_mainWindow->ui->treeScenes) { key = "pathScenes"; currentPath = settings.value(key, rootPath + "/scenes").toString(); }
-            else { key = "pathSurfaces"; currentPath = settings.value(key, rootPath + "/Surfaces").toString(); }
+            const QString key = QLatin1String(branch.key);
+            const QString currentPath = LibraryFolders::branchDir(branch.branch);
 
             QString dir = QFileDialog::getExistingDirectory(m_mainWindow, "Select Workspace Folder", currentPath);
             // ANNULLATO: i moti vanno rimessi qui. showMenu li ha fermati e li

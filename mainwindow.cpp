@@ -985,15 +985,10 @@ void MainWindow::setupDockLayout()
     // =========================================================================
     // --- RIORDINO SCHEDE LIBRARY (FIX DESIGNER) ---
     ui->tabWidget->clear();
-    // "Shapes" e non "Surfaces": il ramo tiene superfici, curve solide e forme
-    // implicite, e "Surface" e' gia' il sotto-tab del Parametrico. Solo
-    // l'etichetta: la cartella resta surfaces/, come chiavi e codice.
-    ui->tabWidget->addTab(ui->Surface, "Shapes");
-    ui->tabWidget->addTab(ui->Texture, "Textures");
-    ui->tabWidget->addTab(ui->Sounds, "Sounds");
-    ui->tabWidget->addTab(ui->Motions, "Records");
-    // 2.0: le scene (ambiente + oggetti), cartella scenes/.
-    ui->tabWidget->addTab(ui->Scenes, "Scenes");
+    // Una linguetta per ramo, nell'ordine e coi nomi della tabella dei rami
+    // (LibraryFolders::branches: "Shapes" per surfaces/, 2.0 "Scenes").
+    for (const LibraryBranch &b : libraryBranches())
+        ui->tabWidget->addTab(b.tab, QLatin1String(b.info.label));
     ui->tabWidget->setCurrentIndex(0);
     // Niente frecce di scorrimento sui tab Library: il cambio si fa cliccando
     // la linguetta.
@@ -1699,11 +1694,7 @@ void MainWindow::finishStartup()
             settings.remove("libraryRootPath");
             // Puntavano ai rami sparsi: se restassero, scavalcherebbero la
             // scelta successiva (sono lette con default rootPath+"/ramo").
-            settings.remove("pathSurfaces");
-            settings.remove("pathTextures");
-            settings.remove("pathRecords");
-            settings.remove("pathScenes");
-            settings.remove("pathSounds");
+            LibraryFolders::forgetBranchDirs();
         }
     }
 

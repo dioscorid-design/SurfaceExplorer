@@ -15,6 +15,9 @@ RESOURCE_GROUPS = {
         "presets/textures",
         "presets/records",  
         "presets/sounds",
+        # 2.0: le scene. Restore Factory le copia da :/library/presets/scenes
+        # (LibraryFolders::branches): senza questa riga su iOS non arrivavano.
+        "presets/scenes",
         "shaders"
     ],
     "/": [

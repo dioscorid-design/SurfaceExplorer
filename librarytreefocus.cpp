@@ -26,7 +26,7 @@ const LibraryItem *LibraryTreeFocus::textureNamed(QTreeWidget *tree, const Libra
     if (name.isEmpty() || !tree) return nullptr;
     QTreeWidgetItemIterator it(tree);
     while (*it) {
-        QVariant v = (*it)->data(0, Qt::UserRole + 1);
+        QVariant v = (*it)->data(0, LibraryManager::itemRole(LibraryType::Texture));
         if (v.isValid()) {
             const LibraryItem &item = lib.getTexture(v.toInt());
             if (QString::compare(name, item.name.trimmed(), Qt::CaseInsensitive) == 0)
@@ -48,7 +48,7 @@ void LibraryTreeFocus::selectTexture(QTreeWidget *tree, const LibraryManager &li
     QTreeWidgetItem *byCode = nullptr;
     QTreeWidgetItem *byName = nullptr;
     while (*itTex) {
-        QVariant vTex = (*itTex)->data(0, Qt::UserRole + 1);
+        QVariant vTex = (*itTex)->data(0, LibraryManager::itemRole(LibraryType::Texture));
         if (vTex.isValid()) {
             const LibraryItem &texItem = lib.getTexture(vTex.toInt());
             if (!byCode && TextureCode::itemMatchesCode(texItem, activeCode, cleanedActive))
@@ -118,7 +118,7 @@ void LibraryTreeFocus::selectSound(QTreeWidget *tree, const LibraryManager &lib,
 
         QTreeWidgetItemIterator itSnd(tree);
         while (*itSnd) {
-            QVariant vSnd = (*itSnd)->data(0, Qt::UserRole + 3);
+            QVariant vSnd = (*itSnd)->data(0, LibraryManager::itemRole(LibraryType::Sound));
             if (vSnd.isValid()) {
                 int idx = vSnd.toInt();
                 const LibraryItem &sndItem = lib.getSound(idx);

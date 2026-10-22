@@ -511,8 +511,7 @@ bool MainWindow::confirmDiscardUnsaved(DiscardScope scope)
             m_presetSerializer->saveTextureAs(startDir, m_currentTexturePresetPath);
             return m_lastSaveSucceeded;   // vero solo se il file e' su disco
         }
-        QString startDir = settings.value("pathSounds",
-                                          LibraryFolders::root() + "/sounds").toString();
+        QString startDir = LibraryFolders::branchDir(LibraryFolders::Branch::Sounds);
         m_lastSaveSucceeded = false;
         m_presetSerializer->saveSoundAs(startDir, "");
         return m_lastSaveSucceeded;
@@ -1211,7 +1210,8 @@ void MainWindow::clearLibrarySelectionAfterReset()
     //    il preset venga applicato, quindi la selezione la si cancellerebbe e
     //    basta, senza che nessuno la rimetta).
     // Quale sia il ramo di provenienza lo dice l'albero che possiede l'item
-    // cliccato: texture -> treeTextures, record -> treeMotions. Non si tiene
+    // cliccato: texture -> treeTextures, record -> treeMotions, scena ->
+    // treeScenes (il suo ambiente e' un record). Non si tiene
     // fermo l'intero set, perche' gli altri rami vanno deselezionati davvero.
     // Il treeSurfaces si deseleziona anche in questi casi: la superficie
     // precedente e' stata sostituita dalla default, quindi il suo item non
@@ -1224,8 +1224,8 @@ void MainWindow::clearLibrarySelectionAfterReset()
     QTreeWidget *keepFocus = m_texModeSwitchInProgress ? m_modeSwitchSourceTree
                                                        : nullptr;
 
-    for (QTreeWidget *tree : { ui->treeSurfaces, ui->treeTextures,
-                               ui->treeMotions,  ui->treeSounds }) {
+    for (const LibraryBranch &branch : libraryBranches()) {
+        QTreeWidget *tree = branch.tree;
         if (!tree) continue;
         if (m_texModeSwitchInProgress && tree == ui->treeTextures) continue;
         if (tree == keepFocus && tree != ui->treeSurfaces) continue;
@@ -2902,7 +2902,7 @@ void MainWindow::applyMotionExample(LibraryItem data, bool asObject)
     // Alzato attorno a ENTRAMBI i rami: il tab da forzare dipende dal record,
     // non da quale ramo dell'if si prende.
     m_texModeSwitchInProgress = true;
-    m_modeSwitchSourceTree = ui->treeMotions;
+    m_modeSwitchSourceTree = m_loadingSceneFile ? ui->treeScenes : ui->treeMotions;
     struct ModeSwitchGuard {
         MainWindow *w;
         ~ModeSwitchGuard() {

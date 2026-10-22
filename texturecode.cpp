@@ -2,12 +2,12 @@
 #include "texturecode.h"
 
 #include "librarymanager.h"
+#include "libraryfolders.h"
 #include "texthelpers.h"
 
 #include <QDirIterator>
 #include <QFileInfo>
 #include <QRegularExpression>
-#include <QSettings>
 
 bool TextureCode::hasLogic(const QString &code)
 {
@@ -50,8 +50,7 @@ QString TextureCode::resolveImagePath(const QString &scriptCode) {
 
     // --- SMART PATH RESOLVER (Ricerca automatica) ---
     QString fileName = QFileInfo(imgPath).fileName();
-    QSettings settings;
-    QString texDir = settings.value("pathTextures", settings.value("libraryRootPath").toString() + "/textures").toString();
+    QString texDir = LibraryFolders::branchDir(LibraryFolders::Branch::Textures);
     QDirIterator it(texDir, QStringList() << fileName, QDir::Files, QDirIterator::Subdirectories);
 
     if (it.hasNext()) return it.next(); // Ritrovata nella nuova cartella!

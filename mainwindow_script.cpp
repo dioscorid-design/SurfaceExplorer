@@ -1402,12 +1402,7 @@ QString MainWindow::extractAudioDirectives(const QString& fullText) {
         } else {
             // B. Se il percorso è rotto, cerchiamo il file nella cartella Sounds locale
             QString fileName = QFileInfo(rawPath).fileName();
-            QSettings settings;
-            QString rootPath;
-
-            rootPath = LibraryFolders::root();
-
-            QString sndDir = settings.value("pathSounds", rootPath + "/sounds").toString();
+            QString sndDir = LibraryFolders::branchDir(LibraryFolders::Branch::Sounds);
 
             // Cerca il file in tutte le sottocartelle dei suoni
             QDirIterator it(sndDir, QStringList() << fileName, QDir::Files, QDirIterator::Subdirectories);

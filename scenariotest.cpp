@@ -5,7 +5,9 @@
 #include "glwidget.h"
 #include "librarymanager.h"
 #include "libraryfileoperations.h"
+#include "librarydragdrophandler.h"
 #include "libraryfolders.h"
+#include "librarytreefocus.h"
 #include "presetserializer.h"
 #include "audiocontroller.h"
 #include "shadercompilelog.h"
@@ -33,6 +35,8 @@
 #include <QFileInfo>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMimeData>
+#include <QDropEvent>
 #include <QRegularExpression>
 #include <QTimer>
 #include <QAbstractButton>
@@ -6009,7 +6013,8 @@ void ScenarioTest::runSceneMotionScenarios()
 
 void ScenarioTest::runSceneDepthScenarios()
 {
-    GLWidget *gl = m_mw->ui->glWidget;
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Scena: ray marching e mesh si coprono per distanza =="));
     const QString kParam = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
@@ -6059,6 +6064,19 @@ void ScenarioTest::runSceneDepthScenarios()
         if (objectPath.isEmpty()) return;
         m_mw->addShapeToScene(objectPath);
         wait(500);
+        // I Run "one-shot" sono dell'oggetto: il load dell'altro modo (che
+        // riarma i Run del suo opposto) non riaccende quello dell'ambiente,
+        // gia' applicato e senza 't'.
+        {
+            m_mw->selectSceneObject(0);
+            wait(200);
+            QPushButton *envRun = (cs.env == kRM) ? ui->btnImplicit : ui->btnRunParametric;
+            check(!envRun->isEnabled(),
+                  QStringLiteral("%1: riselezionato l'ambiente, il suo Run e' spento (%2)")
+                      .arg(cs.label, onOff(envRun->isEnabled())));
+            m_mw->selectSceneObject(1);
+            wait(200);
+        }
         gl->stopAllTimers();
         // L'oggetto rosso, l'ambiente verde: il pixel centrale dice chi si vede.
         gl->setColor(0.9f, 0.1f, 0.1f);
@@ -6549,6 +6567,43 @@ void ScenarioTest::runSceneResetScenarios()
               QStringLiteral("RESET col path fermo: nessun popup, camera al punto di partenza del path%1")
                   .arg(m_lastPopup.isEmpty() ? QString() : QStringLiteral(" (popup: ") + m_lastPopup + QLatin1Char(')')));
     }
+
+    // L'EVIDENZIAZIONE DELLA SCENA nella Library. Una scena con l'ambiente in
+    // ray marching aperta su una parametrica: il cambio di modalita' resetta la
+    // scena, ma l'item resta evidenziato (e' cio' che si sta caricando). NEW
+    // poi la scarta: l'item non descrive piu' cio' che si vede, come un record.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Evidenziazione della scena: load di modo opposto, poi NEW =="));
+    QTreeWidget *scenes = m_mw->ui->treeScenes;
+    QString rmScenePath;
+    for (QTreeWidgetItemIterator it(scenes); *it && rmScenePath.isEmpty(); ++it) {
+        if (!(*it)->data(0, Qt::UserRole + 4).isValid()) continue;
+        QFile f((*it)->toolTip(0));
+        if (!f.open(QIODevice::ReadOnly)) continue;
+        const QJsonObject env = QJsonDocument::fromJson(f.readAll()).object()
+                                    .value(QStringLiteral("environment")).toObject();
+        if (env.value(QStringLiteral("isImplicitMode")).toBool()) rmScenePath = (*it)->toolTip(0);
+    }
+    if (rmScenePath.isEmpty()) {
+        m_lines.append(QStringLiteral("        (nessuna scena con l'ambiente in ray marching nella libreria: controllo saltato)"));
+        return;
+    }
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    QTreeWidgetItem *rmScene = LibraryTreeFocus::itemAt(scenes, rmScenePath);
+    scenes->clearSelection();
+    rmScene->setSelected(true);
+    scenes->setCurrentItem(rmScene);
+    m_discardOnPrompt = true;
+    m_mw->onExampleItemClicked(rmScene, 0);
+    wait(1500);
+    rmScene = LibraryTreeFocus::itemAt(scenes, rmScenePath);
+    check(m_mw->implicitMode() && rmScene && rmScene->isSelected(),
+          QStringLiteral("scena RM aperta su una parametrica: l'item resta evidenziato (%1)")
+              .arg(QFileInfo(rmScenePath).baseName()));
+    m_mw->onNewSceneClicked();
+    m_discardOnPrompt = false;
+    wait(600);
+    check(scenes->selectedItems().isEmpty(), QStringLiteral("NEW: l'item della scena non e' piu' evidenziato"));
 }
 
 void ScenarioTest::runSceneTimelineScenarios()
@@ -7384,6 +7439,60 @@ void ScenarioTest::runLibraryRenameScenarios()
               && m_mw->m_cutFilePaths == QStringList{ root + QStringLiteral("/Routes") },
           QStringLiteral("cartella rinominata -> record in scena e appunti di Copia la seguono (%1, %2)")
               .arg(m_mw->m_currentRecordPath, m_mw->m_cutFilePaths.join(QStringLiteral(", "))));
+
+    // UNA SCENA (voce con UserRole + 4): Rename apre il dialogo, Copy e Cut la
+    // mettono negli appunti. Prima la voce non dava un percorso e i tre comandi
+    // non facevano nulla.
+    {
+        const QString scenePath = root + QStringLiteral("/Routes/s.json");
+        touch(scenePath);
+        LibraryItem scene;
+        scene.name = QStringLiteral("s");
+        scene.filePath = scenePath;
+        scene.type = LibraryType::Scene;
+        m_mw->m_libraryManager.m_scenes.append(scene);
+        QTreeWidget tree;
+        auto *item = new QTreeWidgetItem(&tree);
+        item->setToolTip(0, scenePath);
+        item->setData(0, Qt::UserRole + 4, int(m_mw->m_libraryManager.m_scenes.size() - 1));
+        m_acceptNextDialog = true;   // il nome resta quello: rinomina nulla
+        m_mw->renameLibraryItem(item);
+        check(!m_acceptNextDialog && QFile::exists(scenePath),
+              QStringLiteral("Rename Scene: il dialogo del nome si apre"));
+        m_acceptNextDialog = false;
+        m_mw->m_fileOps->performCopy(item);
+        check(m_mw->m_cutFilePaths == QStringList{ scenePath } && m_mw->m_isCopyOperation,
+              QStringLiteral("Copy Scene: la scena negli appunti (%1)").arg(m_mw->m_cutFilePaths.join(QStringLiteral(", "))));
+        m_mw->m_fileOps->performCut(item);
+        check(m_mw->m_cutFilePaths == QStringList{ scenePath } && !m_mw->m_isCopyOperation,
+              QStringLiteral("Cut Scene: la scena negli appunti (%1)").arg(m_mw->m_cutFilePaths.join(QStringLiteral(", "))));
+
+        // DRAG AND DROP della scena su una cartella: il file ci si sposta. Il
+        // drop come lo riceve il filtro del viewport, al centro della cartella.
+        const QString destDir = root + QStringLiteral("/Routes/Dest");
+        QDir().mkpath(destDir);
+        auto *folder = new QTreeWidgetItem(&tree);
+        folder->setText(0, QStringLiteral("Dest"));
+        folder->setData(0, Qt::UserRole + 10, destDir);
+        item->setText(0, QStringLiteral("s"));
+        tree.show();
+        wait(200);
+        tree.clearSelection();
+        item->setSelected(true);
+        const QPointF at = QRectF(tree.visualItemRect(folder)).center();
+        QMimeData mime;
+        QDropEvent drop(at, Qt::MoveAction, &mime, Qt::LeftButton, Qt::NoModifier);
+        tree.viewport()->installEventFilter(m_mw->m_dragDropHandler);
+        QCoreApplication::sendEvent(tree.viewport(), &drop);
+        wait(300);
+        check(QFile::exists(destDir + QStringLiteral("/s.json")) && !QFile::exists(scenePath),
+              QStringLiteral("drag and drop della scena su una cartella: spostata"));
+        // Lo spostamento rilegge la libreria (m_scenes dal disco): la scena
+        // finta c'e' ancora solo se il drop non e' avvenuto.
+        if (!m_mw->m_libraryManager.m_scenes.isEmpty()
+            && m_mw->m_libraryManager.m_scenes.last().filePath == scenePath)
+            m_mw->m_libraryManager.m_scenes.removeLast();
+    }
     m_mw->m_currentRecordPath = keepRecord;
     m_mw->m_cutFilePaths = keepCut;
 }
@@ -7444,6 +7553,14 @@ void ScenarioTest::runLibraryPasteScenarios()
     m_mw->m_currentRecordPath = savedRecordPath;
 
     m_mw->m_cutFilePaths.clear();
+
+    // I PRESET DI FABBRICA di ogni ramo stanno nelle risorse, dove Restore
+    // Factory li cerca (:/library/presets/<cartella>): le scene mancavano.
+    for (const LibraryFolders::BranchInfo &b : LibraryFolders::branches()) {
+        QDirIterator it(QStringLiteral(":/library/presets/") + QLatin1String(b.folder), QDir::Files,
+                        QDirIterator::Subdirectories);
+        check(it.hasNext(), QStringLiteral("preset di fabbrica del ramo %1 nelle risorse").arg(QLatin1String(b.label)));
+    }
 }
 
 void ScenarioTest::runLibraryFolderScenarios()
@@ -7652,6 +7769,58 @@ void ScenarioTest::runLibraryFolderScenarios()
         onScreenOk(QStringLiteral("tasto destro su un'area vuota"), rightClick(emptyPos, QString()), QString());
     }
     for (QTreeWidgetItem *p = folder; p; p = p->parent()) p->setExpanded(true);
+
+    // IL MENU DI UNA VOCE, ramo per ramo: una sola costruzione per tutti
+    // (LibraryMenuController::showMenu). I comandi comuni col nome del ramo, e
+    // le voci proprie: Add to Scene sulle Shape, Sync sui record, niente Save
+    // As su un suono che non e' un preset.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Library: il menu di una voce, ramo per ramo =="));
+    for (const MainWindow::LibraryBranch &b : m_mw->libraryBranches()) {
+        QTreeWidgetItem *leaf = nullptr;
+        for (QTreeWidgetItemIterator it(b.tree); *it && !leaf; ++it)
+            if (LibraryManager::itemType(*it) == b.type) leaf = *it;
+        if (!leaf) {
+            m_lines.append(QStringLiteral("        (ramo %1 vuoto: menu non controllato)").arg(QLatin1String(b.info.label)));
+            continue;
+        }
+        ui->tabWidget->setCurrentWidget(b.tab);
+        for (QTreeWidgetItem *p = leaf->parent(); p; p = p->parent()) p->setExpanded(true);
+        b.tree->clearSelection();
+        b.tree->scrollToItem(leaf);
+        wait(200);
+        auto entries = std::make_shared<QStringList>();
+        QTimer::singleShot(300, this, [entries] {
+            auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+            if (!menu) return;
+            for (QAction *a : menu->actions())
+                if (!a->isSeparator()) *entries << a->text();
+            menu->close();
+        });
+        emit b.tree->customContextMenuRequested(b.tree->visualItemRect(leaf).center());   // torna a menu chiuso
+        wait(300);
+        const QString item = QLatin1String(b.info.item);
+        const QString path = m_mw->m_libraryManager.itemFilePath(leaf);
+        QStringList want;
+        if (b.type == LibraryType::Surface) want << QStringLiteral("Add to Scene");
+        if (b.type != LibraryType::Sound || path.endsWith(QLatin1String(".json"), Qt::CaseInsensitive))
+            want << QStringLiteral("Save %1 As...").arg(item);
+        if (b.type == LibraryType::Motion) want << QStringLiteral("Sync Focused Texture");
+        want << QStringLiteral("Rename %1...").arg(item) << QStringLiteral("Copy %1").arg(item)
+             << QStringLiteral("Cut %1").arg(item) << QStringLiteral("Delete %1").arg(item);
+        const QStringList got = entries->mid(0, want.size());
+        check(got == want, QStringLiteral("menu di una voce di %1 (%2): [%3]%4").arg(QLatin1String(b.info.label), leaf->text(0),
+                  entries->isEmpty() ? QStringLiteral("menu non aperto (app non in primo piano?)") : got.join(QStringLiteral(", ")),
+                  got == want ? QString() : QStringLiteral(", atteso [%1]").arg(want.join(QStringLiteral(", ")))));
+    }
+    ui->tabWidget->setCurrentWidget(ui->Surface);
+    // Le linguette: una per ramo, nell'ordine e coi nomi della tabella.
+    {
+        QStringList got, want;
+        for (int i = 0; i < ui->tabWidget->count(); ++i) got << ui->tabWidget->tabText(i);
+        for (const MainWindow::LibraryBranch &b : m_mw->libraryBranches()) want << QLatin1String(b.info.label);
+        check(got == want, QStringLiteral("linguette della Library: [%1]").arg(got.join(QStringLiteral(", "))));
+    }
 }
 
 void ScenarioTest::runRecordTextureScenarios()
