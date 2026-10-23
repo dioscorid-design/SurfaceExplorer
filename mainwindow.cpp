@@ -3,6 +3,7 @@
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
 #include "docsearch.h"
+#include <QScreen>
 
 
 class DesktopInputFilter : public QObject {
@@ -973,9 +974,31 @@ void MainWindow::setupStyling()
 #endif
 }
 
+// Il dock unico a linguette (setupDockTabs) vale solo sul telefono: e' li' che
+// la barra di stato non ha posto per sette pulsanti. Telefono = lato corto
+// dello schermo sotto i 600 punti (l'iPhone piu' grande ne ha 440, l'iPad mini
+// 744). Nella build dei test SE_DOCK_TABS=1 lo accende sul Mac, per guardarlo.
+static bool phoneDockTabs()
+{
+#ifdef SE_SELF_TESTS
+    if (qEnvironmentVariableIntValue("SE_DOCK_TABS") == 1) return true;
+#endif
+#if defined(Q_OS_IOS)
+    if (const QScreen *screen = QGuiApplication::primaryScreen()) {
+        const QSize size = screen->size();
+        return qMin(size.width(), size.height()) < 600;
+    }
+#endif
+    return false;
+}
+
 // Disposizione dei dock e delle schede. Parte del costruttore, nell'ordine in cui la chiama.
 void MainWindow::setupDockLayout()
 {
+    // Il telefono ha il dock unico a linguette: deciso qui, prima delle
+    // larghezze delle linguette della Library.
+    m_dockTabs = phoneDockTabs();
+
     // 2.0: il dock degli oggetti della scena, creato in codice (gli altri
     // vengono dal .ui) prima che le liste qui sotto lo blocchino e aggancino.
     setupObjectsDock();
@@ -990,17 +1013,23 @@ void MainWindow::setupDockLayout()
     for (const LibraryBranch &b : libraryBranches())
         ui->tabWidget->addTab(b.tab, QLatin1String(b.info.label));
     ui->tabWidget->setCurrentIndex(0);
-    // Niente frecce di scorrimento sui tab Library: il cambio si fa cliccando
-    // la linguetta.
-    if (ui->tabWidget->tabBar())
-        ui->tabWidget->tabBar()->setUsesScrollButtons(false);
-    // Tab a piena larghezza: 5 tab su un dock bloccato a 400px. min-width fissa
-    // (come il dockEquations, che funziona) tarata sui 400: 58px + 2x8 di
-    // padding + bordo = ~76px/tab riempie la barra senza sforare (con 4 tab
-    // erano 76px di min-width). Col CSS globale setExpanding e' ignorato, la
-    // min-width no.
-    ui->tabWidget->setStyleSheet(
-        "QTabBar::tab { min-width: 58px; padding: 5px 8px; }");
+    if (m_dockTabs) {
+        // Telefono: il dock e' largo meta' dello schermo, non 400; le
+        // linguette si dividono la larghezza che c'e'.
+        UiStyleManager::fillTabBarWidth(ui->tabWidget);
+    } else {
+        // Niente frecce di scorrimento sui tab Library: il cambio si fa cliccando
+        // la linguetta.
+        if (ui->tabWidget->tabBar())
+            ui->tabWidget->tabBar()->setUsesScrollButtons(false);
+        // Tab a piena larghezza: 5 tab su un dock bloccato a 400px. min-width fissa
+        // (come il dockEquations, che funziona) tarata sui 400: 58px + 2x8 di
+        // padding + bordo = ~76px/tab riempie la barra senza sforare (con 4 tab
+        // erano 76px di min-width). Col CSS globale setExpanding e' ignorato, la
+        // min-width no.
+        ui->tabWidget->setStyleSheet(
+            "QTabBar::tab { min-width: 58px; padding: 5px 8px; }");
+    }
 
     UiStyleManager::setupDockScroll(ui->dockEquations, true);
     UiStyleManager::setupDockScroll(ui->dockRenders, true);
@@ -1009,11 +1038,20 @@ void MainWindow::setupDockLayout()
     UiStyleManager::setupDockScroll(ui->dockScripts, true);
     UiStyleManager::setupDockScroll(ui->dockSurfaces, true);
 
-    if (ui->dockEquations) UiStyleManager::addScrollToDock(ui->dockEquations);
-    if (ui->dockRenders) UiStyleManager::addScrollToDock(ui->dockRenders);
-    if (ui->dock3D) UiStyleManager::addScrollToDock(ui->dock3D);
-    if (ui->dock4D) UiStyleManager::addScrollToDock(ui->dock4D);
-    if (ui->dockScripts) UiStyleManager::addScrollToDock(ui->dockScripts);
+    // Sul telefono il contenuto segue la larghezza della vista (setupDockTabs
+    // toglie i minimi di 400): niente margine per la barra.
+    if (ui->dockEquations) UiStyleManager::addScrollToDock(ui->dockEquations, m_dockTabs);
+    if (ui->dockRenders) UiStyleManager::addScrollToDock(ui->dockRenders, m_dockTabs);
+    if (ui->dock3D) UiStyleManager::addScrollToDock(ui->dock3D, m_dockTabs);
+    if (ui->dock4D) UiStyleManager::addScrollToDock(ui->dock4D, m_dockTabs);
+    if (ui->dockScripts) UiStyleManager::addScrollToDock(ui->dockScripts, m_dockTabs);
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    // Objects su mobile: un campo per riga coi tasti freccia (setupObjectsDock)
+    // lo allunga oltre l'altezza del telefono. Il suo contenuto non ha il
+    // minimo di 400 degli altri (non passa da setupDockScroll): segue la vista,
+    // quindi niente margine per la barra.
+    UiStyleManager::addScrollToDock(m_dockObjects, true);
+#endif
 
     // --- BLOCCO SPOSTAMENTO DOCK ---
     auto lockDock = [](QDockWidget* dock) {
@@ -1459,7 +1497,6 @@ void MainWindow::setupStatusBar()
     ui->statusbar->addWidget(m_btnNew);
     ui->statusbar->addWidget(m_btnResetView);
     ui->statusbar->addWidget(m_btnProjection);
-    ui->statusbar->addWidget(m_btnRec);
     // 2.0: il selettore dell'oggetto, solo con piu' oggetti (refreshObjectsUi).
     m_btnObjectSelector = new QPushButton(QString(), this);
     m_btnObjectSelector->setFlat(true);
@@ -1471,6 +1508,9 @@ void MainWindow::setupStatusBar()
     m_sceneTimeLabel = new QLabel(QString(), this);
     m_sceneTimeLabel->setVisible(false);
     ui->statusbar->addWidget(m_sceneTimeLabel);
+    // REC per ultimo fra i comandi, dopo selettore e orologio delle scene.
+    // L'ordine degli addWidget e' anche quello del nastro scorrevole mobile.
+    ui->statusbar->addWidget(m_btnRec);
     ui->statusbar->addWidget(m_renderProgress);
     // m_statusLabel SENZA fattore di stretch: con stretch 1 rivendicava tutto
     // lo spazio residuo della barra, e i tasti dock (permanent widget, che il
@@ -1479,147 +1519,300 @@ void MainWindow::setupStatusBar()
     // setStyleSheet(), quindi non gli serve larghezza propria.
     ui->statusbar->addWidget(m_statusLabel);
 
-    // Lambda helper apertura dock
-    auto closeAllDocks = [this](){
-        ui->dockEquations->close();
-        ui->dockRenders->close();
-        ui->dock3D->close();
-        ui->dock4D->close();
-        ui->dockScripts->close();
-        ui->dockSurfaces->close();
-        m_dockObjects->close();
-    };
+    // Tasti dei dock nella barra di stato. Sul telefono uno solo, Docks: le
+    // pagine si scelgono dalle linguette del dock (setupDockTabs).
+    QPushButton* firstDockButton = nullptr;
+    if (m_dockTabs) {
+        setupDockTabs();
+        QPushButton* btnDocks = new QPushButton("Docks", this); btnDocks->setFlat(true);
+        connect(btnDocks, &QPushButton::clicked, this, &MainWindow::onDocksButtonClicked);
+        ui->statusbar->addPermanentWidget(btnDocks);
+        firstDockButton = btnDocks;
+    } else {
+        QPushButton* btnEq = new QPushButton("Equations", this); btnEq->setFlat(true);
+        connect(btnEq, &QPushButton::clicked, this, [this](){ toggleDock(ui->dockEquations); });
+        ui->statusbar->addPermanentWidget(btnEq);
+        firstDockButton = btnEq;
 
-    auto safeOpenDock = [this, closeAllDocks](QDockWidget* dock) {
+        QPushButton* btnRen = new QPushButton("Renderer", this); btnRen->setFlat(true);
+        connect(btnRen, &QPushButton::clicked, this, [this](){ toggleDock(ui->dockRenders); });
+        ui->statusbar->addPermanentWidget(btnRen);
 
-#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
-        static qint64 lastToggleTime = 0;
-        qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
-        if (currentTime - lastToggleTime < 400) return;
-        lastToggleTime = currentTime;
+        QPushButton* btn3D = new QPushButton("3D View", this); btn3D->setFlat(true);
+        connect(btn3D, &QPushButton::clicked, this, [this](){ toggleDock(ui->dock3D); });
+        ui->statusbar->addPermanentWidget(btn3D);
 
-        if (dock->isVisible()) {
-            dock->close();
-            return;
-        }
+        QPushButton* btn4D = new QPushButton("4D View", this); btn4D->setObjectName("btnDock4D"); btn4D->setFlat(true);
+        connect(btn4D, &QPushButton::clicked, this, [this](){ toggleDock(ui->dock4D); });
+        ui->statusbar->addPermanentWidget(btn4D);
 
-        if (dock->isFloating()) dock->setFloating(false);
+        QPushButton* btnScript = new QPushButton("Script", this); btnScript->setFlat(true);
+        connect(btnScript, &QPushButton::clicked, this, [this](){ toggleDock(ui->dockScripts); });
+        ui->statusbar->addPermanentWidget(btnScript);
 
-        // 1. CONGELIAMO LO SCHERMO (Elimina il flash visivo)
-        this->setUpdatesEnabled(false);
-
-        // 2. FORZIAMO LA LARGHEZZA (Evita il collasso a 0 pixel e il "millimetro" di splitter)
-        dock->setFixedWidth(400);
-
-        // 3. AGGANCIAMO E MOSTRIAMO
-        this->addDockWidget(Qt::RightDockWidgetArea, dock);
-        dock->show();
-        dock->raise();
-
-        // 4. CHIUDIAMO I VECCHI IN BACKGROUND
-        if (dock != ui->dockEquations) ui->dockEquations->close();
-        if (dock != ui->dockRenders) ui->dockRenders->close();
-        if (dock != ui->dock3D) ui->dock3D->close();
-        if (dock != ui->dock4D) ui->dock4D->close();
-        if (dock != ui->dockScripts) ui->dockScripts->close();
-        if (dock != ui->dockSurfaces) ui->dockSurfaces->close();
-        if (dock != m_dockObjects) m_dockObjects->close();
-
-        // 5. SCONGELIAMO LO SCHERMO
-        this->setUpdatesEnabled(true);
-
-        QTimer::singleShot(100, dock, [this, dock]() {
-            dock->setMinimumWidth(400);
-
-            // dockEquations, dockSurfaces (Library) e Objects bloccati a 400:
-            // non serve che si allarghino oltre. Cosi' i tab Library hanno
-            // larghezza nota.
-            if (dock == ui->dockEquations || dock == ui->dockSurfaces || dock == m_dockObjects) {
-                dock->setMaximumWidth(400);
-            } else {
-                dock->setMaximumWidth(16777215);
-            }
-
-            // 6. SBLOCCHIAMO LA LARGHEZZA DOPO L'APERTURA
-            QTimer::singleShot(100, dock, [this, dock]() {
-                dock->setMinimumWidth(400);
-
-                if (dock == ui->dockEquations || dock == ui->dockSurfaces || dock == m_dockObjects) {
-                    // Blocca l'espansione massima per Equations e Library
-                    dock->setMaximumWidth(400);
-                } else {
-                    // Lascia gli altri liberi
-                    dock->setMaximumWidth(16777215);
-                }
-            });
+        QPushButton* btnObjects = new QPushButton("Objects", this); btnObjects->setFlat(true);
+        connect(btnObjects, &QPushButton::clicked, this, [this](){
+            prepareDock(m_dockObjects);
+            toggleDock(m_dockObjects);
         });
+        ui->statusbar->addPermanentWidget(btnObjects);
 
-#else
-        // =========================================================
-        // RAMO DESKTOP
-        // =========================================================
-        if (dock->isVisible()) {
-            dock->close();
-            return;
-        }
-
-        closeAllDocks();
-
-        if (dock->isFloating()) dock->setFloating(false);
-        this->addDockWidget(Qt::RightDockWidgetArea, dock);
-        dock->show();
-#endif
-    };
-
-    // Tasti Docks nella Statusbar
-    QPushButton* btnEq = new QPushButton("Equations", this); btnEq->setFlat(true);
-    connect(btnEq, &QPushButton::clicked, this, [this, safeOpenDock](){ safeOpenDock(ui->dockEquations); });
-    ui->statusbar->addPermanentWidget(btnEq);
-
-    QPushButton* btnRen = new QPushButton("Renderer", this); btnRen->setFlat(true);
-    connect(btnRen, &QPushButton::clicked, this, [this, safeOpenDock](){ safeOpenDock(ui->dockRenders); });
-    ui->statusbar->addPermanentWidget(btnRen);
-
-    QPushButton* btn3D = new QPushButton("3D View", this); btn3D->setFlat(true);
-    connect(btn3D, &QPushButton::clicked, this, [this, safeOpenDock](){ safeOpenDock(ui->dock3D); });
-    ui->statusbar->addPermanentWidget(btn3D);
-
-    QPushButton* btn4D = new QPushButton("4D View", this); btn4D->setObjectName("btnDock4D"); btn4D->setFlat(true);
-    connect(btn4D, &QPushButton::clicked, this, [this, safeOpenDock](){ safeOpenDock(ui->dock4D); });
-    ui->statusbar->addPermanentWidget(btn4D);
-
-    QPushButton* btnScript = new QPushButton("Script", this); btnScript->setFlat(true);
-    connect(btnScript, &QPushButton::clicked, this, [this, safeOpenDock](){ safeOpenDock(ui->dockScripts); });
-    ui->statusbar->addPermanentWidget(btnScript);
-
-    QPushButton* btnEx = new QPushButton("Library", this); btnEx->setFlat(true);
-    connect(btnEx, &QPushButton::clicked, this, [this, safeOpenDock](){
-        QSettings settings;
-        QString root = settings.value("libraryRootPath").toString();
-        if (root.isEmpty() || !SecurityBookmark::isAccessible(root)) setupDefaultFolders();
-        safeOpenDock(ui->dockSurfaces);
-    });
-    ui->statusbar->addPermanentWidget(btnEx);
-
-    QPushButton* btnObjects = new QPushButton("Objects", this); btnObjects->setFlat(true);
-    connect(btnObjects, &QPushButton::clicked, this, [this, safeOpenDock](){
-        refreshObjectsUi();
-        safeOpenDock(m_dockObjects);
-    });
-    ui->statusbar->addPermanentWidget(btnObjects);
+        QPushButton* btnEx = new QPushButton("Library", this); btnEx->setFlat(true);
+        connect(btnEx, &QPushButton::clicked, this, [this](){
+            prepareDock(ui->dockSurfaces);
+            toggleDock(ui->dockSurfaces);
+        });
+        ui->statusbar->addPermanentWidget(btnEx);
+    }
 
     // MOBILE: da qui in poi la barra scorre col dito. Va chiamata DOPO l'ultimo
     // addPermanentWidget - riparenta i widget gia' presenti, quindi qualsiasi
-    // tasto aggiunto piu' avanti finirebbe fuori dal nastro. btnEq segna dove
-    // iniziano i tasti dock: li' va lo stacco che prima nasceva dalla differenza
-    // fra addWidget e addPermanentWidget.
+    // tasto aggiunto piu' avanti finirebbe fuori dal nastro. firstDockButton
+    // segna dove iniziano i tasti dock: li' va lo stacco che prima nasceva
+    // dalla differenza fra addWidget e addPermanentWidget.
     // m_renderProgress e m_statusLabel sono passati come INDICATORI: entrano nel
     // nastro subito dopo REC, il tasto a cui appartengono. Tenuti fuori dal
     // nastro finivano in coda alla barra - visivamente all'estrema destra, dopo
     // Library - perche' il nastro ha stretch 1 e si prende tutto lo spazio
     // residuo. No-op su desktop.
-    StatusBarScroller::install(ui->statusbar, btnEq,
+    StatusBarScroller::install(ui->statusbar, firstDockButton,
                                { m_renderProgress, m_statusLabel });
+}
+
+QList<QDockWidget*> MainWindow::dockPanels() const
+{
+    return { ui->dockEquations, ui->dockRenders, ui->dock3D, ui->dock4D,
+             ui->dockScripts, m_dockObjects, ui->dockSurfaces };
+}
+
+// contentsRect e non width(): i margini della finestra comprendono le bande di
+// sicurezza dell'iPhone (Qt::WA_ContentsMarginsRespectsSafeArea), quindi la
+// meta' e' quella dello spazio che si vede davvero.
+int MainWindow::dockPanelWidth() const
+{
+    return m_dockTabs ? contentsRect().width() / 2 : 400;
+}
+
+QWidget *MainWindow::dockContent(QDockWidget *dock) const
+{
+    return m_dockPageContent.value(dock, dock);
+}
+
+void MainWindow::prepareDock(QDockWidget *dock)
+{
+    if (dock == ui->dockSurfaces) {
+        QSettings settings;
+        QString root = settings.value("libraryRootPath").toString();
+        if (root.isEmpty() || !SecurityBookmark::isAccessible(root)) setupDefaultFolders();
+    } else if (dock == m_dockObjects) {
+        refreshObjectsUi();
+    }
+}
+
+void MainWindow::toggleDock(QDockWidget *dock, bool noDebounce)
+{
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    if (!noDebounce) {
+        static qint64 lastToggleTime = 0;
+        qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
+        if (currentTime - lastToggleTime < 400) return;
+        lastToggleTime = currentTime;
+    }
+
+    if (dock->isVisible()) {
+        dock->close();
+        return;
+    }
+
+    if (dock->isFloating()) dock->setFloating(false);
+
+    // 1. CONGELIAMO LO SCHERMO (Elimina il flash visivo)
+    this->setUpdatesEnabled(false);
+
+    // 2. FORZIAMO LA LARGHEZZA (Evita il collasso a 0 pixel e il "millimetro" di splitter)
+    const int width = dockPanelWidth();
+    dock->setFixedWidth(width);
+
+    // 3. AGGANCIAMO E MOSTRIAMO
+    this->addDockWidget(Qt::RightDockWidgetArea, dock);
+    dock->show();
+    dock->raise();
+
+    // 4. CHIUDIAMO I VECCHI IN BACKGROUND
+    for (QDockWidget *other : dockPanels())
+        if (other != dock) other->close();
+
+    // 5. SCONGELIAMO LO SCHERMO
+    this->setUpdatesEnabled(true);
+
+    QTimer::singleShot(100, dock, [this, dock, width]() {
+        dock->setMinimumWidth(width);
+
+        // dockEquations, dockSurfaces (Library) e Objects bloccati a 400
+        // (sul telefono alla larghezza del pannello): non serve che si
+        // allarghino oltre. Cosi' i tab Library hanno larghezza nota.
+        if (dock == ui->dockEquations || dock == ui->dockSurfaces || dock == m_dockObjects) {
+            dock->setMaximumWidth(width);
+        } else {
+            dock->setMaximumWidth(16777215);
+        }
+
+        // 6. SBLOCCHIAMO LA LARGHEZZA DOPO L'APERTURA
+        QTimer::singleShot(100, dock, [this, dock, width]() {
+            dock->setMinimumWidth(width);
+
+            if (dock == ui->dockEquations || dock == ui->dockSurfaces || dock == m_dockObjects) {
+                // Blocca l'espansione massima per Equations e Library
+                dock->setMaximumWidth(width);
+            } else {
+                // Lascia gli altri liberi
+                dock->setMaximumWidth(16777215);
+            }
+        });
+    });
+
+#else
+    // =========================================================
+    // RAMO DESKTOP
+    // =========================================================
+    Q_UNUSED(noDebounce);
+    if (dock->isVisible()) {
+        dock->close();
+        return;
+    }
+
+    for (QDockWidget *other : dockPanels()) other->close();
+
+    if (dock->isFloating()) dock->setFloating(false);
+    this->addDockWidget(Qt::RightDockWidgetArea, dock);
+    dock->show();
+#endif
+}
+
+// Docks apre e chiude, come i pulsanti dei singoli dock. Riapre l'ultima
+// pagina della sessione; la prima volta la Library.
+void MainWindow::onDocksButtonClicked()
+{
+    for (QDockWidget *dock : dockPanels()) {
+        if (dock->isVisible()) {
+            toggleDock(dock);
+            return;
+        }
+    }
+    QDockWidget *page = m_lastDockPage ? m_lastDockPage : ui->dockSurfaces;
+    prepareDock(page);
+    toggleDock(page);
+}
+
+void MainWindow::setupDockTabs()
+{
+    static const char *const tabNames[] = { "Equations", "Renderer", "View", "Script", "Objects", "Library" };
+    // La linguetta di ogni dock, nell'ordine di dockPanels: 3D e 4D sono View.
+    static const int tabOfDock[] = { 0, 1, 2, 2, 3, 4, 5 };
+    // Linguette verticali, testo ruotato. Carattere e margini ridotti: le sei
+    // coi nomi interi devono stare nell'altezza del dock di un iPhone in
+    // orizzontale (~334 punti; sul Mac a 12px con 8px di margine erano 348);
+    // se non bastano compaiono le frecce. Larghe 30 (25 coi margini di 3px:
+    // l'utente le ha volute piu' larghe del 20%).
+    static const char *const stripStyle =
+        "QTabBar::tab { padding: 6px 6px 6px 5px; font-size: 11px; }"
+        "QTabBar::tab:selected { border-left-color: #3E3E42; }";
+
+    m_lastViewDock = ui->dock3D;
+    // La pagina di una linguetta: View e' l'ultima scelta fra 3D e 4D.
+    auto dockOfTab = [this](int tab) -> QDockWidget* {
+        switch (tab) {
+        case 0: return ui->dockEquations;
+        case 1: return ui->dockRenders;
+        case 2: return m_lastViewDock;
+        case 3: return ui->dockScripts;
+        case 4: return m_dockObjects;
+        default: return ui->dockSurfaces;
+        }
+    };
+
+    // Una barra di linguette che fa da comando: resta corrente la linguetta del
+    // dock che la contiene, un tocco su un'altra apre il dock di quella (e
+    // chiude questo). Il cambio va fuori dal gestore del tocco, perche'
+    // nasconde il dock che lo sta ricevendo.
+    auto commandBar = [this](QTabBar *bar, int own, std::function<QDockWidget*(int)> target) {
+        bar->setCurrentIndex(own);
+        connect(bar, &QTabBar::currentChanged, this, [this, bar, own, target](int index) {
+            if (index < 0 || index == own) return;
+            {
+                QSignalBlocker block(bar);
+                bar->setCurrentIndex(own);
+            }
+            QDockWidget *dock = target(index);
+            QTimer::singleShot(0, this, [this, dock]() {
+                if (dock->isVisible()) return;
+                prepareDock(dock);
+                toggleDock(dock, true);
+            });
+        });
+    };
+
+    const QList<QDockWidget*> docks = dockPanels();
+    for (int i = 0; i < docks.size(); ++i) {
+        QDockWidget *dock = docks[i];
+        QWidget *content = dock->widget();
+        m_dockPageContent.insert(dock, content);
+
+        auto *page = new QWidget(dock);
+        auto *row = new QHBoxLayout(page);
+        row->setContentsMargins(0, 0, 0, 0);
+        row->setSpacing(0);
+        auto *column = new QVBoxLayout();
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(0);
+        if (dock == ui->dock3D || dock == ui->dock4D) {
+            // La scelta 3D/4D di View. Come coi vecchi pulsanti 3D View e
+            // 4D View, mostrare l'uno o l'altro dock cambia anche la modalita'
+            // di vista (connectSidePanels).
+            auto *viewBar = new QTabBar(page);
+            viewBar->setDrawBase(false);
+            viewBar->addTab(QStringLiteral("3D View"));
+            viewBar->addTab(QStringLiteral("4D View"));
+            viewBar->setStyleSheet("QTabBar::tab { min-width: 110px; }");
+            commandBar(viewBar, dock == ui->dock4D ? 1 : 0, [this](int tab) {
+                return tab == 1 ? ui->dock4D : ui->dock3D;
+            });
+            column->addWidget(viewBar, 0, Qt::AlignHCenter);
+        }
+        column->addWidget(content, 1);
+        row->addLayout(column, 1);
+
+        auto *tabs = new QTabBar(page);
+        tabs->setShape(QTabBar::RoundedEast);
+        tabs->setDrawBase(false);
+        tabs->setUsesScrollButtons(true);
+        tabs->setElideMode(Qt::ElideNone);
+        tabs->setStyleSheet(stripStyle);
+        for (const char *name : tabNames)
+            tabs->addTab(QLatin1String(name));
+        commandBar(tabs, tabOfDock[i], dockOfTab);
+        row->addWidget(tabs, 0, Qt::AlignTop);
+
+        // Via i minimi di 400 (.ui, setupDockScroll, setupObjectsDock): il
+        // pannello e' largo meta' dello schermo e la larghezza la impone
+        // toggleDock a ogni apertura. Il contenuto si stringe; dove non basta,
+        // la sua barra di scorrimento orizzontale.
+        dock->setMinimumWidth(0);
+        dock->setMaximumWidth(QWIDGETSIZE_MAX);
+        content->setMinimumWidth(0);
+        if (auto *scroll = qobject_cast<QScrollArea*>(content))
+            if (scroll->widget()) scroll->widget()->setMinimumWidth(0);
+
+        dock->setWidget(page);
+        // Via la striscia col nome: lo dice la linguetta, e chiude Docks.
+        dock->setTitleBarWidget(new QWidget(dock));
+
+        connect(dock, &QDockWidget::visibilityChanged, this, [this, dock](bool visible) {
+            if (!visible || !m_uiReady) return;
+            m_lastDockPage = dock;
+            if (dock == ui->dock3D || dock == ui->dock4D) m_lastViewDock = dock;
+        });
+    }
 }
 
 // Ultimi allineamenti dell'avvio. Parte del costruttore, nell'ordine in cui la chiama.

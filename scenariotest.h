@@ -278,6 +278,13 @@ private:
     // il clic su una cartella non la toglie agli altri alberi.
     // Da sola: --scenario-only library-folder.
     void runLibraryFolderScenarios();
+    // Dock unico a linguette del telefono (MainWindow::setupDockTabs): Docks e
+    // le linguette premuti come col dito, un dock alla volta, la scelta 3D/4D
+    // di View, l'ultima pagina riaperta, le linguette vive col contenuto
+    // disabilitato dal REC; l'immagine di ogni pagina in una finestra grande
+    // come un iPhone in orizzontale. Sul Mac solo con SE_DOCK_TABS=1.
+    // Da sola: --scenario-only dock-tabs.
+    void runDockTabsScenarios();
     // Library: copia e incolla di una CARTELLA, in una cartella temporanea (la
     // libreria non si tocca): accanto a se stessa -> _copy1 col contenuto; in
     // una cartella il cui nome la contiene come prefisso (Paths -> Paths2);

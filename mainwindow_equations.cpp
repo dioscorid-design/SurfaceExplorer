@@ -29,10 +29,16 @@ void MainWindow::setupEquationsDock()
     // 400px, quindi min-width piu' piccola (~un terzo) per riempire la barra
     // senza sforare e riattivare le frecce di scorrimento. min-width via
     // stylesheet perche' col CSS globale setExpanding e' ignorato.
-    if (ui->panelImplicit->tabBar())
-        ui->panelImplicit->tabBar()->setUsesScrollButtons(false);
-    ui->panelImplicit->setStyleSheet(
-        "QTabBar::tab { min-width: 110px; padding: 6px 0px; }");
+    // Sul telefono il dock e' largo meta' dello schermo (setupDockTabs): le
+    // tre linguette si dividono la larghezza che c'e'.
+    if (m_dockTabs) {
+        UiStyleManager::fillTabBarWidth(ui->panelImplicit);
+    } else {
+        if (ui->panelImplicit->tabBar())
+            ui->panelImplicit->tabBar()->setUsesScrollButtons(false);
+        ui->panelImplicit->setStyleSheet(
+            "QTabBar::tab { min-width: 110px; padding: 6px 0px; }");
+    }
     // Sotto-tab Surface/Tubes (subTabParametric): come 3D/Cross Section, sta a
     // margini zero nel tab Parametric, cosi' le sue linguette cadono sotto
     // Parametric/Implicit. I controlli sotto (limiti, Thickness, Run) hanno i

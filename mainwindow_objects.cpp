@@ -375,6 +375,8 @@ void MainWindow::setEnvironmentName(const QString &name)
     refreshObjectsUi();
 }
 
+// Il contatore tra parentesi, "Mobius 2 (2)": con lo spazio ("Mobius 2 2") non
+// si distingueva da un nome che finisce con un numero.
 QString MainWindow::uniqueObjectName(const QString &base) const
 {
     auto taken = [this](const QString &n) {
@@ -384,7 +386,7 @@ QString MainWindow::uniqueObjectName(const QString &base) const
     };
     if (!taken(base)) return base;
     for (int i = 2;; ++i) {
-        const QString n = QStringLiteral("%1 %2").arg(base).arg(i);
+        const QString n = QStringLiteral("%1 (%2)").arg(base).arg(i);
         if (!taken(n)) return n;
     }
 }
@@ -645,12 +647,39 @@ void MainWindow::setupObjectsDock()
     m_objectList = new QListWidget(w);
     lay->addWidget(m_objectList, 1);
 
+    // I campi numerici: sul desktop X Y Z in una riga e Scale In Out
+    // nell'altra. Su mobile coi tasti freccia da dito del selettore Multi Mesh
+    // (installMobileSpinButtons, in fondo): le frecce native erano quasi
+    // irraggiungibili. E uno per riga, etichette in colonna (pareggiate in
+    // fondo): tre campi coi tasti chiedono ~630px, il dock ne ha 400 su iPad e
+    // ~345 sul telefono (provato: la riga sbordava).
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    const bool fieldPerRow = true;
+#else
+    const bool fieldPerRow = false;
+#endif
+    // La riga del campo: un gruppo nuovo, o ogni campo sul telefono, la apre.
+    QHBoxLayout *row = nullptr;
+    auto fieldRow = [&](bool newGroup) {
+        if (!row || newGroup || fieldPerRow) {
+            row = new QHBoxLayout();
+            lay->addLayout(row);
+        }
+        return row;
+    };
+    QList<QLabel*> rowLabels;
+    auto rowLabel = [w, &rowLabels](const QString &text) {
+        auto *label = new QLabel(text, w);
+        rowLabels << label;
+        return label;
+    };
+
     // POSIZIONE del selezionato (l'ambiente resta nell'origine: i path della
     // camera sono suoi).
-    auto *posRow = new QHBoxLayout();
     const char *axes[3] = { "X", "Y", "Z" };
     for (int i = 0; i < 3; ++i) {
-        posRow->addWidget(new QLabel(QLatin1String(axes[i]), w));
+        QHBoxLayout *posRow = fieldRow(i == 0);
+        posRow->addWidget(rowLabel(QLatin1String(axes[i])));
         m_objectPos[i] = new QDoubleSpinBox(w);
         m_objectPos[i]->setRange(-100.0, 100.0);
         m_objectPos[i]->setSingleStep(0.1);
@@ -665,12 +694,11 @@ void MainWindow::setupObjectsDock()
             m_sceneObjectsChanged = true;
         });
     }
-    lay->addLayout(posRow);
 
     // PATH del selezionato (timeline 2a): X(t), Y(t), Z(t) che si sommano alla
     // posizione, t = il tempo dell'oggetto. Vuoti = fermo.
     auto *pathRow = new QHBoxLayout();
-    pathRow->addWidget(new QLabel(QStringLiteral("Path"), w));
+    pathRow->addWidget(rowLabel(QStringLiteral("Path")));
     const char *pathHints[3] = { "X(t)", "Y(t)", "Z(t)" };
     for (int i = 0; i < 3; ++i) {
         m_objectPath[i] = new QLineEdit(w);
@@ -684,19 +712,17 @@ void MainWindow::setupObjectsDock()
 
     // SCALA del selezionato: la stessa che cambiano rotella, pinch e
     // Back/Forward con l'oggetto selezionato (GLWidget::zoomCamera).
-    auto *scaleRow = new QHBoxLayout();
-    scaleRow->addWidget(new QLabel(QStringLiteral("Scale"), w));
+    QHBoxLayout *scaleRow = fieldRow(true);
+    scaleRow->addWidget(rowLabel(QStringLiteral("Scale")));
     m_objectScale = new QDoubleSpinBox(w);
     m_objectScale->setRange(0.01, 100.0);
     m_objectScale->setSingleStep(0.1);
     m_objectScale->setDecimals(2);
     m_objectScale->setLocale(QLocale::c());
     scaleRow->addWidget(m_objectScale, 1);
-    lay->addLayout(scaleRow);
 
     // TIMELINE: la finestra di comparsa del selezionato, in secondi
     // dell'orologio di scena (0 = dall'inizio / fino alla fine).
-    auto *windowRow = new QHBoxLayout();
     auto makeWindowBox = [w](const QString &zeroText) {
         auto *box = new QDoubleSpinBox(w);
         box->setRange(0.0, 3600.0);
@@ -707,20 +733,19 @@ void MainWindow::setupObjectsDock()
         box->setLocale(QLocale::c());
         return box;
     };
-    windowRow->addWidget(new QLabel(QStringLiteral("In"), w));
+    fieldRow(false)->addWidget(rowLabel(QStringLiteral("In")));
     m_objectWindowIn = makeWindowBox(QStringLiteral("start"));
-    windowRow->addWidget(m_objectWindowIn, 1);
-    windowRow->addWidget(new QLabel(QStringLiteral("Out"), w));
+    row->addWidget(m_objectWindowIn, 1);
+    fieldRow(false)->addWidget(rowLabel(QStringLiteral("Out")));
     m_objectWindowOut = makeWindowBox(QStringLiteral("end"));
-    windowRow->addWidget(m_objectWindowOut, 1);
+    row->addWidget(m_objectWindowOut, 1);
     for (QDoubleSpinBox *box : { m_objectWindowIn, m_objectWindowOut })
         box->setToolTip(QStringLiteral("In and Out count on T, the time of the environment's path."));
-    lay->addLayout(windowRow);
 
     // LO SCORRIMENTO: il cursore porta il path dell'ambiente al tempo T
     // (seekSceneTime).
     auto *seekRow = new QHBoxLayout();
-    seekRow->addWidget(new QLabel(QStringLiteral("T"), w));
+    seekRow->addWidget(rowLabel(QStringLiteral("T")));
     m_sceneTimeSlider = new QSlider(Qt::Horizontal, w);
     m_sceneTimeSlider->setRange(0, 100);
     m_sceneTimeSlider->setSingleStep(1);
@@ -765,6 +790,32 @@ void MainWindow::setupObjectsDock()
     btnRow->addWidget(m_btnObjectDuplicate);
     btnRow->addWidget(m_btnObjectRemove);
     lay->addLayout(btnRow);
+    if (m_dockTabs) {
+        // Dentro la barra di scorrimento (addScrollToDock su mobile) la lista
+        // prende la sua altezza preferita, ~190px, e i campi finivano sotto il
+        // bordo del telefono: bastano cinque righe, poi scorre lei. Su tablet e
+        // desktop resta libera e prende lo spazio che avanza (con un tetto
+        // anche li', l'avanzo finiva fra le righe: T isolata in mezzo al dock).
+        m_objectList->setMaximumHeight(m_objectList->fontMetrics().lineSpacing() * 5
+                                       + 2 * m_objectList->frameWidth());
+    }
+    // Colonna delle etichette larga quanto la piu' lunga, misurata con lo
+    // stile applicato: col font del testo d'aiuto "Scale" sforava di 10px e
+    // la sua riga restava sfalsata.
+    if (fieldPerRow) {
+        int labelWidth = 0;
+        for (QLabel *label : std::as_const(rowLabels)) {
+            label->ensurePolished();
+            labelWidth = qMax(labelWidth, label->sizeHint().width());
+        }
+        for (QLabel *label : std::as_const(rowLabels)) label->setMinimumWidth(labelWidth);
+    }
+    // Dopo che i campi sono nelle loro righe: il tasto sostituisce lo spinbox
+    // nel suo layout. No-op su desktop.
+    for (QAbstractSpinBox *box : std::initializer_list<QAbstractSpinBox*>{
+             m_objectPos[0], m_objectPos[1], m_objectPos[2],
+             m_objectScale, m_objectWindowIn, m_objectWindowOut })
+        UiStyleManager::installMobileSpinButtons(box, 0);
     m_dockObjects->setWidget(w);
 
     connect(m_objectList, &QListWidget::currentRowChanged, this, [this](int row) {
@@ -930,7 +981,13 @@ void MainWindow::duplicateSceneObject(int index)
     LibraryItem copy = lm.parseJsonObject(shape, LibraryType::Motion, QString());
     copy.hintText = m_currentHintText;       // l'oggetto e' quello selezionato
     copy.hintSeconds = m_currentHintSeconds;
-    addPresetAsObject(copy, uniqueObjectName(source.name));
+    // Il contatore della sorgente si toglie prima di contare: la copia di
+    // "Mobius 2 (2)" e' "Mobius 2 (3)", non "Mobius 2 (2) (2)". La copia nuova
+    // diventa il selezionato, quindi Duplicate ripetuto copia sempre una copia.
+    static const QRegularExpression counter(QStringLiteral(" \\(\\d+\\)$"));
+    QString stem = source.name;
+    stem.remove(counter);
+    addPresetAsObject(copy, uniqueObjectName(stem));
     gl->setObjectPosition(pos + QVector3D(0.5f, 0.5f, 0.0f));
     gl->setObjectScale(scale);
     gl->setObjectWindow(gl->selectedObject(), windowIn, windowOut);

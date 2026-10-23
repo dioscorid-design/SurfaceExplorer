@@ -1476,6 +1476,35 @@ private:
     void setupLibraryDock();
     void finishStartup();
     void setupDesktopFilters();
+    // DOCK. Se ne vede uno alla volta: toggleDock apre il dock chiudendo gli
+    // altri, o lo chiude se e' gia' aperto (noDebounce: il cambio di linguetta
+    // del dock unico, dove un tocco rapido non e' un rimbalzo).
+    void toggleDock(QDockWidget *dock, bool noDebounce = false);
+    // Cio' che serve prima di aprire un dock: la Library chiede la cartella
+    // della libreria se manca, Objects si riallinea alla scena.
+    void prepareDock(QDockWidget *dock);
+    // I sette dock, nell'ordine delle linguette.
+    QList<QDockWidget*> dockPanels() const;
+    // Larghezza di un dock su mobile: 400; sul telefono meta' della larghezza
+    // utile della finestra, colonna delle linguette compresa.
+    int dockPanelWidth() const;
+    // TELEFONO (iPhone): un solo pulsante Docks nella barra di stato e, a destra
+    // di ogni dock, la stessa colonna di linguette verticali (Equations,
+    // Renderer, View, Script, Objects, Library): a schermo e' un pannello unico
+    // a linguette. Sotto restano i sette QDockWidget, uno alla volta come
+    // altrove, quindi i loro legami (visibilityChanged di 3D/4D, REC, scenari)
+    // non cambiano. View raccoglie 3D View e 4D View, scelti in cima alla
+    // pagina. Senza barra del titolo: il nome lo dice la linguetta.
+    // Desktop e tablet: invariati (m_dockTabs falso).
+    bool m_dockTabs = false;
+    QDockWidget *m_lastDockPage = nullptr;   // riaperto da Docks; nella sessione
+    QDockWidget *m_lastViewDock = nullptr;   // dock3D o dock4D: la scelta di View
+    QHash<QDockWidget*, QWidget*> m_dockPageContent;   // il contenuto di prima
+    void setupDockTabs();
+    void onDocksButtonClicked();
+    // Il contenuto del dock senza la colonna delle linguette: e' cio' che il
+    // REC disabilita, cosi' le linguette restano vive (3D e 4D lo sono).
+    QWidget *dockContent(QDockWidget *dock) const;
     void connectSidePanels();
     void connectNavButton(QPushButton *btn, int action);
     // Abilita/disabilita in blocco i tasti di spostamento dei dock 3D/4D e blocca i

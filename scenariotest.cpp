@@ -55,6 +55,7 @@
 #include <functional>
 #include <QTreeWidgetItemIterator>
 #include <QTemporaryDir>
+#include <QScopeGuard>
 
 namespace {
 const char *kParametricRecord = "records/Animations/Parametric/Surfaces/Equations/R3/Dynamic Mobius Band.json";
@@ -1838,6 +1839,11 @@ void ScenarioTest::run()
     }
     if (m_only == QLatin1String("library-folder")) {
         runLibraryFolderScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("dock-tabs")) {
+        runDockTabsScenarios();
         finish();
         return;
     }
@@ -5697,11 +5703,33 @@ void ScenarioTest::runSceneObjectScenarios()
     m_mw->m_objectPos[0]->setValue(1.2);     // come se l'utente la scrivesse
     check(qFuzzyCompare(gl->objectPosition().x(), 1.2f) && m_mw->hasUnsavedWork(),
           QStringLiteral("X = 1.2 dal dock: l'oggetto si sposta e la scena e' da salvare"));
+    const QString original = m_mw->m_objectSessions[size_t(gl->selectedObject())].name;
     m_mw->m_btnObjectDuplicate->click();
     wait(400);
     check(gl->objectCount() == 3 && m_mw->m_objectList->count() == 3,
           QStringLiteral("Duplicate: tre oggetti nell'elenco"));
     dockProblems(QStringLiteral("dopo Duplicate"));
+    // Nomi delle copie: contatore tra parentesi, e la copia di una copia (la
+    // copia nuova e' il selezionato) conta dal nome della sorgente: "X (3)",
+    // non "X (2) (2)" ne' "X 2 2".
+    {
+        static const QRegularExpression counter(QStringLiteral(" \\((\\d+)\\)$"));
+        QString stem = original;
+        stem.remove(counter);
+        const QString firstCopy = m_mw->m_objectSessions[size_t(gl->selectedObject())].name;
+        m_mw->m_btnObjectDuplicate->click();
+        wait(400);
+        const QString secondCopy = m_mw->m_objectSessions[size_t(gl->selectedObject())].name;
+        const QRegularExpressionMatch a = counter.match(firstCopy), b = counter.match(secondCopy);
+        check(a.hasMatch() && b.hasMatch()
+                  && firstCopy.left(a.capturedStart()) == stem && secondCopy.left(b.capturedStart()) == stem
+                  && b.captured(1).toInt() == a.captured(1).toInt() + 1,
+              QStringLiteral("nomi delle copie: %1, poi %2 dalla copia").arg(firstCopy, secondCopy));
+        m_mw->m_btnObjectRemove->click();
+        wait(400);
+        m_mw->selectSceneObject(gl->objectCount() - 1);   // di nuovo la prima copia
+        wait(200);
+    }
     m_mw->m_btnObjectRemove->click();
     wait(400);
     check(gl->objectCount() == 2 && m_mw->m_objectList->count() == 2,
@@ -7665,6 +7693,155 @@ void ScenarioTest::runLibraryPasteScenarios()
         QDirIterator it(QStringLiteral(":/library/presets/") + QLatin1String(b.folder), QDir::Files,
                         QDirIterator::Subdirectories);
         check(it.hasNext(), QStringLiteral("preset di fabbrica del ramo %1 nelle risorse").arg(QLatin1String(b.label)));
+    }
+}
+
+void ScenarioTest::runDockTabsScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Dock unico a linguette (telefono) =="));
+    if (!m_mw->m_dockTabs) {
+        m_lines.append(QStringLiteral("(modo telefono spento: si accende con SE_DOCK_TABS=1)"));
+        return;
+    }
+
+    // La finestra come lo spazio utile di un iPhone in orizzontale (844x390
+    // punti meno le bande di sicurezza, ~750 di larghezza), poi com'era.
+    // Il minimo della finestra (800 nel .ui) va tolto per il tempo della prova.
+    const bool wasMaximized = m_mw->isMaximized();
+    const QRect oldGeometry = m_mw->geometry();
+    const QSize oldMinimum = m_mw->minimumSize();
+    m_mw->showNormal();
+    m_mw->setMinimumSize(0, 0);
+    m_mw->resize(750, 390);
+    wait(800);
+    auto restore = qScopeGuard([&]() {
+        for (QDockWidget *d : m_mw->dockPanels()) d->hide();
+        m_mw->setMinimumSize(oldMinimum);
+        if (wasMaximized) m_mw->showMaximized();
+        else m_mw->setGeometry(oldGeometry);
+        wait(500);
+    });
+
+    QPushButton *docks = nullptr;
+    for (QPushButton *b : ui->statusbar->findChildren<QPushButton*>())
+        if (b->text() == QLatin1String("Docks")) docks = b;
+    check(docks != nullptr, QStringLiteral("pulsante Docks nella barra di stato"));
+    if (!docks) return;
+
+    auto shown = [this]() {
+        QStringList names;
+        for (QDockWidget *d : m_mw->dockPanels())
+            if (d->isVisible()) names << d->objectName();
+        return names.join(QLatin1Char(','));
+    };
+    auto barOf = [](QDockWidget *d, QTabBar::Shape shape) -> QTabBar* {
+        for (QTabBar *b : d->widget()->findChildren<QTabBar*>(Qt::FindDirectChildrenOnly))
+            if (b->shape() == shape) return b;
+        return nullptr;
+    };
+    // Larghezza del pannello come la impone il ramo mobile di toggleDock (sul
+    // Mac gira quello desktop, che non la tocca). Poi la colonna delle
+    // linguette deve stare tutta dentro: un contenuto che non si stringe la
+    // spingerebbe fuori dallo schermo.
+    auto fit = [&]() {
+        for (QDockWidget *d : m_mw->dockPanels()) {
+            if (!d->isVisible()) continue;
+            d->setFixedWidth(m_mw->dockPanelWidth());
+            wait(300);
+            QTabBar *strip = barOf(d, QTabBar::RoundedEast);
+            QWidget *content = m_mw->dockContent(d);
+            check(strip && strip->geometry().right() < d->widget()->width(),
+                  QStringLiteral("%1: linguette dentro il pannello (pannello %2, contenuto %3, minimo %4)")
+                      .arg(d->objectName()).arg(d->width()).arg(content->width())
+                      .arg(content->minimumSizeHint().width()));
+        }
+    };
+    auto snap = [this](const QString &name) {
+        m_mw->grab().save(m_outDir + QStringLiteral("/dock-tabs-%1.png").arg(name));
+    };
+    // Un tocco su una linguetta del dock aperto: il cambio e' differito.
+    auto tap = [&](QDockWidget *from, QTabBar::Shape shape, int index) {
+        QTabBar *bar = barOf(from, shape);
+        if (!bar) return false;
+        bar->setCurrentIndex(index);
+        wait(400);
+        fit();
+        return true;
+    };
+
+    for (QDockWidget *d : m_mw->dockPanels()) d->hide();
+    wait(200);
+
+    docks->click();
+    wait(400);
+    fit();
+    check(shown() == ui->dockSurfaces->objectName(),
+          QStringLiteral("Docks la prima volta apre la Library (aperti: %1)").arg(shown()));
+    QTabBar *strip = barOf(ui->dockSurfaces, QTabBar::RoundedEast);
+    check(strip && strip->count() == 6 && strip->currentIndex() == 5
+              && strip->tabText(5) == QLatin1String("Library"),
+          QStringLiteral("colonna di sei linguette, Library ultima e corrente"));
+    if (strip) {
+        int total = 0;
+        for (int i = 0; i < strip->count(); ++i) total += strip->tabRect(i).height();
+        m_lines.append(QStringLiteral("(linguette: colonna larga %1, alte in tutto %2; dock %3x%4)")
+                           .arg(strip->sizeHint().width()).arg(total)
+                           .arg(ui->dockSurfaces->width()).arg(ui->dockSurfaces->height()));
+    }
+    snap(QStringLiteral("library"));
+
+    // Ogni linguetta dalla colonna del dock aperto.
+    struct Step { int tab; QDockWidget *dock; const char *name; };
+    const Step steps[] = {
+        { 0, ui->dockEquations, "equations" }, { 1, ui->dockRenders, "renderer" },
+        { 2, ui->dock3D, "view3d" },          { 3, ui->dockScripts, "script" },
+        { 4, m_mw->m_dockObjects, "objects" }, { 5, ui->dockSurfaces, "library2" },
+    };
+    QDockWidget *open = ui->dockSurfaces;
+    for (const Step &s : steps) {
+        tap(open, QTabBar::RoundedEast, s.tab);
+        check(shown() == s.dock->objectName(),
+              QStringLiteral("linguetta %1 -> %2 (aperti: %3)").arg(s.tab).arg(s.dock->objectName(), shown()));
+        QTabBar *own = barOf(open, QTabBar::RoundedEast);
+        check(own && own->currentIndex() != s.tab,
+              QStringLiteral("la colonna del dock lasciato resta sulla sua linguetta"));
+        open = s.dock;
+        snap(QLatin1String(s.name));
+    }
+
+    // View: la scelta 3D/4D in cima, e View riapre l'ultima.
+    tap(open, QTabBar::RoundedEast, 2);
+    tap(ui->dock3D, QTabBar::RoundedNorth, 1);
+    check(shown() == ui->dock4D->objectName(),
+          QStringLiteral("4D View in cima alla pagina View (aperti: %1)").arg(shown()));
+    snap(QStringLiteral("view4d"));
+    tap(ui->dock4D, QTabBar::RoundedEast, 3);
+    tap(ui->dockScripts, QTabBar::RoundedEast, 2);
+    check(shown() == ui->dock4D->objectName(),
+          QStringLiteral("View riapre l'ultima scelta, 4D (aperti: %1)").arg(shown()));
+
+    // Docks chiude, e riapre l'ultima pagina.
+    docks->click();
+    wait(400);
+    check(shown().isEmpty(), QStringLiteral("Docks chiude il dock aperto (aperti: %1)").arg(shown()));
+    docks->click();
+    wait(400);
+    check(shown() == ui->dock4D->objectName(),
+          QStringLiteral("Docks riapre l'ultima pagina, 4D View (aperti: %1)").arg(shown()));
+    tap(ui->dock4D, QTabBar::RoundedNorth, 0);
+    check(shown() == ui->dock3D->objectName(),
+          QStringLiteral("3D View in cima alla pagina View (aperti: %1)").arg(shown()));
+
+    // REC: disabilita il contenuto di Equations e Library, non le linguette.
+    QWidget *content = m_mw->dockContent(ui->dockEquations);
+    QTabBar *eqStrip = barOf(ui->dockEquations, QTabBar::RoundedEast);
+    check(content != ui->dockEquations && eqStrip, QStringLiteral("contenuto di Equations separato dalle linguette"));
+    if (content != ui->dockEquations && eqStrip) {
+        content->setEnabled(false);
+        check(eqStrip->isEnabled(), QStringLiteral("linguette vive col contenuto disabilitato (REC)"));
+        content->setEnabled(true);
     }
 }
 

@@ -2,6 +2,8 @@
 #include <QSurfaceFormat>
 #include <QIcon>
 #include <QSettings>
+#include <QWindow>
+#include <QScreen>
 #include "mainwindow.h"
 // Test interni: compilati solo nelle build Debug desktop e in build/Tests
 // (SE_SELF_TESTS, vedi CMakeLists.txt e ExC/Mac/Test/build-tests.sh).
@@ -122,8 +124,22 @@ int main(int argc, char *argv[])
                      Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint |
                      Qt::WindowCloseButtonHint);
 
-    // 2. Impostiamo una dimensione di partenza ragionevole
-    w.resize(1200, 800);
+    // 2. Dimensione di partenza: 1320x880, il 3:2 di prima (1200x800)
+    //    ingrandito del 10%, perche' la barra di stato entri tutta anche col
+    //    REC acceso: la barra di avanzamento la porta da 1073 a 1229px
+    //    (misurato sul Mac; con una scena, selettore e orologio, ~1450).
+    //    Dove lo spazio libero dello schermo non basta si riduce, stesso
+    //    rapporto. I bordi della cornice (barra del titolo) si conoscono solo
+    //    con la finestra nativa: winId() la crea.
+    w.winId();
+    const QMargins frame = w.windowHandle() ? w.windowHandle()->frameMargins() : QMargins();
+    QSize startSize(1320, 880);
+    if (const QScreen *screen = w.screen()) {
+        const QSize room = screen->availableGeometry().size()
+                           - QSize(frame.left() + frame.right(), frame.top() + frame.bottom());
+        startSize = startSize.scaled(startSize.boundedTo(room), Qt::KeepAspectRatio);
+    }
+    w.resize(startSize);
 
     // 3. Mostriamo la finestra normalmente
     w.showNormal();

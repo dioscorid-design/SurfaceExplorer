@@ -132,7 +132,7 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
         }
 
         /* --- INPUT 3D (SUNKEN/INCASSATI) --- */
-        QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox {
+        QLineEdit, QPlainTextEdit, QTextEdit, QAbstractSpinBox {
             background-color: #1E1E1E;
             border: 2px solid #3E3E42;
             border-top-color: #111;
@@ -154,8 +154,8 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
            un padding a destra scentrerebbe il numero, che invece e' impostato
            su AlignCenter. La proprieta' "mobileSpinButtons" la mette proprio
            quella funzione; il ramo mobile la rimette a 0 subito sotto. */
-        QSpinBox { padding-right: 18px; }
-        QSpinBox[mobileSpinButtons="true"] { padding-right: 4px; }
+        QAbstractSpinBox { padding-right: 18px; }
+        QAbstractSpinBox[mobileSpinButtons="true"] { padding-right: 4px; }
 
         /* --- FRECCE DEI QSPINBOX ---
            La regola qui sopra mette QSpinBox insieme ai QLineEdit per dargli il
@@ -165,13 +165,16 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
            stilizzate spariscono e il campo si legge come una casella di testo
            (era il caso del selettore Mesh, spinMeshSel). Vanno quindi disegnate
            qui, o non si vedono.
+           QAbstractSpinBox e non QSpinBox: le regole valgono anche per i
+           QDoubleSpinBox (dock Objects), che di QSpinBox non sono sottoclassi
+           e restavano con l'aspetto nativo, diverso dal selettore Mesh.
            I triangoli sono fatti coi bordi (box di lato zero + tre bordi
            trasparenti): niente PNG da aggiungere al .qrc, che e' GENERATO da
            update_resources.py e andrebbe tenuto in sincrono a mano.
            NB: su mobile le frecce native sono nascoste apposta
            (ButtonSymbols::NoButtons) e rimpiazzate da due QPushButton grandi in
            installMobileSpinButtons(); li' queste regole non si applicano. */
-        QSpinBox::up-button, QSpinBox::down-button {
+        QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {
             subcontrol-origin: border;
             background-color: #3E3E42;
             border: 1px solid #555;
@@ -179,38 +182,38 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
             width: 16px;
             margin: 1px;
         }
-        QSpinBox::up-button { subcontrol-position: top right; }
-        QSpinBox::down-button { subcontrol-position: bottom right; }
-        QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+        QAbstractSpinBox::up-button { subcontrol-position: top right; }
+        QAbstractSpinBox::down-button { subcontrol-position: bottom right; }
+        QAbstractSpinBox::up-button:hover, QAbstractSpinBox::down-button:hover {
             background-color: #55555A;
         }
-        QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {
+        QAbstractSpinBox::up-button:pressed, QAbstractSpinBox::down-button:pressed {
             background-color: #007ACC;
             border-color: #007ACC;
         }
         /* Freccia disabilitata al limite del range: il grigio spento e' il
            segnale che il valore non puo' salire/scendere oltre. */
-        QSpinBox::up-button:disabled, QSpinBox::up-button:off,
-        QSpinBox::down-button:disabled, QSpinBox::down-button:off {
+        QAbstractSpinBox::up-button:disabled, QAbstractSpinBox::up-button:off,
+        QAbstractSpinBox::down-button:disabled, QAbstractSpinBox::down-button:off {
             background-color: #2D2D30;
             border-color: #444;
         }
-        QSpinBox::up-arrow {
+        QAbstractSpinBox::up-arrow {
             width: 0px; height: 0px;
             border-left: 4px solid transparent;
             border-right: 4px solid transparent;
             border-bottom: 5px solid #E0E0E0;
         }
-        QSpinBox::down-arrow {
+        QAbstractSpinBox::down-arrow {
             width: 0px; height: 0px;
             border-left: 4px solid transparent;
             border-right: 4px solid transparent;
             border-top: 5px solid #E0E0E0;
         }
-        QSpinBox::up-arrow:disabled, QSpinBox::up-arrow:off {
+        QAbstractSpinBox::up-arrow:disabled, QAbstractSpinBox::up-arrow:off {
             border-bottom-color: #666;
         }
-        QSpinBox::down-arrow:disabled, QSpinBox::down-arrow:off {
+        QAbstractSpinBox::down-arrow:disabled, QAbstractSpinBox::down-arrow:off {
             border-top-color: #666;
         }
 
@@ -779,7 +782,7 @@ void UiStyleManager::applyInputFieldsStyle(const QList<QWidget*>& fields) {
     }
 }
 
-void UiStyleManager::addScrollToDock(QDockWidget* dock) {
+void UiStyleManager::addScrollToDock(QDockWidget* dock, bool contentFitsView) {
     if (!dock) return;
 
     // Recupera il widget che contiene attualmente i bottoni/caselle
@@ -793,11 +796,17 @@ void UiStyleManager::addScrollToDock(QDockWidget* dock) {
     // controlli ancorati al bordo (bottoni di dock3D/dock4D) le finiscono sotto.
     // Il margine va messo QUI e non nel .ui: compactForMobile azzera i margini
     // di tutti i layout dei dock, e gira prima di questa funzione.
-    {
+    // Serve perche' il contenuto e' largo 400 come il dock, e la vista accanto
+    // alla barra solo 374: senza, la sua destra finisce fuori vista. Nel dock
+    // unico del telefono il contenuto segue la vista (contentFitsView) e il
+    // margine restava una fascia vuota fra i campi e la barra.
+    if (!contentFitsView) {
         QMargins m = innerWidget->contentsMargins();
         m.setRight(m.right() + 26);
         innerWidget->setContentsMargins(m);
     }
+#else
+    Q_UNUSED(contentFitsView);
 #endif
 
     // Crea la nuova ScrollArea
@@ -963,14 +972,14 @@ void UiStyleManager::applyRecordButtonStyle(QPushButton* btn) {
 // responder del plugin ma non gli impediscono di prendere il focus.
 // Qui invece il campo diventa non editabile e senza focus, e il valore si
 // cambia con due bottoni veri, che col plugin non hanno alcun rapporto.
-void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
+void UiStyleManager::installMobileSpinButtons(QAbstractSpinBox* spin, int fieldWidth)
 {
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
     if (!spin || spin->property("mobileSpinButtons").toBool()) return;
     spin->setProperty("mobileSpinButtons", true);
     // Il QSS e' gia' stato applicato quando arriviamo qui: Qt non rivaluta i
     // selettori su proprieta' da solo, va forzato. Serve alla regola
-    // QSpinBox[mobileSpinButtons="true"] che toglie il padding riservato alle
+    // QAbstractSpinBox[mobileSpinButtons="true"] che toglie il padding riservato alle
     // frecce native (qui assenti), altrimenti il numero resta scentrato
     // nonostante l'AlignCenter poco sotto.
     spin->style()->unpolish(spin);
@@ -1034,10 +1043,16 @@ void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
     // Con una larghezza FISSA (non solo minima) il layout non puo' allargarlo
     // per riempire lo spazio, che e' cio' che spingeva la riga oltre il gruppo
     // e faceva finire il tasto giu' sopra l'etichetta sottostante.
-    spin->setFixedWidth(36);
+    // fieldWidth 0 (dock Objects: decimali, "start"/"end", una riga per campo):
+    // il campo prende lo spazio fra i due tasti.
+    if (fieldWidth > 0) spin->setFixedWidth(fieldWidth);
 
     // Posizione originale, letta PRIMA di rimuovere lo spinbox dal layout.
     const int boxIdx = lay->indexOf(spin);
+    // Col campo largo la riga eredita l'allungamento dello spinbox, se no
+    // resterebbe stretta quanto i tasti.
+    auto* boxLay = qobject_cast<QBoxLayout*>(lay);
+    const int boxStretch = (fieldWidth <= 0 && boxLay && boxIdx >= 0) ? boxLay->stretch(boxIdx) : 0;
     int formRow = -1;
     QFormLayout::ItemRole formRole = QFormLayout::FieldRole;
     auto* form = qobject_cast<QFormLayout*>(lay);
@@ -1051,12 +1066,12 @@ void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
     // l'etichetta "Mesh" in "Mes" e lasciando vuota la meta' destra.
     // La compattezza la danno gia' le dimensioni fisse di tasti e campo.
     rowLay->addWidget(btnDown);
-    rowLay->addWidget(spin);
+    rowLay->addWidget(spin, fieldWidth > 0 ? 0 : 1);
     rowLay->addWidget(btnUp);
 
     // La riga prende il posto che aveva lo spinbox.
-    if (auto* box = qobject_cast<QBoxLayout*>(lay)) {
-        box->insertWidget(boxIdx < 0 ? box->count() : boxIdx, row);
+    if (boxLay) {
+        boxLay->insertWidget(boxIdx < 0 ? boxLay->count() : boxIdx, row, boxStretch);
     } else if (form && formRow >= 0) {
         // In un QFormLayout lo spinbox e' il campo di una riga: si sostituisce
         // il widget di quella riga, o la label resterebbe spaiata.
@@ -1065,8 +1080,8 @@ void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
         lay->addWidget(row);
     }
 
-    QObject::connect(btnUp,   &QPushButton::clicked, spin, &QSpinBox::stepUp);
-    QObject::connect(btnDown, &QPushButton::clicked, spin, &QSpinBox::stepDown);
+    QObject::connect(btnUp,   &QPushButton::clicked, spin, &QAbstractSpinBox::stepUp);
+    QObject::connect(btnDown, &QPushButton::clicked, spin, &QAbstractSpinBox::stepDown);
 
     // I tasti seguono lo stato del campo: quando lo spinbox e' disabilitato
     // (ambito "All" sul selettore Mesh) devono spegnersi con lui.
@@ -1088,6 +1103,7 @@ void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
     spin->installEventFilter(new EnabledWatcher(spin, syncEnabled));
 #else
     Q_UNUSED(spin);
+    Q_UNUSED(fieldWidth);
 #endif
 }
 
@@ -1168,6 +1184,11 @@ public:
         m_last = last;
         apply(per - m_chrome, last - m_chrome);
         // Bordi veri della linguetta: larghezza reale meno la min-width data.
+        // Solo a tab bar NASCOSTO (l'avvio): visibile, dopo un restringimento
+        // tabRect resta alla larghezza vecchia anche col foglio nuovo
+        // (misurato: data 147, letta 273), e i "bordi" enormi lasciavano
+        // linguette di 30px nel dock del telefono, largo meta' schermo.
+        if (m_tabs->tabBar()->isVisible()) return;
         const int chrome = m_tabs->tabBar()->tabRect(0).width() - (per - m_chrome);
         if (chrome != m_chrome && chrome >= 0 && chrome < per) {
             m_chrome = chrome;

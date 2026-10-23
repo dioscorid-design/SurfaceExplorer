@@ -490,8 +490,10 @@ void VideoRecorder::toggleRecord()
     fps = QInputDialog::getInt(m_mainWindow, "Frame Rate", fpsPrompt, defaultFPS, 24, maxFps, 1, &ok);
     if (!ok) { restoreState(); return; }
 
+    // "Current View Size" come nel dialogo mobile: e' la sola vista 3D, non il
+    // monitor ne' la finestra (era "Monitor Default (Current Window Size)").
     QStringList resolutions = {
-        "Monitor Default (Current Window Size)",
+        "Current View Size",
         "1080p Full HD (1920x1080)",
         "1440p 2K (2560x1440)",
         "2160p 4K (3840x2160)"
@@ -688,8 +690,10 @@ void VideoRecorder::toggleRecord()
     // rotationTimer) e ad avanzare il tempo e' solo il loop. Ogni comando al
     // volo passa dagli handler NORMALI (esclusivita', handoff, testi bottone)
     // ed entra nel video come a schermo.
-    m_mainWindow->ui->dockEquations->setEnabled(false);
-    m_mainWindow->ui->dockSurfaces->setEnabled(false);
+    // dockContent: sul telefono il contenuto senza la colonna delle linguette,
+    // che deve restare viva per passare a View durante il REC.
+    m_mainWindow->dockContent(m_mainWindow->ui->dockEquations)->setEnabled(false);
+    m_mainWindow->dockContent(m_mainWindow->ui->dockSurfaces)->setEnabled(false);
 
     int actualFramesRendered = 0;
 
@@ -819,8 +823,8 @@ void VideoRecorder::toggleRecord()
     // export UNA volta (non per-frame, per evitare flicker/ricostruzioni ripetute),
     // così ogni frame è renderizzato nativamente a piena risoluzione e
     // getFrameForVideo lo cattura senza upscale (fix wireframe sfocato).
-    // Per la voce a dimensione corrente (target -1: "Current View Size" su mobile,
-    // "Monitor Default" su desktop) usiamo la dimensione nativa del widget.
+    // Per la voce a dimensione corrente (target -1: "Current View Size") usiamo
+    // la dimensione nativa del widget.
     bool fboCapture = useFBO;
     if (fboCapture) {
         int capW = targetWidth, capH = targetHeight;
@@ -1092,8 +1096,8 @@ void VideoRecorder::toggleRecord()
     m_mainWindow->m_btnRec->setText("REC");
     m_mainWindow->m_btnRec->setStyleSheet("QPushButton { color: red; font-weight: bold; }");
 
-    m_mainWindow->ui->dockEquations->setEnabled(true);
-    m_mainWindow->ui->dockSurfaces->setEnabled(true);
+    m_mainWindow->dockContent(m_mainWindow->ui->dockEquations)->setEnabled(true);
+    m_mainWindow->dockContent(m_mainWindow->ui->dockSurfaces)->setEnabled(true);
 
     // FINE REC, modello "live-through": NESSUN ripristino dei moti — lo stato
     // corrente (timer, testi bottone, tempi dei path, posa 4D, geoTime) e'

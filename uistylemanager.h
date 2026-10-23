@@ -16,6 +16,7 @@ class QLineEdit;
 class QPushButton;
 class QMenu;
 class QSpinBox;
+class QAbstractSpinBox;
 class QMessageBox;
 class QTabWidget;
 
@@ -41,18 +42,22 @@ public:
     // slider aggiunti dopo (Headlight, Border Thickness).
     static QString valueSliderStyle();
     static void applyInputFieldsStyle(const QList<QWidget*>& fields);
-    static void addScrollToDock(QDockWidget* dock);
+    // contentFitsView: il contenuto e' largo quanto la vista (dock unico del
+    // telefono), quindi niente margine destro per la barra di scorrimento.
+    static void addScrollToDock(QDockWidget* dock, bool contentFitsView = false);
     static void applyConstraintStyle(QPlainTextEdit* editor, ConstraintState state);
     // searchEdit: il campo di ricerca in cima al dialogo. Passa di qui perche'
     // su mobile va allargato (l'altezza di default e' pensata per il mouse, non
     // per un dito) e questa e' la sede unica della distinzione desktop/mobile.
     static void setupDocumentationDialog(QDialog* dialog, QVBoxLayout* layout, QTextBrowser* browser, QPushButton* closeBtn,
                                          QLineEdit* searchEdit = nullptr);
-    // MOBILE: sostituisce le frecce native di un QSpinBox con due QPushButton a
-    // forma di freccia, affiancati al campo. Su iOS il campo diventa anche non
-    // editabile da tastiera: toccarlo (frecce native comprese) apriva tastierino
-    // e menu di modifica senza poterli chiudere. No-op su desktop.
-    static void installMobileSpinButtons(QSpinBox* spin);
+    // MOBILE: sostituisce le frecce native di uno spinbox (intero o decimale)
+    // con due QPushButton a forma di freccia, affiancati al campo. Su iOS il
+    // campo diventa anche non editabile da tastiera: toccarlo (frecce native
+    // comprese) apriva tastierino e menu di modifica senza poterli chiudere.
+    // fieldWidth: larghezza fissa del campo; 0 = il campo prende il resto della
+    // riga (dock Objects). No-op su desktop.
+    static void installMobileSpinButtons(QAbstractSpinBox* spin, int fieldWidth = 36);
     static void styleMobileMenuButton(QPushButton* button);
     static void styleMobileOverflowMenu(QMenu* menu);
     static void applyRecordButtonStyle(QPushButton* btn);
