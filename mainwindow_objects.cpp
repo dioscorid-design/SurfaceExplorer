@@ -668,8 +668,9 @@ void MainWindow::setupObjectsDock()
     m_objectList = new QListWidget(w);
     lay->addWidget(m_objectList, 1);
 
-    // I campi numerici: sul desktop X Y Z in una riga e Scale In Out
-    // nell'altra. Su mobile coi tasti freccia da dito del selettore Multi Mesh
+    // I campi numerici: sul desktop X Y Z in una riga, Scale in una e In Out
+    // nell'altra (Scale In Out insieme chiedevano 423px, il dock ne ha 400:
+    // provato). Su mobile coi tasti freccia da dito del selettore Multi Mesh
     // (installMobileSpinButtons, in fondo): le frecce native erano quasi
     // irraggiungibili. E uno per riga, etichette in colonna (pareggiate in
     // fondo): tre campi coi tasti chiedono ~630px, il dock ne ha 400 su iPad e
@@ -754,7 +755,7 @@ void MainWindow::setupObjectsDock()
         box->setLocale(QLocale::c());
         return box;
     };
-    fieldRow(false)->addWidget(rowLabel(QStringLiteral("In")));
+    fieldRow(true)->addWidget(rowLabel(QStringLiteral("In")));
     m_objectWindowIn = makeWindowBox(QStringLiteral("start"));
     row->addWidget(m_objectWindowIn, 1);
     fieldRow(false)->addWidget(rowLabel(QStringLiteral("Out")));
