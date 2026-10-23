@@ -84,7 +84,8 @@ void MainWindow::startObjectForMaster()
     // Flusso geodetico: lo riaccende il suo ricalcolo (updateGeodesicMesh
     // avvia il timer se il flusso ha 't'), sul dominio applicato.
     if (isGeodesicRoutingActive()) updateGeodesicMesh(/*useAppliedLimits=*/true);
-    // Rotazioni dell'oggetto (l'ambiente di una scena non ruota).
+    // Rotazioni dell'oggetto. Quelle dell'ambiente sono il moto della camera:
+    // le riavvia applyStartSideEffects, esclusive coi path.
     if (gl->selectedObject() != 0 && hasAnyRotationSpeed() && !gl->isAnimating()) {
         gl->resumeMotion();
         if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
@@ -187,21 +188,32 @@ void MainWindow::applyStartSideEffects()
     // moto camera (m_userStoppedCameraMotion), un commit di equazione che
     // arriva qui via onStartClicked NON deve farlo ripartire.
     if (!m_userStoppedCameraMotion) {
+        // Le rotazioni camera sono quelle dell'AMBIENTE: in una scena puo'
+        // essere selezionato un altro oggetto, e GO e velocita' (onStopClicked,
+        // hasAnyRotationSpeed) sono del selezionato. Con l'ambiente selezionato
+        // (sempre, con una superficie sola) e' il suo GO, come prima.
+        GLWidget *gl = ui->glWidget;
+        const bool envHasSpeed = gl->objectHasRotationSpeed(0);
+        auto startEnvironmentRotation = [this, gl]() {
+            if (gl->isObjectRotating(0)) return;
+            if (gl->selectedObject() == 0) { onStopClicked(); return; }
+            stopPathAnimations();   // esclusive coi path, come il GO
+            gl->setObjectRotating(0, true);
+            m_scene.lastCameraMotion = "rotation";
+        };
         QString pick = m_scene.lastCameraMotion;
-        if (pick == "rotation" && !hasAnyRotationSpeed()) pick.clear();
+        if (pick == "rotation" && !envHasSpeed) pick.clear();
         if (pick == "path4D" && !hasPath4D) pick.clear();
         if (pick == "path3D" && !hasPath3D) pick.clear();
 
         if (pick == "rotation") {
-            if (!ui->glWidget->isAnimating()) onStopClicked();
+            startEnvironmentRotation();
         } else if (pick == "path4D") {
             if (!pathRunning(CameraPaths::Path4D)) onDepartureClicked();
         } else if (pick == "path3D") {
             if (!pathRunning(CameraPaths::Path3D)) onDeparture3DClicked();
         } else {
-            if (hasAnyRotationSpeed() && !ui->glWidget->isAnimating()) {
-                onStopClicked();
-            }
+            if (envHasSpeed) startEnvironmentRotation();
             if (hasPath4D && !pathRunning(CameraPaths::Path4D)) {
                 onDepartureClicked();
             }
@@ -351,6 +363,26 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
     // AZIONI COMUNI (Evita ripetizioni di codice!)
     // ==========================================================
     ui->glWidget->setFocus();
+
+    // SUPERFICIE VUOTA DI PROPOSITO (NEW, o l'ambiente col solo sfondo di una
+    // scena): il master START non ha nulla da costruire. Senza, la validazione
+    // qui sotto mostrava "servono tre campi" a ogni START (scena 3 dell'utente,
+    // 2026-10-23). L'avviso resta a chi ha scritto uno o due campi, o a chi ha
+    // svuotato i campi di una superficie ancora a schermo. Il resto parte lo
+    // stesso: orologi di texture e sfondo, moto della camera, suono; gli altri
+    // oggetti della scena li riavvia onStartClicked.
+    if (masterStart && !implicitMode() && !tubesShown()
+        && m_scene.surfaceScriptApplied.trimmed().isEmpty()
+        && !ui->glWidget->getEngine()->isScriptModeActive()
+        && m_scene.eq.x.trimmed().isEmpty() && m_scene.eq.y.trimmed().isEmpty()
+        && m_scene.eq.z.trimmed().isEmpty() && m_scene.eq.p.trimmed().isEmpty()
+        && isSceneEmpty()) {
+        runOutcomeGuard.surfaceApplied = false;
+        applyAnimationState(false);
+        applyStartSideEffects();
+        updateMasterButtonState();
+        return;
+    }
 
     if (!validateRunInputs(origin)) return;
 
@@ -1822,11 +1854,16 @@ MainWindow::MasterActivity MainWindow::masterActivity() const
     a.cameraRunning = isRotationMotionRunning()
                       || pathRunning(CameraPaths::Path4D)
                       || pathRunning(CameraPaths::Path3D);
-    // In una SCENA la camera sono i path, e le rotazioni sono dell'oggetto
-    // selezionato (l'ambiente non ruota): due moduli distinti.
+    // In una SCENA la camera e' dell'AMBIENTE, qualunque sia il selezionato:
+    // i path, o a path fermo le sue rotazioni, che girano tutta la scena
+    // (GLWidget::sceneRotation) e si escludono coi path come in 1.x. Le
+    // rotazioni di un oggetto sono un modulo suo. Prima la camera erano i soli
+    // path: con l'ambiente in rotazione e il path fermo il master restava su
+    // START, e START riavviava la rotazione gia' in corsa senza cambiare nulla.
     if (gl->objectCount() > 1) {
-        a.cameraAvailable = hasPath4DInput() || hasPath3DInput();
-        a.cameraRunning = pathRunning(CameraPaths::Path4D) || pathRunning(CameraPaths::Path3D);
+        a.cameraAvailable = gl->objectHasRotationSpeed(0) || hasPath4DInput() || hasPath3DInput();
+        a.cameraRunning = gl->isObjectRotating(0)
+                          || pathRunning(CameraPaths::Path4D) || pathRunning(CameraPaths::Path3D);
         a.rotationAvailable = gl->selectedObject() != 0 && hasAnyRotationSpeed();
         a.rotationRunning = a.rotationAvailable && isRotationMotionRunning();
         // Il path dell'oggetto selezionato (dock Objects).

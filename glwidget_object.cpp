@@ -39,6 +39,9 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
         mv.setToIdentity();
     } else {
         o.model.setToIdentity();
+        // Gli oggetti girano con l'ambiente attorno al centro della scena
+        // (sceneRotation), posizione compresa: la rotazione va prima della posa.
+        if (!isEnvironment(o)) o.model.rotate(m_sceneRotation.rotation);
         // La posizione piu' il path dell'oggetto (timeline 2a) al suo tempo.
         o.model.translate(effectivePosition(o));
         o.model.rotate(o.rotationQuat);
@@ -57,8 +60,10 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
     m_uboData.observerPos = m_observerPos;
     m_uboData.cameraPos4D = m_cameraPos4D;
     // Quelli che l'oggetto MOSTRA: per gli oggetti della scena c'e' anche la
-    // rotazione del path (vedi GLWidget::setViewRotation4D).
-    const QVector3D angles4D = shownAngles4D(o);
+    // rotazione del path (vedi GLWidget::setViewRotation4D), e quella data
+    // dall'ambiente (sceneRotation), che i suoi angoli non contengono.
+    QVector3D angles4D = shownAngles4D(o);
+    if (!isEnvironment(o)) angles4D += m_sceneRotation.angles4D;
     m_uboData.omega = angles4D.x();
     m_uboData.phi = angles4D.y();
     m_uboData.psi = angles4D.z();

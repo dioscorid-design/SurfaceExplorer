@@ -369,6 +369,7 @@ void MainWindow::captureStartPose()
         m_startFraming.pitch = ui->glWidget->getEffectiveCameraPitch();
     }
     m_startOrientation = ui->glWidget->orientation();
+    m_startSceneRotation = ui->glWidget->sceneRotation();
     m_startFov         = m_scene.fov;
 }
 
@@ -420,6 +421,12 @@ bool MainWindow::motionsResetChangesSomething() const
     };
     // L'ambiente (il RESET della scena si fa con l'ambiente selezionato) e gli oggetti.
     if (turned(gl->objectOrientation(0), m_startOrientation)) return true;
+    {
+        const GLWidget::SceneRotation now = gl->sceneRotation();
+        if (std::abs(QQuaternion::dotProduct(now.rotation, m_startSceneRotation.rotation)) < 0.999999f
+            || (now.angles4D - m_startSceneRotation.angles4D).length() > 1e-4f)
+            return true;
+    }
     for (int k = 1; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k) {
         if (turned(gl->objectOrientation(k), m_objectSessions[k].startOrientation)) return true;
         if (m_objectSessions[k].geoTime != 0.0) return true;
@@ -481,6 +488,8 @@ void MainWindow::resetMotions(std::optional<CameraPaths::Path> camPath)
     // ROTAZIONI: posa d'apertura. Le velocita' restano: un GO in corso
     // continua a girare da li'.
     ui->glWidget->resetOrientation(m_startOrientation);
+    // E la scena girata con l'ambiente torna con lui.
+    if (ui->glWidget->objectCount() > 1) ui->glWidget->setSceneRotation(m_startSceneRotation);
     // In una scena anche gli oggetti, ciascuno alla sua posa d'apertura, e i
     // loro flussi geodetici da capo (l'ambiente e' il selezionato).
     for (int k = 1; k < ui->glWidget->objectCount() && k < int(m_objectSessions.size()); ++k) {

@@ -239,6 +239,11 @@ private:
     // 2.0, tappe 2 e 4: il path 4D dell'ambiente gira anche gli oggetti, le
     // rotazioni degli oggetti corrono insieme ai path, Save/Load del moto.
     void runSceneMotionScenarios();
+    // La scena gira con l'ambiente a path fermo (GLWidget::sceneRotation):
+    // tasti accesi, trascinamento, scatto 4D e GO (passo del recorder) girano
+    // anche gli oggetti, la sfera attorno al centro; Save e Load, RESET, e
+    // niente rotazione senza oggetti. Da sola: --scenario-only scene-turn.
+    void runSceneTurnScenarios();
     // 2.0, tappa 5: oggetti in ray marching e mesh si coprono per distanza.
     void runSceneDepthScenarios();
     // 2.0: flussi geodetici come oggetti, col loro tempo anche non selezionati.

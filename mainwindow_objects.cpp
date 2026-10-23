@@ -205,8 +205,10 @@ void MainWindow::syncGeodesicObjectsTimer()
 
 int MainWindow::addSceneObject(const QString &name)
 {
-    // Il primo oggetto fa dell'ambiente l'ambiente di una scena, che non ruota:
-    // le sue rotazioni si fermano, e non sono piu' il moto da riavviare.
+    // Il primo oggetto fa dell'ambiente l'ambiente di una scena: le sue
+    // rotazioni si fermano, e non sono piu' il moto da riavviare. La scena si
+    // compone ferma; GO sull'ambiente, a path fermo, la fa poi girare tutta
+    // (GLWidget::sceneRotation).
     if (ui->glWidget->objectCount() == 1) {
         ui->glWidget->setObjectRotating(0, false);
         if (m_scene.lastCameraMotion == QLatin1String("rotation")) m_scene.lastCameraMotion.clear();
@@ -255,6 +257,9 @@ void MainWindow::removeSceneObject(int index)
     gl->setObjectRotating(index, false);
     gl->removeObject(index);
     m_objectSessions.erase(m_objectSessions.begin() + index);
+    // Senza oggetti la rotazione della scena si azzera (GLWidget::removeObject):
+    // anche quella d'apertura, o un RESET dopo un Add to Scene la rimetterebbe.
+    if (gl->objectCount() == 1) m_startSceneRotation = GLWidget::SceneRotation();
     m_sceneObjectsChanged = true;
     refreshObjectsUi();
     syncGeodesicObjectsTimer();
@@ -516,6 +521,22 @@ bool MainWindow::loadSceneFile(const QString &path)
         }
         applyObjectMotion(o.value(QStringLiteral("motion")).toObject());
         captureObjectStartPose();
+    }
+    // La scena girata con l'ambiente (GLWidget::sceneRotation), se c'e': e'
+    // anche quella a cui la riporta il RESET.
+    {
+        const QJsonObject turn = root.value(QStringLiteral("sceneRotation")).toObject();
+        GLWidget::SceneRotation r;
+        const QJsonArray q = turn.value(QStringLiteral("quaternion")).toArray();
+        if (q.size() == 4)
+            r.rotation = QQuaternion(float(q.at(0).toDouble()), float(q.at(1).toDouble()),
+                                     float(q.at(2).toDouble()), float(q.at(3).toDouble())).normalized();
+        const QJsonArray a = turn.value(QStringLiteral("angles4D")).toArray();
+        if (a.size() == 3)
+            r.angles4D = QVector3D(float(a.at(0).toDouble()), float(a.at(1).toDouble()),
+                                   float(a.at(2).toDouble()));
+        if (gl->objectCount() > 1) gl->setSceneRotation(r);
+        m_startSceneRotation = gl->sceneRotation();
     }
     selectSceneObject(0);
     // Il momento pulito: la scena e' quella del file (come a fine load).

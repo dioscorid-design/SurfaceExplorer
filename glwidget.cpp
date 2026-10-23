@@ -178,6 +178,9 @@ void GLWidget::removeObject(int index)
     std::unique_ptr<SurfaceObject> gone = std::move(m_objects[index]);
     m_objects.erase(m_objects.begin() + index);
     if (m_obj == gone.get()) m_obj = m_objects.front().get();
+    // Senza oggetti la scena non ha nulla da girare con l'ambiente: un oggetto
+    // aggiunto dopo parte dalla scena dritta.
+    if (m_objects.size() == 1) m_sceneRotation = SceneRotation();
     gone->borderProbeTimer->stop();
     // Le letture asincrone gia' chieste (sonda del bordo) arrivano nei frame
     // seguenti e scrivono nell'oggetto: lo si tiene vivo ancora qualche frame.
@@ -2735,9 +2738,14 @@ void GLWidget::advanceRotationsBy(float dtSeconds) {
         }
 
         // ------------- Rotazioni 4D -----------
-        o.omega += o.omegaSpeed * speedMult4D;
-        o.phi   += o.phiSpeed   * speedMult4D;
-        o.psi   += o.psiSpeed   * speedMult4D;
+        const float dOmega = o.omegaSpeed * speedMult4D;
+        const float dPhi   = o.phiSpeed   * speedMult4D;
+        const float dPsi   = o.psiSpeed   * speedMult4D;
+        o.omega += dOmega;
+        o.phi   += dPhi;
+        o.psi   += dPsi;
+        // Il GO dell'ambiente gira tutta la scena (sceneRotation).
+        if (sceneFollowsEnvironment(o)) m_sceneRotation.angles4D += QVector3D(dOmega, dPhi, dPsi);
     }
 }
 
@@ -5526,24 +5534,24 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
         break;
 
     case RotOmegaPos:
-        m_obj->omega += rotSpeed;
+        rotateSelected4D(rotSpeed, 0.0f, 0.0f);
         break;
     case RotOmegaNeg:
-        m_obj->omega -= rotSpeed;
+        rotateSelected4D(-rotSpeed, 0.0f, 0.0f);
         break;
 
     case RotPhiPos:
-        m_obj->phi += rotSpeed;
+        rotateSelected4D(0.0f, rotSpeed, 0.0f);
         break;
     case RotPhiNeg:
-        m_obj->phi -= rotSpeed;
+        rotateSelected4D(0.0f, -rotSpeed, 0.0f);
         break;
 
     case RotPsiPos:
-        m_obj->psi += rotSpeed;
+        rotateSelected4D(0.0f, 0.0f, rotSpeed);
         break;
     case RotPsiNeg:
-        m_obj->psi -= rotSpeed;
+        rotateSelected4D(0.0f, 0.0f, -rotSpeed);
         break;
 
     default:
@@ -5579,8 +5587,21 @@ void GLWidget::addObjectRotation(SurfaceObject &o, float dPrecession, float dNut
     // Normalizza per evitare errori di arrotondamento nel tempo
     o.rotationQuat.normalize();
 
+    // L'ambiente gira tutta la scena: la stessa rotazione, sugli stessi assi
+    // dello schermo, agli oggetti (sceneRotation).
+    if (sceneFollowsEnvironment(o))
+        m_sceneRotation.rotation = (yRot * xRot * zRot * m_sceneRotation.rotation).normalized();
+
     emit rotationChanged();
     update();
+}
+
+void GLWidget::rotateSelected4D(float dOmega, float dPhi, float dPsi)
+{
+    m_obj->omega += dOmega;
+    m_obj->phi   += dPhi;
+    m_obj->psi   += dPsi;
+    if (sceneFollowsEnvironment(*m_obj)) m_sceneRotation.angles4D += QVector3D(dOmega, dPhi, dPsi);
 }
 
 bool GLWidget::isObjectRotating(int index) const
@@ -5599,6 +5620,16 @@ bool GLWidget::anyObjectRotating() const
 
 // Acceso: il timer (ri)parte, come il resumeMotion di sempre. Spento: il timer
 // si ferma solo se nessun altro oggetto ruota.
+bool GLWidget::objectHasRotationSpeed(int index) const
+{
+    if (index < 0 || index >= int(m_objects.size())) return false;
+    const SurfaceObject &o = *m_objects[index];
+    for (float v : { o.nutationSpeed, o.precessionSpeed, o.spinSpeed,
+                     o.omegaSpeed, o.phiSpeed, o.psiSpeed })
+        if (std::abs(v) > 0.001f) return true;
+    return false;
+}
+
 void GLWidget::setObjectRotating(int index, bool on)
 {
     if (index < 0 || index >= int(m_objects.size()) || !rotationTimer) return;

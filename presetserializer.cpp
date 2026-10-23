@@ -994,6 +994,16 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
         objects.append(o);
     }
     scene["objects"] = objects;
+    // La scena girata con l'ambiente (GLWidget::sceneRotation): gli oggetti la
+    // ricevono al disegno, non e' nei loro record. Solo se c'e'.
+    const GLWidget::SceneRotation turn = gl->sceneRotation();
+    if (!turn.rotation.isIdentity() || !turn.angles4D.isNull()) {
+        QJsonObject r;
+        r["quaternion"] = QJsonArray{ turn.rotation.scalar(), turn.rotation.x(),
+                                      turn.rotation.y(), turn.rotation.z() };
+        r["angles4D"] = QJsonArray{ turn.angles4D.x(), turn.angles4D.y(), turn.angles4D.z() };
+        scene["sceneRotation"] = r;
+    }
     m_mainWindow->selectSceneObject(selected);
     return scene;
 }

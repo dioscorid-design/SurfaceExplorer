@@ -408,6 +408,22 @@ public:
     // Superficie e' quella di prima.
     QVector3D shownAngles4D(const SurfaceObject &o) const;
     void setShownAngles4D(SurfaceObject &o, float omega, float phi, float psi);
+    // LA SCENA GIRA CON L'AMBIENTE (decisione dell'utente, 2026-10-23): a path
+    // fermo le rotazioni dell'ambiente selezionato (trascinamento, GO, tasti
+    // 3D e 4D) girano tutta la scena. L'ambiente ruota coi suoi angoli come in
+    // 1.x; gli oggetti ricevono la stessa rotazione qui: in 3D attorno al
+    // centro della scena, posizioni comprese (prima della loro posa nel
+    // modello), in 4D sommata ai loro angoli come quella del path. La
+    // accumulano solo le funzioni che ruotano l'ambiente (addObjectRotation,
+    // advanceRotationsBy, gli scatti 4D), quindi il recorder la segue da se'.
+    // Non tocca gli angoli propri degli oggetti: i loro Save restano quelli; la
+    // scena la salva a parte (PresetSerializer::buildSceneJson).
+    struct SceneRotation {
+        QQuaternion rotation;
+        QVector3D angles4D;
+    };
+    SceneRotation sceneRotation() const { return m_sceneRotation; }
+    void setSceneRotation(const SceneRotation &r) { m_sceneRotation = r; update(); }
 
     // Equazioni parametriche attualmente COMPILATE (x, y, z, w gia' composte e
     // tradotte): le lettere delle costanti restano identificatori, quindi dicono
@@ -1113,7 +1129,12 @@ public:
     // Dell'AMBIENTE: e' il suo path (gli oggetti restano come sono).
     void neutralizeDefaultRotationForPath() {
         SurfaceObject &env = *m_objects.front();
-        if (!env.userRotatedManually) { env.rotationQuat = QQuaternion(); env.meshNeedsUpdate = true; update(); }
+        if (!env.userRotatedManually) {
+            env.rotationQuat = QQuaternion();
+            // Gli oggetti seguivano l'ambiente (sceneRotation): tornano con lui.
+            m_sceneRotation.rotation = QQuaternion();
+            env.meshNeedsUpdate = true; update();
+        }
     }
     // Marcato dalla rotazione manuale (mouse/touch) via InputHandler.
     void markUserRotated() { m_obj->userRotatedManually = true; }
@@ -1129,14 +1150,15 @@ public:
     // ==========================================================
     // ANIMATION & MOTION CONTROL
     // ==========================================================
-    // L'AMBIENTE DI UNA SCENA NON RUOTA (decisione dell'utente, 2026-10-21): con
-    // oggetti nella scena si muove solo coi path. Una superficie che ruota e'
-    // un oggetto; per girare tutto l'ambiente si definisce un path. Vero con
-    // l'ambiente selezionato e almeno un oggetto: trascinamento, GO e tasti a
-    // scatto delle rotazioni 4D non fanno nulla. Con un oggetto solo (la
-    // modalita' Superficie) tutto come in 1.x.
+    // L'AMBIENTE DI UNA SCENA NON RUOTA MENTRE UN PATH LA GUIDA. Dal
+    // 2026-10-21 non ruotava mai (si muoveva solo coi path); dal 2026-10-23
+    // (utente) a path fermo le sue rotazioni girano tutta la scena (vedi
+    // sceneRotation). Vero con l'ambiente selezionato, almeno un oggetto e un
+    // path in corsa: trascinamento, GO e tasti a scatto delle rotazioni 4D non
+    // fanno nulla. Con un oggetto solo (la modalita' Superficie) tutto come in
+    // 1.x.
     bool environmentRotationLocked() const {
-        return m_objects.size() > 1 && m_obj == m_objects.front().get();
+        return m_objects.size() > 1 && m_obj == m_objects.front().get() && m_pathAnimating;
     }
     void addObjectRotation(float dPrecession, float dNutation, float dSpin) {
         if (environmentRotationLocked()) return;
@@ -1183,6 +1205,11 @@ public:
     bool isGoOn() const { return m_obj->rotating; }
     bool isObjectRotating(int index) const;
     void setObjectRotating(int index, bool on);
+    // Una velocita' di rotazione 3D o 4D non nulla (la soglia di
+    // MainWindow::hasAnyRotationSpeed), di un oggetto qualunque: in una scena
+    // quelle dell'ambiente sono il moto della camera anche con un altro
+    // oggetto selezionato.
+    bool objectHasRotationSpeed(int index) const;
     // Qualcosa da avanzare per il tick (o per il recorder): timer in corsa e
     // almeno un GO acceso.
     bool anyObjectRotating() const;
@@ -1675,6 +1702,13 @@ private:
     bool isOnStage(const SurfaceObject &o) const;
     // Rotazione 4D del path per gli oggetti: vedi setViewRotation4D.
     float m_viewOmega = 0.0f, m_viewPhi = 0.0f, m_viewPsi = 0.0f;
+    // La rotazione della scena data dall'ambiente: vedi sceneRotation.
+    SceneRotation m_sceneRotation;
+    // Una rotazione 4D dell'ambiente (scatti, GO): la stessa agli oggetti.
+    void rotateSelected4D(float dOmega, float dPhi, float dPsi);
+    bool sceneFollowsEnvironment(const SurfaceObject &o) const {
+        return m_objects.size() > 1 && isEnvironment(o);
+    }
     bool isObjectRotating(const SurfaceObject &o) const {
         return o.rotating && rotationTimer && rotationTimer->isActive();
     }

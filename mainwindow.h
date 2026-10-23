@@ -1312,6 +1312,9 @@ private:
     void captureStartPose();
     GLWidget::Framing m_startFraming;
     GLWidget::Orientation m_startOrientation;
+    // La rotazione della scena data dall'ambiente (GLWidget::sceneRotation)
+    // all'apertura: quella del file per una scena, dritta altrimenti.
+    GLWidget::SceneRotation m_startSceneRotation;
     float m_startFov = 45.0f;
 
     // Salvataggio in corso DENTRO la conferma "vuoi salvare?": la libreria si

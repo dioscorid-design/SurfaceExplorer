@@ -1912,6 +1912,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-turn")) {
+        runSceneTurnScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-motion")) {
         runSceneMotionScenarios();
         finish();
@@ -3801,6 +3806,7 @@ void ScenarioTest::run()
     runShapeBackgroundScenarios();
     runSceneObjectScenarios();
     runSceneMotionScenarios();
+    runSceneTurnScenarios();
     runSceneDepthScenarios();
     runSceneGeodesicScenarios();
     runSceneMasterScenarios();
@@ -5842,6 +5848,151 @@ void ScenarioTest::runSceneObjectScenarios()
     }
 }
 
+void ScenarioTest::runSceneTurnScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== La scena gira con l'ambiente a path fermo =="));
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    QString spherePath;
+    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+        if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json")))
+            spherePath = it.filePath;
+    check(!spherePath.isEmpty(), QStringLiteral("la sfera e' nella libreria"));
+    if (spherePath.isEmpty()) return;
+    m_mw->addShapeToScene(spherePath);
+    wait(400);
+    const QVector3D spherePos(2.0f, 0.0f, 0.0f);
+    gl->setObjectPosition(spherePos);
+    const QQuaternion sphereQ = gl->getRotationQuat();
+    m_mw->selectSceneObject(0);
+    wait(200);
+
+    auto sameQ = [](const QQuaternion &a, const QQuaternion &b) {
+        return std::abs(QQuaternion::dotProduct(a, b)) > 0.99999f;
+    };
+    auto close = [](float a, float b) { return std::abs(a - b) < 1e-4f; };
+    // Il centro della sfera come lo disegna il frame (modello dell'oggetto).
+    auto sphereCenter = [gl]() {
+        gl->grabFramebuffer();
+        return gl->m_objects[1]->model.map(QVector3D());
+    };
+    auto nearV = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 1e-3f; };
+
+    check(gl->sceneRotation().rotation.isIdentity() && gl->sceneRotation().angles4D.isNull(),
+          QStringLiteral("scena appena composta: dritta"));
+    check(m_mw->ui->btnStart_2->isEnabled() && m_mw->ui->btnPrecessionPlus->isEnabled()
+              && m_mw->ui->btnOmegaPlus->isEnabled() && m_mw->ui->btnOmegaAhead->isEnabled(),
+          QStringLiteral("ambiente selezionato, path fermo: i tasti delle rotazioni sono accesi"));
+
+    // TRASCINAMENTO: la stessa rotazione all'ambiente e alla scena; la sfera
+    // gira attorno al centro, i suoi angoli propri no.
+    const QQuaternion env0 = gl->getRotationQuat();
+    gl->addObjectRotation(30.0f, 20.0f, 0.0f);
+    const QQuaternion envTurn = gl->getRotationQuat() * env0.inverted();
+    const GLWidget::SceneRotation r1 = gl->sceneRotation();
+    check(!r1.rotation.isIdentity() && sameQ(envTurn, r1.rotation),
+          QStringLiteral("trascinamento sull'ambiente: la scena gira della stessa rotazione"));
+    check(nearV(sphereCenter(), r1.rotation.rotatedVector(spherePos)),
+          QStringLiteral("la sfera gira attorno al centro della scena (%1, %2, %3)")
+              .arg(sphereCenter().x()).arg(sphereCenter().y()).arg(sphereCenter().z()));
+    m_mw->selectSceneObject(1);
+    check(sameQ(gl->getRotationQuat(), sphereQ), QStringLiteral("gli angoli propri della sfera non cambiano"));
+    m_mw->selectSceneObject(0);
+    wait(100);
+
+    // SCATTO 4D: lo stesso angolo all'ambiente e alla scena.
+    const float omega0 = gl->getOmega();
+    const float sceneOmega0 = gl->sceneRotation().angles4D.x();
+    gl->virtualMove(GLWidget::RotOmegaPos, 0.05f, 0.05f);
+    check(!close(gl->getOmega(), omega0)
+              && close(gl->getOmega() - omega0, gl->sceneRotation().angles4D.x() - sceneOmega0),
+          QStringLiteral("scatto omega sull'ambiente: la scena gira dello stesso angolo (%1)")
+              .arg(gl->getOmega() - omega0));
+
+    // GO dell'ambiente, col passo del recorder (advanceRotationsBy).
+    gl->setPrecessionSpeed(1.0f);
+    gl->setOmegaSpeed(1.0f);
+    m_mw->refreshRotationSpeedLabels();
+    m_mw->onStopClicked();
+    wait(100);
+    check(gl->isObjectRotating(0), QStringLiteral("GO sull'ambiente di una scena a path fermo: ruota"));
+    gl->setExternalClockActive(true);   // come nel REC: il tick e' un no-op
+    {
+        const QQuaternion envBefore = gl->getRotationQuat();
+        const GLWidget::SceneRotation before = gl->sceneRotation();
+        const float omegaBefore = gl->getOmega();
+        gl->advanceRotationsBy(0.5f);
+        const GLWidget::SceneRotation after = gl->sceneRotation();
+        check(sameQ(gl->getRotationQuat() * envBefore.inverted(), after.rotation * before.rotation.inverted())
+                  && close(gl->getOmega() - omegaBefore, after.angles4D.x() - before.angles4D.x())
+                  && !close(gl->getOmega(), omegaBefore),
+              QStringLiteral("advanceRotationsBy (REC): la scena segue il GO dell'ambiente, in 3D e in 4D"));
+    }
+    gl->setExternalClockActive(false);
+
+    // MASTER: le rotazioni dell'ambiente sono il moto della camera della scena
+    // (prima la camera erano i soli path: master fermo su START, e START senza
+    // effetto). STOP le ferma; START le riavvia anche con un oggetto selezionato.
+    {
+        const MainWindow::MasterActivity act = m_mw->masterActivity();
+        check(act.cameraAvailable && act.cameraRunning,
+              QStringLiteral("master: la rotazione dell'ambiente e' il moto della camera, in corsa"));
+        m_mw->selectSceneObject(1);
+        wait(100);
+        m_mw->performMasterStop();
+        check(!gl->isObjectRotating(0) && m_mw->m_btnStart->text() == QLatin1String("START"),
+              QStringLiteral("master STOP: l'ambiente smette di ruotare"));
+        m_mw->m_btnStart->click();
+        wait(300);
+        check(gl->isObjectRotating(0) && m_mw->m_scene.lastCameraMotion == QLatin1String("rotation"),
+              QStringLiteral("master START con la sfera selezionata: riparte la rotazione dell'ambiente"));
+        m_mw->selectSceneObject(0);
+        wait(100);
+    }
+    m_mw->onStopClicked();   // GO spento
+    gl->setPrecessionSpeed(0.0f);
+    gl->setOmegaSpeed(0.0f);
+    m_mw->refreshRotationSpeedLabels();
+    wait(100);
+
+    // SAVE E LOAD: la rotazione della scena nel file, e di nuovo a schermo.
+    const GLWidget::SceneRotation saved = gl->sceneRotation();
+    PresetSerializer::MotionRunState run;
+    const QJsonObject sceneJson = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Turn"), run, false);
+    check(sceneJson.contains(QStringLiteral("sceneRotation")), QStringLiteral("scena scritta con la sua rotazione"));
+    const QString scenePath = m_outDir + QStringLiteral("/scene-turn.json");
+    {
+        QFile f(scenePath);
+        f.open(QIODevice::WriteOnly);
+        f.write(QJsonDocument(sceneJson).toJson());
+    }
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))) return;
+    check(gl->sceneRotation().rotation.isIdentity(), QStringLiteral("una superficie sola: scena dritta"));
+    check(m_mw->loadSceneFile(scenePath), QStringLiteral("loadSceneFile della scena girata"));
+    wait(400);
+    const GLWidget::SceneRotation loaded = gl->sceneRotation();
+    check(sameQ(loaded.rotation, saved.rotation) && (loaded.angles4D - saved.angles4D).length() < 1e-4f,
+          QStringLiteral("scena ricaricata: la stessa rotazione"));
+    check(nearV(sphereCenter(), loaded.rotation.rotatedVector(spherePos)),
+          QStringLiteral("scena ricaricata: la sfera dov'era"));
+
+    // RESET: la scena torna com'era all'apertura (quella del file).
+    gl->addObjectRotation(25.0f, 0.0f, 0.0f);
+    check(!sameQ(gl->sceneRotation().rotation, loaded.rotation), QStringLiteral("di nuovo girata"));
+    m_mw->resetMotions(m_mw->cameraPath());
+    check(sameQ(gl->sceneRotation().rotation, loaded.rotation)
+              && (gl->sceneRotation().angles4D - loaded.angles4D).length() < 1e-4f,
+          QStringLiteral("RESET dei moti: la rotazione d'apertura della scena"));
+
+    // Senza oggetti non c'e' nulla da girare con l'ambiente.
+    m_mw->removeSceneObject(1);
+    wait(200);
+    check(gl->objectCount() == 1 && gl->sceneRotation().rotation.isIdentity()
+              && gl->sceneRotation().angles4D.isNull(),
+          QStringLiteral("tolto l'ultimo oggetto: scena dritta"));
+}
+
 void ScenarioTest::runSceneMotionScenarios()
 {
     GLWidget *gl = m_mw->ui->glWidget;
@@ -5905,8 +6056,9 @@ void ScenarioTest::runSceneMotionScenarios()
     wait(300);
     check(qFuzzyCompare(envQ1, gl->getRotationQuat()),
           QStringLiteral("la rotazione dell'oggetto non muove l'ambiente"));
-    // L'AMBIENTE DI UNA SCENA NON RUOTA (decisione dell'utente, 2026-10-21):
-    // GO, velocita', tasti a scatto e trascinamento non fanno nulla.
+    // L'AMBIENTE DI UNA SCENA NON RUOTA MENTRE IL PATH LA GUIDA: GO,
+    // velocita', tasti a scatto e trascinamento non fanno nulla (a path fermo
+    // girano tutta la scena: runSceneTurnScenarios).
     check(!m_mw->ui->btnStart_2->isEnabled() && !m_mw->ui->btnPrecessionPlus->isEnabled()
               && !m_mw->ui->btnOmegaPlus->isEnabled() && !m_mw->ui->btnOmegaAhead->isEnabled(),
           QStringLiteral("ambiente di una scena: i tasti delle rotazioni sono spenti"));
@@ -6521,6 +6673,17 @@ void ScenarioTest::runSceneSaveLoadScenarios()
                   QStringLiteral("ambiente vuoto: riaperta senza popup, ambiente vuoto e l'oggetto (oggetti %1, vuota %2%3)")
                       .arg(gl->objectCount()).arg(m_mw->isSceneEmpty())
                       .arg(m_lastPopup.isEmpty() ? QString() : QStringLiteral(", popup: ") + m_lastPopup));
+            // Master STOP e START con l'ambiente vuoto selezionato: niente da
+            // costruire, quindi niente "servono tre campi" (scena 3 dell'utente).
+            m_mw->performMasterStop();
+            wait(200);
+            m_lastPopup.clear();
+            m_mw->m_btnStart->click();
+            wait(500);
+            // (Qui nulla si muove: il toro e' fermo e il master resta su START.)
+            check(m_lastPopup.isEmpty() && m_mw->isSceneEmpty() && !m_mw->m_masterStopped,
+                  QStringLiteral("ambiente vuoto: master START senza popup, eseguito%1")
+                      .arg(m_lastPopup.isEmpty() ? QString() : QStringLiteral(" (popup: ") + m_lastPopup + QLatin1Char(')')));
             QFile f(m_outDir + QStringLiteral("/scene-saveload-empty-env.json"));
             LibraryItem env;
             if (f.open(QIODevice::ReadOnly)) {
