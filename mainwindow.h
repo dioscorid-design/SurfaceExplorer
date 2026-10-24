@@ -1902,6 +1902,14 @@ private:
     QJsonObject objectMotionJson() const;
     // La scena e' 4D se l'ambiente parametrico ha la P 4D (vedi addShapeToScene).
     bool sceneIs4D() const;
+    // Le rotazioni 4D del selezionato hanno effetto: in ray marching nel solo
+    // Cross Section; in parametrico sempre, tranne un oggetto con l'ambiente in
+    // ray marching, che e' rigido (GLWidget::rigidObject).
+    bool selectedRotates4D() const;
+    // Velocita' omega/phi/psi e scatti 4D accesi solo dove agiscono
+    // (selectedRotates4D); gli scatti anche spenti coi path in corsa
+    // (setNavControlsEnabled). Alla selezione di un oggetto e da updateRenderState.
+    void updateRotation4DControls();
     // Lo stato dell'AMBIENTE (oggetto 0): m_scene se e' selezionato, altrimenti
     // la sua sessione. Serve a cio' che e' suo anche con un altro oggetto
     // selezionato: i path, il tipo di scena.
@@ -1925,6 +1933,9 @@ private:
     float m_sceneTimeReached = 0.0f;
     float sceneTimeSpan() const;
     void refreshSceneTimeSlider();
+    // T PUO' CORRERE: l'ambiente ha un moto della camera, un path scritto o
+    // delle velocita' di rotazione. Accende finestre In/Out e T nella barra.
+    bool sceneTimeCanRun() const;
     QString uniqueObjectName(const QString &base) const;
     void applyObjectMotion(const QJsonObject &motion);
     // Il messaggio della scena: quello dell'ambiente e, sotto, quello di ogni

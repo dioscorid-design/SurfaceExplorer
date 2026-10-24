@@ -654,6 +654,10 @@ public:
     QString tubeY() const { return m_tubeY; }
     QString tubeZ() const { return m_tubeZ; }
     QString tubeP() const { return m_tubeP; }
+    // P "4D": un'espressione, o un numero non nullo. Lo stesso criterio del
+    // tasto 4D della barra di stato (MainWindow::update4DButtonState); decide
+    // se una scena e' 4D (MainWindow::sceneIs4D) e se lo e' una Shape.
+    static bool isFourthCoordinate(QString p);
 
     // UNA COPIA PER TUBO (indice = `mesh`): la direzione di riferimento che
     // orienta la sezione e la chiusura in u (la curva torna al punto di

@@ -64,6 +64,11 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
     // dall'ambiente (sceneRotation), che i suoi angoli non contengono.
     QVector3D angles4D = shownAngles4D(o);
     if (!isEnvironment(o)) angles4D += m_sceneRotation.angles4D;
+    // OGGETTO RIGIDO (ambiente in ray marching, vedi rigidObject): si muove
+    // coi soli moti 3D. Con angoli e w a zero la proiezione 4D -> 3D lascia i
+    // punti dove sono, in ogni modalita'.
+    const bool rigid = rigidObject(o);
+    if (rigid) angles4D = QVector3D();
     m_uboData.omega = angles4D.x();
     m_uboData.phi = angles4D.y();
     m_uboData.psi = angles4D.z();
@@ -86,7 +91,7 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
     // .w = P(t) del path dell'oggetto (scene 4D): il vertex la somma alla w dei
     // punti ruotati, prima della proiezione (rotate4D). Ultima componente
     // libera di dummyZero, stessa ragione della .z: nessun campo nuovo.
-    m_uboData.dummyZero.setW(pathOffset(o).w());
+    m_uboData.dummyZero.setW(rigid ? 0.0f : pathOffset(o).w());
     m_uboData.projMode = projectionMode;
     m_uboData.renderMode = o.renderMode;
     m_uboData.lightingMode = is4DActive(o) ? m_lightingMode4D : 0;

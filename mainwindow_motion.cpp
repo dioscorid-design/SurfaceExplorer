@@ -1022,13 +1022,16 @@ void MainWindow::setNavControlsEnabled(bool enabled)
                                 ui->btnLightMode }) {
             if (b) b->setEnabled(false);
         }
-        const bool rot4DUsable = crossSectionTab();
-        for (QPushButton *b : { ui->btnPPlus,      ui->btnPMinus,
-                                ui->btnOmegaAhead, ui->btnOmegaRear,
+        for (QPushButton *b : { ui->btnPPlus, ui->btnPMinus })
+            if (b) b->setEnabled(crossSectionTab());
+    }
+    // Rotazioni 4D a scatto: solo dove agiscono (in ray marching il Cross
+    // Section; non un oggetto parametrico rigido, con l'ambiente in ray marching).
+    if (enabled && !selectedRotates4D()) {
+        for (QPushButton *b : { ui->btnOmegaAhead, ui->btnOmegaRear,
                                 ui->btnPhiAhead,   ui->btnPhiRear,
-                                ui->btnPsiAhead,   ui->btnPsiRear }) {
-            if (b) b->setEnabled(rot4DUsable);
-        }
+                                ui->btnPsiAhead,   ui->btnPsiRear })
+            if (b) b->setEnabled(false);
     }
 }
 

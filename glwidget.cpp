@@ -2728,6 +2728,9 @@ void GLWidget::advanceRotationsBy(float dtSeconds) {
     for (const auto &obj : m_objects) {
         SurfaceObject &o = *obj;
         if (!o.rotating || !isOnStage(o)) continue;
+        // Il GO dell'AMBIENTE e' il moto della camera quando il path e' fermo
+        // (i due si escludono): T corre con lui, come col path.
+        if (isEnvironment(o)) advanceSceneTime(dtSeconds);
 
         float dPrec = o.precessionSpeed * speedMult3D;
         float dNut  = o.nutationSpeed   * speedMult3D;

@@ -340,6 +340,16 @@ bool SurfaceEngine::compilePath3DEquations(const QString &x, const QString &y, c
     return path3DValid;
 }
 
+bool SurfaceEngine::isFourthCoordinate(QString p)
+{
+    p = p.trimmed();
+    if (p.isEmpty()) return false;
+    p.replace(QLatin1Char(','), QLatin1Char('.'));
+    bool isNumber = false;
+    const float v = p.toFloat(&isNumber);
+    return !isNumber || std::abs(v) > 0.001f;
+}
+
 bool SurfaceEngine::compileObjectPath(const QString &x, const QString &y, const QString &z, const QString &p)
 {
     exprtk::parser<float> parser;

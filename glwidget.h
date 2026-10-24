@@ -253,12 +253,14 @@ public:
     void setObjectScale(float s);
     float objectScale() const { return m_obj->scale; }
 
-    // IL TEMPO T DELLA SCENA, in secondi: e' il tempo del PATH DELL'AMBIENTE
-    // (decisione dell'utente, 2026-10-21). Lo fa avanzare solo
-    // CameraPaths::advance (tick dal vivo, REC, scorrimento), e i reset dei
-    // tempi dei path lo riportano a 0: corre e si ferma col path. Un oggetto
-    // e' in scena dentro la sua finestra (SurfaceObject::windowIn/windowOut):
-    // fuori non si disegna e i suoi moti non avanzano.
+    // IL TEMPO T DELLA SCENA, in secondi: e' il tempo del MOTO DELLA CAMERA
+    // DELL'AMBIENTE (decisioni dell'utente, 2026-10-21 e 10-24): il suo path
+    // (CameraPaths::advance: tick dal vivo, REC, scorrimento) o le sue
+    // rotazioni, esclusive col path (advanceRotationsBy, tick dal vivo e REC).
+    // Le rotazioni e i moti degli oggetti no. I reset dei tempi dei path e il
+    // RESET dei moti lo riportano a 0. Un oggetto e' in scena dentro la sua
+    // finestra (SurfaceObject::windowIn/windowOut): fuori non si disegna e i
+    // suoi moti non avanzano.
     float sceneTime() const { return m_sceneTime; }
     void setSceneTime(float t) { m_sceneTime = std::max(0.0f, t); update(); }
     void advanceSceneTime(float dt) { m_sceneTime = std::max(0.0f, m_sceneTime + dt); }
@@ -384,6 +386,19 @@ public:
     // oggetto selezionato il path resta sull'ambiente.
     SurfaceEngine *environmentEngine() const { return m_objects.front()->engine.get(); }
     bool isEnvironment(const SurfaceObject &o) const { return &o == m_objects.front().get(); }
+    // OGGETTI RIGIDI (utente, 2026-10-24): con l'ambiente in ray marching --
+    // una Cross Section, cioe' un TAGLIO dello spazio 4D, o una superficie 3D,
+    // che in 4D non ruota -- gli oggetti parametrici abitano il suo 3D: niente
+    // rotazioni 4D, ne' loro ne' di path e GO dell'ambiente, e niente P(t)
+    // (prepareObjectUniforms). Ruotati, se ne vedrebbe la PROIEZIONE, un'altra
+    // operazione nello stesso fotogramma. Con un ambiente parametrico ruotano
+    // in 4D come lui. Le Cross Section oggetto restano tagli: seguono le
+    // rotazioni.
+    bool rigidObject(const SurfaceObject &o) const {
+        return !isEnvironment(o) && o.engineMode == ModeParametric
+               && m_objects.front()->engineMode == ModeImplicit;
+    }
+    bool selectedObjectRigid() const { return rigidObject(*m_obj); }
     void setEnvironmentRotation4D(float o, float p, float ps) {
         SurfaceObject &env = *m_objects.front();
         env.omega = o; env.phi = p; env.psi = ps;

@@ -5915,6 +5915,22 @@ void ScenarioTest::runSceneTurnScenarios()
           QStringLiteral("scatto omega sull'ambiente: la scena gira dello stesso angolo (%1)")
               .arg(gl->getOmega() - omega0));
 
+    // AMBIENTE PARAMETRICO (il toro, 3D): la sfera ruota in 4D come lui, se
+    // ne vede la proiezione. Rigida solo con l'ambiente in ray marching (in
+    // fondo alla sezione).
+    m_mw->selectSceneObject(1);
+    wait(200);
+    {
+        const QImage before = gl->grabFramebuffer();
+        gl->setRotation4D(1.0f, 0.7f, 0.0f);
+        const QImage after = gl->grabFramebuffer();
+        check(!gl->selectedObjectRigid() && before != after && m_mw->ui->btnOmegaPlus->isEnabled(),
+              QStringLiteral("ambiente parametrico 3D: la sfera ruota in 4D, tasti 4D accesi"));
+        gl->setRotation4D(0.0f, 0.0f, 0.0f);
+    }
+    m_mw->selectSceneObject(0);
+    wait(100);
+
     // GO dell'ambiente, col passo del recorder (advanceRotationsBy).
     gl->setPrecessionSpeed(1.0f);
     gl->setOmegaSpeed(1.0f);
@@ -5996,6 +6012,42 @@ void ScenarioTest::runSceneTurnScenarios()
     check(gl->objectCount() == 1 && gl->sceneRotation().rotation.isIdentity()
               && gl->sceneRotation().angles4D.isNull(),
           QStringLiteral("tolto l'ultimo oggetto: scena dritta"));
+
+    // LA SFERA CON ALTRI AMBIENTI. Rigida (rotazione 4D senza effetto a
+    // schermo, tasti 4D spenti) con l'ambiente in ray marching: una Cross
+    // Section, che e' un taglio, o una superficie 3D, che in 4D non ruota.
+    // Con un ambiente parametrico 4D ruota come lui.
+    struct Env { const char *path; bool rigid; };
+    for (const Env &env : { Env{ "surfaces/Implicit/Cross Sections/Duocylinder.json", true },
+                            Env{ "surfaces/Implicit/3D/Sphere.json", true },
+                            Env{ "surfaces/Parametric/Surfaces/Equations/Non-orientables/Klein Bottle.json", false } }) {
+        if (!loadSurface(QString::fromLatin1(env.path))) continue;
+        m_mw->addShapeToScene(spherePath);
+        wait(400);
+        gl->stopAllTimers();
+        gl->setProjectionMode(1);
+        wait(300);
+        // Fermo tutto: il Duocylinder ruota col tempo (B*t nell'equazione).
+        m_mw->performMasterStop();
+        wait(300);
+        const QImage before = gl->grabFramebuffer();
+        gl->setRotation4D(1.0f, 0.7f, 0.0f);
+        const QImage after = gl->grabFramebuffer();
+        const bool buttons = m_mw->ui->btnOmegaPlus->isEnabled() && m_mw->ui->btnOmegaAhead->isEnabled();
+        const bool same = before.convertToFormat(QImage::Format_RGB32) == after.convertToFormat(QImage::Format_RGB32);
+        check(gl->selectedObjectRigid() == env.rigid && same == env.rigid && buttons != env.rigid,
+              QStringLiteral("ambiente %1: la sfera %2")
+                  .arg(QFileInfo(QString::fromLatin1(env.path)).baseName(),
+                       env.rigid ? QStringLiteral("e' rigida, tasti 4D spenti")
+                                 : QStringLiteral("ruota in 4D, tasti 4D accesi"))
+                  + QStringLiteral(" (rigida %1, immagine uguale %2, tasti %3)")
+                        .arg(gl->selectedObjectRigid()).arg(same).arg(buttons));
+        if (env.rigid) {
+            m_mw->selectSceneObject(0);
+            wait(100);
+            check(!gl->selectedObjectRigid(), QStringLiteral("  riselezionato l'ambiente: non e' un oggetto rigido"));
+        }
+    }
 }
 
 void ScenarioTest::runSceneMotionScenarios()
@@ -6850,7 +6902,7 @@ void ScenarioTest::runSceneTimelineScenarios()
 {
     GLWidget *gl = m_mw->ui->glWidget;
     m_lines.append(QString());
-    m_lines.append(QStringLiteral("== Timeline: T e' il tempo del path dell'ambiente, le finestre contano su T =="));
+    m_lines.append(QStringLiteral("== Timeline: T e' il tempo del moto della camera dell'ambiente (path o rotazioni), le finestre contano su T =="));
     const QString kCoil = QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Cytherean Coil.json");
     QString spherePath;
     for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
@@ -6865,6 +6917,15 @@ void ScenarioTest::runSceneTimelineScenarios()
     check(!m_mw->m_objectWindowIn->isEnabled() && !m_mw->m_sceneTimeSlider->isEnabled()
               && !m_mw->m_sceneTimeLabel->isVisibleTo(m_mw),
           QStringLiteral("ambiente senza path: In/Out e cursore spenti, T nascosto"));
+    // Le rotazioni dell'ambiente sono l'altro moto della camera: con le sue
+    // velocita' T puo' correre (In/Out e T accesi; il cursore resta del path).
+    m_mw->selectSceneObject(0);
+    gl->setPrecessionSpeed(0.5f);
+    m_mw->selectSceneObject(1);
+    m_mw->refreshSceneTimeLabel();
+    check(m_mw->m_objectWindowIn->isEnabled() && !m_mw->m_sceneTimeSlider->isEnabled()
+              && m_mw->m_sceneTimeLabel->isVisibleTo(m_mw),
+          QStringLiteral("ambiente con le velocita' di rotazione: In/Out attivi, T visibile, cursore spento"));
 
     // Ambiente col path 4D: T corre col path.
     if (!loadRecord(kCoil)) return;
@@ -6893,6 +6954,34 @@ void ScenarioTest::runSceneTimelineScenarios()
     wait(500);
     check(gl->sceneTime() > t0 + 0.1f,
           QStringLiteral("path ripartito: T riparte (%1 s)").arg(gl->sceneTime()));
+
+    // GO DELL'AMBIENTE: ferma il path e diventa il moto della camera; T corre
+    // con le sue rotazioni. Departure torna al path, T continua da li'.
+    m_mw->selectSceneObject(0);
+    wait(100);
+    if (gl->getPrecessionSpeed() == 0.0f) gl->setPrecessionSpeed(0.5f);
+    m_mw->onStopClicked();
+    t0 = gl->sceneTime();
+    wait(500);
+    check(gl->isObjectRotating(0) && !m_mw->pathRunning(CameraPaths::Path4D) && gl->sceneTime() > t0 + 0.1f,
+          QStringLiteral("GO dell'ambiente: path fermo, T corre con le rotazioni (%1 -> %2 s)")
+              .arg(t0).arg(gl->sceneTime()));
+    {
+        // Col passo del REC (advanceRotationsBy): T avanza del dt del fotogramma.
+        gl->setExternalClockActive(true);
+        const float before = gl->sceneTime();
+        gl->advanceRotationsBy(0.25f);
+        check(std::abs(gl->sceneTime() - before - 0.25f) < 1e-4f,
+              QStringLiteral("advanceRotationsBy (REC): T + 0.25 s col GO dell'ambiente"));
+        gl->setExternalClockActive(false);
+    }
+    m_mw->onDepartureClicked();
+    t0 = gl->sceneTime();
+    wait(400);
+    check(!gl->isObjectRotating(0) && m_mw->pathRunning(CameraPaths::Path4D) && gl->sceneTime() > t0,
+          QStringLiteral("Departure: di nuovo il path, T continua (%1 s)").arg(gl->sceneTime()));
+    m_mw->selectSceneObject(sphere);
+    wait(100);
 
     // La finestra dal dock: In 1 s, Out 2 s.
     m_mw->markWholeSceneClean();

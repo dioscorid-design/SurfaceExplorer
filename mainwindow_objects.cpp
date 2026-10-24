@@ -269,18 +269,6 @@ void MainWindow::removeSceneObject(int index)
     syncGeodesicObjectsTimer();
 }
 
-// P "4D": un'espressione, o un numero non nullo. Lo stesso criterio del tasto
-// 4D della barra di stato (update4DButtonState).
-static bool pCoordinateIs4D(QString p)
-{
-    p = p.trimmed();
-    if (p.isEmpty()) return false;
-    p.replace(QLatin1Char(','), QLatin1Char('.'));
-    bool isNumber = false;
-    const float v = p.toFloat(&isNumber);
-    return !isNumber || std::abs(v) > 0.001f;
-}
-
 // SCENA 3D O 4D (decisione dell'utente, 2026-10-20): una scena 3D contiene
 // oggetti 3D e Cross Section in ray marching, tagliate tutte dalla stessa
 // quota p; una scena 4D oggetti 3D e 4D, e niente Cross Section. La decide
@@ -314,7 +302,8 @@ void MainWindow::advanceSceneBy(double dt, bool selectedGeoFlow)
     if (selectedGeoFlow) advanceGeodesicFlowBy(dt);
     advanceGeodesicObjectsBy(dt);
     // Orologi di animazione (t di geometria, texture, sfondo, fasce) e path
-    // degli oggetti. T avanza col path della camera, qui sopra.
+    // degli oggetti. T avanza col moto della camera, path o rotazioni
+    // dell'ambiente, qui sopra.
     gl->advanceClocksBy(float(dt));
 }
 
@@ -366,8 +355,8 @@ void MainWindow::refreshSceneTimeSlider()
     m_sceneTimeReached = std::max(m_sceneTimeReached, t);
     // Il cursore muove il path dell'ambiente: serve che la camera ne segua uno.
     m_sceneTimeSlider->setEnabled(cameraPath().has_value() && !m_isRecording);
-    // Le finestre contano su T: senza un path dell'ambiente T non corre.
-    const bool windows = gl->selectedObject() > 0 && (hasPath4DInput() || hasPath3DInput());
+    // Le finestre contano su T: senza un moto della camera T non corre.
+    const bool windows = gl->selectedObject() > 0 && sceneTimeCanRun();
     m_objectWindowIn->setEnabled(windows);
     m_objectWindowOut->setEnabled(windows);
     m_sceneTimeValue->setText(QStringLiteral("%1 s").arg(double(t), 0, 'f', 1));
@@ -407,10 +396,26 @@ const ObjectState &MainWindow::environmentState() const
     return m_objectSessions[0].state;
 }
 
+bool MainWindow::selectedRotates4D() const
+{
+    if (implicitMode()) return crossSectionTab();
+    return !ui->glWidget || !ui->glWidget->selectedObjectRigid();
+}
+
+void MainWindow::updateRotation4DControls()
+{
+    const bool on = selectedRotates4D();
+    for (QPushButton *b : { ui->btnOmegaMinus, ui->btnOmegaPlus, ui->btnPhiMinus,
+                            ui->btnPhiPlus, ui->btnPsiMinus, ui->btnPsiPlus })
+        if (b) b->setEnabled(on);
+    // Gli scatti sono anche tasti di navigazione: li ricalcola chi segue i path.
+    updateViewButtonsEnabled();
+}
+
 bool MainWindow::sceneIs4D() const
 {
     const ObjectState &env = environmentState();
-    return !env.implicitMode && pCoordinateIs4D(env.eq.p);
+    return !env.implicitMode && SurfaceEngine::isFourthCoordinate(env.tubesTab ? env.tube.p : env.eq.p);
 }
 
 // ADD TO SCENE (menu delle Shapes): la Shape come oggetto della scena a
@@ -420,8 +425,7 @@ void MainWindow::addShapeToScene(const QString &shapePath)
     const LibraryItem *d = m_libraryManager.getSurfaceByPath(shapePath);
     if (!d || d->name.isEmpty()) return;
     const bool crossSection = d->isImplicitMode && d->usesCrossSection;
-    const bool object4D = !d->isImplicitMode && (d->isTube ? pCoordinateIs4D(d->tubeP)
-                                                          : pCoordinateIs4D(d->w));
+    const bool object4D = !d->isImplicitMode && SurfaceEngine::isFourthCoordinate(d->isTube ? d->tubeP : d->w);
     if (sceneIs4D() && crossSection) {
         QMessageBox::information(this, QStringLiteral("Add to Scene"),
             QStringLiteral("This scene is 4D (its environment has a P coordinate): cross sections "
@@ -606,6 +610,7 @@ void MainWindow::showSelectedObject()
     refreshRotationSpeedLabels();
     // Il GO e' dell'oggetto: il tasto dice se ruota QUESTO.
     if (ui->btnStart_2) ui->btnStart_2->setText(gl->isAnimating() ? "STOP" : "GO");
+    updateRotation4DControls();
 
     // COSTANTI, SCRIPT, LIBRARY, PULSANTI.
     refreshConstantSliders();
@@ -758,7 +763,8 @@ void MainWindow::setupObjectsDock()
     m_objectWindowOut = makeWindowBox(QStringLiteral("end"));
     row->addWidget(m_objectWindowOut, 1);
     for (QDoubleSpinBox *box : { m_objectWindowIn, m_objectWindowOut })
-        box->setToolTip(QStringLiteral("In and Out count on T, the time of the environment's path."));
+        box->setToolTip(QStringLiteral("In and Out count on T, the time of the environment's camera motion "
+                                        "(its path or its rotations)."));
 
     // LO SCORRIMENTO: il cursore porta il path dell'ambiente al tempo T
     // (seekSceneTime).
@@ -989,13 +995,20 @@ void MainWindow::refreshObjectPathControls()
                                     || !m_objectPath[3]->text().trimmed().isEmpty()));
 }
 
-// T NELLA BARRA DI STATO (in una scena con la camera su un path) e il
-// cursore del dock: aggiornati 5 volte al secondo, sempre (il path parte e si
-// ferma da tanti punti).
+bool MainWindow::sceneTimeCanRun() const
+{
+    return hasPath4DInput() || hasPath3DInput()
+           || (ui->glWidget && ui->glWidget->objectHasRotationSpeed(0));
+}
+
+// T NELLA BARRA DI STATO (in una scena con la camera su un path o con le
+// rotazioni dell'ambiente) e il cursore del dock: aggiornati 5 volte al
+// secondo, sempre (path e rotazioni partono e si fermano da tanti punti).
 void MainWindow::refreshSceneTimeLabel()
 {
     if (!m_sceneTimeLabel || !ui->glWidget) return;
-    const bool show = ui->glWidget->objectCount() > 1 && cameraPath().has_value();
+    const bool show = ui->glWidget->objectCount() > 1
+                      && (cameraPath().has_value() || ui->glWidget->objectHasRotationSpeed(0));
     m_sceneTimeLabel->setVisible(show);
     if (show)
         m_sceneTimeLabel->setText(QStringLiteral("T %1 s").arg(double(ui->glWidget->sceneTime()), 0, 'f', 1));

@@ -1811,20 +1811,16 @@ void MainWindow::updateRenderState()
         // Quindi restano spenti solo dove continuano a non avere effetto: il
         // sotto-tab "3D", la cui equazione e' a 3 variabili e non ha un p da
         // ruotare, e la modalita' parametrica non e' implicita affatto.
+        // Con l'ambiente in ray marching anche un oggetto parametrico non ruota
+        // in 4D (e' rigido): la regola sta in selectedRotates4D.
         const bool crossSectionActive = isImplicitMode && crossSectionTab();
         const bool rot4DUsable = !isImplicitMode || crossSectionActive;
+        const bool rotates4D = selectedRotates4D();
 
-        // Omega (W-X)
-        ui->btnOmegaMinus->setEnabled(rot4DUsable);
-        ui->btnOmegaPlus->setEnabled(rot4DUsable);
-
-        // Phi (W-Y)
-        ui->btnPhiMinus->setEnabled(rot4DUsable);
-        ui->btnPhiPlus->setEnabled(rot4DUsable);
-
-        // Psi (W-Z)
-        ui->btnPsiMinus->setEnabled(rot4DUsable);
-        ui->btnPsiPlus->setEnabled(rot4DUsable);
+        // Omega (W-X), Phi (W-Y), Psi (W-Z)
+        for (QPushButton *b : { ui->btnOmegaMinus, ui->btnOmegaPlus, ui->btnPhiMinus,
+                                ui->btnPhiPlus, ui->btnPsiMinus, ui->btnPsiPlus })
+            b->setEnabled(rotates4D);
 
         // --- 3. DISATTIVAZIONE PANNELLO 4D ---
         // Il pannello contiene DUE famiglie di controlli con destini diversi in
@@ -1838,7 +1834,7 @@ void MainWindow::updateRenderState()
         //    scrivono omega/phi/psi, cioe' ESATTAMENTE lo stato che il sotto-tab
         //    Cross Section usa per decidere quale sezione dell'ipersuperficie si
         //    vede. Sono i gemelli "a scatto" dei tasti Omega/Phi/Psi del dock 3D,
-        //    gia' abilitati sopra con rot4DUsable.
+        //    gia' abilitati sopra con rotates4D.
         // NB: in Qt un figlio NON si riattiva dentro un padre disabilitato --
         // isEnabled() resta false comunque (verificato). Quindi NON si puo'
         // spegnere dockWidgetContents_3 a blocco e riaccendere le rotazioni
@@ -1929,11 +1925,11 @@ void MainWindow::updateRenderState()
         // ROTAZIONI 4D della camera: scrivono omega/phi/psi, cioe' lo stato che
         // il sotto-tab Cross Section usa per scegliere la sezione. Sono i
         // gemelli "a scatto" dei tasti Omega/Phi/Psi del dock 3D, e seguono lo
-        // stesso gate (rot4DUsable).
+        // stesso gate (rotates4D).
         for (QPushButton *b : { ui->btnOmegaAhead, ui->btnOmegaRear,
                                 ui->btnPhiAhead,   ui->btnPhiRear,
                                 ui->btnPsiAhead,   ui->btnPsiRear }) {
-            if (b) b->setEnabled(rot4DUsable);
+            if (b) b->setEnabled(rotates4D);
         }
 
         if (isImplicitMode) {
