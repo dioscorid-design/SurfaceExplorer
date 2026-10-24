@@ -153,6 +153,10 @@ private:
     void pressNew();
     // Il tasto Invio dentro un campo (applica equazioni, limiti, costanti).
     void pressEnter(QWidget *w);
+    // Il focus della TASTIERA su w, per digitare come l'utente: false se la
+    // finestra non puo' averlo (un'altra app davanti nel giro lungo), e la
+    // prova va saltata, non mandata a un widget nullo.
+    bool focusForTyping(QWidget *w);
     // Testo DIGITATO in un QLineEdit (non scritto dal programma).
     void typeInField(class QLineEdit *l, const QString &text);
     // Applica una modifica alle equazioni parametriche come fa l'utente: Invio

@@ -1156,6 +1156,20 @@ void ScenarioTest::pressEnter(QWidget *w)
     wait(800);
 }
 
+bool ScenarioTest::focusForTyping(QWidget *w)
+{
+    m_mw->raise();
+    m_mw->activateWindow();
+    w->setFocus(Qt::MouseFocusReason);
+    wait(150);
+    if (QApplication::focusWidget() == w) return true;
+    m_lines.append(QStringLiteral("SALTATO  digitazione in %1: la finestra non ha il focus della tastiera "
+                                  "(un'altra applicazione in primo piano)")
+                       .arg(w->objectName().isEmpty() ? QString::fromLatin1(w->metaObject()->className())
+                                                      : w->objectName()));
+    return false;
+}
+
 void ScenarioTest::typeInField(QLineEdit *l, const QString &text)
 {
     // Digitazione vera (textEdited): setText per Qt e' una scrittura del
@@ -5726,8 +5740,7 @@ void ScenarioTest::runSceneObjectScenarios()
         m_mw->m_dockObjects->show();
         wait(200);
         QDoubleSpinBox *x = m_mw->m_objectPos[0];
-        x->setFocus();
-        wait(100);
+        if (focusForTyping(x)) {
         x->selectAll();
         keys(QStringLiteral("2.5"));
         wait(100);
@@ -5744,6 +5757,7 @@ void ScenarioTest::runSceneObjectScenarios()
               QStringLiteral("X digitato: le cifre non applicano (%1), l'Invio si' (%2); uscito senza Invio "
                              "torna %3 (campo %4)")
                   .arg(typing).arg(entered).arg(gl->objectPosition().x()).arg(x->text()));
+        }
         x->setValue(1.2);
         m_mw->m_dockObjects->close();
     }
@@ -7028,8 +7042,7 @@ void ScenarioTest::runSceneTimelineScenarios()
         wait(200);
         QDoubleSpinBox *in = m_mw->m_objectWindowIn;
         const QString shown = in->text();
-        in->setFocus(Qt::MouseFocusReason);
-        wait(100);
+        if (focusForTyping(in)) {
         for (QChar c : QStringLiteral("1")) {
             QKeyEvent press(QEvent::KeyPress, 0, Qt::NoModifier, QString(c));
             QCoreApplication::sendEvent(QApplication::focusWidget(), &press);
@@ -7040,6 +7053,7 @@ void ScenarioTest::runSceneTimelineScenarios()
         check(shown == QLatin1String("start") && gl->objectWindowIn(sphere) == 1.0f,
               QStringLiteral("In da \"%1\": 1 + Invio, finestra da %2 s (campo %3)")
                   .arg(shown).arg(gl->objectWindowIn(sphere)).arg(in->text()));
+        }
         m_mw->m_dockObjects->close();
     }
     // Lo slider T alto quanto gli altri dei dock: il pallino non esce tagliato.

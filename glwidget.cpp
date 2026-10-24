@@ -4455,17 +4455,7 @@ void GLWidget::resetWireframeDensity() {
 
 void GLWidget::rebuildShader()
 {
-    if (m_obj->pipelineOpaque) {
-        delete m_obj->pipelineOpaque;
-        m_obj->pipelineOpaque = nullptr;
-    }
-
-    if (m_obj->pipelineImplicit) {
-        delete m_obj->pipelineImplicit;
-        m_obj->pipelineImplicit = nullptr;
-    }
-
-    m_obj->meshNeedsUpdate = true;
+    rebuildShader(*m_obj);
 
     // Riarmo del watchdog di performance: rebuildShader() e' l'imbuto di OGNI
     // cambio che altera il peso GPU della scena (nuovo preset/superficie/record,
@@ -4487,6 +4477,21 @@ void GLWidget::rebuildShader()
     m_hugeFrameRun = 0;
 
     update();
+}
+
+void GLWidget::rebuildShader(SurfaceObject &o)
+{
+    if (o.pipelineOpaque) {
+        delete o.pipelineOpaque;
+        o.pipelineOpaque = nullptr;
+    }
+
+    if (o.pipelineImplicit) {
+        delete o.pipelineImplicit;
+        o.pipelineImplicit = nullptr;
+    }
+
+    o.meshNeedsUpdate = true;
 }
 
 void GLWidget::setRecordingActive(bool on)
@@ -5828,7 +5833,11 @@ bool GLWidget::setObjectPath(int index, const QString &x, const QString &y, cons
                              const QString &p)
 {
     if (index <= 0 || index >= int(m_objects.size()) || !m_objects[index]->engine) return false;
-    if (!m_objects[index]->engine->compileObjectPath(x, y, z, p)) return false;
+    SurfaceObject &o = *m_objects[index];
+    const bool hadP = objectHasP(o);
+    if (!o.engine->compileObjectPath(x, y, z, p)) return false;
+    // La P(t) entra o esce dallo shader (HAS_OBJECT_P): si ricompila il suo.
+    if (objectHasP(o) != hadP) rebuildShader(o);
     // L'orologio del path avanza nel render: serve il tick dei fotogrammi.
     if (anyObjectPathRunning()) startAnimationTimer();
     update();
@@ -7045,6 +7054,11 @@ QString GLWidget::createVertexShaderSource(SurfaceObject &o, const QString &xEq,
     // Tubo: il template lo costruisce nella scena (emitTubeVertex).
     if (o.engine->isTubeModeActive() && !o.engine->isScriptModeActive() && !o.isCustomMesh) {
         source.replace("#version 450", "#version 450\n#define IS_TUBE\n");
+    }
+    // P(t) del path dell'oggetto (rotate4D): solo per chi ce l'ha, cosi' ogni
+    // altra superficie compila lo shader di sempre (vedi setObjectPath).
+    if (objectHasP(o)) {
+        source.replace("#version 450", "#version 450\n#define HAS_OBJECT_P\n");
     }
 
     return source;

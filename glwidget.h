@@ -280,6 +280,10 @@ public:
                        const QString &p);
     QStringList objectPath(int index) const;
     bool objectHasPath(int index) const;
+    // L'oggetto ha una P(t) applicata: il suo vertex la contiene (HAS_OBJECT_P).
+    bool objectHasP(const SurfaceObject &o) const {
+        return !isEnvironment(o) && o.engine && !o.engine->objectPath().value(3).isEmpty();
+    }
     float objectPathTime(int index) const;
     void setObjectPathRunning(int index, bool on);
     bool isObjectPathRunning(int index) const;
@@ -861,6 +865,9 @@ public:
     QString currentParametricTextureCode() const { return m_obj->customFragmentCode; }
     float getSurfaceScale() const { return m_obj->surfaceScale; }
     void rebuildShader();
+    // Le pipeline di UN oggetto, anche non selezionato (rebuildShader() fa il
+    // selezionato e riarma il watchdog).
+    void rebuildShader(SurfaceObject &o);
 
 
     // ==========================================================

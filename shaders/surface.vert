@@ -270,15 +270,19 @@ vec4 getRawPositionAuto(float r1, float r2) {
 
 // Le rotazioni 4D dell'oggetto. Unica implementazione: la usano i punti della
 // superficie e, nei tubi, la direzione che orienta la sezione. Poi la P(t)
-// del path dell'oggetto (u_dummyZero.w, 0 senza path): lo sposta lungo la
-// quarta coordinata dopo le rotazioni, come la posizione 3D dopo la
-// proiezione, cosi' non lo fanno orbitare. Le differenze fra punti (tangenti,
-// direzione della sezione) non cambiano; cambia la loro proiezione.
+// del path dell'oggetto (u_dummyZero.w): lo sposta lungo la quarta coordinata
+// dopo le rotazioni, come la posizione 3D dopo la proiezione, cosi' non lo
+// fanno orbitare. Le differenze fra punti (tangenti, direzione della sezione)
+// non cambiano; cambia la loro proiezione. Solo con HAS_OBJECT_P (un oggetto
+// con la P(t)): anche sommando 0, o dietro un if, il calcolo compilato
+// cambiava di un soffio, e il test delle immagini trovava 87 preset diversi.
 vec4 rotate4D(vec4 p) {
     if (ubuf.u_omega != 0.0) p = rotateXW(p, ubuf.u_omega);
     if (ubuf.u_phi   != 0.0) p = rotateYW(p, ubuf.u_phi);
     if (ubuf.u_psi   != 0.0) p = rotateZW(p, ubuf.u_psi);
+#ifdef HAS_OBJECT_P
     p.w += ubuf.u_dummyZero.w;
+#endif
     return p;
 }
 
