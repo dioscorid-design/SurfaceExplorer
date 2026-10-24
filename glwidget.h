@@ -1153,18 +1153,13 @@ public:
     // ==========================================================
     // ANIMATION & MOTION CONTROL
     // ==========================================================
-    // L'AMBIENTE DI UNA SCENA NON RUOTA MENTRE UN PATH LA GUIDA. Dal
-    // 2026-10-21 non ruotava mai (si muoveva solo coi path); dal 2026-10-23
-    // (utente) a path fermo le sue rotazioni girano tutta la scena (vedi
-    // sceneRotation). Vero con l'ambiente selezionato, almeno un oggetto e un
-    // path in corsa: trascinamento, GO e tasti a scatto delle rotazioni 4D non
-    // fanno nulla. Con un oggetto solo (la modalita' Superficie) tutto come in
-    // 1.x.
-    bool environmentRotationLocked() const {
-        return m_objects.size() > 1 && m_obj == m_objects.front().get() && m_pathAnimating;
-    }
+    // LE ROTAZIONI DELL'AMBIENTE DI UNA SCENA girano tutta la scena (vedi
+    // sceneRotation) e sono il moto della camera come in 1.x: esclusive coi
+    // path ma selezionabili, GO ferma il path e Departure ferma il GO
+    // (utente, 2026-10-24; dal 10-21 al 10-23 non ruotava mai, poi solo a
+    // path fermo). Durante un path il trascinamento e gli scatti 4D restano
+    // spenti come con una superficie sola (InputHandler, setNavControlsEnabled).
     void addObjectRotation(float dPrecession, float dNutation, float dSpin) {
-        if (environmentRotationLocked()) return;
         addObjectRotation(*m_obj, dPrecession, dNutation, dSpin);
     }
     void addObjectRotation(SurfaceObject &o, float dPrecession, float dNutation, float dSpin);

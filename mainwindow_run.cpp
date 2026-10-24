@@ -1749,8 +1749,6 @@ void MainWindow::onStopClicked() {
     // NB: funziona anche DURANTE il REC — i timer restano attivi (tick no-op)
     // e il loop legge lo stato vivo a ogni frame, quindi GO/STOP entrano nel
     // video come a schermo.
-    // L'ambiente di una scena non ruota: si muove solo coi path.
-    if (ui->glWidget->environmentRotationLocked()) return;
     bool isRunning = ui->glWidget->isAnimating();
     // Le rotazioni dell'AMBIENTE sono un moto della camera, come in 1.x:
     // esclusive coi path e riavviate al load. Quelle di un oggetto della scena

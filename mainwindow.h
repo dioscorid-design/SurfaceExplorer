@@ -1843,6 +1843,10 @@ private:
     bool loadSceneFile(const QString &path);
     // Add to Scene (menu delle Shapes): la Shape come oggetto, accanto agli altri.
     void addShapeToScene(const QString &shapePath);
+    // Una Shape come oggetto nuovo, coi valori del load dal ramo Shapes:
+    // accanto agli altri lungo x, scala 1, niente path ne' finestra. La usano
+    // Add to Scene e Duplicate. Ritorna l'indice dell'oggetto.
+    int addShapeObject(const LibraryItem &shape, const QString &name);
 
     // DOCK OBJECTS (2.0): l'elenco degli oggetti della scena, la posizione del
     // selezionato, Duplicate e Remove. Creato in codice (setupObjectsDock) e
@@ -1889,7 +1893,8 @@ private:
     // messaggio; l'ambiente mostra il messaggio composto della scena.
     void selectSceneObjectFromUi(int index);
     void showObjectSelectorMenu();
-    // Una copia dell'oggetto (la sua Shape com'e' ora), accanto.
+    // Una copia dell'oggetto: la sua Shape com'e' ora, aperta come dal ramo
+    // Shapes (addShapeObject), nell'orientamento d'apertura della sorgente.
     void duplicateSceneObject(int index);
     // IL MOTO DI UN OGGETTO (2.0, tappa 4): le sei velocita' e il GO
     // dell'oggetto selezionato. La Shape non li porta (sono del record), quindi
@@ -1897,13 +1902,6 @@ private:
     QJsonObject objectMotionJson() const;
     // La scena e' 4D se l'ambiente parametrico ha la P 4D (vedi addShapeToScene).
     bool sceneIs4D() const;
-    // I TASTI DELLE ROTAZIONI con l'ambiente di una scena selezionato
-    // (GLWidget::environmentRotationLocked): GO, velocita' 3D e 4D, rotazioni 4D
-    // a scatto spenti. Chiamata in coda a chi li accende (updateRenderState,
-    // setNavControlsEnabled) e a ogni cambio di oggetto selezionato o di numero
-    // di oggetti; all'uscita dal blocco li riaccende con le condizioni di sempre.
-    void updateEnvironmentRotationGate();
-    bool m_environmentRotationGated = false;
     // Lo stato dell'AMBIENTE (oggetto 0): m_scene se e' selezionato, altrimenti
     // la sua sessione. Serve a cio' che e' suo anche con un altro oggetto
     // selezionato: i path, il tipo di scena.

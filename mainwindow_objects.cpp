@@ -252,7 +252,11 @@ void MainWindow::removeSceneObject(int index)
     GLWidget *gl = ui->glWidget;
     if (index <= 0 || index >= gl->objectCount()) return;
     const bool wasSelected = gl->selectedObject() == index;
-    if (wasSelected) selectSceneObject(0);
+    // Il selezionato tolto lascia il posto a quello che lo precede
+    // nell'elenco (l'ambiente solo se era il primo oggetto): prima si tornava
+    // sempre all'ambiente. Lo si seleziona PRIMA di togliere, perche' la
+    // sessione dell'oggetto si chiuda; gli indici precedenti non cambiano.
+    if (wasSelected) selectSceneObject(index - 1);
     // Il suo GO se ne va con lui: senza altri oggetti in rotazione il tick si ferma.
     gl->setObjectRotating(index, false);
     gl->removeObject(index);
@@ -403,39 +407,6 @@ const ObjectState &MainWindow::environmentState() const
     return m_objectSessions[0].state;
 }
 
-void MainWindow::updateEnvironmentRotationGate()
-{
-    GLWidget *gl = ui->glWidget;
-    if (!gl) return;
-    const QList<QPushButton *> rotation3D = {
-        ui->btnStart_2,
-        ui->btnPrecessionPlus, ui->btnPrecessionMinus,
-        ui->btnNutationPlus, ui->btnNutationMinus,
-        ui->btnSpinPlus, ui->btnSpinMinus };
-    const QList<QPushButton *> rotation4D = {
-        ui->btnOmegaPlus, ui->btnOmegaMinus, ui->btnPhiPlus, ui->btnPhiMinus,
-        ui->btnPsiPlus, ui->btnPsiMinus,
-        ui->btnOmegaAhead, ui->btnOmegaRear, ui->btnPhiAhead, ui->btnPhiRear,
-        ui->btnPsiAhead, ui->btnPsiRear };
-    if (gl->environmentRotationLocked()) {
-        for (QPushButton *b : rotation3D) if (b) b->setEnabled(false);
-        for (QPushButton *b : rotation4D) if (b) b->setEnabled(false);
-        m_environmentRotationGated = true;
-        return;
-    }
-    if (!m_environmentRotationGated) return;
-    // Uscita dal blocco: le condizioni di sempre. Le velocita' 3D e GO non hanno
-    // altre condizioni; le velocita' 4D quella di updateRenderState; i tasti a
-    // scatto quelle dei tasti di navigazione (path in corsa, modalita').
-    m_environmentRotationGated = false;
-    for (QPushButton *b : rotation3D) if (b) b->setEnabled(true);
-    const bool rot4DUsable = !implicitMode() || crossSectionTab();
-    for (QPushButton *b : { ui->btnOmegaPlus, ui->btnOmegaMinus, ui->btnPhiPlus,
-                            ui->btnPhiMinus, ui->btnPsiPlus, ui->btnPsiMinus })
-        if (b) b->setEnabled(rot4DUsable);
-    updateViewButtonsEnabled();
-}
-
 bool MainWindow::sceneIs4D() const
 {
     const ObjectState &env = environmentState();
@@ -463,11 +434,17 @@ void MainWindow::addShapeToScene(const QString &shapePath)
                            "scenes (an environment with a P coordinate)."));
         return;
     }
-    const int index = addPresetAsObject(*d, uniqueObjectName(d->name));
+    addShapeObject(*d, uniqueObjectName(d->name));
+}
+
+int MainWindow::addShapeObject(const LibraryItem &shape, const QString &name)
+{
+    const int index = addPresetAsObject(shape, name);
     ui->glWidget->setObjectPosition(QVector3D(2.5f * float(index), 0.0f, 0.0f));
     captureObjectStartPose();   // la posa a cui lo riporta il RESET
     m_sceneObjectsChanged = true;
     refreshObjectsUi();
+    return index;
 }
 
 // UNA SCENA DAL FILE (PresetSerializer::buildSceneJson): l'ambiente col load
@@ -629,7 +606,6 @@ void MainWindow::showSelectedObject()
     refreshRotationSpeedLabels();
     // Il GO e' dell'oggetto: il tasto dice se ruota QUESTO.
     if (ui->btnStart_2) ui->btnStart_2->setText(gl->isAnimating() ? "STOP" : "GO");
-    updateEnvironmentRotationGate();
 
     // COSTANTI, SCRIPT, LIBRARY, PULSANTI.
     refreshConstantSliders();
@@ -926,9 +902,6 @@ void MainWindow::refreshObjectsUi()
     }
     m_refreshingObjects = false;
     refreshObjectPathControls();
-    // Il numero di oggetti o il selezionato possono essere cambiati: le
-    // rotazioni dell'ambiente si spengono o si riaccendono.
-    updateEnvironmentRotationGate();
     refreshSceneTimeLabel();
 }
 
@@ -1063,35 +1036,25 @@ void MainWindow::duplicateSceneObject(int index)
     if (index <= 0 || index >= gl->objectCount()) return;
     selectSceneObject(index);
     const ObjectSession source = m_objectSessions[index];
-    // Come un record: texture, fasce e orientamento compresi.
-    const QJsonObject shape = m_presetSerializer->buildMotionJson(source.name, PresetSerializer::MotionRunState{},
-                                                                  /*includeSound=*/false);
-    const QVector3D pos = gl->objectPosition();
-    const float scale = gl->objectScale();
-    const float windowIn = gl->objectWindowIn(index), windowOut = gl->objectWindowOut(index);
-    const QStringList path = gl->objectPath(index);
-    const bool pathRunning = gl->isObjectPathRunning(index);
-    const QJsonObject motion = objectMotionJson();
+    // LA SUA SHAPE COM'E' ORA (lo stesso buildSurfaceJson del Save Shape: le
+    // equazioni, le costanti e i colori modificati restano), aperta come dal
+    // ramo Shapes: niente texture, moti, path, scala, finestra e posizione
+    // della sorgente (decisione dell'utente, 2026-10-24: prima la copia era il
+    // record intero, con tutti i suoi parametri). Il messaggio e' nella Shape.
     LibraryManager lm;
-    LibraryItem copy = lm.parseJsonObject(shape, LibraryType::Motion, QString());
-    copy.hintText = m_currentHintText;       // l'oggetto e' quello selezionato
-    copy.hintSeconds = m_currentHintSeconds;
+    const LibraryItem copy = lm.parseJsonObject(m_presetSerializer->buildSurfaceJson(source.name),
+                                                LibraryType::Surface, QString());
     // Il contatore della sorgente si toglie prima di contare: la copia di
     // "Mobius 2 (2)" e' "Mobius 2 (3)", non "Mobius 2 (2) (2)". La copia nuova
     // diventa il selezionato, quindi Duplicate ripetuto copia sempre una copia.
     static const QRegularExpression counter(QStringLiteral(" \\(\\d+\\)$"));
     QString stem = source.name;
     stem.remove(counter);
-    addPresetAsObject(copy, uniqueObjectName(stem));
-    gl->setObjectPosition(pos + QVector3D(0.5f, 0.5f, 0.0f));
-    gl->setObjectScale(scale);
-    gl->setObjectWindow(gl->selectedObject(), windowIn, windowOut);
-    gl->setObjectPath(gl->selectedObject(), path.value(0), path.value(1), path.value(2), path.value(3));
-    gl->setObjectPathRunning(gl->selectedObject(), pathRunning);
-    applyObjectMotion(motion);
+    addShapeObject(copy, uniqueObjectName(stem));
+    // La Shape scrive l'orientamento di ADESSO, dove il GO ha portato la
+    // sorgente: la copia parte da quello d'apertura (la posa del RESET).
+    gl->resetOrientation(source.startOrientation);
     captureObjectStartPose();
-    m_sceneObjectsChanged = true;
-    refreshObjectsUi();
 }
 
 QJsonObject MainWindow::objectMotionJson() const

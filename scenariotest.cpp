@@ -5731,15 +5731,19 @@ void ScenarioTest::runSceneObjectScenarios()
                   && firstCopy.left(a.capturedStart()) == stem && secondCopy.left(b.capturedStart()) == stem
                   && b.captured(1).toInt() == a.captured(1).toInt() + 1,
               QStringLiteral("nomi delle copie: %1, poi %2 dalla copia").arg(firstCopy, secondCopy));
+        // Remove: la selezione sale all'oggetto precedente (la prima copia).
         m_mw->m_btnObjectRemove->click();
         wait(400);
-        m_mw->selectSceneObject(gl->objectCount() - 1);   // di nuovo la prima copia
-        wait(200);
+        check(gl->selectedObject() == gl->objectCount() - 1
+                  && m_mw->m_objectSessions[size_t(gl->selectedObject())].name == firstCopy
+                  && m_mw->m_objectList->currentRow() == gl->selectedObject(),
+              QStringLiteral("Remove: selezionato l'oggetto precedente, %1")
+                  .arg(m_mw->m_objectSessions[size_t(gl->selectedObject())].name));
     }
     m_mw->m_btnObjectRemove->click();
     wait(400);
-    check(gl->objectCount() == 2 && m_mw->m_objectList->count() == 2,
-          QStringLiteral("Remove: di nuovo due oggetti"));
+    check(gl->objectCount() == 2 && m_mw->m_objectList->count() == 2 && gl->selectedObject() == 1,
+          QStringLiteral("Remove: di nuovo due oggetti, selezionata la sfera (%1)").arg(gl->selectedObject()));
     m_mw->m_dockObjects->show();
     wait(200);
     m_mw->m_dockObjects->grab().save(m_outDir + QStringLiteral("/scene-objects-dock-ui.png"));
@@ -5767,7 +5771,8 @@ void ScenarioTest::runSceneObjectScenarios()
     const QImage big = gl->grabFramebuffer();
     m_mw->m_btnObjectDuplicate->click();
     wait(400);
-    check(std::abs(gl->objectScale() - 2.0f) < 1e-6f, QStringLiteral("Duplicate copia la scala"));
+    check(std::abs(gl->objectScale() - 1.0f) < 1e-6f,
+          QStringLiteral("Duplicate: scala 1, come dal ramo Shapes (%1)").arg(gl->objectScale()));
     m_mw->m_btnObjectRemove->click();
     wait(300);
     m_mw->selectSceneObject(0);
@@ -6056,27 +6061,27 @@ void ScenarioTest::runSceneMotionScenarios()
     wait(300);
     check(qFuzzyCompare(envQ1, gl->getRotationQuat()),
           QStringLiteral("la rotazione dell'oggetto non muove l'ambiente"));
-    // L'AMBIENTE DI UNA SCENA NON RUOTA MENTRE IL PATH LA GUIDA: GO,
-    // velocita', tasti a scatto e trascinamento non fanno nulla (a path fermo
-    // girano tutta la scena: runSceneTurnScenarios).
-    check(!m_mw->ui->btnStart_2->isEnabled() && !m_mw->ui->btnPrecessionPlus->isEnabled()
-              && !m_mw->ui->btnOmegaPlus->isEnabled() && !m_mw->ui->btnOmegaAhead->isEnabled(),
-          QStringLiteral("ambiente di una scena: i tasti delle rotazioni sono spenti"));
-    m_mw->onStopClicked();
-    const QQuaternion envQ2 = gl->getRotationQuat();
-    const float envOmega = gl->getOmega();
-    gl->addObjectRotation(30.0f, 20.0f, 0.0f);            // come il trascinamento
-    gl->virtualMove(GLWidget::RotOmegaPos, 0.05f, 0.05f);  // come il tasto a scatto
+    // LE ROTAZIONI DELL'AMBIENTE E IL PATH: esclusivi ma selezionabili, come
+    // nei record. Durante il path GO e velocita' sono accesi (gli scatti 4D
+    // no, come con una superficie sola); GO ferma il path e gira la scena,
+    // Departure ferma il GO. Le rotazioni dell'oggetto non c'entrano.
+    check(m_mw->ui->btnStart_2->isEnabled() && m_mw->ui->btnPrecessionPlus->isEnabled()
+              && m_mw->ui->btnOmegaPlus->isEnabled() && !m_mw->ui->btnOmegaAhead->isEnabled(),
+          QStringLiteral("ambiente col path in corsa: GO e velocita' accesi, scatti 4D spenti"));
+    const QQuaternion sceneQ1 = gl->sceneRotation().rotation;
+    const QVector3D sceneA1 = gl->sceneRotation().angles4D;
+    m_mw->onStopClicked();   // GO
+    wait(400);
+    check(gl->isObjectRotating(0) && !m_mw->pathRunning(CameraPaths::Path4D) && gl->isObjectRotating(1)
+              && m_mw->ui->btnStart_2->text() == QLatin1String("STOP")
+              && m_mw->m_scene.lastCameraMotion == QLatin1String("rotation")
+              && (!qFuzzyCompare(sceneQ1, gl->sceneRotation().rotation) || sceneA1 != gl->sceneRotation().angles4D),
+          QStringLiteral("GO dell'ambiente: ferma il path e gira la scena, l'oggetto continua a ruotare"));
+    m_mw->onDepartureClicked();
     wait(200);
     check(!gl->isObjectRotating(0) && m_mw->pathRunning(CameraPaths::Path4D) && gl->isObjectRotating(1)
-              && qFuzzyCompare(envQ2, gl->getRotationQuat()) && envOmega == gl->getOmega(),
-          QStringLiteral("GO, trascinamento e scatto 4D sull'ambiente: niente, il path continua"));
-    m_mw->selectSceneObject(1);
-    wait(100);
-    check(m_mw->ui->btnStart_2->isEnabled() && m_mw->ui->btnPrecessionPlus->isEnabled(),
-          QStringLiteral("selezionato l'oggetto: i tasti delle rotazioni si riaccendono"));
-    m_mw->selectSceneObject(0);
-    wait(100);
+              && m_mw->ui->btnStart_2->text() == QLatin1String("GO"),
+          QStringLiteral("Departure: riparte il path e ferma il GO dell'ambiente"));
 
     // RECORDER: stessa funzione del tick, solo chi ha il GO acceso.
     {
@@ -7090,12 +7095,18 @@ void ScenarioTest::runScenePathScenarios()
           QStringLiteral("ambiente selezionato: campi del path vuoti e spenti"));
     m_mw->selectSceneObject(sphere);
 
-    // Duplicate copia il path.
+    // Duplicate: la Shape com'e' ora, aperta come dal ramo Shapes. Niente path
+    // ne' scala della sorgente, accanto agli altri lungo x.
+    const QString sourceX = m_mw->m_scene.eq.x;
+    gl->setObjectScale(1.5f);
     m_mw->duplicateSceneObject(sphere);
     wait(300);
     const int copy = gl->selectedObject();
-    check(copy != sphere && gl->objectPath(copy) == gl->objectPath(sphere),
-          QStringLiteral("Duplicate: la copia ha lo stesso path"));
+    check(copy != sphere && !gl->objectHasPath(copy) && gl->objectScale() == 1.0f
+              && near(gl->objectPosition(), QVector3D(2.5f * float(copy), 0.0f, 0.0f))
+              && m_mw->m_scene.eq.x == sourceX,
+          QStringLiteral("Duplicate: stessa superficie, senza path, scala 1, posizione (%1, %2, %3)")
+              .arg(gl->objectPosition().x()).arg(gl->objectPosition().y()).arg(gl->objectPosition().z()));
     m_mw->removeSceneObject(copy);
     wait(200);
 

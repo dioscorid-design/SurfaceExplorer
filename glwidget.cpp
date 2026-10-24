@@ -5463,13 +5463,6 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
 
     bool updateNeeded = true;
 
-    // Le rotazioni 4D a scatto sono dell'oggetto: l'ambiente di una scena non
-    // ruota (environmentRotationLocked). Gli spostamenti restano: sono la camera.
-    if (environmentRotationLocked()
-        && (dir == RotOmegaPos || dir == RotOmegaNeg || dir == RotPhiPos
-            || dir == RotPhiNeg || dir == RotPsiPos || dir == RotPsiNeg))
-        return;
-
     float radYaw = m_cameraYaw * M_PI / 180.0f;
     QVector3D front(sin(radYaw), 0, -cos(radYaw));
     QVector3D right(cos(radYaw), 0, sin(radYaw));
@@ -5685,7 +5678,6 @@ void GLWidget::pauseMotion() {
 }
 
 void GLWidget::resumeMotion() {
-    if (environmentRotationLocked()) return;   // l'ambiente di una scena non ruota
     setObjectRotating(selectedObject(), true);
 }
 

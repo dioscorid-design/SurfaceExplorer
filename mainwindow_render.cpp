@@ -1935,8 +1935,6 @@ void MainWindow::updateRenderState()
                                 ui->btnPsiAhead,   ui->btnPsiRear }) {
             if (b) b->setEnabled(rot4DUsable);
         }
-        // L'ambiente di una scena non ruota: i tasti appena accesi si rispengono.
-        updateEnvironmentRotationGate();
 
         if (isImplicitMode) {
             // Ripristino forzato se l'utente era in modalità non compatibili
