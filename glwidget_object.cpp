@@ -83,6 +83,10 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
     // ENTRAMBI gli shader o Adreno rifiuta il link (vedi CLAUDE.md), e qui basta
     // una componente gia' presente e inutilizzata.
     m_uboData.dummyZero.setZ(m_crossSectionP);
+    // .w = P(t) del path dell'oggetto (scene 4D): il vertex la somma alla w dei
+    // punti ruotati, prima della proiezione (rotate4D). Ultima componente
+    // libera di dummyZero, stessa ragione della .z: nessun campo nuovo.
+    m_uboData.dummyZero.setW(pathOffset(o).w());
     m_uboData.projMode = projectionMode;
     m_uboData.renderMode = o.renderMode;
     m_uboData.lightingMode = is4DActive(o) ? m_lightingMode4D : 0;

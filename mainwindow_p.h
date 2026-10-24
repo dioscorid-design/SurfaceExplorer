@@ -326,6 +326,18 @@ inline bool isPathEquationField(const QString& objectName)
     return kPathFields.contains(objectName);
 }
 
+// Campi del path di un OGGETTO (dock Objects, setupObjectsDock): l'Invio passa
+// da applyObjectPathFromDock, che a path fermo non applica nulla. Usato dal
+// filtro tastiera desktop, che consuma il Return (su mobile il dock nasce dopo
+// il filtro: vedi setupObjectsDock).
+inline bool isObjectPathField(const QString& objectName)
+{
+    static const QSet<QString> kObjectPathFields = {
+        "lineObjectPathX", "lineObjectPathY", "lineObjectPathZ", "lineObjectPathP"
+    };
+    return kObjectPathFields.contains(objectName);
+}
+
 // Campi del modulo EQUAZIONI (tab Parametric) che definiscono la superficie:
 // equazioni principali, composizioni U/V/W, vincoli espliciti e flusso
 // geodetico (condizioni iniziali, direzioni, fattore conforme). Su questi

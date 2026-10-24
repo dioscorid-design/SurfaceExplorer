@@ -295,6 +295,17 @@ void MainWindow::onResetClicked()
         resetSelectedObject();
         return;
     }
+    // SCENA VUOTA DI NEW: niente da rimettere, e lo si dice come START e
+    // Projection (prima non succedeva nulla, senza una parola). Resta il
+    // RESET di uno sfondo che si muove: animato (Motions ne azzera
+    // l'orologio) o a cielo (View ne rimette la direzione).
+    if (isWholeSceneEmpty()
+        && !masterActivity().bgAvailable
+        && !(ui->glWidget->isBackgroundTextureEnabled()
+             && ui->glWidget->backgroundSkyMode() != GLWidget::BgFixed)) {
+        InputValidator::showEmptySceneNotice(this, "Nothing to reset");
+        return;
+    }
     // Il path che ha la camera si guarda PRIMA di resettare la vista, che da
     // fermo gliela toglie: e' quello che i moti rimettono al punto di partenza.
     const std::optional<CameraPaths::Path> camPath = cameraPath();
@@ -1206,6 +1217,14 @@ void MainWindow::applyCameraFov(float deg)
 
 void MainWindow::toggleProjection()
 {
+    // SCENA VUOTA DI NEW: la proiezione non ha niente da mostrare (lo sfondo
+    // non ne dipende: il suo campo visivo e' virtuale). Prima cambiava lo
+    // stesso, e al preset successivo la scena risultava da salvare.
+    if (isWholeSceneEmpty()) {
+        InputValidator::showEmptySceneNotice(this, "Nothing to project");
+        return;
+    }
+
     // Leggi modo attuale forzandolo a intero (0=Ortho, 1=Persp, 2=Wide)
     int current = (int)ui->glWidget->projectionMode;
 

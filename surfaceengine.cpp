@@ -340,7 +340,7 @@ bool SurfaceEngine::compilePath3DEquations(const QString &x, const QString &y, c
     return path3DValid;
 }
 
-bool SurfaceEngine::compileObjectPath(const QString &x, const QString &y, const QString &z)
+bool SurfaceEngine::compileObjectPath(const QString &x, const QString &y, const QString &z, const QString &p)
 {
     exprtk::parser<float> parser;
     auto compile = [&](const QString &text, CachedExpression &target) {
@@ -352,24 +352,25 @@ bool SurfaceEngine::compileObjectPath(const QString &x, const QString &y, const 
         return target.isValid;
     };
     // Tutto o niente: con un campo sbagliato resta il path di prima.
-    CachedExpression nx, ny, nz;
-    if (!compile(x, nx) || !compile(y, ny) || !compile(z, nz)) return false;
-    m_exprObjX = nx; m_exprObjY = ny; m_exprObjZ = nz;
+    CachedExpression nx, ny, nz, np;
+    if (!compile(x, nx) || !compile(y, ny) || !compile(z, nz) || !compile(p, np)) return false;
+    m_exprObjX = nx; m_exprObjY = ny; m_exprObjZ = nz; m_exprObjP = np;
     m_objectPathX = x.trimmed(); m_objectPathY = y.trimmed(); m_objectPathZ = z.trimmed();
-    m_objectPathActive = nx.isValid || ny.isValid || nz.isValid;
+    m_objectPathP = p.trimmed();
+    m_objectPathActive = nx.isValid || ny.isValid || nz.isValid || np.isValid;
     return true;
 }
 
-QVector3D SurfaceEngine::evaluateObjectPath(float t)
+QVector4D SurfaceEngine::evaluateObjectPath(float t)
 {
-    if (!m_objectPathActive) return QVector3D();
+    if (!m_objectPathActive) return QVector4D();
     m_varObjT = t;
     auto value = [](CachedExpression &e) {
         if (!e.isValid) return 0.0f;
         const float v = e.expr.value();
         return std::isfinite(v) ? v : 0.0f;
     };
-    return QVector3D(value(m_exprObjX), value(m_exprObjY), value(m_exprObjZ));
+    return QVector4D(value(m_exprObjX), value(m_exprObjY), value(m_exprObjZ), value(m_exprObjP));
 }
 
 QVector4D SurfaceEngine::evaluatePath3DPosition(float t)

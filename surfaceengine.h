@@ -605,10 +605,12 @@ public:
     // tempo dell'oggetto (SurfaceObject::pathTime); le costanti A..F/s sono le
     // sue (setConstants). Campi vuoti = 0; tutti vuoti = nessun path. (exprtk
     // non distingue maiuscole e minuscole: niente T accanto a t.)
-    bool compileObjectPath(const QString &x, const QString &y, const QString &z);
-    QVector3D evaluateObjectPath(float t);
+    // P(t), nelle scene 4D: lo spostamento lungo la quarta coordinata, prima
+    // della proiezione (vedi GLWidget::prepareObjectUniforms). w del risultato.
+    bool compileObjectPath(const QString &x, const QString &y, const QString &z, const QString &p);
+    QVector4D evaluateObjectPath(float t);
     bool objectPathActive() const { return m_objectPathActive; }
-    QStringList objectPath() const { return { m_objectPathX, m_objectPathY, m_objectPathZ }; }
+    QStringList objectPath() const { return { m_objectPathX, m_objectPathY, m_objectPathZ, m_objectPathP }; }
     bool path4DCompiled() const { return pathValid; }
     bool path3DCompiled() const { return path3DValid; }
 
@@ -753,9 +755,9 @@ private:
     exprtk::symbol_table<float> m_surfaceSymbolTable;
     // Path dell'oggetto: vedi compileObjectPath.
     exprtk::symbol_table<float> m_objectPathSymbols;
-    CachedExpression m_exprObjX, m_exprObjY, m_exprObjZ;
+    CachedExpression m_exprObjX, m_exprObjY, m_exprObjZ, m_exprObjP;
     float m_varObjT = 0.0f;
-    QString m_objectPathX, m_objectPathY, m_objectPathZ;
+    QString m_objectPathX, m_objectPathY, m_objectPathZ, m_objectPathP;
     bool m_objectPathActive = false;
 
     // Variabili fisiche registrate nella tabella (ExprTk punta qui)

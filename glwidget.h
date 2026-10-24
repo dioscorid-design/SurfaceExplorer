@@ -270,9 +270,12 @@ public:
     bool hasTimeline() const;
     // IL PATH DI UN OGGETTO: X(t), Y(t), Z(t) che si sommano alla sua
     // posizione, t = SurfaceObject::pathTime, un orologio SUO (non T): corre
-    // col flag pathRunning (il master lo ferma e lo riavvia), si azzera col
-    // RESET. Mai l'ambiente. false = sintassi sbagliata (resta quello di prima).
-    bool setObjectPath(int index, const QString &x, const QString &y, const QString &z);
+    // col flag pathRunning (il tasto GO del dock e il master lo fermano e lo
+    // riavviano), si azzera col RESET. Mai l'ambiente. false = sintassi
+    // sbagliata (resta quello di prima). P(t) sposta l'oggetto lungo la quarta
+    // coordinata, prima della proiezione 4D -> 3D (prepareObjectUniforms).
+    bool setObjectPath(int index, const QString &x, const QString &y, const QString &z,
+                       const QString &p);
     QStringList objectPath(int index) const;
     bool objectHasPath(int index) const;
     float objectPathTime(int index) const;
@@ -1699,6 +1702,8 @@ private:
     // Orologio di scena della timeline: vedi sceneTime.
     float m_sceneTime = 0.0f;
     QVector3D effectivePosition(SurfaceObject &o);
+    // Il path dell'oggetto al suo tempo, P compresa (w); zero per l'ambiente.
+    QVector4D pathOffset(SurfaceObject &o);
     bool isOnStage(const SurfaceObject &o) const;
     // Rotazione 4D del path per gli oggetti: vedi setViewRotation4D.
     float m_viewOmega = 0.0f, m_viewPhi = 0.0f, m_viewPsi = 0.0f;

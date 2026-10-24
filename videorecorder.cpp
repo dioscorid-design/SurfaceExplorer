@@ -21,7 +21,6 @@
 #include <QApplication>
 #include <QMediaPlayer>
 #include <QDebug>
-#include <QPainter>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -873,21 +872,11 @@ void VideoRecorder::toggleRecord()
         }
 
         // ==============================================================
-        // 3. SCALING E LETTERBOXING (SOLO SE NON USIAMO L'FBO)
+        // 3. FORMATO. Con l'FBO il frame e' gia' alla risoluzione di export; con
+        // Screen Upscale e una risoluzione fissa lo adatta getFrameForVideo
+        // (vista intera, fasce nere): qui ne restava una seconda copia.
         // ==============================================================
-        if (!useFBO && targetWidth > 0 && targetHeight > 0) {
-            QImage scaledFrame = frame.scaled(targetWidth, targetHeight, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-
-            QImage finalFrame(targetWidth, targetHeight, QImage::Format_RGB32);
-            finalFrame.fill(Qt::black);
-            QPainter painter(&finalFrame);
-            int x = (targetWidth - scaledFrame.width()) / 2;
-            int y = (targetHeight - scaledFrame.height()) / 2;
-            painter.drawImage(x, y, scaledFrame);
-            painter.end();
-
-            frame = finalFrame;
-        } else if (!useFBO) {
+        if (!useFBO && (targetWidth <= 0 || targetHeight <= 0)) {
             // Risoluzione nativa: taglia i bordi se dispari (per FFmpeg)
             if (frame.width() % 2 != 0) frame = frame.copy(0, 0, frame.width()-1, frame.height());
             if (frame.height() % 2 != 0) frame = frame.copy(0, 0, frame.width(), frame.height()-1);

@@ -370,17 +370,30 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
     // SUPERFICIE VUOTA DI PROPOSITO (NEW, o l'ambiente col solo sfondo di una
     // scena): il master START non ha nulla da costruire. Senza, la validazione
     // qui sotto mostrava "servono tre campi" a ogni START (scena 3 dell'utente,
-    // 2026-10-23). L'avviso resta a chi ha scritto uno o due campi, o a chi ha
-    // svuotato i campi di una superficie ancora a schermo. Il resto parte lo
-    // stesso: orologi di texture e sfondo, moto della camera, suono; gli altri
-    // oggetti della scena li riavvia onStartClicked.
-    if (masterStart && !implicitMode() && !tubesShown()
+    // 2026-10-23), e in Ray Marching runSceneImplicit "la superficie a schermo
+    // e' la precedente". L'avviso resta a chi ha scritto uno o due campi, o a
+    // chi ha svuotato i campi di una superficie ancora a schermo. Il resto
+    // parte lo stesso: orologi di texture e sfondo, moto della camera, suono;
+    // gli altri oggetti della scena li riavvia onStartClicked. Se non c'e'
+    // NIENT'ALTRO da avviare (la scena vuota di NEW), lo START lo dice con lo
+    // stesso popup di RESET e Projection.
+    const bool noSurfaceInput = implicitMode()
+        ? (m_scene.rm.*(crossSectionTab() ? &ImplicitTexts::crossSection
+                                          : &ImplicitTexts::equation)).trimmed().isEmpty()
+        : (!tubesShown()
+           && m_scene.eq.x.trimmed().isEmpty() && m_scene.eq.y.trimmed().isEmpty()
+           && m_scene.eq.z.trimmed().isEmpty() && m_scene.eq.p.trimmed().isEmpty());
+    if (masterStart && noSurfaceInput
         && m_scene.surfaceScriptApplied.trimmed().isEmpty()
         && !ui->glWidget->getEngine()->isScriptModeActive()
-        && m_scene.eq.x.trimmed().isEmpty() && m_scene.eq.y.trimmed().isEmpty()
-        && m_scene.eq.z.trimmed().isEmpty() && m_scene.eq.p.trimmed().isEmpty()
         && isSceneEmpty()) {
         runOutcomeGuard.surfaceApplied = false;
+        const MasterActivity act = masterActivity();
+        if (isWholeSceneEmpty() && !act.texAvailable && !act.bgAvailable && !act.borderAvailable
+            && !act.cameraAvailable && !act.audioAvailable) {
+            InputValidator::showEmptySceneNotice(this, "Nothing to start");
+            return;
+        }
         applyAnimationState(false);
         applyStartSideEffects();
         updateMasterButtonState();
@@ -655,7 +668,7 @@ void MainWindow::runSceneImplicit(RunOrigin origin, bool runDockOnly)
     // una superficie che nessuno aveva chiesto.
     // Per svuotare la scena c'e' NEW, che e' esplicito.
     if (rawEq.isEmpty()) {
-        InputValidator::notifyEmptyImplicitEquation(this, crossSectionActive);
+        InputValidator::notifyEmptyImplicitEquation(this, crossSectionActive, isSceneEmpty());
         return;
     }
 
@@ -1918,6 +1931,8 @@ void MainWindow::updateMasterButtonState()
     // Lo stato dei moduli, da una sede sola (masterActivity): ne leggono sia i
     // tasti dei dock qui sotto sia il master.
     const MasterActivity act = masterActivity();
+    // Il GO del path dell'oggetto (dock Objects), che il master ferma e riavvia.
+    refreshObjectPathControls();
 
     if (ui->glWidget) {
         const bool geomHasTime = act.eqAvailable;

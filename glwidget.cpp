@@ -5829,10 +5829,11 @@ bool GLWidget::hasTimeline() const
     return false;
 }
 
-bool GLWidget::setObjectPath(int index, const QString &x, const QString &y, const QString &z)
+bool GLWidget::setObjectPath(int index, const QString &x, const QString &y, const QString &z,
+                             const QString &p)
 {
     if (index <= 0 || index >= int(m_objects.size()) || !m_objects[index]->engine) return false;
-    if (!m_objects[index]->engine->compileObjectPath(x, y, z)) return false;
+    if (!m_objects[index]->engine->compileObjectPath(x, y, z, p)) return false;
     // L'orologio del path avanza nel render: serve il tick dei fotogrammi.
     if (anyObjectPathRunning()) startAnimationTimer();
     update();
@@ -5861,7 +5862,7 @@ bool GLWidget::anyObjectPathRunning() const
 QStringList GLWidget::objectPath(int index) const
 {
     if (index < 0 || index >= int(m_objects.size()) || !m_objects[index]->engine)
-        return { QString(), QString(), QString() };
+        return { QString(), QString(), QString(), QString() };
     return m_objects[index]->engine->objectPath();
 }
 
@@ -5878,8 +5879,13 @@ float GLWidget::objectPathTime(int index) const
 
 QVector3D GLWidget::effectivePosition(SurfaceObject &o)
 {
-    if (isEnvironment(o) || !o.engine || !o.engine->objectPathActive()) return o.position;
-    return o.position + o.engine->evaluateObjectPath(o.pathTime);
+    return o.position + pathOffset(o).toVector3D();
+}
+
+QVector4D GLWidget::pathOffset(SurfaceObject &o)
+{
+    if (isEnvironment(o) || !o.engine || !o.engine->objectPathActive()) return QVector4D();
+    return o.engine->evaluateObjectPath(o.pathTime);
 }
 
 QVector3D GLWidget::objectEffectivePosition(int index) const
@@ -5992,9 +5998,13 @@ QImage GLWidget::getFrameForVideo(int targetW, int targetH, bool useFbo) {
     //    ritagliandola cambiava la scala (con la Library aperta, vista quasi
     //    quadrata, il toro usciva ingrandito e tagliato). A riempire il formato
     //    di scena vera e' il motore FBO, che ridisegna con l'aspetto del video.
+    //    Il video conta i PIXEL: grabFramebuffer porta il devicePixelRatio dello
+    //    schermo (2 su Retina) e drawImage disegnava la vista a meta' misura, in
+    //    un quarto del fotogramma.
     if (!m_hiResCapture && targetW > 0 && targetH > 0 &&
             (img.width() != targetW || img.height() != targetH)) {
-        const QImage fitted = img.scaled(targetW, targetH, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        QImage fitted = img.scaled(targetW, targetH, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        fitted.setDevicePixelRatio(1.0);
         QImage framed(targetW, targetH, fitted.format());
         framed.fill(Qt::black);
         QPainter(&framed).drawImage((targetW - fitted.width()) / 2, (targetH - fitted.height()) / 2, fitted);

@@ -2426,6 +2426,11 @@ bool MainWindow::isSceneEmpty() const
     return !e || e->getIndices().empty();
 }
 
+bool MainWindow::isWholeSceneEmpty() const
+{
+    return ui->glWidget && ui->glWidget->objectCount() <= 1 && isSceneEmpty();
+}
+
 
 // ==========================================================
 // RENDERING & VISUALS

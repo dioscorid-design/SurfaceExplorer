@@ -191,6 +191,11 @@ private slots:
     // tasto NEW). Guarda il MOTORE, non i campi della UI: l'utente puo' aver
     // gia' ricominciato a scrivere senza aver ancora premuto Run.
     bool isSceneEmpty() const;
+    // La scena vuota di NEW per intero: la sola superficie, senza altri
+    // oggetti, e niente da disegnare. START, RESET e Projection agiscono sulla
+    // superficie: qui lo dicono con un popup (showEmptySceneNotice) invece di
+    // non fare nulla in silenzio o, la proiezione, di sporcare la scena.
+    bool isWholeSceneEmpty() const;
     // Le costanti A..F/S che la SUPERFICIE non usa (equazioni, geodetica,
     // script, limiti, path): quelle che un caricamento di texture puo'
     // riportare al default senza cambiare la forma a schermo.
@@ -1849,13 +1854,24 @@ private:
     // Timeline: finestra di comparsa del selezionato e T nella barra di stato.
     QDoubleSpinBox *m_objectWindowIn = nullptr;
     QDoubleSpinBox *m_objectWindowOut = nullptr;
-    // Il path del selezionato: X(t), Y(t), Z(t) sommati alla posizione.
-    QLineEdit *m_objectPath[3] = { nullptr, nullptr, nullptr };
+    // Il path del selezionato: X(t), Y(t), Z(t) sommati alla posizione, P(t)
+    // lungo la quarta coordinata (solo nelle scene 4D), e il suo GO/STOP.
+    QLineEdit *m_objectPath[4] = { nullptr, nullptr, nullptr, nullptr };
+    QPushButton *m_btnObjectPathGo = nullptr;
     // Il cursore della timeline (decimi di secondo) e il T che mostra.
     QSlider *m_sceneTimeSlider = nullptr;
     QLabel *m_sceneTimeValue = nullptr;
     bool m_applyingObjectPath = false;
+    // Come i path dell'ambiente, ma il path FERMO aspetta il suo GO: l'Invio su
+    // un campo applica la modifica solo a path in corsa (svuotati tutti, il
+    // path si toglie). GO applica i campi e lo avvia, a meta' corsa lo ferma.
     void applyObjectPathFromDock();
+    void onObjectPathGoClicked();
+    // I campi scritti nel dock al selezionato: false = formula rifiutata
+    // (popup), resta il path di prima.
+    bool commitObjectPathFields();
+    // Testo e accensione di GO e del campo P (scena 4D, o una P da togliere).
+    void refreshObjectPathControls();
     QLabel *m_sceneTimeLabel = nullptr;
     QTimer *m_sceneTimeLabelTimer = nullptr;
     void refreshSceneTimeLabel();

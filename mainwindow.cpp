@@ -113,6 +113,15 @@ protected:
                     return true;
                 }
 
+                // Path di un oggetto: in corsa l'Invio applica la modifica,
+                // fermo aspetta il suo GO (applyObjectPathFromDock).
+                if (isObjectPathField(on)) {
+                    if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent()))
+                        mainWin->applyObjectPathFromDock();
+                    return true;
+                }
+
                 if (QWidget* w = qobject_cast<QWidget*>(obj)) {
                     MainWindow* mainWin = qobject_cast<MainWindow*>(parent());
 

@@ -981,10 +981,14 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
             window["out"] = double(gl->objectWindowOut(k));
             o["timeline"] = window;
         }
-        // Il path dell'oggetto (X(t), Y(t), Z(t)), se c'e'.
+        // Il path dell'oggetto (X(t), Y(t), Z(t) e, se c'e', P(t)), e il suo GO
+        // solo se e' spento: le scene di prima restano scritte uguali.
         if (gl->objectHasPath(k)) {
             const QStringList path = gl->objectPath(k);
-            o["path"] = QJsonArray{ path.value(0), path.value(1), path.value(2) };
+            QJsonArray formulas{ path.value(0), path.value(1), path.value(2) };
+            if (!path.value(3).isEmpty()) formulas.append(path.value(3));
+            o["path"] = formulas;
+            if (!gl->isObjectPathRunning(k)) o["pathRunning"] = false;
         }
         o["motion"] = m_mainWindow->objectMotionJson();
         // L'oggetto come un RECORD: la Shape non porta texture, fasce e moti

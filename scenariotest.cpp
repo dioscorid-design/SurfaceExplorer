@@ -6948,7 +6948,7 @@ void ScenarioTest::runScenePathScenarios()
 {
     GLWidget *gl = m_mw->ui->glWidget;
     m_lines.append(QString());
-    m_lines.append(QStringLiteral("== Timeline: il path di un oggetto, X(t) Y(t) Z(t), col suo orologio =="));
+    m_lines.append(QStringLiteral("== Timeline: il path di un oggetto, X(t) Y(t) Z(t), col suo orologio e il suo GO =="));
     if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
     QString spherePath;
     for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
@@ -6959,12 +6959,15 @@ void ScenarioTest::runScenePathScenarios()
     const int sphere = gl->selectedObject();
     const QVector3D base = gl->objectPosition();
     auto near = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 1e-3f; };
+    // I campi e l'Invio vero (filtro tastiera, isObjectPathField).
     auto setPathFields = [this](const QString &x, const QString &y, const QString &z) {
         m_mw->m_objectPath[0]->setText(x);
         m_mw->m_objectPath[1]->setText(y);
         m_mw->m_objectPath[2]->setText(z);
-        m_mw->applyObjectPathFromDock();
+        pressEnter(m_mw->m_objectPath[0]);
     };
+    QPushButton *go = m_mw->m_btnObjectPathGo;
+    check(!m_mw->m_objectPath[3]->isEnabled(), QStringLiteral("scena 3D: campo P(t) spento"));
 
     // Il dock Objects largo come gli altri (400) e il suo contenuto ci sta.
     check(m_mw->m_dockObjects->minimumWidth() == 400 && m_mw->m_dockObjects->maximumWidth() == 400
@@ -6973,12 +6976,18 @@ void ScenarioTest::runScenePathScenarios()
               .arg(m_mw->m_dockObjects->widget()->minimumSizeHint().width()));
 
     // Dal dock: la virgola di mod(t,2) resta (niente sostituzione col punto).
+    // Il path fermo aspetta il suo GO: l'Invio non applica nulla.
     m_mw->markWholeSceneClean();
+    check(!go->isEnabled(), QStringLiteral("campi vuoti: GO spento"));
     setPathFields(QStringLiteral("2*t"), QStringLiteral("mod(t,2)"), QStringLiteral("0.7*floor(t)"));
+    check(!gl->objectHasPath(sphere) && go->isEnabled() && go->text() == QLatin1String("GO"),
+          QStringLiteral("path fermo: l'Invio non applica, GO acceso"));
+    go->click();
     const QStringList path = gl->objectPath(sphere);
     check(gl->objectHasPath(sphere) && gl->isObjectPathRunning(sphere) && path.value(1) == QLatin1String("mod(t,2)")
-              && m_mw->hasUnsavedWork() && m_mw->masterActivity().objectPathAvailable,
-          QStringLiteral("path 2*t, mod(t,2), 0.7*floor(t) dal dock: compilato e in corsa, il master lo conta"));
+              && m_mw->hasUnsavedWork() && m_mw->masterActivity().objectPathAvailable
+              && go->text() == QLatin1String("STOP"),
+          QStringLiteral("GO: path 2*t, mod(t,2), 0.7*floor(t) compilato e in corsa, il master lo conta"));
     check(near(gl->objectEffectivePosition(sphere), base),
           QStringLiteral("t = 0: la sfera e' nella sua posizione"));
 
@@ -7013,7 +7022,8 @@ void ScenarioTest::runScenePathScenarios()
     m_mw->m_btnStart->click();
     wait(200);
     gl->stopAllTimers();
-    check(gl->isObjectPathRunning(sphere), QStringLiteral("master START: il path riparte"));
+    check(gl->isObjectPathRunning(sphere) && go->text() == QLatin1String("STOP"),
+          QStringLiteral("master START: il path riparte, il suo tasto dice STOP"));
 
     // RESET dell'oggetto: il path torna all'inizio, nessun popup.
     m_lastPopup.clear();
@@ -7047,6 +7057,33 @@ void ScenarioTest::runScenePathScenarios()
     check(m_mw->m_objectPath[0]->text() == QLatin1String("2*t"),
           QStringLiteral("il dock rimostra il path valido"));
 
+    // In corsa l'Invio applica; il GO lo ferma e da fermo la modifica aspetta
+    // il GO, che la applica e riparte dal tempo a cui era.
+    setPathFields(QStringLiteral("3*t"), QStringLiteral("mod(t,2)"), QStringLiteral("0.7*floor(t)"));
+    check(gl->objectPath(sphere).value(0) == QLatin1String("3*t") && gl->isObjectPathRunning(sphere),
+          QStringLiteral("in corsa: l'Invio applica X = 3*t"));
+    gl->advanceClocksBy(0.5f);
+    go->click();
+    const float tHeld = gl->objectPathTime(sphere);
+    setPathFields(QStringLiteral("2*t"), QStringLiteral("mod(t,2)"), QStringLiteral("0.7*floor(t)"));
+    gl->advanceClocksBy(0.5f);
+    check(!gl->isObjectPathRunning(sphere) && go->text() == QLatin1String("GO")
+              && gl->objectPath(sphere).value(0) == QLatin1String("3*t") && gl->objectPathTime(sphere) == tHeld,
+          QStringLiteral("GO ferma il path (t %1); da fermo l'Invio non applica X = 2*t").arg(tHeld));
+    go->click();
+    check(gl->isObjectPathRunning(sphere) && gl->objectPath(sphere).value(0) == QLatin1String("2*t")
+              && gl->objectPathTime(sphere) == tHeld,
+          QStringLiteral("GO applica X = 2*t e riparte da t = %1").arg(gl->objectPathTime(sphere)));
+
+    // Svuotati tutti i campi, l'Invio toglie il path; poi lo si rimette.
+    setPathFields(QString(), QString(), QString());
+    check(!gl->objectHasPath(sphere) && !go->isEnabled() && !m_mw->masterActivity().objectPathAvailable,
+          QStringLiteral("campi svuotati + Invio: il path non c'e' piu', GO spento"));
+    m_mw->m_objectPath[0]->setText(QStringLiteral("2*t"));
+    m_mw->m_objectPath[1]->setText(QStringLiteral("mod(t,2)"));
+    m_mw->m_objectPath[2]->setText(QStringLiteral("0.7*floor(t)"));
+    go->click();
+
     // L'ambiente non ha path: campi spenti.
     m_mw->selectSceneObject(0);
     check(!m_mw->m_objectPath[0]->isEnabled() && m_mw->m_objectPath[0]->text().isEmpty(),
@@ -7079,6 +7116,47 @@ void ScenarioTest::runScenePathScenarios()
                   && loaded.value(0) == QLatin1String("2*t") && loaded.value(1) == QLatin1String("mod(t,2)")
                   && loaded.value(2) == QLatin1String("0.7*floor(t)"),
               QStringLiteral("Save/Load: path %1, in corsa").arg(loaded.join(QStringLiteral(", "))));
+    }
+
+    // SCENA 4D: P(t) sposta l'oggetto lungo la quarta coordinata, prima della
+    // proiezione. Qui una costante, per confrontare due immagini ferme.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Timeline: P(t) del path di un oggetto in una scena 4D =="));
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/Non-orientables/Klein Bottle.json"))) return;
+    m_mw->addShapeToScene(spherePath);
+    wait(400);
+    const int sphere4D = gl->selectedObject();
+    check(m_mw->sceneIs4D() && m_mw->m_objectPath[3]->isEnabled(),
+          QStringLiteral("scena 4D (Klein Bottle): campo P(t) acceso"));
+    gl->stopAllTimers();
+    gl->setClocksDrivenByRecorder(true);
+    gl->setProjectionMode(1);
+    wait(400);
+    const QImage plain = gl->grabFramebuffer();
+    m_mw->m_objectPath[3]->setText(QStringLiteral("1.5"));
+    go->click();
+    wait(400);
+    const QImage shifted = gl->grabFramebuffer();
+    check(gl->objectPath(sphere4D).value(3) == QLatin1String("1.5") && gl->isObjectPathRunning(sphere4D)
+              && near(gl->objectEffectivePosition(sphere4D), gl->objectPosition()) && shifted != plain,
+          QStringLiteral("P(t) = 1.5: la sfera cambia a schermo, la posizione 3D no"));
+    go->click();   // fermo: il file lo dice
+    const QJsonObject json4D = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Path4D"), run, false);
+    const QJsonObject saved = json4D.value(QStringLiteral("objects")).toArray().at(0).toObject();
+    const QString file4D = m_outDir + QStringLiteral("/scene-path-4d.json");
+    {
+        QFile f(file4D);
+        if (f.open(QIODevice::WriteOnly)) { f.write(QJsonDocument(json4D).toJson()); f.close(); }
+    }
+    check(saved.value(QStringLiteral("path")).toArray().size() == 4
+              && !saved.value(QStringLiteral("pathRunning")).toBool(true),
+          QStringLiteral("Save: quattro formule e il path fermo"));
+    gl->setClocksDrivenByRecorder(false);
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))
+        && m_mw->loadSceneFile(file4D)) {
+        wait(300);
+        check(gl->objectPath(1).value(3) == QLatin1String("1.5") && gl->objectHasPath(1) && !gl->isObjectPathRunning(1),
+              QStringLiteral("Load: P(t) = %1, path fermo").arg(gl->objectPath(1).value(3)));
     }
 }
 
@@ -7532,6 +7610,40 @@ void ScenarioTest::runResetButtonScenarios()
                   .arg(before).arg(after).arg(m_mw->m_geoTime)
                   .arg(flowing ? QStringLiteral("in moto") : QStringLiteral("fermo")));
     }
+
+    // SCENA VUOTA DI NEW, nei due modi: START, RESET e Projection lo dicono con
+    // lo stesso popup. La proiezione non cambia e la scena resta pulita (prima
+    // cambiava, e al preset successivo usciva "vuoi salvare?"); in Ray Marching
+    // START diceva che la superficie a schermo era la precedente.
+    for (int mode = 0; mode < 2; ++mode) {
+        m_discardOnPrompt = true;
+        ui->tabModeSelector->setCurrentIndex(mode);
+        wait(1500);
+        m_discardOnPrompt = false;
+        pressNew();
+        auto notice = [this](QAbstractButton *b, const char *what) {
+            m_lastPopup.clear();
+            b->click();
+            wait(400);
+            return m_lastPopup.contains(QLatin1String(what));
+        };
+        const int projection = int(gl->projectionMode);
+        const bool start = notice(m_mw->m_btnStart, "Nothing to start");
+        const bool reset = notice(m_mw->m_btnResetView, "Nothing to reset");
+        const bool project = notice(m_mw->m_btnProjection, "Nothing to project");
+        const QStringList unsaved = m_mw->unsavedKeys();
+        check(start && reset && project && int(gl->projectionMode) == projection && unsaved.isEmpty()
+                  && m_mw->m_btnStart->text() == QLatin1String("START"),
+              QStringLiteral("%1, scena vuota di NEW -> START %2, RESET %3, Projection %4 col popup; "
+                             "proiezione invariata, niente da salvare%5")
+                  .arg(mode == 0 ? QStringLiteral("Parametric") : QStringLiteral("Ray Marching"))
+                  .arg(start).arg(reset).arg(project)
+                  .arg(unsaved.isEmpty() ? QString() : QStringLiteral(" (") + unsaved.join(QStringLiteral(", ")) + QLatin1Char(')')));
+    }
+    m_discardOnPrompt = true;
+    ui->tabModeSelector->setCurrentIndex(0);
+    wait(1500);
+    m_discardOnPrompt = false;
     m_popupAnswer.clear();   // una risposta senza popup non deve restare in sospeso
 }
 
