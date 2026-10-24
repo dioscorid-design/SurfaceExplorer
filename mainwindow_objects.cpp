@@ -630,6 +630,36 @@ void MainWindow::showSelectedObject()
 // DOCK OBJECTS E SELETTORE
 // ==========================================================
 
+// I CAMPI NUMERICI DEL DOCK si scrivono come i path (richieste dell'utente,
+// 2026-10-24), su tutte le piattaforme:
+// - si applicano con l'Invio: prima ogni cifra spostava l'oggetto (scrivendo
+//   12 passava da 1). Frecce e rotella applicano subito. Uscendo dal campo
+//   senza Invio torna il valore applicato: setValue(value()) riscrive il
+//   campo prima che lo spinbox lo interpreti, e senza keyboardTracking
+//   value() e' ancora quello di prima;
+// - al clic o al tocco il campo si seleziona tutto, e la prima cifra
+//   sostituisce il valore. Senza, il cursore cadeva DENTRO il testo, e su un
+//   testo speciale ("start"/"end" di In e Out a 0) ogni cifra dava "start2",
+//   che lo spinbox rifiuta: il campo non si scriveva finche' una freccia non
+//   lo portava a un numero. In coda all'evento: il clic che da' il focus posa
+//   anche il cursore.
+static void editLikePathFields(QDoubleSpinBox *box)
+{
+    box->setKeyboardTracking(false);
+    class FocusRules : public QObject {
+    public:
+        explicit FocusRules(QDoubleSpinBox *b) : QObject(b), box(b) {}
+        bool eventFilter(QObject *, QEvent *e) override {
+            if (e->type() == QEvent::FocusOut) box->setValue(box->value());
+            if (e->type() == QEvent::FocusIn)
+                QTimer::singleShot(0, box, [b = box]() { b->selectAll(); });
+            return false;
+        }
+        QDoubleSpinBox *box;
+    };
+    box->installEventFilter(new FocusRules(box));
+}
+
 void MainWindow::setupObjectsDock()
 {
     m_dockObjects = new QDockWidget(QStringLiteral("OBJECTS"), this);
@@ -774,6 +804,9 @@ void MainWindow::setupObjectsDock()
     m_sceneTimeSlider->setRange(0, 100);
     m_sceneTimeSlider->setSingleStep(1);
     m_sceneTimeSlider->setPageStep(10);
+    // L'altezza degli altri slider dei dock: da sola seguiva la guida (15px)
+    // e il pallino, piu' alto, usciva tagliato sopra e sotto.
+    m_sceneTimeSlider->setMinimumHeight(UiStyleManager::kSliderMinHeight);
     seekRow->addWidget(m_sceneTimeSlider, 1);
     m_sceneTimeValue = new QLabel(QStringLiteral("0.0 s"), w);
     m_sceneTimeValue->setMinimumWidth(m_sceneTimeValue->fontMetrics().horizontalAdvance(QStringLiteral("0000.0 s")));
@@ -835,11 +868,13 @@ void MainWindow::setupObjectsDock()
         for (QLabel *label : std::as_const(rowLabels)) label->setMinimumWidth(labelWidth);
     }
     // Dopo che i campi sono nelle loro righe: il tasto sostituisce lo spinbox
-    // nel suo layout. No-op su desktop.
-    for (QAbstractSpinBox *box : std::initializer_list<QAbstractSpinBox*>{
-             m_objectPos[0], m_objectPos[1], m_objectPos[2],
-             m_objectScale, m_objectWindowIn, m_objectWindowOut })
-        UiStyleManager::installMobileSpinButtons(box, 0);
+    // nel suo layout. No-op su desktop. I campi restano scrivibili (prima su
+    // mobile cambiavano solo con le frecce): vedi installMobileSpinButtons.
+    for (QDoubleSpinBox *box : { m_objectPos[0], m_objectPos[1], m_objectPos[2],
+                                 m_objectScale, m_objectWindowIn, m_objectWindowOut }) {
+        editLikePathFields(box);
+        UiStyleManager::installMobileSpinButtons(box, 0, /*editable=*/true);
+    }
     m_dockObjects->setWidget(w);
 
     connect(m_objectList, &QListWidget::currentRowChanged, this, [this](int row) {

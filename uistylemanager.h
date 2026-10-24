@@ -36,6 +36,9 @@ public:
     static void setupDockScroll(QDockWidget* dock, bool isExamplesDock = false);
     static void compactForMobile(const QList<QWidget*>& containers);
     static void setupRaymarchTabMobile(QWidget* equationsContainer);
+    // Altezza minima degli slider dei dock: il pallino e' piu' alto della guida
+    // e, lasciata a quella della guida, ne usciva tagliato sopra e sotto.
+    static constexpr int kSliderMinHeight = 40;
     static void setupBigSliders(QSlider* r, QSlider* g, QSlider* b, QSlider* alpha, QSlider* light = nullptr, QSlider* speed3D = nullptr, QSlider* speed4D = nullptr, QSlider* fov = nullptr, QSlider* fov4D = nullptr);
     // Stile degli slider di VALORE (non colore) del dock Renderer: evidenziato
     // da acceso, grigio da spento. Unica sede: lo usano setupBigSliders e gli
@@ -56,8 +59,10 @@ public:
     // campo diventa anche non editabile da tastiera: toccarlo (frecce native
     // comprese) apriva tastierino e menu di modifica senza poterli chiudere.
     // fieldWidth: larghezza fissa del campo; 0 = il campo prende il resto della
-    // riga (dock Objects). No-op su desktop.
-    static void installMobileSpinButtons(QAbstractSpinBox* spin, int fieldWidth = 36);
+    // riga (dock Objects). editable: il campo si scrive anche (dock Objects),
+    // con una tastiera che ha l'Invio, che conferma e la chiude. No-op su desktop.
+    static void installMobileSpinButtons(QAbstractSpinBox* spin, int fieldWidth = 36,
+                                         bool editable = false);
     static void styleMobileMenuButton(QPushButton* button);
     static void styleMobileOverflowMenu(QMenu* menu);
     static void applyRecordButtonStyle(QPushButton* btn);

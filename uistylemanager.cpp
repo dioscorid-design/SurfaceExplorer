@@ -12,6 +12,8 @@
 #include <QDockWidget>
 #include <QMainWindow>
 #include <QApplication>
+#include <QGuiApplication>
+#include <QInputMethod>
 #include <QStyleFactory>
 #include <QWidget>
 #include <QDialog>
@@ -741,7 +743,7 @@ void UiStyleManager::setupBigSliders(QSlider* r, QSlider* g, QSlider* b, QSlider
     if(speed3D) speed3D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }" + disabledStyle);
     if(speed4D) speed4D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }" + disabledStyle);
 
-    int minH = 40;
+    const int minH = kSliderMinHeight;
     if(r) r->setMinimumHeight(minH);
     if(g) g->setMinimumHeight(minH);
     if(b) b->setMinimumHeight(minH);
@@ -972,7 +974,7 @@ void UiStyleManager::applyRecordButtonStyle(QPushButton* btn) {
 // responder del plugin ma non gli impediscono di prendere il focus.
 // Qui invece il campo diventa non editabile e senza focus, e il valore si
 // cambia con due bottoni veri, che col plugin non hanno alcun rapporto.
-void UiStyleManager::installMobileSpinButtons(QAbstractSpinBox* spin, int fieldWidth)
+void UiStyleManager::installMobileSpinButtons(QAbstractSpinBox* spin, int fieldWidth, bool editable)
 {
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
     if (!spin || spin->property("mobileSpinButtons").toBool()) return;
@@ -987,13 +989,33 @@ void UiStyleManager::installMobileSpinButtons(QAbstractSpinBox* spin, int fieldW
 
     // Il campo resta come sola casella del numero: niente frecce native.
     spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    spin->setFocusPolicy(Qt::NoFocus);
     spin->setAlignment(Qt::AlignCenter);
-    if (QLineEdit* le = spin->findChild<QLineEdit*>()) {
-        le->setReadOnly(true);
-        le->setFocusPolicy(Qt::NoFocus);
-        // Niente menu di modifica su un campo non editabile.
-        le->setContextMenuPolicy(Qt::PreventContextMenu);
+    QLineEdit* le = spin->findChild<QLineEdit*>();
+    if (editable) {
+        // CAMPO SCRITTO A TASTIERA (dock Objects: posizione, scala, In/Out). Il
+        // blocco di iOS veniva dal TASTIERINO: QDoubleSpinBox chiede di suo il
+        // tastierino decimale (ImhFormattedNumbersOnly), che sull'iPhone non ha
+        // l'Invio, e una volta aperto non c'era modo di chiuderlo. Qui la
+        // tastiera e' quella "numeri e punteggiatura" (ImhPreferNumbers), col
+        // meno, il punto e l'Invio; l'Invio conferma e la chiude. Le frecce
+        // restano senza focus: toccarle non apre nulla.
+        const Qt::InputMethodHints hints = Qt::ImhPreferNumbers | Qt::ImhNoPredictiveText
+                                           | Qt::ImhNoAutoUppercase;
+        spin->setInputMethodHints(hints);
+        if (le) le->setInputMethodHints(hints);
+        QObject::connect(spin, &QAbstractSpinBox::editingFinished, spin, [spin]() {
+            if (spin->hasFocus()) spin->clearFocus();
+            QGuiApplication::inputMethod()->hide();
+        });
+
+    } else {
+        spin->setFocusPolicy(Qt::NoFocus);
+        if (le) {
+            le->setReadOnly(true);
+            le->setFocusPolicy(Qt::NoFocus);
+            // Niente menu di modifica su un campo non editabile.
+            le->setContextMenuPolicy(Qt::PreventContextMenu);
+        }
     }
 
     QWidget* parent = spin->parentWidget();
@@ -1104,6 +1126,7 @@ void UiStyleManager::installMobileSpinButtons(QAbstractSpinBox* spin, int fieldW
 #else
     Q_UNUSED(spin);
     Q_UNUSED(fieldWidth);
+    Q_UNUSED(editable);
 #endif
 }
 

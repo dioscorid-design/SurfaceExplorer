@@ -5709,6 +5709,44 @@ void ScenarioTest::runSceneObjectScenarios()
     m_mw->m_objectPos[0]->setValue(1.2);     // come se l'utente la scrivesse
     check(qFuzzyCompare(gl->objectPosition().x(), 1.2f) && m_mw->hasUnsavedWork(),
           QStringLiteral("X = 1.2 dal dock: l'oggetto si sposta e la scena e' da salvare"));
+    // DIGITAZIONE VERA nel campo X (i tasti al widget col focus, come
+    // dall'utente): le cifre non applicano, l'Invio si'; uscendo senza Invio
+    // torna il valore applicato.
+    {
+        auto keys = [](const QString &text) {
+            for (QChar c : text) {
+                QKeyEvent press(QEvent::KeyPress, 0, Qt::NoModifier, QString(c));
+                QCoreApplication::sendEvent(QApplication::focusWidget(), &press);
+            }
+        };
+        auto key = [](int k) {
+            QKeyEvent press(QEvent::KeyPress, k, Qt::NoModifier);
+            QCoreApplication::sendEvent(QApplication::focusWidget(), &press);
+        };
+        m_mw->m_dockObjects->show();
+        wait(200);
+        QDoubleSpinBox *x = m_mw->m_objectPos[0];
+        x->setFocus();
+        wait(100);
+        x->selectAll();
+        keys(QStringLiteral("2.5"));
+        wait(100);
+        const float typing = gl->objectPosition().x();
+        key(Qt::Key_Return);
+        wait(100);
+        const float entered = gl->objectPosition().x();
+        x->selectAll();
+        keys(QStringLiteral("7"));
+        m_mw->m_objectScale->setFocus();   // esce dal campo senza Invio
+        wait(100);
+        check(qFuzzyCompare(typing, 1.2f) && qFuzzyCompare(entered, 2.5f)
+                  && qFuzzyCompare(gl->objectPosition().x(), 2.5f) && std::abs(x->value() - 2.5) < 1e-9,
+              QStringLiteral("X digitato: le cifre non applicano (%1), l'Invio si' (%2); uscito senza Invio "
+                             "torna %3 (campo %4)")
+                  .arg(typing).arg(entered).arg(gl->objectPosition().x()).arg(x->text()));
+        x->setValue(1.2);
+        m_mw->m_dockObjects->close();
+    }
     const QString original = m_mw->m_objectSessions[size_t(gl->selectedObject())].name;
     m_mw->m_btnObjectDuplicate->click();
     wait(400);
@@ -6982,6 +7020,32 @@ void ScenarioTest::runSceneTimelineScenarios()
           QStringLiteral("Departure: di nuovo il path, T continua (%1 s)").arg(gl->sceneTime()));
     m_mw->selectSceneObject(sphere);
     wait(100);
+
+    // IN SCRITTO A MANO mentre mostra "start" (valore 0): al clic il campo si
+    // seleziona tutto e la cifra lo sostituisce, senza passare dalle frecce.
+    {
+        m_mw->m_dockObjects->show();
+        wait(200);
+        QDoubleSpinBox *in = m_mw->m_objectWindowIn;
+        const QString shown = in->text();
+        in->setFocus(Qt::MouseFocusReason);
+        wait(100);
+        for (QChar c : QStringLiteral("1")) {
+            QKeyEvent press(QEvent::KeyPress, 0, Qt::NoModifier, QString(c));
+            QCoreApplication::sendEvent(QApplication::focusWidget(), &press);
+        }
+        QKeyEvent ret(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+        QCoreApplication::sendEvent(QApplication::focusWidget(), &ret);
+        wait(100);
+        check(shown == QLatin1String("start") && gl->objectWindowIn(sphere) == 1.0f,
+              QStringLiteral("In da \"%1\": 1 + Invio, finestra da %2 s (campo %3)")
+                  .arg(shown).arg(gl->objectWindowIn(sphere)).arg(in->text()));
+        m_mw->m_dockObjects->close();
+    }
+    // Lo slider T alto quanto gli altri dei dock: il pallino non esce tagliato.
+    check(m_mw->m_sceneTimeSlider->minimumHeight() >= m_mw->ui->lightSlider->minimumHeight(),
+          QStringLiteral("slider T alto %1 px (Light %2)").arg(m_mw->m_sceneTimeSlider->minimumHeight())
+              .arg(m_mw->ui->lightSlider->minimumHeight()));
 
     // La finestra dal dock: In 1 s, Out 2 s.
     m_mw->markWholeSceneClean();
