@@ -1616,6 +1616,9 @@ private:
     // posto, invece di essere ricalcolata a ogni punto di caricamento.
     // A segnali bloccati: il valore arriva da un preset, non dall'utente.
     void setShellThicknessUI(float thickness);
+    // Solo lo slider dello spessore, a segnali bloccati: per mostrare quello
+    // di un oggetto appena selezionato senza toccare motore e ricordo di Solid.
+    void showShellThickness(float thickness);
     // Radio Fast/Precise del marcher: scrive motore e radio a segnali bloccati.
     void setMarcherUI(bool precise);
     // Luce di riempimento: motore + slider + etichetta, a segnali bloccati.
@@ -1906,6 +1909,15 @@ private:
     // Cross Section; in parametrico sempre, tranne un oggetto con l'ambiente in
     // ray marching, che e' rigido (GLWidget::rigidObject).
     bool selectedRotates4D() const;
+    // I MOTI 4D DELL'AMBIENTE (path 4D, rotazioni 4D, quota P del taglio)
+    // servono se l'ambiente ha un 4D suo (parametrico o Cross Section) o se
+    // nella scena c'e' un oggetto Cross Section, che ne riceve rotazione e
+    // taglio. Un ambiente in ray marching 3D da solo in 4D non ha nulla da
+    // girare (la regola di sempre della superficie sola).
+    bool environment4DUsable() const;
+    // Campi del path 4D, Departure e View secondo environment4DUsable: da
+    // updateRenderState e alla selezione di un oggetto.
+    void updatePath4DControls();
     // Velocita' omega/phi/psi e scatti 4D accesi solo dove agiscono
     // (selectedRotates4D); gli scatti anche spenti coi path in corsa
     // (setNavControlsEnabled). Alla selezione di un oggetto e da updateRenderState.

@@ -1023,7 +1023,7 @@ void MainWindow::setNavControlsEnabled(bool enabled)
             if (b) b->setEnabled(false);
         }
         for (QPushButton *b : { ui->btnPPlus, ui->btnPMinus })
-            if (b) b->setEnabled(crossSectionTab());
+            if (b) b->setEnabled(selectedRotates4D());
     }
     // Rotazioni 4D a scatto: solo dove agiscono (in ray marching il Cross
     // Section; non un oggetto parametrico rigido, con l'ambiente in ray marching).

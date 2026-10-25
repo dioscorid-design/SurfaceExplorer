@@ -398,8 +398,16 @@ const ObjectState &MainWindow::environmentState() const
 
 bool MainWindow::selectedRotates4D() const
 {
-    if (implicitMode()) return crossSectionTab();
+    const bool environment = !ui->glWidget || ui->glWidget->selectedObject() == 0;
+    if (implicitMode()) return crossSectionTab() || (environment && environment4DUsable());
     return !ui->glWidget || !ui->glWidget->selectedObjectRigid();
+}
+
+bool MainWindow::environment4DUsable() const
+{
+    const ObjectState &env = environmentState();
+    return !env.implicitMode || env.crossSectionTab
+           || (ui->glWidget && ui->glWidget->anyCrossSectionObject());
 }
 
 void MainWindow::updateRotation4DControls()
@@ -408,6 +416,12 @@ void MainWindow::updateRotation4DControls()
     for (QPushButton *b : { ui->btnOmegaMinus, ui->btnOmegaPlus, ui->btnPhiMinus,
                             ui->btnPhiPlus, ui->btnPsiMinus, ui->btnPsiPlus })
         if (b) b->setEnabled(on);
+    // In ray marching P+/P- spostano la quota del taglio delle Cross Section,
+    // comune a tutta la scena: con la stessa regola delle rotazioni.
+    if (implicitMode())
+        for (QPushButton *b : { ui->btnPPlus, ui->btnPMinus })
+            if (b) b->setEnabled(on);
+    updatePath4DControls();
     // Gli scatti sono anche tasti di navigazione: li ricalcola chi segue i path.
     updateViewButtonsEnabled();
 }
@@ -591,6 +605,10 @@ void MainWindow::showSelectedObject()
     }
     syncImplicitAlphaSlider(m_scene.implicitMode, false);
     refreshRenderRadios();
+    // Ray marching: marcher e spessore del guscio sono del motore dell'oggetto;
+    // i comandi restavano su quelli dell'oggetto di prima.
+    setMarcherUI(gl->hybridMarcher());
+    showShellThickness(gl->shellThickness());
     onColorTargetChanged();
     refreshTextureCheckbox();
     updateTextureUIState(m_scene.surfaceTextureState);

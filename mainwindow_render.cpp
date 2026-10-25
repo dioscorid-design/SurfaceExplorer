@@ -1812,9 +1812,8 @@ void MainWindow::updateRenderState()
         // sotto-tab "3D", la cui equazione e' a 3 variabili e non ha un p da
         // ruotare, e la modalita' parametrica non e' implicita affatto.
         // Con l'ambiente in ray marching anche un oggetto parametrico non ruota
-        // in 4D (e' rigido): la regola sta in selectedRotates4D.
-        const bool crossSectionActive = isImplicitMode && crossSectionTab();
-        const bool rot4DUsable = !isImplicitMode || crossSectionActive;
+        // in 4D (e' rigido), e un ambiente in ray marching 3D ruota se nella
+        // scena c'e' una Cross Section: la regola sta in selectedRotates4D.
         const bool rotates4D = selectedRotates4D();
 
         // Omega (W-X), Phi (W-Y), Psi (W-Z)
@@ -1869,32 +1868,7 @@ void MainWindow::updateRenderState()
         if (ui->panelPath) {
             ui->panelPath->setEnabled(true);
         }
-        // Il path e' dell'AMBIENTE: in una scena il cui ambiente lo permette resta
-        // usabile anche con un oggetto in ray marching selezionato (prima i tasti
-        // si spegnevano aggiungendo una sfera RM a un record col path 4D).
-        const ObjectState &env = environmentState();
-        const bool path4DUsable = !env.implicitMode || env.crossSectionTab;
-        for (QWidget *w : { (QWidget*)ui->lineX_P,  (QWidget*)ui->lineY_P,
-                            (QWidget*)ui->lineZ_P,  (QWidget*)ui->lineP_P,
-                            (QWidget*)ui->lineAlpha_P, (QWidget*)ui->lineBeta_P,
-                            (QWidget*)ui->lineGamma_P }) {
-            if (w) w->setEnabled(path4DUsable);
-        }
-
-        // DEPARTURE e VIEW hanno DUE condizioni, non una: il modo deve
-        // permettere il path 4D (path4DUsable) E i campi devono definirlo.
-        // Accendendoli qui insieme ai campi si scriveva la sola prima: passando
-        // da parametrico a Cross Section il tasto si accendeva anche a campi
-        // vuoti, sovrascrivendo l'ultimo checkPathFields.
-        // Non si duplica la seconda condizione: la decidono checkPathFields e
-        // updateViewButtonsEnabled, che sanno anche del path IN CORSA (a timer
-        // attivo il tasto resta acceso per poterlo fermare).
-        if (!path4DUsable) {
-            if (ui->btnDeparture) ui->btnDeparture->setEnabled(false);
-            if (ui->pushView)     ui->pushView->setEnabled(false);
-        } else {
-            checkPathFields();   // accende Departure e, di seguito, i View
-        }
+        updatePath4DControls();
         // Navigazione 4D: contenitore ACCESO, si spengono i singoli tasti di
         // SPOSTAMENTO dell'osservatore, che scrivono m_cameraPos4D/m_observerPos
         // -- stato che lo shader ray marching non usa.
@@ -1919,8 +1893,10 @@ void MainWindow::updateRenderState()
         // cambiano l'INCLINAZIONE del taglio, questa cambia DOVE taglia. La
         // quarta coordinata e' anche l'unica che la matrice di vista non
         // rappresenta, quindi qui non c'e' il doppio spostamento degli altri assi.
+        // In ray marching con la regola delle rotazioni (selectedRotates4D):
+        // anche l'ambiente 3D di una scena con oggetti Cross Section.
         for (QPushButton *b : { ui->btnPPlus, ui->btnPMinus }) {
-            if (b) b->setEnabled(rot4DUsable);
+            if (b) b->setEnabled(!isImplicitMode || rotates4D);
         }
         // ROTAZIONI 4D della camera: scrivono omega/phi/psi, cioe' lo stato che
         // il sotto-tab Cross Section usa per scegliere la sezione. Sono i
@@ -2209,6 +2185,37 @@ void MainWindow::updateBorderControlsGate()
 // riaccende anche il FOV): qui si spengono soltanto, per ultimi; tornando su
 // Surface li rimette a posto updateRenderState, che l'handler di
 // radioBackground chiama.
+// Il path e' dell'AMBIENTE: in una scena il cui ambiente lo permette resta
+// usabile anche con un oggetto in ray marching selezionato (prima i tasti si
+// spegnevano aggiungendo una sfera RM a un record col path 4D); e un ambiente
+// in ray marching 3D lo usa se nella scena c'e' una Cross Section
+// (environment4DUsable).
+void MainWindow::updatePath4DControls()
+{
+    const bool path4DUsable = environment4DUsable();
+    for (QWidget *w : { (QWidget*)ui->lineX_P,  (QWidget*)ui->lineY_P,
+                        (QWidget*)ui->lineZ_P,  (QWidget*)ui->lineP_P,
+                        (QWidget*)ui->lineAlpha_P, (QWidget*)ui->lineBeta_P,
+                        (QWidget*)ui->lineGamma_P }) {
+        if (w) w->setEnabled(path4DUsable);
+    }
+
+    // DEPARTURE e VIEW hanno DUE condizioni, non una: il modo deve
+    // permettere il path 4D (path4DUsable) E i campi devono definirlo.
+    // Accendendoli qui insieme ai campi si scriveva la sola prima: passando
+    // da parametrico a Cross Section il tasto si accendeva anche a campi
+    // vuoti, sovrascrivendo l'ultimo checkPathFields.
+    // Non si duplica la seconda condizione: la decidono checkPathFields e
+    // updateViewButtonsEnabled, che sanno anche del path IN CORSA (a timer
+    // attivo il tasto resta acceso per poterlo fermare).
+    if (!path4DUsable) {
+        if (ui->btnDeparture) ui->btnDeparture->setEnabled(false);
+        if (ui->pushView)     ui->pushView->setEnabled(false);
+    } else {
+        checkPathFields();   // accende Departure e, di seguito, i View
+    }
+}
+
 void MainWindow::updateSurfaceControlsGate()
 {
     const bool onBackground = editingBackground();
@@ -2338,10 +2345,14 @@ void MainWindow::applyEmptySceneGating()
         if (ui->radioWF)     ui->radioWF->setEnabled(!isRM);
         if (ui->radioShell)  ui->radioShell->setEnabled(true);
         if (ui->radioSolid)  ui->radioSolid->setEnabled(true);
-        // Scelta del marcher: SOLO in Ray Marching (nel ramo parametrico non c'e'
-        // marcher). radioWF qui sopra usa la stessa condizione, al contrario.
-        if (ui->radioMarcherFast)    ui->radioMarcherFast->setEnabled(isRM);
-        if (ui->radioMarcherPrecise) ui->radioMarcherPrecise->setEnabled(isRM);
+        // Scelta del marcher: sempre accesa, come Shell/Solid. Stanno nella
+        // linguetta Ray Marching (panelRenderControls), che nel parametrico non
+        // si vede, e nessun'altra regola li riaccende: con la condizione isRM,
+        // aprendo una scena con l'ambiente vuoto l'uscita scattava mentre si
+        // caricava un oggetto in ray marching ancora in modalita' parametrica,
+        // e i radio restavano spenti per sempre (anche sull'oggetto T3).
+        if (ui->radioMarcherFast)    ui->radioMarcherFast->setEnabled(true);
+        if (ui->radioMarcherPrecise) ui->radioMarcherPrecise->setEnabled(true);
         // NB: il gate di Ray Steps col marcher Precise NON va qui. Questo ramo
         // gira una volta sola, all'uscita dalla scena vuota (m_emptySceneGated
         // viene azzerato sopra): con una superficie gia' carica non passa mai.
@@ -2492,7 +2503,13 @@ void MainWindow::setShellThicknessUI(float thickness)
     const double t = qBound(kMin, (double)thickness, kMax);
 
     if (ui->glWidget) ui->glWidget->setShellThickness((float)t);
+    showShellThickness((float)t);
+}
 
+void MainWindow::showShellThickness(float thickness)
+{
+    const double kMin = 0.005, kMax = 0.30;
+    const double t = qBound(kMin, (double)thickness, kMax);
     if (ui->shellThicknessSlider) {
         const double f = std::sqrt((t - kMin) / (kMax - kMin));
         const bool old = ui->shellThicknessSlider->blockSignals(true);

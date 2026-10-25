@@ -5903,6 +5903,83 @@ void ScenarioTest::runSceneObjectScenarios()
         wait(600);
         check(gl->objectCount() == 2, QStringLiteral("una scena del formato di prima (\"shape\") si apre ancora"));
     }
+
+    // MARCHER DI UN OGGETTO IN RAY MARCHING con l'ambiente vuoto (NEW in Ray
+    // Marching): i radio Fast/Precise erano spenti per sempre (l'uscita dal
+    // blocco della scena vuota li riaccendeva con la modalita' di un oggetto
+    // ancora in caricamento), e cambiando oggetto mostravano il marcher di
+    // quello di prima.
+    {
+        Ui::MainWindow *ui = m_mw->ui;
+        m_discardOnPrompt = true;
+        ui->tabModeSelector->setCurrentIndex(1);
+        wait(1200);
+        m_discardOnPrompt = false;
+        pressNew();
+        // Da solo un ambiente in ray marching 3D non ha moti 4D (regola di sempre).
+        const bool aloneOff = !ui->lineX_P->isEnabled() && !ui->btnOmegaPlus->isEnabled()
+                              && !ui->btnPPlus->isEnabled();
+        QString t3;
+        for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+            if (it.filePath.endsWith(QStringLiteral("surfaces/Implicit/Cross Sections/T3.json"))) t3 = it.filePath;
+        m_mw->addShapeToScene(t3);
+        wait(600);
+        const int obj = gl->selectedObject();
+        const bool on = ui->radioMarcherFast->isEnabled() && ui->radioMarcherPrecise->isEnabled();
+        ui->radioMarcherFast->click();
+        wait(100);
+        const bool objFast = !gl->m_objects[size_t(obj)]->hybridMarcher;
+        ui->radioMarcherPrecise->click();
+        wait(100);
+        const bool objPrecise = objFast && gl->m_objects[size_t(obj)]->hybridMarcher;
+        m_mw->selectSceneObjectFromUi(0);
+        wait(200);
+        const bool envShown = ui->radioMarcherPrecise->isChecked() == gl->m_objects[0]->hybridMarcher;
+        const bool envOn = ui->radioMarcherFast->isEnabled();
+        m_mw->selectSceneObjectFromUi(obj);
+        wait(200);
+        check(!t3.isEmpty() && obj > 0 && on && objPrecise && envShown && envOn
+                  && ui->radioMarcherPrecise->isChecked() && !gl->m_objects[0]->hybridMarcher,
+              QStringLiteral("ambiente RM vuoto + T3: radio del marcher accesi (%1), Fast e poi Precise sull'oggetto (%2), "
+                             "l'ambiente mostra il suo (%3), di nuovo T3 mostra Precise (%4)")
+                  .arg(on).arg(objPrecise).arg(envShown).arg(ui->radioMarcherPrecise->isChecked()));
+
+        // MOTI 4D DELL'AMBIENTE con un oggetto Cross Section in scena: path 4D,
+        // velocita' e scatti 4D, P+/P- accesi; il GO 4D gira la scena (e il
+        // taglio della T3), il path 4D parte.
+        m_mw->selectSceneObjectFromUi(0);
+        wait(200);
+        const bool envOn4D = ui->lineX_P->isEnabled() && ui->btnOmegaPlus->isEnabled()
+                             && ui->btnOmegaAhead->isEnabled() && ui->btnPPlus->isEnabled();
+        gl->setOmegaSpeed(0.5f);
+        m_mw->refreshRotationSpeedLabels();
+        m_mw->onStopClicked();   // GO
+        gl->setExternalClockActive(true);
+        const float scene4D = gl->sceneRotation().angles4D.x();
+        gl->advanceRotationsBy(0.5f);
+        const bool turned = gl->isObjectRotating(0) && gl->sceneRotation().angles4D.x() > scene4D;
+        gl->setExternalClockActive(false);
+        m_mw->onStopClicked();   // STOP
+        gl->setOmegaSpeed(0.0f);
+        ui->lineX_P->setText(QStringLiteral("2*cos(t)"));
+        ui->lineY_P->setText(QStringLiteral("2*sin(t)"));
+        ui->lineZ_P->setText(QStringLiteral("1"));
+        ui->lineP_P->setText(QStringLiteral("0"));
+        wait(100);
+        const bool departureOn = ui->btnDeparture->isEnabled();
+        ui->btnDeparture->click();
+        wait(300);
+        const bool pathOn = m_mw->pathRunning(CameraPaths::Path4D);
+        if (pathOn) ui->btnDeparture->click();
+        check(aloneOff && envOn4D && turned && departureOn && pathOn,
+              QStringLiteral("ambiente RM 3D: da solo niente 4D (%1); con la T3 in scena path 4D, rotazioni e P "
+                             "accesi (%2), il GO 4D gira la scena (%3), il path 4D parte (%4/%5)")
+                  .arg(aloneOff).arg(envOn4D).arg(turned).arg(departureOn).arg(pathOn));
+        m_discardOnPrompt = true;
+        ui->tabModeSelector->setCurrentIndex(0);
+        wait(1200);
+        m_discardOnPrompt = false;
+    }
 }
 
 void ScenarioTest::runSceneTurnScenarios()

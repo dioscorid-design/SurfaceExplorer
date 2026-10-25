@@ -403,6 +403,13 @@ public:
                && m_objects.front()->engineMode == ModeImplicit;
     }
     bool selectedObjectRigid() const { return rigidObject(*m_obj); }
+    // Un oggetto della scena (non l'ambiente) e' una Cross Section: le
+    // rotazioni e il path 4D dell'ambiente ne cambiano il taglio.
+    bool anyCrossSectionObject() const {
+        for (size_t k = 1; k < m_objects.size(); ++k)
+            if (m_objects[k]->engineMode == ModeImplicit && m_objects[k]->implicitUsesCrossSection) return true;
+        return false;
+    }
     void setEnvironmentRotation4D(float o, float p, float ps) {
         SurfaceObject &env = *m_objects.front();
         env.omega = o; env.phi = p; env.psi = ps;
