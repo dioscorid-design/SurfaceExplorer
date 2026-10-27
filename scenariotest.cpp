@@ -6398,12 +6398,61 @@ void ScenarioTest::runSceneSoundScenarios()
     audio->stopAll();
     wait(300);
     for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
-        if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))) {
+        if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) {
             m_mw->addShapeToScene(it.filePath);
             break;
         }
     wait(500);
     check(gl->objectCount() == 2, QStringLiteral("ambiente + un oggetto"));
+
+    // Il path dell'oggetto usa le costanti A-F e s (le sue, quelle del dock con
+    // l'oggetto selezionato), da qualunque campo e anche dopo Save e Load.
+    {
+        m_mw->selectSceneObject(1);
+        setConstantByField(QStringLiteral("A"), QStringLiteral("3"));
+        wait(200);
+        const QVector3D base = gl->objectPosition();
+        m_mw->m_objectPath[0]->setText(QStringLiteral("A*cos(t)"));
+        m_mw->m_objectPath[1]->setText(QStringLiteral("2*B"));
+        m_mw->m_objectPath[2]->setText(QStringLiteral("s+1"));
+        m_lastPopup.clear();
+        m_mw->onObjectPathGoClicked();
+        wait(200);
+        const QVector3D eff = gl->objectEffectivePosition(1);
+        check(gl->isObjectPathRunning(1) && m_lastPopup.isEmpty(),
+              QStringLiteral("path dell'oggetto con costanti nelle formule: accettato (%1)").arg(m_lastPopup));
+        m_mw->onObjectPathGoClicked();   // STOP
+        gl->setObjectPath(1, QStringLiteral("A"), QStringLiteral("2*B"), QStringLiteral("s+1"), QString());
+        const QVector3D at0 = gl->objectEffectivePosition(1) - base;
+        check(qAbs(at0.x() - m_mw->ui->lineA->text().toFloat()) < 1e-4f
+                  && qAbs(at0.y() - 2.0f * m_mw->ui->lineB->text().toFloat()) < 1e-4f,
+              QStringLiteral("path dell'oggetto: le formule valgono le costanti del dock (offset %1, %2)")
+                  .arg(at0.x()).arg(at0.y()));
+        Q_UNUSED(eff);
+    }
+    // Una costante citata dal path dell'oggetto sblocca il suo slider: la sfera
+    // non ne usa nessuna (A bloccata), scriverla nel path la libera.
+    {
+        for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+            if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))) {
+                m_mw->addShapeToScene(it.filePath);
+                break;
+            }
+        wait(400);
+        const int sphere = gl->objectCount() - 1;
+        check(gl->selectedObject() == sphere && !m_mw->ui->aSlider->isEnabled(),
+              QStringLiteral("sfera come oggetto: A bloccata (nessuna formula la usa)"));
+        m_mw->m_objectPath[0]->setText(QStringLiteral("A"));
+        wait(200);
+        check(m_mw->ui->aSlider->isEnabled() && m_mw->ui->lineA->isEnabled(),
+              QStringLiteral("A scritta nel path dell'oggetto: lo slider A si sblocca"));
+        m_mw->m_objectPath[0]->setText(QString());
+        wait(200);
+        check(!m_mw->ui->aSlider->isEnabled(), QStringLiteral("path svuotato: A di nuovo bloccata"));
+        m_mw->removeSceneObject(sphere);
+        wait(200);
+        m_mw->selectSceneObject(0);
+    }
 
     // Un suono diverso a ciascuno, ognuno avviato dal suo Run Sound.
     m_mw->selectSceneObject(1);
@@ -6530,6 +6579,16 @@ void ScenarioTest::runSceneSoundScenarios()
     wait(300);
     check(m_mw->loadSceneFile(scenePath), QStringLiteral("scena ricaricata"));
     wait(800);
+    {
+        m_mw->selectSceneObject(1);
+        wait(200);
+        const QVector3D b2 = gl->objectPosition();
+        const QVector3D e2 = gl->objectEffectivePosition(1);
+        check(gl->objectPath(1).value(0) == QStringLiteral("A")
+                  && qAbs((e2.x() - b2.x()) - m_mw->ui->lineA->text().toFloat()) < 1e-4f,
+              QStringLiteral("scena caricata: il path dell'oggetto usa le sue costanti (A=%1)").arg(m_mw->ui->lineA->text()));
+        m_mw->selectSceneObject(0);
+    }
     check(gl->objectCount() == 2 && audio->isPlaying(0) && audio->isPlaying(1),
           QStringLiteral("scena caricata: i due suoni partono insieme (voci: %1)").arg(audio->playingVoices().size()));
     m_mw->selectSceneObject(1);
@@ -7751,6 +7810,8 @@ void ScenarioTest::runShapeBackgroundScenarios()
     wait(300);
     check(!QFile::exists(emptyShape) && m_lastPopup.contains(QLatin1String("no surface")),
           QStringLiteral("scena vuota -> Save Shape rifiutato (%1)").arg(m_lastPopup));
+    check(!ui->radioBorder->isEnabled() && !m_mw->editingBorder(),
+          QStringLiteral("scena vuota (NEW): il radio Border e' spento (nessuna superficie)"));
     // Stessa regola per Record, Scena e Suono: avviso, non il dialogo di salvataggio.
     {
         const QString emptyRec = m_outDir + QStringLiteral("/empty-record.json");

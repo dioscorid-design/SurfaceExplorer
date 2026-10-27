@@ -899,7 +899,10 @@ void MainWindow::setupObjectsDock()
         m_objectPath[i]->setPlaceholderText(QLatin1String(pathHints[i]));
         pathGrid->addWidget(m_objectPath[i], i / 2, 1 + i % 2);
         connect(m_objectPath[i], &QLineEdit::textChanged, this, [this]() {
-            if (!m_refreshingObjects) refreshObjectPathControls();
+            if (m_refreshingObjects) return;
+            refreshObjectPathControls();
+            // Le costanti citate dal path si sbloccano (o tornano neutre) subito.
+            updateConstantsUIState();
         });
         connect(m_objectPath[i], &QLineEdit::returnPressed, this, [this, i]() {
             m_objectPath[i]->clearFocus();
