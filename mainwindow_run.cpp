@@ -229,12 +229,11 @@ void MainWindow::applyStartSideEffects()
     // Non riaccendere il suono se l'utente l'ha fermato esplicitamente: un commit
     // di equazione/texture (Enter ad animazione attiva) arriva qui via onStartClicked
     // e altrimenti lo farebbe ripartire come un master Start.
-    if (m_audioController && !m_audioController->isPlaying() && !m_userStoppedSound) {
-        const QString codeToAnalyze = sceneAudioSource();
-        if (!codeToAnalyze.trimmed().isEmpty()) {
-            m_audioController->playFromScript(codeToAnalyze);
-            updateScriptButtonText();
-        }
+    // Un suono per oggetto, tutti in parallelo: ognuno riparte se non suona e
+    // l'utente non l'ha fermato.
+    if (m_audioController) {
+        startObjectSounds(0);
+        updateScriptButtonText();
     }
 }
 
@@ -590,7 +589,8 @@ void MainWindow::runSceneScript(RunOrigin origin, bool runDockOnly)
             QString audioErr;
             // Nella forma che suonera' (GLSL nudo avvolto): senza marcatori
             // validateScript non trovava niente da compilare e passava tutto.
-            if (!m_audioController->validateScript(wrapSoundCode(soundSrc), &audioErr)) {
+            if (!m_audioController->validateScript(wrapSoundCode(soundSrc), &audioErr,
+                                                   ui->glWidget->selectedObject())) {
                 showShaderError("Syntax Error (Sound Script)",
                                                            audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
                 return;
@@ -1888,7 +1888,10 @@ MainWindow::MasterActivity MainWindow::masterActivity() const
     // SUONO: START suona sceneAudioSource(), che e' il testo in cui CERCARE le
     // direttive audio (suono, script, texture, sfondo): c'e' un suono solo se
     // vi compare un tag.
-    a.audioAvailable = AudioController::containsAudio(sceneAudioSource());
+    // Con piu' oggetti ognuno ha il suo suono: c'e' un audio se ce l'ha uno
+    // qualsiasi, e suona se suona una voce qualsiasi.
+    for (int k = 0; k < ui->glWidget->objectCount() && !a.audioAvailable; ++k)
+        a.audioAvailable = AudioController::containsAudio(audioSourceOf(k));
     a.audioRunning = m_audioController && m_audioController->isPlaying();
     return a;
 }
@@ -1923,7 +1926,7 @@ void MainWindow::updateMasterButtonState()
     // finito da solo il tasto torna su "Run Sound".
     if (m_currentScriptMode == ScriptModeSound && ui->btnRunCurrentScript
         && ui->btnRunCurrentScript->text() != "Run Sound"
-        && !(m_audioController && m_audioController->isPlaying()))
+        && !(m_audioController && m_audioController->isPlaying(ui->glWidget->selectedObject())))
         ui->btnRunCurrentScript->setText("Run Sound");
 
     // Lo stato dei moduli, da una sede sola (masterActivity): ne leggono sia i

@@ -250,6 +250,11 @@ private:
     void runSceneTurnScenarios();
     // 2.0, tappa 5: oggetti in ray marching e mesh si coprono per distanza.
     void runSceneDepthScenarios();
+    // 2.0: un suono per oggetto, tutti in parallelo (una voce di
+    // AudioController per oggetto): suonano insieme, ognuno si ferma da solo,
+    // Save e Load della scena li riportano, la colonna sonora del video li somma.
+    // Da sola: --scenario-only scene-sound.
+    void runSceneSoundScenarios();
     // 2.0: flussi geodetici come oggetti, col loro tempo anche non selezionati.
     void runSceneGeodesicScenarios();
     // 2.0: il master su tutta la scena (oggetti e moduli della scena).

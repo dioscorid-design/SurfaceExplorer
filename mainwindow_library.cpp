@@ -247,6 +247,13 @@ bool MainWindow::confirmLibraryClick(QTreeWidget *src, QTreeWidgetItem *item)
 
         // Confermato: da qui in poi il preset caricato e' quello cliccato.
         m_lastLoadedLibraryItem = item;
+        // Il preset sostituisce la scena: e' la voce dell'ambiente.
+        if (!m_objectSessions.empty())
+        {
+            m_objectSessions[0].libraryPath = LibraryTreeFocus::itemPath(item);
+            m_objectSessions[0].scenePath = item->treeWidget() == ui->treeScenes
+                                                ? m_objectSessions[0].libraryPath : QString();
+        }
     }
     return true;
 }
@@ -1161,26 +1168,32 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
         // Usiamo la pulizia per confrontare il codice in memoria con quello della libreria
         isAlreadyPresent = (cleanAudioCode(m_scene.soundScriptText) == cleanAudioCode(soundData.scriptCode));
     }
-    // 3. SUONO GIA' CARICATO: il click lo RIGENERA (nessun toggle)
-    // Cliccare nella Library un suono gia' presente significa sempre "risuona
-    // questo preset dall'inizio". Prima il primo click lo fermava e solo il
-    // secondo lo faceva ripartire; per fermarlo ci sono gia' i tasti dedicati
-    // (Run/Stop Sound del dock Script e master), quindi lo stop qui era solo un
-    // passo in piu' prima del gesto utile.
+    // 3. SUONO GIA' CARICATO: il click lo TOGLIE (secondo click: riparte).
+    // E' il solo modo di togliere il suono a un record che ne ha uno (prima si
+    // poteva solo fermarlo, o salvare senza). Il suono torna a un click di
+    // distanza: toltolo, la voce non e' piu' "gia' presente" e il click
+    // successivo lo carica e lo fa suonare dall'inizio. Il suono tolto e' quello
+    // dell'oggetto selezionato; gli altri continuano.
     if (isAlreadyPresent) {
-        // stopAll PRIMA del riavvio: riparte dall'inizio, e serve anche perche'
-        // onRunSoundClicked e' a sua volta un toggle (col tasto su "Stop Sound"
-        // fermerebbe invece di risuonare). La memoria dello script resta intatta.
-        if (m_audioController && m_audioController->isPlaying()) {
-            m_audioController->stopAll();
-            if (m_currentScriptMode == ScriptModeSound) {
-                ui->btnRunCurrentScript->setText("Run Sound");
-            }
+        const int voice = ui->glWidget->selectedObject();
+        m_audioController->stopVoice(voice);
+        // Anche le copie nei codici delle texture, come nel ramo che lo sostituisce.
+        for (QString *code : { &m_scene.surfaceTextureScriptText, &m_scene.bgTextureScriptText,
+                               &m_scene.surfaceTextureCode, &m_scene.bgTextureCode }) {
+            *code = stripAudioDirectives(*code);
         }
-        // Il click dice DA QUALE voce viene il suono gia' in scena: e' il caso
-        // di un record salvato prima dell'ancora, che la acquista qui.
-        m_scene.soundLibName = soundData.name.trimmed();
-        onRunSoundClicked();
+        setScriptText(SlotSound, QString());
+        m_scene.soundLibName.clear();
+        refreshScriptEditor();
+        // La scena e' cambiata rispetto al suo file: lo conserva il record.
+        markSoundPicked();
+        if (QTreeWidget *tree = ui->treeSounds) {
+            const QSignalBlocker blocker(tree);
+            tree->clearSelection();
+            tree->setCurrentItem(nullptr);
+        }
+        updateScriptButtonText();
+        updateMasterButtonState();
         return;
     }
 
@@ -1223,7 +1236,8 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
 
     // (L'editor segue da se' lo slot del suono, se e' quello che mostra.)
 
-    m_audioController->stopAll();
+    // Solo il suono dell'oggetto selezionato: gli altri continuano.
+    m_audioController->stopVoice(ui->glWidget->selectedObject());
 
     // Imposta lo stato visivo e abilita i tasti per il nuovo suono
     if (m_currentScriptMode == ScriptModeSound) {
@@ -1787,9 +1801,9 @@ void MainWindow::saveInBranch(LibraryFolders::Branch branch, const QString &dir,
     case B::Textures: s->saveTextureAs(dir, source); break;
     case B::Sounds:   s->saveSoundAs(dir, source); break;
     case B::Records:  if (as) s->saveMotionAs(dir, source); else s->saveMotion(dir); break;
-    // Una scena si salva sempre dalla scena a schermo: "As" apre lo stesso
-    // dialogo nella cartella della scena cliccata.
-    case B::Scenes:   s->saveScene(dir); break;
+    // Una scena si salva sempre dalla scena a schermo: "As" apre il dialogo
+    // nella cartella della scena cliccata, col nome di quella (come gli altri rami).
+    case B::Scenes:   s->saveScene(dir, as ? QFileInfo(source).fileName() : QString()); break;
     case B::None:     break;
     }
 }

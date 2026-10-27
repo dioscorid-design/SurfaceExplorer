@@ -1,0 +1,327 @@
+{
+    "environment": {
+        "activeMotion": "path3D",
+        "angles": {
+            "omega": 0,
+            "phi": 0,
+            "psi": 0
+        },
+        "background": {
+            "code": "// Parametri\nvec2 c = (uv - 0.5) * 3.0 - vec2(0.7, 0.0);\nvec2 z = vec2(0.0);\n\nfloat iter = 0.0;\nfloat maxIter = 100.0;\n\n// Ciclo principale del Mandelbrot\nfor(float i = 0.0; i < maxIter; i++) {\n    // Formula: Z = Z^2 + C\n    float x = (z.x * z.x - z.y * z.y) + c.x;\n    float y = (2.0 * z.x * z.y) + c.y;\n\n    // Controllo di fuga (modulo > 2, quindi modulo^2 > 4)\n    if((x * x + y * y) > 4.0) break;\n\n    z.x = x;\n    z.y = y;\n    iter++;\n}\n\n// Colorazione\nfloat tit = iter / maxIter;\n\n// Smoothing della sfumatura\ntit = pow(tit, 0.5);\n\n// Se il punto è all'interno del set (non è fuggito), colora di nero\nif (iter >= maxIter - 0.5) return vec3(0.0);\n\n// Altrimenti interpola tra i due colori definiti nell'interfaccia (u_col2 e u_col1)\nreturn mix(u_col2, u_col1, tit);",
+            "col1": "#3fc1b3",
+            "col2": "#2f6900",
+            "color": "#4d4d4d",
+            "enabled": true,
+            "libName": "Mandelbrot Solid Core",
+            "pan_x": 0,
+            "pan_y": 0,
+            "rotation": 90,
+            "skyMode": "fixed",
+            "zoom": 1.448163628578186
+        },
+        "camera3D": {
+            "pitch": -37.76808547973633,
+            "roll": 0,
+            "rot_w": 0.772943377494812,
+            "rot_x": 0.3677619695663452,
+            "rot_y": 0.3654734492301941,
+            "rot_z": 0.36570313572883606,
+            "x": -1.1978455781936646,
+            "y": 1.060738444328308,
+            "yaw": 61.03715133666992,
+            "z": 0.6629615426063538
+        },
+        "cameraFov": 92,
+        "colors": {
+            "alpha": 1,
+            "surfColor": "#33cc33"
+        },
+        "constants": {
+            "A": 0.800000011920929,
+            "B": 1,
+            "C": 1,
+            "D": 1,
+            "E": 1,
+            "F": 1,
+            "S": 0
+        },
+        "equations": {
+            "defU": "",
+            "defV": "",
+            "defW": "",
+            "explicitU": "",
+            "explicitV": "",
+            "explicitW": "",
+            "p": "0",
+            "x": "A*cos(u)/cosh(v)",
+            "y": "A*sin(u)/cosh(v)",
+            "z": "A*(v-tanh(v))"
+        },
+        "fillLight": 0,
+        "fov3D": 92,
+        "fov4D": 92,
+        "geodesic": {
+            "conform": "1.0",
+            "du": "",
+            "dv": "",
+            "dw": "",
+            "u0": "",
+            "v0": "",
+            "w0": ""
+        },
+        "hintSeconds": 6,
+        "hintText": "Slider A: size",
+        "isImplicitMode": false,
+        "lightIntensity": 1,
+        "lightingMode": 0,
+        "limits": {
+            "uMax": 6.28318977355957,
+            "uMin": 0,
+            "vMax": 4,
+            "vMin": -4,
+            "wMax": 0,
+            "wMin": 0,
+            "xMax": 1000,
+            "xMin": -1000,
+            "yMax": 1000,
+            "yMin": -1000,
+            "zMax": 1000,
+            "zMin": -1000
+        },
+        "meshScopeAll": true,
+        "name": "Parametric Environment-3DRM Object",
+        "observer4D": 5,
+        "path3D": {
+            "roll": "t",
+            "x": "2*A*cos(t)",
+            "y": "2*A*sin(t)",
+            "z": "sin(t)"
+        },
+        "path4D": {
+            "alpha": "t",
+            "beta": "",
+            "gamma": "",
+            "w": "",
+            "x": "2*A*cos(t)",
+            "y": "2*A*sin(t)",
+            "z": "sin(t)"
+        },
+        "pathMode": 1,
+        "pathMode3D": 1,
+        "projectionMode": 0,
+        "renderMode": 1,
+        "speeds": {
+            "nutation": 0.20000000298023224,
+            "omega": 0,
+            "path3D": 25,
+            "path4D": 18,
+            "phi": 0,
+            "precession": 0.20000000298023224,
+            "psi": 0,
+            "spin": 0.20000000298023224
+        },
+        "steps": 406,
+        "texture": {
+            "code": "//IMG:/var/mobile/Containers/Data/Application/454468E9-D1C7-4461-BBC2-048F1A1FCA6F/Documents/SurfaceExplorer_Presets/textures/Images/Solar System/2k_venus_atmosphere.jpg",
+            "col1": "#33cc33",
+            "col2": "#000000",
+            "enabled": true,
+            "libName": "2k_venus_atmosphere",
+            "pan_x": 0,
+            "pan_y": 0,
+            "rotation": 0,
+            "zoom": 1
+        },
+        "type": "motion",
+        "use4DLighting": false,
+        "wireframe": {
+            "uStep": 4,
+            "vStep": 4
+        }
+    },
+    "formatVersion": 1,
+    "name": "Parametric Environment-3DRM Object",
+    "objects": [
+        {
+            "motion": {
+                "rotating": false,
+                "speeds": {
+                    "nutation": 0,
+                    "omega": 0,
+                    "phi": 0,
+                    "precession": 0,
+                    "psi": 0,
+                    "spin": 0
+                }
+            },
+            "name": "Chmutov",
+            "position": [
+                1.5,
+                0,
+                0
+            ],
+            "record": {
+                "activeMotion": "path3D",
+                "angles": {
+                    "omega": 0,
+                    "phi": 0,
+                    "psi": 0
+                },
+                "background": {
+                    "code": "// Parametri\nvec2 c = (uv - 0.5) * 3.0 - vec2(0.7, 0.0);\nvec2 z = vec2(0.0);\n\nfloat iter = 0.0;\nfloat maxIter = 100.0;\n\n// Ciclo principale del Mandelbrot\nfor(float i = 0.0; i < maxIter; i++) {\n    // Formula: Z = Z^2 + C\n    float x = (z.x * z.x - z.y * z.y) + c.x;\n    float y = (2.0 * z.x * z.y) + c.y;\n\n    // Controllo di fuga (modulo > 2, quindi modulo^2 > 4)\n    if((x * x + y * y) > 4.0) break;\n\n    z.x = x;\n    z.y = y;\n    iter++;\n}\n\n// Colorazione\nfloat tit = iter / maxIter;\n\n// Smoothing della sfumatura\ntit = pow(tit, 0.5);\n\n// Se il punto è all'interno del set (non è fuggito), colora di nero\nif (iter >= maxIter - 0.5) return vec3(0.0);\n\n// Altrimenti interpola tra i due colori definiti nell'interfaccia (u_col2 e u_col1)\nreturn mix(u_col2, u_col1, tit);",
+                    "col1": "#3fc1b3",
+                    "col2": "#2f6900",
+                    "color": "#4d4d4d",
+                    "enabled": true,
+                    "libName": "Mandelbrot Solid Core",
+                    "pan_x": 0,
+                    "pan_y": 0,
+                    "rotation": 90,
+                    "skyMode": "fixed",
+                    "zoom": 1.448163628578186
+                },
+                "camera3D": {
+                    "pitch": -37.76808547973633,
+                    "roll": 0,
+                    "rot_w": 0.464827299118042,
+                    "rot_x": 0.4490322172641754,
+                    "rot_y": -0.7569547891616821,
+                    "rot_z": 0.09656686335802078,
+                    "x": -1.1978455781936646,
+                    "y": 1.060738444328308,
+                    "yaw": 61.03715133666992,
+                    "z": 0.6629615426063538
+                },
+                "cameraFov": 92,
+                "colors": {
+                    "alpha": 1,
+                    "surfColor": "#33cc33"
+                },
+                "constants": {
+                    "A": 0.10000000149011612,
+                    "B": 1,
+                    "C": 1,
+                    "D": 1,
+                    "E": 1,
+                    "F": 1,
+                    "S": 0.20000000298023224
+                },
+                "crossSectionEquation": "",
+                "equations": {
+                    "defU": "",
+                    "defV": "",
+                    "defW": "",
+                    "explicitU": "",
+                    "explicitV": "",
+                    "explicitW": "",
+                    "p": "0.0",
+                    "x": "(0.8 + 0.3*cos(v))*cos(u)",
+                    "y": "(0.8 + 0.3*cos(v))*sin(u)",
+                    "z": "0.3*sin(v)"
+                },
+                "fillLight": 0,
+                "fov3D": 92,
+                "fov4D": 92,
+                "geodesic": {
+                    "conform": "1.0",
+                    "du": "",
+                    "dv": "",
+                    "dw": "",
+                    "u0": "",
+                    "v0": "",
+                    "w0": ""
+                },
+                "hintSeconds": 6,
+                "hintText": "Slider A: step scale of the marcher (shape unchanged)",
+                "hybridMarcher": false,
+                "implicitEquation": "A*(2*(x^2*(3-4*x^2)^2+y^2*(3-4*y^2)^2+z^2*(3-4*z^2)^2)-3)=0",
+                "implicitUsesCrossSection": false,
+                "isImplicitMode": true,
+                "lightIntensity": 1,
+                "lightingMode": 0,
+                "limits": {
+                    "uMax": 6.2831854820251465,
+                    "uMin": 0,
+                    "vMax": 6.2831854820251465,
+                    "vMin": 0,
+                    "wMax": 0,
+                    "wMin": 0,
+                    "xMax": 1000,
+                    "xMin": -1000,
+                    "yMax": 1000,
+                    "yMin": -1000,
+                    "zMax": 1000,
+                    "zMin": -1000
+                },
+                "meshScopeAll": true,
+                "name": "Chmutov",
+                "observer4D": 5,
+                "path3D": {
+                    "roll": "t",
+                    "x": "2*A*cos(t)",
+                    "y": "2*A*sin(t)",
+                    "z": "sin(t)"
+                },
+                "path4D": {
+                    "alpha": "t",
+                    "beta": "",
+                    "gamma": "",
+                    "w": "",
+                    "x": "2*A*cos(t)",
+                    "y": "2*A*sin(t)",
+                    "z": "sin(t)"
+                },
+                "pathMode": 1,
+                "pathMode3D": 1,
+                "projectionMode": 0,
+                "renderMode": 10,
+                "shellThickness": 0.004999999888241291,
+                "speeds": {
+                    "nutation": 0,
+                    "omega": 0,
+                    "path3D": 25,
+                    "path4D": 0,
+                    "phi": 0,
+                    "precession": 0,
+                    "psi": 0,
+                    "spin": 0
+                },
+                "steps": 940,
+                "texture": {
+                    "code": "float pattern = sin(pModel.x * 20.0) * sin(pModel.y * 20.0);\nif (pattern > 0.0) {\n    textureCol = ubuf.u_col1;\n} else {\n    textureCol = ubuf.u_col2;\n}",
+                    "col1": "#33cc33",
+                    "col2": "#000000",
+                    "displacement": "",
+                    "enabled": true,
+                    "pan_x": 0,
+                    "pan_y": 0,
+                    "rotation": 0,
+                    "zoom": 1
+                },
+                "type": "motion",
+                "use4DLighting": false,
+                "wireframe": {
+                    "uStep": 4,
+                    "vStep": 4
+                }
+            },
+            "scale": 0.23086993396282196,
+            "source": "surfaces/Implicit/3D/Chmutov.json"
+        }
+    ],
+    "sceneRotation": {
+        "angles4D": [
+            0,
+            0,
+            0
+        ],
+        "quaternion": [
+            0.7729431390762329,
+            0.3677598237991333,
+            0.36547693610191345,
+            0.36570239067077637
+        ]
+    },
+    "type": "scene",
+    "environmentSource": "records/Paths/Parametric/Surfaces/Equations/R3/Pseudosphere.json"
+}

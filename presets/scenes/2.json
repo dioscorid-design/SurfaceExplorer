@@ -311,8 +311,10 @@
                     "vStep": 4
                 }
             },
-            "scale": 0.5411816239356995
+            "scale": 0.5411816239356995,
+            "source": "surfaces/Parametric/Solid Curves/Borders/Mobius.json"
         }
     ],
-    "type": "scene"
+    "type": "scene",
+    "environmentSource": "records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Coiled Coil.json"
 }

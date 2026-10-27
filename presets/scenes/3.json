@@ -461,5 +461,6 @@
             "scale": 0.2426830232143402
         }
     ],
-    "type": "scene"
+    "type": "scene",
+    "environmentSource": "records/Animations/Parametric/Surfaces/Tubes/Figure-Eight Knot.json"
 }

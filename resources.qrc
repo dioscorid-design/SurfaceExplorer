@@ -499,10 +499,19 @@
         <file>presets/sounds/procedural/Trailing the Twinkling Tunnel.json</file>
         <file>presets/sounds/procedural/Alien Thorns.json</file>
         <file>presets/sounds/procedural/Dust Storm.json</file>
+        <file>presets/scenes/3DRM Environment-Cross Section Object.json</file>
+        <file>presets/scenes/3DRM Environment-3DRM Object.json</file>
+        <file>presets/scenes/3DRM Environment-Parametric Object.json</file>
+        <file>presets/scenes/Cross Section Environment-Cross Section Object.json</file>
+        <file>presets/scenes/Cross Section Environment-3DRM Object.json</file>
+        <file>presets/scenes/Parametric Environment-3DRM Object.json</file>
         <file>presets/scenes/1.json</file>
         <file>presets/scenes/2.json</file>
+        <file>presets/scenes/Cross Section Objects.json</file>
+        <file>presets/scenes/Parametric Environment-Cross Section Object.json</file>
         <file>presets/scenes/3.json</file>
-        <file>presets/scenes/4.json</file>
+        <file>presets/scenes/Cross Section Environment-Parametric Object.json</file>
+        <file>presets/scenes/Parametric Environment-Parametric Object.json</file>
         <file>shaders/surface.frag</file>
         <file>shaders/common.glsl</file>
         <file>shaders/geodesic.glsl</file>

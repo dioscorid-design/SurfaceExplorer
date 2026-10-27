@@ -597,8 +597,18 @@ void VideoRecorder::toggleRecord()
     // (Stop Sound), il video deve restare MUTO e a fine registrazione il suono
     // NON va riavviato: si registra quello che si vede e si sente. Catturato
     // PRIMA dello stopAll qui sotto, che azzera lo stato di riproduzione.
-    const bool wasSoundPlaying = m_mainWindow->m_audioController &&
-                                 m_mainWindow->m_audioController->isPlaying();
+    // Un suono per oggetto, in parallelo: le voci che suonavano e il loro testo
+    // (catturato ora, prima dello stopAll). Una sola voce = la colonna sonora
+    // di sempre; piu' voci = la loro somma (renderMixToRaw).
+    const QList<int> soundVoices = m_mainWindow->m_audioController
+                                       ? m_mainWindow->m_audioController->playingVoices() : QList<int>();
+    QStringList soundSources;
+    for (int v : soundVoices) soundSources.append(m_mainWindow->audioSourceOf(v));
+    const bool wasSoundPlaying = !soundVoices.isEmpty();
+    const bool mixSounds = soundVoices.size() > 1;
+    // La voce e il testo della colonna sonora singola.
+    const int soloVoice = wasSoundPlaying ? soundVoices.first() : 0;
+    const QString soloSource = wasSoundPlaying ? soundSources.first() : QString();
     m_mainWindow->m_audioController->stopAll();
 
     if (m_mainWindow->ui->glWidget) {
@@ -717,9 +727,11 @@ void VideoRecorder::toggleRecord()
     if (wasSoundPlaying) {
         // Stessa sorgente del player (sceneAudioSource): il video deve trovare
         // il suono che sta suonando, non cercarlo per conto suo.
-        const QString preCode = m_mainWindow->sceneAudioSource();
+        const QString preCode = soloSource;
 
-        if (preCode.contains("mainSound") && m_mainWindow->m_audioController) {
+        if (mixSounds) {
+            willHaveAudio = true;
+        } else if (preCode.contains("mainSound") && m_mainWindow->m_audioController) {
             willHaveAudio = true;
         } else {
             QRegularExpression musicRe(R"(^\s*//MUSIC:\s*(.*)$)", QRegularExpression::MultilineOption);
@@ -749,16 +761,19 @@ void VideoRecorder::toggleRecord()
     // Si puo' fare: il bouncing offline dipende solo dalla durata, non dai frame.
     QString macAudioFile;
     if (willHaveAudio) {
-        const QString preCode = m_mainWindow->sceneAudioSource();
+        const QString preCode = soloSource;
 
-        if (preCode.contains("mainSound") && m_mainWindow->m_audioController) {
-            // Audio procedurale: lo renderizziamo alla durata NOMINALE richiesta.
+        if ((mixSounds || preCode.contains("mainSound")) && m_mainWindow->m_audioController) {
+            // Audio procedurale (o la somma di piu' voci): lo renderizziamo alla durata NOMINALE richiesta.
             // Se l'utente ferma il REC prima, il taglio alla durata reale lo fa
             // NativeVideoEncoder::end(), che riceve actualSeconds.
             ensureRecFolder();
             const QString rawPath = m_mainWindow->m_recFolder + "/soundtrack.raw";
             const int nominalSecs = (int)ceil((double)totalFrames / (double)fps);
-            if (m_mainWindow->m_audioController->saveSynthToRawFile(rawPath, nominalSecs)) {
+            const bool rendered = mixSounds
+                ? m_mainWindow->m_audioController->renderMixToRaw(soundVoices, soundSources, nominalSecs, rawPath)
+                : m_mainWindow->m_audioController->saveSynthToRawFile(rawPath, nominalSecs, soloVoice);
+            if (rendered) {
                 // L'encoder legge via AVAsset: serve un contenitore, non il raw.
                 // Stessa intestazione WAV (44.1k, stereo, float32) del ramo iOS.
                 const QString wavPath = m_mainWindow->m_recFolder + "/soundtrack.wav";
@@ -1079,7 +1094,13 @@ void VideoRecorder::toggleRecord()
     // Riavvia il suono SOLO se stava suonando quando l'utente ha premuto REC:
     // un suono fermato a mano (Stop Sound) deve restare fermo anche dopo la
     // registrazione. (Chiamata privata di MainWindow grazie alla friend class.)
-    if (wasSoundPlaying) m_mainWindow->onRunSoundClicked();
+    // Tutte le voci che suonavano, ognuna col suo oggetto.
+    if (wasSoundPlaying) {
+        for (int v : soundVoices) m_mainWindow->playObjectSound(v);
+        m_mainWindow->m_userStoppedSound = false;
+        m_mainWindow->updateScriptButtonText();
+        m_mainWindow->updateMasterButtonState();
+    }
     // ==============================================================
 
     m_mainWindow->m_btnRec->setText("REC");
@@ -1204,7 +1225,7 @@ void VideoRecorder::toggleRecord()
     float actualSeconds = (float)actualFramesRendered / (float)fps;
 
     // 1. Tutto il codice che puo' portare la musica: la stessa sorgente del player.
-    const QString currentCode = m_mainWindow->sceneAudioSource();
+    const QString currentCode = soloSource;
 
     QString audioFile = "";
     bool hasAudio = false;
@@ -1213,12 +1234,15 @@ void VideoRecorder::toggleRecord()
     // 2. SCENARIO A: Audio Procedurale (GPU GLSL Synth)
     // Gate wasSoundPlaying su entrambi gli scenari (stesso criterio di
     // willHaveAudio): suono fermato dall'utente prima del REC = clip muta.
-    if (wasSoundPlaying && currentCode.contains("mainSound") && m_mainWindow->m_audioController) {
+    if (wasSoundPlaying && (mixSounds || currentCode.contains("mainSound")) && m_mainWindow->m_audioController) {
         ensureRecFolder();   // primo (e su macOS unico) uso reale della cartella
         audioFile = m_mainWindow->m_recFolder + "/soundtrack.raw";
 
         // Bouncing Offline (Molto più veloce del tempo reale)
-        if (m_mainWindow->m_audioController->saveSynthToRawFile(audioFile, (int)ceil(actualSeconds))) {
+        const bool rendered = mixSounds
+            ? m_mainWindow->m_audioController->renderMixToRaw(soundVoices, soundSources, (int)ceil(actualSeconds), audioFile)
+            : m_mainWindow->m_audioController->saveSynthToRawFile(audioFile, (int)ceil(actualSeconds), soloVoice);
+        if (rendered) {
             hasAudio = true;
             isRaw = true;
         }

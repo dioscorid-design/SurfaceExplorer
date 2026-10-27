@@ -1759,6 +1759,12 @@ private:
     // selezionato, e si riscrive quando si cambia oggetto.
     struct ObjectSession {
         QString name;   // il nome nell'elenco degli oggetti (dal preset)
+        // La voce della Library (percorso) da evidenziare quando l'oggetto e'
+        // selezionato: la scena dell'ambiente, la Shape/il record dell'oggetto.
+        QString libraryPath;
+        // Solo nella sessione 0: il file della scena caricata, che resta
+        // evidenziato nella linguetta Scenes qualunque oggetto sia selezionato.
+        QString scenePath;
         ObjectState state;
         std::optional<EquationTexts> eqApplied;
         std::array<QString, 6> spaceLimitsApplied;
@@ -1774,6 +1780,12 @@ private:
         QString currentTexturePresetPath;
         QString textureHintText;
         float textureHintSeconds = 6.0f;
+        // IL SUONO DELL'OGGETTO (2.0): il testo e l'ancora della Library, e se
+        // l'utente l'ha fermato. Vale per l'oggetto NON selezionato; quello
+        // selezionato li ha aperti in m_scene.soundScriptText/soundLibName e
+        // m_userStoppedSound, come ogni altra parte della sessione.
+        QString soundScriptText, soundLibName;
+        bool userStoppedSound = false;
         bool userStoppedGeomClock = false;
         bool userStoppedTexClock = false;
         bool userStoppedMeshTexClock = false;
@@ -1832,6 +1844,9 @@ private:
     // colori, luce, trasparenza, resa, bordo e rotazioni dal motore. Solo
     // vista: nessuna scrittura nel motore che ne cambi lo stato.
     void showSelectedObject();
+    // Evidenzia nella Library la voce del percorso dato (superfici, record,
+    // scene), a segnali bloccati. Le texture le segue syncTextureTreeSelection.
+    void focusLibraryPath(const QString &path);
     // UNA SHAPE COME OGGETTO della scena (Add to scene): oggetto nuovo,
     // selezionato, col preset caricato senza toccare la scena. Ritorna
     // l'indice; l'oggetto resta selezionato.
@@ -1844,6 +1859,13 @@ private:
     // Una scena dalla linguetta Scenes: ambiente e oggetti (vedi il formato in
     // PresetSerializer::buildSceneJson). False se il file non e' una scena.
     bool loadSceneFile(const QString &path);
+    // Il percorso di un preset della Library scritto nel file di una scena:
+    // "<cartella del ramo>/<percorso nel ramo>" (es. "surfaces/Implicit/T3.json"),
+    // indipendente da dove l'utente tiene la libreria. Vuoto se il file non sta
+    // in un ramo. librarySourceToPath fa il giro inverso: vuoto se il file non
+    // c'e' piu'.
+    static QString librarySourceKey(const QString &path);
+    static QString librarySourceToPath(const QString &key);
     // Add to Scene (menu delle Shapes): la Shape come oggetto, accanto agli altri.
     void addShapeToScene(const QString &shapePath);
     // Una Shape come oggetto nuovo, coi valori del load dal ramo Shapes:
@@ -2359,6 +2381,17 @@ private:
     // texture utente salvata col suono dentro). Vuoto -> il testo dell'editor.
     // UNICO PUNTO: erano cinque concatenazioni, in ordini diversi.
     QString sceneAudioSource() const;
+    // Il testo audio dell'oggetto k (0 = ambiente), selezionato o no.
+    QString audioSourceOf(int k) const;
+    // Un suono per oggetto, tutti in parallelo (una voce di AudioController
+    // per oggetto). Suona la voce di k, se il suo testo ha un audio; gli errori
+    // (file mancante, shader) si mostrano con showSoundError.
+    bool playObjectSound(int k, bool reportErrors = true);
+    // Fa partire i suoni degli oggetti da `first` in poi che non suonano e che
+    // l'utente non ha fermato.
+    void startObjectSounds(int first);
+    bool objectSoundStopped(int k) const;
+    void showSoundError(const QString &err);
     // Granulari: la texture attiva referenzia u_col1 / u_col2 (token = "u_col1"/"u_col2").
     // Servono per abilitare i due picker INDIPENDENTEMENTE: una texture che usa solo
     // u_col1 (es. "Xor") non deve lasciare attivo il picker di col2, che non avrebbe

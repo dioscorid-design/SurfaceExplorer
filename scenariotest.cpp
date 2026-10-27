@@ -1936,6 +1936,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-sound")) {
+        runSceneSoundScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-depth")) {
         runSceneDepthScenarios();
         finish();
@@ -3822,6 +3827,7 @@ void ScenarioTest::run()
     runSceneMotionScenarios();
     runSceneTurnScenarios();
     runSceneDepthScenarios();
+    runSceneSoundScenarios();
     runSceneGeodesicScenarios();
     runSceneMasterScenarios();
     runSceneSaveLoadScenarios();
@@ -6377,6 +6383,170 @@ void ScenarioTest::runSceneMotionScenarios()
     }
 }
 
+void ScenarioTest::runSceneSoundScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    AudioController *audio = m_mw->m_audioController;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Scena: un suono per oggetto, in parallelo =="));
+    if (!audio) { check(false, QStringLiteral("AudioController assente")); return; }
+    auto tone = [](int hz) {
+        return QStringLiteral("//SOUND_BEGIN\nvec2 mainSound(int samp, float time) {\n"
+                              "    return vec2(0.05 * sin(6.2831853 * %1.0 * time));\n}\n//SOUND_END").arg(hz);
+    };
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    audio->stopAll();
+    wait(300);
+    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+        if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))) {
+            m_mw->addShapeToScene(it.filePath);
+            break;
+        }
+    wait(500);
+    check(gl->objectCount() == 2, QStringLiteral("ambiente + un oggetto"));
+
+    // Un suono diverso a ciascuno, ognuno avviato dal suo Run Sound.
+    m_mw->selectSceneObject(1);
+    m_mw->setScriptText(MainWindow::SlotSound, tone(440));
+    setScriptMode(MainWindow::ScriptModeSound);
+    m_mw->onRunSoundClicked();
+    wait(400);
+    m_mw->selectSceneObject(0);
+    m_mw->setScriptText(MainWindow::SlotSound, tone(220));
+    m_mw->onRunSoundClicked();
+    wait(400);
+    check(audio->isPlaying(0) && audio->isPlaying(1),
+          QStringLiteral("ambiente e oggetto suonano insieme (voci: %1)").arg(audio->playingVoices().size()));
+    m_mw->selectSceneObject(1);
+    check(m_mw->m_scene.soundScriptText.contains(QStringLiteral("440")),
+          QStringLiteral("selezionato l'oggetto: il dock Sound mostra il suo suono"));
+    m_mw->selectSceneObject(0);
+    check(m_mw->m_scene.soundScriptText.contains(QStringLiteral("220")),
+          QStringLiteral("selezionato l'ambiente: il dock Sound mostra il suo suono"));
+
+    // Il focus della Library segue l'oggetto: un suono di libreria sull'oggetto
+    // lo evidenzia solo quando l'oggetto e' selezionato, non sull'ambiente.
+    {
+        QTreeWidget *tree = m_mw->ui->treeSounds;
+        m_mw->selectSceneObject(1);
+        m_discardOnPrompt = true;   // il suono scritto a mano si scarta
+        const bool pickedOk = selectSound(QStringLiteral("sounds/procedural/Alps.json"));
+        m_discardOnPrompt = false;
+        if (pickedOk) {
+            m_mw->selectSceneObject(0);
+            check(tree->selectedItems().isEmpty(),
+                  QStringLiteral("selezionato l'ambiente (suono suo, non di libreria): nessuna voce evidenziata"));
+            m_mw->selectSceneObject(1);
+            const QString again = tree->selectedItems().isEmpty() ? QString() : tree->selectedItems().first()->text(0);
+            check(again == QStringLiteral("Alps"), QStringLiteral("di nuovo l'oggetto: torna evidenziato il suo suono (%1)").arg(again));
+        }
+        // Secondo click sul suono gia' in scena: lo toglie; il terzo lo ricarica.
+        m_mw->selectSceneObject(1);
+        {
+            QTreeWidgetItem it;
+            const QList<LibraryItem> &snds = m_mw->m_libraryManager.m_sounds;
+            for (int i = 0; i < snds.size(); ++i)
+                if (QDir::fromNativeSeparators(snds.at(i).filePath).endsWith(QStringLiteral("sounds/procedural/Alps.json")))
+                    it.setData(0, Qt::UserRole + 3, i);
+            m_mw->onSoundItemClicked(&it, 0);
+            wait(300);
+            check(m_mw->m_scene.soundScriptText.trimmed().isEmpty() && !audio->isPlaying(1) && tree->selectedItems().isEmpty(),
+                  QStringLiteral("secondo click sul suono in scena: tolto, fermo, nessuna voce evidenziata"));
+            check(audio->isPlaying(0) || !audio->isPlaying(1), QStringLiteral("(l'ambiente non e' toccato)"));
+            m_mw->onSoundItemClicked(&it, 0);
+            wait(400);
+            check(m_mw->m_scene.soundScriptText.contains(QStringLiteral("mainSound")) && audio->isPlaying(1),
+                  QStringLiteral("terzo click: il suono torna e suona"));
+        }
+        m_mw->selectSceneObject(1);
+        m_mw->setScriptText(MainWindow::SlotSound, tone(440));
+        audio->stopAll();
+        m_mw->onRunSoundClicked();
+        wait(300);
+        m_mw->selectSceneObject(0);
+        m_mw->onRunSoundClicked();
+        wait(300);
+    }
+
+    // Stop Sound dell'oggetto: l'ambiente continua.
+    m_mw->selectSceneObject(1);
+    m_mw->onRunSoundClicked();
+    wait(300);
+    check(!audio->isPlaying(1) && audio->isPlaying(0),
+          QStringLiteral("Stop Sound dell'oggetto: l'ambiente continua a suonare"));
+    m_mw->onRunSoundClicked();
+    wait(300);
+    check(audio->isPlaying(1) && audio->isPlaying(0), QStringLiteral("Run Sound: di nuovo insieme"));
+
+    // La colonna sonora del video: le due voci sommate (1 s, float32 stereo).
+    {
+        const QString raw = m_outDir + QStringLiteral("/scene-sound-mix.raw");
+        const QList<int> voices = audio->playingVoices();
+        QStringList sources;
+        for (int v : voices) sources.append(m_mw->audioSourceOf(v));
+        check(audio->renderMixToRaw(voices, sources, 1, raw)
+                  && QFileInfo(raw).size() == qint64(44100) * 2 * sizeof(float),
+              QStringLiteral("somma delle voci per il video: 1 s di float32 stereo (%1 byte)")
+                  .arg(QFileInfo(raw).size()));
+    }
+
+    // Un solo suono fermo: il Save chiede lo stesso (prima solo se erano tutti fermi).
+    {
+        audio->stopVoice(1);
+        wait(200);
+        m_lastPopup.clear();
+        const QString quiet = m_outDir + QStringLiteral("/scene-sound-one-stopped.json");
+        QFile::remove(quiet);
+        m_acceptNextDialog = true;   // il messaggio della scena
+        m_mw->m_presetSerializer->saveScene(quiet);
+        m_acceptNextDialog = false;
+        wait(300);
+        check(m_lastPopup.contains(QLatin1String("sound is stopped")) && !QFile::exists(quiet),
+              QStringLiteral("un solo suono fermo, l'altro suona: il Save chiede se tenerlo (%1)").arg(m_lastPopup));
+        PresetSerializer::MotionRunState r0;
+        const QJsonObject partial = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("P"), r0, true, QSet<int>{1});
+        const QString envTex = partial.value(QStringLiteral("environment")).toObject().value(QStringLiteral("texture")).toObject()
+                                   .value(QStringLiteral("code")).toString();
+        const QString objDoc = QString::fromUtf8(QJsonDocument(partial.value(QStringLiteral("objects")).toArray().at(0).toObject()
+                                                                   .value(QStringLiteral("record")).toObject()).toJson());
+        check(envTex.contains(QStringLiteral("mainSound")) && !objDoc.contains(QStringLiteral("mainSound")),
+              QStringLiteral("senza il suono fermo: l'ambiente lo tiene, l'oggetto no"));
+        m_mw->selectSceneObject(1);
+        m_mw->onRunSoundClicked();
+        wait(300);
+        m_mw->selectSceneObject(0);
+    }
+
+    // Save e Load della scena.
+    PresetSerializer::MotionRunState run;
+    const QJsonObject sceneJson = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Sound Scene"), run, true);
+    const QString scenePath = m_outDir + QStringLiteral("/scene-sound.json");
+    {
+        QFile f(scenePath);
+        check(f.open(QIODevice::WriteOnly) && f.write(QJsonDocument(sceneJson).toJson()) > 0,
+              QStringLiteral("scena con due suoni scritta"));
+    }
+    audio->stopAll();
+    wait(300);
+    check(m_mw->loadSceneFile(scenePath), QStringLiteral("scena ricaricata"));
+    wait(800);
+    check(gl->objectCount() == 2 && audio->isPlaying(0) && audio->isPlaying(1),
+          QStringLiteral("scena caricata: i due suoni partono insieme (voci: %1)").arg(audio->playingVoices().size()));
+    m_mw->selectSceneObject(1);
+    check(m_mw->m_scene.soundScriptText.contains(QStringLiteral("440")),
+          QStringLiteral("scena caricata: l'oggetto ha il suo suono"));
+    m_mw->selectSceneObject(0);
+    check(m_mw->m_scene.soundScriptText.contains(QStringLiteral("220")),
+          QStringLiteral("scena caricata: l'ambiente ha il suo suono"));
+
+    // Tolto l'oggetto, la sua voce se ne va e quella dell'ambiente resta.
+    m_mw->removeSceneObject(1);
+    wait(300);
+    check(audio->isPlaying(0) && !audio->isPlaying(1),
+          QStringLiteral("oggetto tolto: suona solo l'ambiente"));
+    audio->stopAll();
+}
+
 void ScenarioTest::runSceneDepthScenarios()
 {
     Ui::MainWindow *ui = m_mw->ui;
@@ -7581,6 +7751,28 @@ void ScenarioTest::runShapeBackgroundScenarios()
     wait(300);
     check(!QFile::exists(emptyShape) && m_lastPopup.contains(QLatin1String("no surface")),
           QStringLiteral("scena vuota -> Save Shape rifiutato (%1)").arg(m_lastPopup));
+    // Stessa regola per Record, Scena e Suono: avviso, non il dialogo di salvataggio.
+    {
+        const QString emptyRec = m_outDir + QStringLiteral("/empty-record.json");
+        const QString emptyScene = m_outDir + QStringLiteral("/empty-scene.json");
+        QFile::remove(emptyRec);
+        QFile::remove(emptyScene);
+        m_lastPopup.clear();
+        m_mw->m_presetSerializer->saveMotion(emptyRec);
+        wait(300);
+        check(!QFile::exists(emptyRec) && m_lastPopup.contains(QLatin1String("nothing to save")),
+              QStringLiteral("scena vuota -> Save Record rifiutato (%1)").arg(m_lastPopup));
+        m_lastPopup.clear();
+        m_mw->m_presetSerializer->saveScene(emptyScene);
+        wait(300);
+        check(!QFile::exists(emptyScene) && m_lastPopup.contains(QLatin1String("nothing to save")),
+              QStringLiteral("scena vuota -> Save Scene rifiutato (%1)").arg(m_lastPopup));
+        m_lastPopup.clear();
+        m_mw->m_presetSerializer->saveSoundAs(m_outDir, QString());
+        wait(300);
+        check(m_lastPopup.contains(QLatin1String("no sound to save")),
+              QStringLiteral("senza suono -> Save Sound rifiutato (%1)").arg(m_lastPopup));
+    }
     click(ui->radioBackground);
     if (!ui->chkBoxTexture->isChecked()) click(ui->chkBoxTexture);   // lo sfondo di default
     const QString defaultBg = m_outDir + QStringLiteral("/default-background.json");

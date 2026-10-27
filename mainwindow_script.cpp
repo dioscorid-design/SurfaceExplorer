@@ -1183,8 +1183,10 @@ void MainWindow::onApplyTextureScriptClicked()
 void MainWindow::onRunSoundClicked()
 {
     // Se sta suonando, ferma
+    const int voice = ui->glWidget->selectedObject();
     if (ui->btnRunCurrentScript->text() == "Stop Sound") {
-        m_audioController->stopAll();
+        // La voce dell'oggetto selezionato: gli altri suoni continuano.
+        m_audioController->stopVoice(voice);
         // Stop ESPLICITO dell'utente: un successivo commit di equazione/texture non
         // deve riaccendere il suono (vedi gate in applyStartSideEffects).
         m_userStoppedSound = true;
@@ -1196,21 +1198,8 @@ void MainWindow::onRunSoundClicked()
     }
 
     QString audioErr;
-    if (!m_audioController->playFromScript(sceneAudioSource(), &audioErr)) {
-        // File audio mancante: non e' un errore di sintassi e non va mostrato
-        // come tale (senza questo ramo il popup diceva "Syntax Error" con
-        // dentro il marcatore MISSING_FILE| grezzo).
-        if (audioErr.startsWith("MISSING_FILE|")) {
-            QMessageBox box(this);
-            box.setIcon(QMessageBox::Warning);
-            box.setWindowTitle("Sound File Not Found");
-            box.setText("The sound file was not found.");
-            box.setInformativeText(audioErr.section('|', 1));
-            box.exec();
-        } else {
-            showShaderError("Syntax Error (Sound Script)",
-                                                       audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
-        }
+    if (!m_audioController->playFromScript(sceneAudioSource(), &audioErr, voice)) {
+        showSoundError(audioErr);
         updateMasterButtonState();
         return;
     }
@@ -1220,6 +1209,62 @@ void MainWindow::onRunSoundClicked()
 
     // playFromScript ha già impostato "Stop Sound" sul ramo che suona.
     updateMasterButtonState();
+}
+
+// L'errore di un avvio audio. File mancante: non e' un errore di sintassi e non
+// va mostrato come tale (senza questo ramo il popup diceva "Syntax Error" con
+// dentro il marcatore MISSING_FILE| grezzo).
+void MainWindow::showSoundError(const QString &audioErr)
+{
+    if (audioErr.startsWith("MISSING_FILE|")) {
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
+        box.setWindowTitle("Sound File Not Found");
+        box.setText("The sound file was not found.");
+        box.setInformativeText(audioErr.section('|', 1));
+        box.exec();
+    } else {
+        showShaderError("Syntax Error (Sound Script)",
+                        audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
+    }
+}
+
+QString MainWindow::audioSourceOf(int k) const
+{
+    if (k == ui->glWidget->selectedObject()) return sceneAudioSource();
+    if (k < 0 || k >= int(m_objectSessions.size())) return QString();
+    const ObjectSession &s = m_objectSessions[k];
+    QString code = wrapSoundCode(s.soundScriptText) + "\n" + s.state.surfaceScriptApplied + "\n"
+                   + s.state.surfaceTextureCode;
+    // Lo sfondo e' dell'ambiente.
+    if (k == 0) code += "\n" + m_scene.bgTextureCode;
+    return code;
+}
+
+bool MainWindow::objectSoundStopped(int k) const
+{
+    if (k == ui->glWidget->selectedObject()) return m_userStoppedSound;
+    return k >= 0 && k < int(m_objectSessions.size()) && m_objectSessions[k].userStoppedSound;
+}
+
+bool MainWindow::playObjectSound(int k, bool reportErrors)
+{
+    const QString code = audioSourceOf(k);
+    if (!AudioController::containsAudio(code)) return false;
+    QString err;
+    if (!m_audioController->playFromScript(code, &err, k)) {
+        if (reportErrors) showSoundError(err);
+        return false;
+    }
+    return true;
+}
+
+void MainWindow::startObjectSounds(int first)
+{
+    for (int k = std::max(0, first); k < ui->glWidget->objectCount(); ++k) {
+        if (m_audioController->isPlaying(k) || objectSoundStopped(k)) continue;
+        playObjectSound(k);
+    }
 }
 
 // LE DIRETTIVE ":=" DI UNO SCRIPT, lette e basta (funzione PURA): i valori di
@@ -1364,11 +1409,11 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
         updateWLimits();
     }
 
-    if (!m_audioController->isPlaying()) {
+    if (!m_audioController->isPlaying(ui->glWidget->selectedObject())) {
         if (restartAudio) {
             QString globalCode = m_scene.soundScriptText + "\n" + scriptCode + "\n"
                     + m_scene.surfaceTextureCode + "\n" + m_scene.bgTextureCode;
-            m_audioController->playFromScript(globalCode);
+            m_audioController->playFromScript(globalCode, nullptr, ui->glWidget->selectedObject());
         }
     }
 }
@@ -1626,7 +1671,7 @@ void MainWindow::updateScriptButtonText() {
         // ---> NUOVO PLACEHOLDER AUDIO <---
         ui->txtScriptEditor->setPlaceholderText("Add audio to your scene.\nExamples:\n//MUSIC: /path/to/song.mp3\n\n//SOUND_BEGIN\n// Write GLSL Synth Code here\n//SOUND_END");
 
-        bool isPlaying = m_audioController && m_audioController->isPlaying();
+        bool isPlaying = m_audioController && m_audioController->isPlaying(ui->glWidget->selectedObject());
         ui->btnRunCurrentScript->setText(isPlaying ? "Stop Sound" : "Run Sound");
 
         // I suoni agiscono come un interruttore Play/Stop, ignoriamo "isModified" qui
@@ -1656,7 +1701,9 @@ QString MainWindow::wrapSoundCode(const QString &sound)
 
 QString MainWindow::sceneAudioSource() const
 {
+    // Lo sfondo e' dell'ambiente: dentro un oggetto il suo audio non si ripete.
+    const QString bg = ui->glWidget->selectedObject() == 0 ? m_scene.bgTextureCode : QString();
     const QString code = soundCode() + "\n" + m_scene.surfaceScriptApplied + "\n"
-                         + m_scene.surfaceTextureCode + "\n" + m_scene.bgTextureCode;
+                         + m_scene.surfaceTextureCode + "\n" + bg;
     return code.trimmed().isEmpty() ? scriptText(shownScriptSlot()) : code;
 }

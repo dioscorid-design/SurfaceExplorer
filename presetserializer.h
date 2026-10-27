@@ -20,7 +20,7 @@ public:
     void saveTexture(const QString &path);
     void saveMotion(const QString &suggestedPath = "");
     // 2.0: la scena (ambiente + oggetti) in scenes/, stesso Save dei record.
-    void saveScene(const QString &suggestedPath = "");
+    void saveScene(const QString &suggestedPath = "", const QString &defaultFileName = "");
     void saveSoundAs(const QString &startDir, const QString &sourceFilePath = "");
     void saveSound(const QString &filePath);
     void saveScript();
@@ -48,8 +48,10 @@ public:
     QJsonObject buildSurfaceJson(const QString &name);
     QJsonObject buildMotionJson(const QString &name, const MotionRunState &run,
                                 bool includeSound);
+    // `silent`: gli oggetti (0 = ambiente) il cui suono non si scrive, anche
+    // con includeSound (un suono per oggetto: se ne puo' tenere solo qualcuno).
     QJsonObject buildSceneJson(const QString &name, const MotionRunState &run,
-                               bool includeSound);
+                               bool includeSound, const QSet<int> &silent = QSet<int>());
 
     // Lo stato della scena fotografato in un LibraryItem, cio' che i due
     // build*Json traducono con LibraryManager::toJson (tappa 2 dello "stato
@@ -59,12 +61,15 @@ public:
                                    bool includeSound);
 
 private:
-    void saveRecordOrScene(const QString &suggestedPath, bool scene);
+    void saveRecordOrScene(const QString &suggestedPath, bool scene, const QString &defaultFileName = QString());
     // NIENTE DA SALVARE: una Shape da una scena senza superficie, una texture
     // dal bersaglio senza texture. Lo dicono con un messaggio e ritornano true
     // (il chiamante esce prima del dialogo).
     bool refuseEmptyShape();
     bool refuseEmptyTexture();
+    // Come refuseEmptyShape/Texture: niente da salvare = avviso, non il dialogo.
+    bool refuseEmptySound();
+    bool refuseEmptyRecordOrScene(bool scene);
     // Scrive i sei limiti parametrici in `limits`: sempre la chiave numerica
     // (uMin/uMax/...), piu' la gemella "...Expr" con il testo grezzo quando
     // l'utente ha scritto una formula anziche' un numero. Per il Save degli

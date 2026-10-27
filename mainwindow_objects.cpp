@@ -34,6 +34,9 @@ void MainWindow::saveObjectSession(ObjectSession &s) const
     // messaggio della scena, quello di un oggetto il messaggio della sua Shape.
     s.hintText = m_currentHintText;
     s.hintSeconds = m_currentHintSeconds;
+    s.soundScriptText = m_scene.soundScriptText;
+    s.soundLibName = m_scene.soundLibName;
+    s.userStoppedSound = m_userStoppedSound;
     s.userStoppedGeomClock = m_userStoppedGeomClock;
     s.userStoppedTexClock = m_userStoppedTexClock;
     s.userStoppedMeshTexClock = m_userStoppedMeshTexClock;
@@ -96,6 +99,10 @@ void MainWindow::openObjectSession(const ObjectSession &s)
     m_currentTextureHintSeconds = s.textureHintSeconds;
     m_currentHintText = s.hintText;
     m_currentHintSeconds = s.hintSeconds;
+    m_scene.soundScriptText = s.soundScriptText;
+    m_scene.soundLibName = s.soundLibName;
+    m_userStoppedSound = s.userStoppedSound;
+    refreshScriptEditor();
     m_userStoppedGeomClock = s.userStoppedGeomClock;
     m_userStoppedTexClock = s.userStoppedTexClock;
     m_userStoppedMeshTexClock = s.userStoppedMeshTexClock;
@@ -133,8 +140,38 @@ void MainWindow::selectSceneObject(int index)
     m_geoTime = m_objectSessions[index].geoTime;
     if (m_objectSessions[index].geoAnimating && m_geoAnimTimer) m_geoAnimTimer->start();
     showSelectedObject();
+    // La Library segue l'oggetto: la sua Shape/il suo record, e la sua texture
+    // (showSelectedObject), non piu' solo la scena dell'ambiente.
+    focusLibraryPath(m_objectSessions[index].libraryPath);
     refreshObjectsUi();
     syncGeodesicObjectsTimer();
+}
+
+void MainWindow::focusLibraryPath(const QString &path)
+{
+    if (path.isEmpty()) return;
+    QTreeWidget *target = nullptr;
+    QTreeWidgetItem *item = nullptr;
+    for (const LibraryBranch &b : libraryBranches()) {
+        if (b.type != LibraryType::Surface && b.type != LibraryType::Motion
+            && b.type != LibraryType::Scene) continue;
+        if ((item = LibraryTreeFocus::itemAt(b.tree, path))) { target = b.tree; break; }
+    }
+    if (!item) return;
+    // La scena caricata resta evidenziata accanto alla voce dell'oggetto.
+    QTreeWidgetItem *sceneItem = nullptr;
+    if (ui->glWidget->objectCount() > 1 && !m_objectSessions.empty())
+        sceneItem = LibraryTreeFocus::itemAt(ui->treeScenes, m_objectSessions[0].scenePath);
+    for (const LibraryBranch &b : libraryBranches()) {
+        if (b.type != LibraryType::Surface && b.type != LibraryType::Motion
+            && b.type != LibraryType::Scene) continue;
+        const QSignalBlocker blocker(b.tree);
+        b.tree->clearSelection();
+        b.tree->setCurrentItem(nullptr);
+        if (b.tree == target) LibraryTreeFocus::focus(b.tree, item);
+        if (b.tree == ui->treeScenes && sceneItem) LibraryTreeFocus::focus(b.tree, sceneItem);
+    }
+    m_lastLoadedLibraryItem = item;
 }
 
 void MainWindow::advanceGeodesicObjectsBy(double dtSeconds)
@@ -261,6 +298,8 @@ void MainWindow::removeSceneObject(int index)
     gl->setObjectRotating(index, false);
     gl->removeObject(index);
     m_objectSessions.erase(m_objectSessions.begin() + index);
+    // Il suo suono se ne va con lui; le voci degli altri scorrono come gli indici.
+    if (m_audioController) m_audioController->removeVoice(index);
     // Senza oggetti la rotazione della scena si azzera (GLWidget::removeObject):
     // anche quella d'apertura, o un RESET dopo un Add to Scene la rimetterebbe.
     if (gl->objectCount() == 1) m_startSceneRotation = GLWidget::SceneRotation();
@@ -452,7 +491,9 @@ void MainWindow::addShapeToScene(const QString &shapePath)
                            "scenes (an environment with a P coordinate)."));
         return;
     }
-    addShapeObject(*d, uniqueObjectName(d->name));
+    const int index = addShapeObject(*d, uniqueObjectName(d->name));
+    m_objectSessions[index].libraryPath = shapePath;
+    focusLibraryPath(m_objectSessions[index].libraryPath);
 }
 
 int MainWindow::addShapeObject(const LibraryItem &shape, const QString &name)
@@ -468,6 +509,31 @@ int MainWindow::addShapeObject(const LibraryItem &shape, const QString &name)
 // UNA SCENA DAL FILE (PresetSerializer::buildSceneJson): l'ambiente col load
 // dei record, poi ogni oggetto col load di una Shape come oggetto, nella sua
 // posizione. Alla fine e' selezionato l'ambiente, e la scena e' "pulita".
+QString MainWindow::librarySourceKey(const QString &path)
+{
+    const LibraryFolders::Branch branch = LibraryFolders::branchOf(path);
+    if (path.isEmpty() || branch == LibraryFolders::Branch::None) return QString();
+    for (const LibraryFolders::BranchInfo &info : LibraryFolders::branches())
+        if (info.branch == branch)
+            return QString::fromLatin1(info.folder) + QLatin1Char('/')
+                   + QDir(LibraryFolders::branchDir(branch)).relativeFilePath(path);
+    return QString();
+}
+
+QString MainWindow::librarySourceToPath(const QString &key)
+{
+    const int slash = key.indexOf(QLatin1Char('/'));
+    if (slash <= 0) return QString();
+    const QString folder = key.left(slash);
+    for (const LibraryFolders::BranchInfo &info : LibraryFolders::branches()) {
+        if (folder.compare(QString::fromLatin1(info.folder), Qt::CaseInsensitive) != 0) continue;
+        const QString path = QDir::cleanPath(LibraryFolders::branchDir(info.branch)
+                                             + QLatin1Char('/') + key.mid(slash + 1));
+        return QFileInfo::exists(path) ? path : QString();
+    }
+    return QString();
+}
+
 bool MainWindow::loadSceneFile(const QString &path)
 {
     QFile file(path);
@@ -498,7 +564,28 @@ bool MainWindow::loadSceneFile(const QString &path)
             o.value(asRecord ? QStringLiteral("record") : QStringLiteral("shape")).toObject(),
             asRecord ? LibraryType::Motion : LibraryType::Surface, path);
         if (shape.name.isEmpty()) continue;
-        addPresetAsObject(shape, o.value(QStringLiteral("name")).toString(shape.name));
+        const int objIndex = addPresetAsObject(shape, o.value(QStringLiteral("name")).toString(shape.name));
+        // La sua voce nella Library, per nome (il file della scena non ha il
+        // percorso della Shape): se non c'e' piu', la Library resta com'e'.
+        // Il nome e' quello del record incorporato: shape.name e' il nome del
+        // FILE della scena (parseJsonObject).
+        const QString recordName = o.value(asRecord ? QStringLiteral("record") : QStringLiteral("shape"))
+                                       .toObject().value(QStringLiteral("name")).toString();
+        // Il percorso scritto nel file (dal 2026-10-27) vince sul nome.
+        m_objectSessions[objIndex].libraryPath =
+            librarySourceToPath(o.value(QStringLiteral("source")).toString());
+        for (const LibraryBranch &b : libraryBranches()) {
+            if (!m_objectSessions[objIndex].libraryPath.isEmpty()) break;
+            if (b.type != LibraryType::Surface && b.type != LibraryType::Motion) continue;
+            for (QTreeWidgetItemIterator it(b.tree); *it; ++it) {
+                const QString ip = LibraryTreeFocus::itemPath(*it);
+                if ((*it)->childCount() == 0 && !ip.isEmpty() && (*it)->text(0) == recordName) {
+                    m_objectSessions[objIndex].libraryPath = ip;
+                    break;
+                }
+            }
+            if (!m_objectSessions[objIndex].libraryPath.isEmpty()) break;
+        }
         const QJsonArray p = o.value(QStringLiteral("position")).toArray();
         gl->setObjectPosition(QVector3D(float(p.at(0).toDouble()), float(p.at(1).toDouble()),
                                         float(p.at(2).toDouble())));
@@ -534,7 +621,46 @@ bool MainWindow::loadSceneFile(const QString &path)
         if (gl->objectCount() > 1) gl->setSceneRotation(r);
         m_startSceneRotation = gl->sceneRotation();
     }
+    // L'ambiente e' un record incorporato, senza il percorso del suo file: lo
+    // si ritrova nella linguetta Records per le equazioni (a pari equazioni
+    // vince chi ha anche lo stesso messaggio). Se non c'e', resta la scena.
+    m_objectSessions[0].libraryPath = path;
+    m_objectSessions[0].scenePath = path;
+    // Il file della scena dice da quale record viene l'ambiente, ma non e'
+    // detto che sia ancora vero (scena salvata con la voce sbagliata in
+    // memoria): ogni record con le stesse equazioni e' un candidato, vince
+    // chi ha anche lo stesso script e lo stesso messaggio, e a parita' il
+    // percorso scritto nel file.
+    {
+        const QString envSource = librarySourceToPath(root.value(QStringLiteral("environmentSource")).toString());
+        QString best;
+        int bestScore = -1;
+        // Un ambiente senza geometria (solo sfondo, texture...) non viene da
+        // nessun record: resta evidenziata la scena. Senza questo guard i
+        // campi vuoti combaciavano con qualunque record a tubi/curve.
+        const bool envHasGeometry = !(env.x.isEmpty() && env.y.isEmpty() && env.z.isEmpty()
+            && env.w.isEmpty() && env.implicitEq.isEmpty() && env.crossSectionEq.isEmpty()
+            && env.tubeX.isEmpty() && env.tubeY.isEmpty() && env.tubeZ.isEmpty());
+        for (QTreeWidgetItemIterator it(ui->treeMotions); envHasGeometry && *it; ++it) {
+            if ((*it)->childCount() != 0) continue;
+            const QString itemPath = LibraryTreeFocus::itemPath(*it);
+            const LibraryItem *r = m_libraryManager.getMotionByPath(itemPath);
+            if (!r || r->isImplicitMode != env.isImplicitMode || r->x != env.x || r->y != env.y
+                || r->z != env.z || r->w != env.w || r->implicitEq != env.implicitEq
+                || r->crossSectionEq != env.crossSectionEq || r->isTube != env.isTube
+                || r->tubeX != env.tubeX || r->tubeY != env.tubeY || r->tubeZ != env.tubeZ) continue;
+            const int score = (r->scriptCode == env.scriptCode ? 4 : 0)
+                              + (r->hintText == env.hintText ? 2 : 0)
+                              + (r->filePath == envSource ? 1 : 0);
+            if (score > bestScore) { bestScore = score; best = r->filePath; }
+        }
+        if (best.isEmpty() && envHasGeometry) best = envSource;
+        if (!best.isEmpty()) m_objectSessions[0].libraryPath = best;
+    }
     selectSceneObject(0);
+    // Il suono dell'ambiente e' partito col suo record; ora quelli degli
+    // oggetti, in parallelo.
+    startObjectSounds(1);
     // Il momento pulito: la scena e' quella del file (come a fine load).
     markWholeSceneClean();
     // La posa d'apertura della SCENA e' quella fotografata dal load
@@ -636,6 +762,15 @@ void MainWindow::showSelectedObject()
     updateScriptButtonText();
     refreshScriptEditor();
     syncTextureTreeSelection();
+    // Il suono e' dell'oggetto: la Library evidenzia il SUO (o nessuno), non
+    // sempre quello dell'ambiente.
+    {
+        const QString bg = gl->selectedObject() == 0 ? m_scene.bgTextureCode : QString();
+        LibraryTreeFocus::selectSound(ui->treeSounds, m_libraryManager,
+                                      m_scene.soundScriptText + "\n" + m_scene.surfaceTextureCode + "\n" + bg,
+                                      m_scene.soundScriptText.trimmed().isEmpty()
+                                          ? QString() : m_scene.soundLibName);
+    }
     update4DButtonState();
     updateSurfaceControlsGate();
     updateMasterButtonState();

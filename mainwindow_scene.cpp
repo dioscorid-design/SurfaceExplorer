@@ -3003,12 +3003,12 @@ void MainWindow::applyMotionExample(LibraryItem data, bool asObject)
 
     // 9. HIGHLIGHT AUTOMATICO: SELEZIONA TEXTURE E SUONI NELL'ALBERO
     // A. Sincronizzazione Suoni (Cerca l'audio in TUTTI gli script attivi!)
+    // Come oggetto il suono e' il suo (lo sfondo e' dell'ambiente).
     const QString fullAudioSearchCode = m_scene.soundScriptText + "\n" + m_scene.surfaceTextureCode
-                                        + "\n" + m_scene.bgTextureCode;
+                                        + "\n" + (asObject ? QString() : m_scene.bgTextureCode);
     // Il nome vale solo se in scena c'e' davvero un audio: il testo cercato
     // contiene anche i codici delle texture, che non sono un suono.
-    if (!asObject)
-        LibraryTreeFocus::selectSound(ui->treeSounds, m_libraryManager, fullAudioSearchCode,
+    LibraryTreeFocus::selectSound(ui->treeSounds, m_libraryManager, fullAudioSearchCode,
                                       m_scene.soundScriptText.trimmed().isEmpty()
                                           ? QString() : m_scene.soundLibName);
 
@@ -4054,6 +4054,10 @@ void MainWindow::applyCommonData(LibraryItem d, const SceneState &file, bool asO
         // Solo la parte dell'oggetto: la scena (path, sfondo, suono...) resta.
         SceneState objectOnly = m_scene;
         static_cast<ObjectState &>(objectOnly) = file;
+        // Il suono e' dell'oggetto (un suono per oggetto): il suo, non quello
+        // dell'ambiente che il resto della scena si tiene.
+        objectOnly.soundScriptText = file.soundScriptText;
+        objectOnly.soundLibName = file.soundLibName;
         assignSceneTexts(objectOnly);
     } else {
         assignSceneTexts(file);

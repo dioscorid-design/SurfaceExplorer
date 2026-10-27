@@ -2,6 +2,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "libraryfileoperations.h"
+#include "libraryfolders.h"
 #include "audiocontroller.h"
 #include "uistylemanager.h"
 
@@ -955,7 +956,7 @@ QJsonObject PresetSerializer::buildSurfaceJson(const QString &name)
 // stesso buildSurfaceJson del Save Shape lo traduce. Alla fine si torna
 // all'oggetto che era selezionato.
 QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRunState &run,
-                                             bool includeSound)
+                                             bool includeSound, const QSet<int> &silent)
 {
     GLWidget *gl = m_mainWindow->ui->glWidget;
     const int selected = gl->selectedObject();
@@ -964,7 +965,21 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
     scene["type"] = "scene";
     scene["formatVersion"] = 1;
     scene["name"] = name;
-    scene["environment"] = buildMotionJson(name, run, includeSound);
+    scene["environment"] = buildMotionJson(name, run, includeSound && !silent.contains(0));
+    // I preset della Library da cui vengono ambiente e oggetti, per ritrovarli
+    // nelle linguette (la scena porta comunque la copia completa). L'ambiente
+    // solo se viene di un record: la scena stessa non e' la sua sorgente.
+    {
+        const QString envPath = m_mainWindow->m_objectSessions[0].libraryPath;
+        // Un ambiente senza geometria (solo sfondo/texture) non viene da nessun
+        // record, qualunque voce la Library abbia in memoria.
+        // (a questo punto l'ambiente e' l'oggetto selezionato)
+        const bool envHasGeometry = !m_mainWindow->isSceneEmpty();
+        if (envHasGeometry && LibraryFolders::branchOf(envPath) != LibraryFolders::Branch::Scenes) {
+            const QString key = MainWindow::librarySourceKey(envPath);
+            if (!key.isEmpty()) scene["environmentSource"] = key;
+        }
+    }
     QJsonArray objects;
     for (int k = 1; k < gl->objectCount(); ++k) {
         m_mainWindow->selectSceneObject(k);
@@ -974,6 +989,10 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
         o["name"] = objectName;
         o["position"] = QJsonArray{ p.x(), p.y(), p.z() };
         o["scale"] = double(gl->objectScale());
+        {
+            const QString key = MainWindow::librarySourceKey(m_mainWindow->m_objectSessions[k].libraryPath);
+            if (!key.isEmpty()) o["source"] = key;
+        }
         // La finestra della timeline, se c'e'.
         if (gl->objectWindowIn(k) > 0.0f || gl->objectWindowOut(k) > 0.0f) {
             QJsonObject window;
@@ -994,7 +1013,7 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
         // L'oggetto come un RECORD: la Shape non porta texture, fasce e moti
         // (se ne perdevano). Il moto della camera, lo sfondo e il suono che il
         // record contiene sono della scena: il load come oggetto li ignora.
-        o["record"] = buildMotionJson(objectName, MotionRunState{}, /*includeSound=*/false);
+        o["record"] = buildMotionJson(objectName, MotionRunState{}, includeSound && !silent.contains(k));
         objects.append(o);
     }
     scene["objects"] = objects;
@@ -1045,6 +1064,34 @@ bool PresetSerializer::refuseEmptyTexture()
     QMessageBox::information(m_mainWindow, "Save Texture",
                              QStringLiteral("There is no %1 texture to save: the default one is built in.").arg(target));
     return true;
+}
+
+bool PresetSerializer::refuseEmptySound()
+{
+    // Il suono e' quello dell'oggetto selezionato (un suono per oggetto).
+    if (!m_mainWindow->m_scene.soundScriptText.trimmed().isEmpty()) return false;
+    QMessageBox::information(m_mainWindow, "Save Sound",
+                             "There is no sound to save: write one in the Sound editor or pick one from the Library.");
+    return true;
+}
+
+bool PresetSerializer::refuseEmptyRecordOrScene(bool scene)
+{
+    // Un Record o una Scena tengono anche lo sfondo e il suono: e' vuota solo
+    // la scena senza superficie (NEW), senza sfondo, senza suono e, per la
+    // Scena, senza altri oggetti. Altrimenti si apriva il dialogo per
+    // salvare un file che non conteneva niente.
+    MainWindow *mw = m_mainWindow;
+    const bool onlyEnvironment = mw->ui->glWidget->objectCount() <= 1;
+    if (mw->isSceneEmpty() && (!scene || onlyEnvironment)
+        && mw->m_scene.bgTextureCode.trimmed().isEmpty()
+        && mw->m_scene.soundScriptText.trimmed().isEmpty()) {
+        QMessageBox::information(mw, scene ? "Save Scene" : "Save Record",
+                                 scene ? "There is nothing to save as a Scene: the scene is empty."
+                                       : "There is nothing to save as a Record: the scene is empty.");
+        return true;
+    }
+    return false;
 }
 
 void PresetSerializer::saveSurface(const QString &suggestedPath)
@@ -1415,15 +1462,16 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     saveRecordOrScene(suggestedPath, /*scene=*/false);
 }
 
-void PresetSerializer::saveScene(const QString &suggestedPath)
+void PresetSerializer::saveScene(const QString &suggestedPath, const QString &defaultFileName)
 {
-    saveRecordOrScene(suggestedPath, /*scene=*/true);
+    saveRecordOrScene(suggestedPath, /*scene=*/true, defaultFileName);
 }
 
 // Record e scena (2.0) hanno lo stesso Save: cambiano cartella, ramo
 // ammesso, titoli e JSON (la scena e' l'ambiente come record + gli oggetti).
-void PresetSerializer::saveRecordOrScene(const QString &suggestedPath, bool scene)
+void PresetSerializer::saveRecordOrScene(const QString &suggestedPath, bool scene, const QString &defaultFileName)
 {
+    if (refuseEmptyRecordOrScene(scene)) return;
     const QString branchDir = scene ? QStringLiteral("scenes") : QStringLiteral("records");
     const QString lastDirKey = scene ? QStringLiteral("lastSceneDir") : QStringLiteral("lastMotionDir");
     const QString title = scene ? QStringLiteral("Save Scene") : QStringLiteral("Save Record");
@@ -1505,7 +1553,8 @@ void PresetSerializer::saveRecordOrScene(const QString &suggestedPath, bool scen
 
         if (!startPath.endsWith(".json", Qt::CaseInsensitive)) {
             if (!startPath.endsWith("/")) startPath += "/";
-            startPath += scene ? "NewScene.json" : "NewMotion.json";
+            startPath += !defaultFileName.isEmpty() ? defaultFileName
+                         : scene ? QStringLiteral("NewScene.json") : QStringLiteral("NewMotion.json");
         }
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
@@ -1591,13 +1640,32 @@ void PresetSerializer::saveRecordOrScene(const QString &suggestedPath, bool scen
     // conferma, cosi' un audio messo in pausa solo per lavorare non viene perso
     // per sbaglio.
     bool includeSound = true;
-    if (!m_mainWindow->m_scene.soundScriptText.trimmed().isEmpty() && m_mainWindow->m_audioController
-        && !m_mainWindow->m_audioController->isPlaying()) {
+    QSet<int> silentSounds;
+    // Un suono per oggetto: la domanda arriva se ALMENO UNO dei suoni da
+    // scrivere e' fermo (non solo quando lo sono tutti), e "senza suono"
+    // toglie quelli fermi, non anche i vivi.
+    QSet<int> stoppedSounds;
+    if (m_mainWindow->m_audioController) {
+        GLWidget *soundGl = m_mainWindow->ui->glWidget;
+        const int selectedNow = soundGl->selectedObject();
+        const int first = scene ? 0 : selectedNow;
+        const int last = scene ? soundGl->objectCount() - 1 : selectedNow;
+        for (int k = first; k <= last; ++k) {
+            const QString text = (k == selectedNow || k >= int(m_mainWindow->m_objectSessions.size()))
+                                     ? m_mainWindow->m_scene.soundScriptText
+                                     : m_mainWindow->m_objectSessions[k].soundScriptText;
+            if (!text.trimmed().isEmpty() && !m_mainWindow->m_audioController->isPlaying(k))
+                stoppedSounds.insert(k);
+        }
+    }
+    if (!stoppedSounds.isEmpty()) {
         QMessageBox box(m_mainWindow);
         box.setIcon(QMessageBox::Question);
         box.setWindowTitle(title);
-        box.setText("The sound is stopped.");
-        box.setInformativeText(scene ? "Do you want to save the scene without sound?"
+        const bool several = stoppedSounds.size() > 1;
+        box.setText(several ? "Some sounds are stopped." : "The sound is stopped.");
+        box.setInformativeText(scene ? (several ? "Do you want to save the scene without the stopped sounds?"
+                                                : "Do you want to save the scene without sound?")
                                      : "Do you want to save the record without sound?");
         QPushButton *withoutBtn = box.addButton("Save without sound", QMessageBox::AcceptRole);
         QPushButton *withBtn    = box.addButton("Keep the sound", QMessageBox::ActionRole);
@@ -1615,6 +1683,7 @@ void PresetSerializer::saveRecordOrScene(const QString &suggestedPath, bool scen
 
         if (box.clickedButton() == withoutBtn) {
             includeSound = false;   // omette il blocco audio dalla reiniezione
+            if (scene) { silentSounds = stoppedSounds; includeSound = true; }
         } else if (box.clickedButton() != withBtn) {
             return;                 // Annulla: animazioni/timer gia' ripristinati sopra
         }
@@ -1623,7 +1692,7 @@ void PresetSerializer::saveRecordOrScene(const QString &suggestedPath, bool scen
 
     const MotionRunState runState{envRotating, wasPath4D, wasPath3D};
     const QJsonObject root = scene
-        ? buildSceneJson(QFileInfo(fileName).baseName(), runState, includeSound)
+        ? buildSceneJson(QFileInfo(fileName).baseName(), runState, includeSound, silentSounds)
         : buildMotionJson(QFileInfo(fileName).baseName(), runState, includeSound);
 
     if (m_mainWindow->m_fileOps) {
@@ -2075,6 +2144,8 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
 
 void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourceFilePath)
 {
+    // Con un file di partenza si copia quello della Library; senza, il suono in scena.
+    if (sourceFilePath.isEmpty() && refuseEmptySound()) return;
     // startDir puo' arrivare inesistente (tap sul NODO di categoria "Sounds":
     // rootPath+"/Sounds" con la S maiuscola / cartella mai creata su iOS) -> il
     // dialog aprirebbe una dir vuota e il salvataggio fallirebbe. Ricadiamo su
