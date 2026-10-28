@@ -830,6 +830,28 @@ QRhiResourceUpdateBatch *GLWidget::runObjectCompute(SurfaceObject &o, QRhiComman
     return resourceUpdates;
 }
 
+void GLWidget::objectDepthExtent(SurfaceObject &o, float &front, float &back) const
+{
+    QVector3D c;
+    float r = 0.0f;
+    if (o.engineMode == ModeImplicit) {
+        // L'ingombro misurato sul campo; senza (script GLSL, non valutabile sulla CPU)
+        // una sfera unitaria.
+        if (o.boundKnown) { c = o.boundCenter; r = o.boundRadius; }
+        else r = 1.0f;
+    } else {
+        // Una superficie parametrica si valuta sulla GPU (i vertici della CPU sono la
+        // griglia (u, v)): nessuna misura dell'ingombro, si assume la sfera unitaria
+        // attorno all'origine dell'oggetto -- giusta per le forme normalizzate, un
+        // ordine ragionevole per le altre.
+        r = 1.0f;
+    }
+    const float zc = (m_view * o.model).map(c).z();
+    const float scale = (o.model * QVector4D(1.0f, 0.0f, 0.0f, 0.0f)).toVector3D().length();
+    front = zc + r * scale;
+    back = zc - r * scale;
+}
+
 // L'oggetto ha qualcosa da disegnare nella fase dei trasparenti.
 bool GLWidget::hasTransparentPart(const SurfaceObject &o) const
 {

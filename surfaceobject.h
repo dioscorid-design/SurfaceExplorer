@@ -426,6 +426,13 @@ struct SurfaceObject
     // (implicitPipelineGen e' la generazione da cui viene).
     QRhiGraphicsPipeline *pipelineImplicitSeeThrough = nullptr;
     QShader implicitVs, implicitFs;
+    // Ingombro approssimato del ray marching a equazione (sfera: centro e raggio
+    // nello spazio dell'oggetto), misurato sul campo al commit dell'equazione
+    // (detectImplicitConditioning). Serve all'ordine dei trasparenti; vale solo
+    // se boundKnown (uno script GLSL non si valuta sulla CPU).
+    QVector3D boundCenter;
+    float boundRadius = 0.0f;
+    bool boundKnown = false;
     int implicitPipelineGen = 0;
     int seeThroughGen = -1;
     // Le due parti del disegno diviso (GLWidget::implicitSplitPipelines).

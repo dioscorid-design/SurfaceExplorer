@@ -1426,6 +1426,11 @@ protected:
     // molto piu' fedele del disegno oggetto per oggetto.
     enum class DrawPhase { Opaque, Transparent, TransparentBack, TransparentFront, Lines };
     bool hasTransparentPart(const SurfaceObject &o) const;
+    // Profondita' in vista (z, piu' negativo = piu' lontano) della faccia piu'
+    // vicina e di quella piu' lontana dell'oggetto, da una sfera che lo contiene
+    // (vertici della mesh, o l'ingombro misurato sul campo): l'ordine dei
+    // trasparenti nelle due passate.
+    void objectDepthExtent(SurfaceObject &o, float &front, float &back) const;
     void drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &outputSize, DrawPhase phase);
     void drawFlatObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &outputSize);
     void mousePressEvent(QMouseEvent *event) override;

@@ -6537,22 +6537,36 @@ void ScenarioTest::runSceneTransparencyScenarios()
     // dietro a quello dell'ambiente. Disegnando prima le facce posteriori di
     // tutti e poi le anteriori, la zona comune e' mescolata allo stesso modo nei
     // due casi (disegnando oggetto per oggetto, la sfera "dopo" copriva l'altra).
-    for (float zc : { 0.3f, -0.3f }) {
+    QRgb orderLensAtZero = 0;
+    for (float zc : { 0.3f, -0.3f, 0.0f, -0.1f }) {
         if (!loadSurface(kRM)) break;
         gl->stopAllTimers();
         gl->setClocksDrivenByRecorder(true);
         gl->setColor(0.2f, 0.6f, 0.9f);
-        gl->setAlpha(0.75f);
+        gl->setAlpha(0.6f);
         m_mw->addShapeToScene(libraryPath(kParam));
         wait(400);
         gl->setColor(0.2f, 0.9f, 0.2f);
-        gl->setAlpha(0.7f);
-        gl->setObjectScale(0.8f);
-        gl->setObjectPosition(QVector3D(0.9f, 0.0f, zc));
+        gl->setAlpha(0.81f);
+        gl->setObjectScale(0.81f);
+        gl->setObjectPosition(QVector3D(1.0f, 0.0f, zc));
         m_mw->selectSceneObject(0);
         gl->setCameraPos(QVector3D(0.0f, 0.0f, 6.0f));
         wait(500);
-        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/transp-order-z%1.png").arg(zc > 0 ? "front" : "back"));
+        const QImage orderImg = gl->grabFramebuffer();
+        orderImg.save(m_outDir + QStringLiteral("/transp-order-z%1.png").arg(QString::number(zc)));
+        // Il punto comune alle due sfere (x = 0.6): il colore a z = 0 e a z = -0.1 deve
+        // essere lo stesso (stesso ordine delle facce); prima dell'ordine per superficie
+        // z = 0 dava la sfera piccola sopra e z = -0.1 la grande sopra.
+        const QRgb lens = orderImg.pixel(orderImg.width() / 2 + orderImg.height() * 12 / 100, orderImg.height() / 2);
+        if (zc == 0.0f) orderLensAtZero = lens;
+        if (zc == -0.1f) {
+            const int d = std::abs(qRed(lens) - qRed(orderLensAtZero)) + std::abs(qGreen(lens) - qGreen(orderLensAtZero))
+                          + std::abs(qBlue(lens) - qBlue(orderLensAtZero));
+            check(d <= 12, QStringLiteral("due trasparenti con lo stesso centro o quasi: la zona comune non dipende dal "
+                                          "centro (z = 0: %1, z = -0.1: %2)")
+                               .arg(QColor(orderLensAtZero).name(), QColor(lens).name()));
+        }
         gl->setClocksDrivenByRecorder(false);
     }
     // LA SCENA DEI TORI CONCATENATI (non e' una verifica): il caso piu' difficile

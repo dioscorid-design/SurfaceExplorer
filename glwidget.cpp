@@ -2379,8 +2379,22 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         for (const SurfaceObject *obj : byDepth)
             if (hasTransparentPart(*obj)) ++transparentCount;
         if (transparentCount >= 2) {
-            for (SurfaceObject *obj : byDepth) drawObject(*obj, cb, outputSize, DrawPhase::TransparentBack);
-            for (SurfaceObject *obj : byDepth) drawObject(*obj, cb, outputSize, DrawPhase::TransparentFront);
+            // Dal piu' lontano al piu' vicino, ma per la SUPERFICIE e non per il
+            // centro: nelle facce posteriori conta la piu' lontana dell'oggetto,
+            // nelle anteriori la piu' vicina. Due solidi con lo stesso centro (o
+            // quasi) si ordinano cosi' per grandezza: la faccia anteriore del
+            // piccolo sta dietro quella del grande, la posteriore davanti.
+            struct Ext { SurfaceObject *obj; float front, back; };
+            std::vector<Ext> ext;
+            for (SurfaceObject *obj : byDepth) {
+                Ext e{obj, 0.0f, 0.0f};
+                objectDepthExtent(*obj, e.front, e.back);
+                ext.push_back(e);
+            }
+            std::stable_sort(ext.begin(), ext.end(), [](const Ext &a, const Ext &b) { return a.back < b.back; });
+            for (const Ext &e : ext) drawObject(*e.obj, cb, outputSize, DrawPhase::TransparentBack);
+            std::stable_sort(ext.begin(), ext.end(), [](const Ext &a, const Ext &b) { return a.front < b.front; });
+            for (const Ext &e : ext) drawObject(*e.obj, cb, outputSize, DrawPhase::TransparentFront);
         } else {
             for (SurfaceObject *obj : byDepth) drawObject(*obj, cb, outputSize, DrawPhase::Transparent);
         }
@@ -3033,6 +3047,7 @@ void GLWidget::detectImplicitConditioning(const QString &eqF)
 {
     m_obj->implicitIllConditioned = false;
     m_obj->implicitTransparencyWarn = false;   // SOLO Android; ricalcolato sotto
+    m_obj->boundKnown = false;
     if (eqF.trimmed().isEmpty()) return;
 
     // I chiamanti passano l'equazione in due forme: gia' sottratta "(LHS) - (RHS)"
@@ -3125,6 +3140,67 @@ void GLWidget::detectImplicitConditioning(const QString &eqF)
                     if (av > maxNear) maxNear = av;
                 }
             }
+
+    // INGOMBRO: il centro e il raggio della sfera che contiene la superficie, per
+    // l'ordine dei trasparenti (le facce piu' vicine/lontane, non il centro). Due
+    // giri: la griglia grossa trova dove sta la superficie, una fitta dentro quel
+    // box ne misura l'estensione (celle ~0.5 su [-10,10] sbaglierebbero di meta' un
+    // raggio unitario).
+    {
+        auto surfaceCellBounds = [&](double x0, double x1, double y0, double y1, double z0, double z1, int n,
+                                     QVector3D &lo, QVector3D &hi, std::vector<QVector3D> *cells) {
+            std::vector<double> g(static_cast<size_t>(n) * n * n);
+            auto at = [n](int i, int j, int k) { return (static_cast<size_t>(i) * n + j) * n + k; };
+            for (int i = 0; i < n; ++i) {
+                x = x0 + (x1 - x0) * (i + 0.5) / n;
+                for (int j = 0; j < n; ++j) {
+                    y = y0 + (y1 - y0) * (j + 0.5) / n;
+                    for (int k = 0; k < n; ++k) {
+                        z = z0 + (z1 - z0) * (k + 0.5) / n;
+                        const double v = parser.value();
+                        g[at(i, j, k)] = std::isfinite(v) ? v : std::numeric_limits<double>::quiet_NaN();
+                    }
+                }
+            }
+            bool any = false;
+            lo = QVector3D(1e30f, 1e30f, 1e30f);
+            hi = QVector3D(-1e30f, -1e30f, -1e30f);
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < n; ++j)
+                    for (int k = 0; k < n; ++k) {
+                        const double v = g[at(i, j, k)];
+                        if (!std::isfinite(v)) continue;
+                        const bool on = (i + 1 < n && opposite(v, g[at(i + 1, j, k)]))
+                                     || (j + 1 < n && opposite(v, g[at(i, j + 1, k)]))
+                                     || (k + 1 < n && opposite(v, g[at(i, j, k + 1)]));
+                        if (!on) continue;
+                        const QVector3D c(float(x0 + (x1 - x0) * (i + 0.5) / n), float(y0 + (y1 - y0) * (j + 0.5) / n),
+                                          float(z0 + (z1 - z0) * (k + 0.5) / n));
+                        lo = QVector3D(std::min(lo.x(), c.x()), std::min(lo.y(), c.y()), std::min(lo.z(), c.z()));
+                        hi = QVector3D(std::max(hi.x(), c.x()), std::max(hi.y(), c.y()), std::max(hi.z(), c.z()));
+                        if (cells) cells->push_back(c);
+                        any = true;
+                    }
+            return any;
+        };
+        QVector3D lo, hi;
+        const double cell = (bxMax - bxMin) / N;
+        if (surfaceCellBounds(bxMin, bxMax, byMin, byMax, bzMin, bzMax, N, lo, hi, nullptr)) {
+            const float pad = float(cell);
+            const double fx0 = lo.x() - pad, fx1 = hi.x() + pad, fy0 = lo.y() - pad, fy1 = hi.y() + pad,
+                         fz0 = lo.z() - pad, fz1 = hi.z() + pad;
+            std::vector<QVector3D> cells;
+            QVector3D flo, fhi;
+            if (surfaceCellBounds(fx0, fx1, fy0, fy1, fz0, fz1, 48, flo, fhi, &cells) && !cells.empty()) {
+                const QVector3D c = (flo + fhi) * 0.5f;
+                float r = 0.0f;
+                for (const QVector3D &p : cells) r = std::max(r, (p - c).length());
+                m_obj->boundCenter = c;
+                m_obj->boundRadius = r;
+                m_obj->boundKnown = true;
+            }
+        }
+    }
 
     // Soglia empirica sul RANGE DINAMICO del campo NEAR-SURFACE. Verificato valutando
     // TUTTI i preset impliciti Ray Marching su griglia 40^3: il "Chain" (prodotto di 6
