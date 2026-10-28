@@ -2556,6 +2556,10 @@ void GLWidget::releaseObjectResources(SurfaceObject &o)
         delete o.pipelineImplicit;
         o.pipelineImplicit = nullptr;
     }
+    if (o.pipelineImplicitSeeThrough) {
+        delete o.pipelineImplicitSeeThrough;
+        o.pipelineImplicitSeeThrough = nullptr;
+    }
     if (o.bindingsImplicit) {
         delete o.bindingsImplicit;
         o.bindingsImplicit = nullptr;
@@ -6268,6 +6272,52 @@ bool GLWidget::validateAndApplyImplicitScript(const QString &scriptCodeGLSL)
 // RISORSE QRHI IMPLICIT (RAY MARCHING)
 // ==========================================================
 
+QRhiGraphicsPipeline *GLWidget::implicitPipelineFor(SurfaceObject &o, bool transparent)
+{
+    if (!transparent || !o.pipelineImplicit) return o.pipelineImplicit;
+    if (o.pipelineImplicitSeeThrough && o.seeThroughGen == o.implicitPipelineGen)
+        return o.pipelineImplicitSeeThrough;
+    if (o.pipelineImplicitSeeThrough) {
+        delete o.pipelineImplicitSeeThrough;
+        o.pipelineImplicitSeeThrough = nullptr;
+    }
+    // Stessi shader e stato della pipeline di sempre, tranne la profondita':
+    // la si confronta con gli opachi ma non la si scrive, cosi' un trasparente
+    // disegnato dopo si vede anche dietro la prima faccia di questo.
+    QRhiGraphicsPipeline *p = rhi()->newGraphicsPipeline();
+    p->setTopology(QRhiGraphicsPipeline::Triangles);
+    QRhiVertexInputLayout inputLayout;
+    inputLayout.setBindings({ { sizeof(Vertex) } });
+    inputLayout.setAttributes({
+        { 0, 0, QRhiVertexInputAttribute::Float3, offsetof(Vertex, position) },
+        { 0, 1, QRhiVertexInputAttribute::Float4, offsetof(Vertex, normal) },
+        { 0, 2, QRhiVertexInputAttribute::Float2, offsetof(Vertex, texCoord) }
+    });
+    p->setVertexInputLayout(inputLayout);
+    p->setShaderStages({ { QRhiShaderStage::Vertex, o.implicitVs }, { QRhiShaderStage::Fragment, o.implicitFs } });
+    p->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+    p->setSampleCount(renderTarget()->sampleCount());
+    p->setDepthTest(true);
+    p->setDepthWrite(false);
+    p->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
+    p->setCullMode(QRhiGraphicsPipeline::None);
+    QRhiGraphicsPipeline::TargetBlend blend;
+    blend.enable = true;
+    blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
+    blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+    blend.srcAlpha = QRhiGraphicsPipeline::One;
+    blend.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+    p->setTargetBlends({ blend });
+    p->setShaderResourceBindings(o.bindings);
+    if (!p->create()) {
+        delete p;
+        return o.pipelineImplicit;   // meglio la profondita' scritta che niente
+    }
+    o.pipelineImplicitSeeThrough = p;
+    o.seeThroughGen = o.implicitPipelineGen;
+    return p;
+}
+
 void GLWidget::buildImplicitPipeline(SurfaceObject &o)
 {
     if (o.pipelineImplicit) {
@@ -6320,6 +6370,9 @@ void GLWidget::buildImplicitPipeline(SurfaceObject &o)
     }
 
     o.pipelineImplicit->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
+    o.implicitVs = vs;
+    o.implicitFs = fs;
+    ++o.implicitPipelineGen;   // la variante trasparente e' di una pipeline che non c'e' piu'
     o.pipelineImplicit->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
 
     o.pipelineImplicit->setSampleCount(renderTarget()->sampleCount());

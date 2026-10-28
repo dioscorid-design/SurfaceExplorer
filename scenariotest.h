@@ -255,6 +255,9 @@ private:
     // Save e Load della scena li riportano, la colonna sonora del video li somma.
     // Da sola: --scenario-only scene-sound.
     void runSceneSoundScenarios();
+    // 2.0: trasparenza fra oggetti (immagini di prova nel report). Da sola:
+    // --scenario-only scene-transparency.
+    void runSceneTransparencyScenarios();
     // 2.0: flussi geodetici come oggetti, col loro tempo anche non selezionati.
     void runSceneGeodesicScenarios();
     // 2.0: il master su tutta la scena (oggetti e moduli della scena).

@@ -1630,6 +1630,11 @@ private:
     // RISORSE QRHI IMPLICIT (RAY MARCHING)
     // ==========================================================
     void buildImplicitPipeline(SurfaceObject &o);
+    // La pipeline con cui disegnare un oggetto in ray marching: quella di
+    // sempre, o per uno TRASPARENTE la variante che non scrive la profondita'
+    // (la prima faccia di un trasparente nascondeva tutto cio' che gli stava
+    // dietro, anche un altro trasparente).
+    QRhiGraphicsPipeline *implicitPipelineFor(SurfaceObject &o, bool transparent);
     QString createImplicitFragmentShader(SurfaceObject &o);
     QString createBackgroundFragmentShader(bool isTextureMode, const QString &customCode);
 

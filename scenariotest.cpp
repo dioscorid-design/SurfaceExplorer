@@ -1936,6 +1936,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-transparency")) {
+        runSceneTransparencyScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-sound")) {
         runSceneSoundScenarios();
         finish();
@@ -6381,6 +6386,97 @@ void ScenarioTest::runSceneMotionScenarios()
         check(gl->isObjectRotating(0), QStringLiteral("e il GO dell'ambiente lo fa ruotare di nuovo"));
         m_mw->onStopClicked();
     }
+}
+
+void ScenarioTest::runSceneTransparencyScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Scena: trasparenza fra oggetti (immagini) =="));
+    const QString kParam = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
+    const QString kRM = QStringLiteral("surfaces/Implicit/3D/Sphere.json");
+    auto libraryPath = [this](const QString &rel) {
+        for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+            if (it.filePath.endsWith(rel)) return it.filePath;
+        return QString();
+    };
+    // Una scena: ambiente (verde) e un oggetto (rosso), entrambi al 50%.
+    auto scene = [&](const QString &env, const QString &obj, const QVector3D &pos, float objScale,
+                     const QString &name) -> QImage {
+        if (!loadSurface(env)) return QImage();
+        gl->stopAllTimers();
+        gl->setClocksDrivenByRecorder(true);
+        gl->setColor(0.1f, 0.8f, 0.1f);
+        gl->setAlpha(0.5f);
+        m_mw->addShapeToScene(libraryPath(obj));
+        wait(500);
+        gl->stopAllTimers();
+        gl->setColor(0.9f, 0.1f, 0.1f);
+        gl->setAlpha(0.5f);
+        gl->setObjectPosition(pos);
+        gl->setObjectScale(objScale);
+        wait(500);
+        const QImage img = gl->grabFramebuffer();
+        img.save(m_outDir + QStringLiteral("/transp-%1.png").arg(name));
+        m_mw->selectSceneObject(0);
+        gl->setClocksDrivenByRecorder(false);
+        return img;
+    };
+    // Dove i due trasparenti si sovrappongono si deve vedere anche quello che sta
+    // dietro la prima faccia dell'altro (un ray marching trasparente scriveva la
+    // profondita' e lo nascondeva): nella zona di sola sfera verde il rosso e' al
+    // fondo, in quella di sovrapposizione deve esserci il rosso dell'altra sfera.
+    auto redShowsThrough = [&](const QImage &img, const QString &label) {
+        if (img.isNull()) { check(false, label + QStringLiteral(": immagine assente")); return; }
+        const int cx = img.width() / 2, cy = img.height() / 2;
+        const int unit = img.height() * 31 / 100;   // raggio a schermo di una sfera
+        const int greenOnly = qRed(img.pixel(cx - unit * 6 / 10, cy));
+        const int overlap = qRed(img.pixel(cx + unit * 4 / 10, cy));
+        check(overlap > greenOnly + 25,
+              QStringLiteral("%1: nella sovrapposizione si vede anche il rosso dietro (R %2 contro %3 della sola verde)")
+                  .arg(label).arg(overlap).arg(greenOnly));
+    };
+    scene(kParam, kParam, QVector3D(0.8f, 0.0f, 0.0f), 1.0f, QStringLiteral("1-param-param-overlap"));
+    scene(kParam, kRM, QVector3D(0.8f, 0.0f, 0.0f), 1.0f, QStringLiteral("2-param-rm-overlap"));
+    redShowsThrough(scene(kRM, kParam, QVector3D(0.8f, 0.0f, 0.0f), 1.0f, QStringLiteral("3-rm-param-overlap")),
+                    QStringLiteral("ambiente RM trasparente, oggetto parametrico trasparente"));
+    redShowsThrough(scene(kRM, kRM, QVector3D(0.8f, 0.0f, 0.0f), 1.0f, QStringLiteral("4-rm-rm-overlap")),
+                    QStringLiteral("due RM trasparenti"));
+    // La scena d'esempio per vederlo a occhio (non e' una verifica): l'ambiente in
+    // ray marching verde, una sfera parametrica rossa e una in ray marching blu,
+    // tutte al 50% e compenetrate. Scritta nel report: la libreria dell'utente
+    // la copia lui, se la vuole.
+    if (loadSurface(kRM)) {
+        gl->stopAllTimers();
+        gl->setClocksDrivenByRecorder(true);
+        gl->setColor(0.1f, 0.8f, 0.1f);
+        gl->setAlpha(0.5f);
+        m_mw->m_currentHintText = QStringLiteral("Three transparent spheres overlap: green (ray marching environment), "
+                                                 "red (parametric) and blue (ray marching).\n"
+                                                 "Each one must show through the others.");
+        m_mw->m_currentHintSeconds = 8.0f;
+        m_mw->addShapeToScene(libraryPath(kParam));
+        wait(400);
+        gl->setColor(0.9f, 0.1f, 0.1f);
+        gl->setAlpha(0.5f);
+        gl->setObjectPosition(QVector3D(0.9f, 0.0f, 0.0f));
+        m_mw->addShapeToScene(libraryPath(kRM));
+        wait(400);
+        gl->setColor(0.15f, 0.25f, 0.95f);
+        gl->setAlpha(0.5f);
+        gl->setObjectPosition(QVector3D(-0.9f, 0.0f, 0.0f));
+        wait(400);
+        m_mw->selectSceneObject(0);
+        PresetSerializer::MotionRunState run;
+        const QJsonObject json = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Transparent Overlap"), run, false);
+        QFile f(m_outDir + QStringLiteral("/Transparent Overlap.json"));
+        check(f.open(QIODevice::WriteOnly) && f.write(QJsonDocument(json).toJson()) > 0,
+              QStringLiteral("scena d'esempio Transparent Overlap scritta nel report"));
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/transp-example.png"));
+        gl->setClocksDrivenByRecorder(false);
+    }
+    scene(kParam, kRM, QVector3D(0.0f, 0.0f, -1.5f), 1.0f, QStringLiteral("5-rm-behind-param"));
+    scene(kRM, kParam, QVector3D(0.0f, 0.0f, -1.5f), 1.0f, QStringLiteral("6-param-behind-rm"));
 }
 
 void ScenarioTest::runSceneSoundScenarios()

@@ -420,6 +420,14 @@ struct SurfaceObject
     // RAY MARCHING
     // ==========================================================
     QRhiGraphicsPipeline *pipelineImplicit = nullptr;
+    // La stessa pipeline SENZA scrittura della profondita', per il ray marching
+    // trasparente (vedi implicitPipelineFor): costruita al primo uso dagli
+    // shader di pipelineImplicit, e rifatta quando questa cambia
+    // (implicitPipelineGen e' la generazione da cui viene).
+    QRhiGraphicsPipeline *pipelineImplicitSeeThrough = nullptr;
+    QShader implicitVs, implicitFs;
+    int implicitPipelineGen = 0;
+    int seeThroughGen = -1;
     QRhiShaderResourceBindings *bindingsImplicit = nullptr;
 
 };
