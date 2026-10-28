@@ -2560,6 +2560,10 @@ void GLWidget::releaseObjectResources(SurfaceObject &o)
         delete o.pipelineImplicitSeeThrough;
         o.pipelineImplicitSeeThrough = nullptr;
     }
+    delete o.pipelineSplitFront;
+    o.pipelineSplitFront = nullptr;
+    delete o.pipelineSplitRest;
+    o.pipelineSplitRest = nullptr;
     if (o.bindingsImplicit) {
         delete o.bindingsImplicit;
         o.bindingsImplicit = nullptr;
@@ -6284,6 +6288,15 @@ QRhiGraphicsPipeline *GLWidget::implicitPipelineFor(SurfaceObject &o, bool trans
     // Stessi shader e stato della pipeline di sempre, tranne la profondita':
     // la si confronta con gli opachi ma non la si scrive, cosi' un trasparente
     // disegnato dopo si vede anche dietro la prima faccia di questo.
+    QRhiGraphicsPipeline *p = newImplicitNoDepthWritePipeline(o, o.implicitVs, o.implicitFs);
+    if (!p) return o.pipelineImplicit;   // meglio la profondita' scritta che niente
+    o.pipelineImplicitSeeThrough = p;
+    o.seeThroughGen = o.implicitPipelineGen;
+    return p;
+}
+
+QRhiGraphicsPipeline *GLWidget::newImplicitNoDepthWritePipeline(SurfaceObject &o, const QShader &vs, const QShader &fs)
+{
     QRhiGraphicsPipeline *p = rhi()->newGraphicsPipeline();
     p->setTopology(QRhiGraphicsPipeline::Triangles);
     QRhiVertexInputLayout inputLayout;
@@ -6294,7 +6307,7 @@ QRhiGraphicsPipeline *GLWidget::implicitPipelineFor(SurfaceObject &o, bool trans
         { 0, 2, QRhiVertexInputAttribute::Float2, offsetof(Vertex, texCoord) }
     });
     p->setVertexInputLayout(inputLayout);
-    p->setShaderStages({ { QRhiShaderStage::Vertex, o.implicitVs }, { QRhiShaderStage::Fragment, o.implicitFs } });
+    p->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
     p->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
     p->setSampleCount(renderTarget()->sampleCount());
     p->setDepthTest(true);
@@ -6311,11 +6324,50 @@ QRhiGraphicsPipeline *GLWidget::implicitPipelineFor(SurfaceObject &o, bool trans
     p->setShaderResourceBindings(o.bindings);
     if (!p->create()) {
         delete p;
-        return o.pipelineImplicit;   // meglio la profondita' scritta che niente
+        return nullptr;
     }
-    o.pipelineImplicitSeeThrough = p;
-    o.seeThroughGen = o.implicitPipelineGen;
     return p;
+}
+
+bool GLWidget::implicitSplitPipelines(SurfaceObject &o, QRhiGraphicsPipeline *&front, QRhiGraphicsPipeline *&rest)
+{
+    if (!o.pipelineImplicit) return false;
+    if (!(o.pipelineSplitFront && o.pipelineSplitRest && o.splitGen == o.implicitPipelineGen)) {
+        delete o.pipelineSplitFront;
+        o.pipelineSplitFront = nullptr;
+        delete o.pipelineSplitRest;
+        o.pipelineSplitRest = nullptr;
+        // Le due parti dallo stesso template, con RM_SPLIT_PASS 1 e 2.
+        const QShader fs1 = bakeShader(createImplicitFragmentShader(o, 1).toUtf8(), QShader::FragmentStage);
+        const QShader fs2 = bakeShader(createImplicitFragmentShader(o, 2).toUtf8(), QShader::FragmentStage);
+        if (!fs1.isValid() || !fs2.isValid()) return false;
+        o.pipelineSplitFront = newImplicitNoDepthWritePipeline(o, o.implicitVs, fs1);
+        o.pipelineSplitRest = newImplicitNoDepthWritePipeline(o, o.implicitVs, fs2);
+        if (!o.pipelineSplitFront || !o.pipelineSplitRest) {
+            delete o.pipelineSplitFront;
+            o.pipelineSplitFront = nullptr;
+            delete o.pipelineSplitRest;
+            o.pipelineSplitRest = nullptr;
+            return false;
+        }
+        o.splitGen = o.implicitPipelineGen;
+    }
+    front = o.pipelineSplitFront;
+    rest = o.pipelineSplitRest;
+    return true;
+}
+
+bool GLWidget::sceneHasOpaqueBesides(const SurfaceObject &o) const
+{
+    for (const auto &obj : m_objects) {
+        if (obj.get() == &o || !isOnStage(*obj)) continue;
+        if (obj->engineMode == ModeImplicit) {
+            if ((obj->implicitIllConditioned ? 1.0f : obj->alpha) >= 0.999f) return true;
+        } else if (obj->alpha >= 0.99f || (obj->engine && obj->engine->getMeshParts().size() > 1)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void GLWidget::buildImplicitPipeline(SurfaceObject &o)
@@ -6411,7 +6463,7 @@ void GLWidget::buildImplicitPipeline(SurfaceObject &o)
 // IMPLICIT EQUATIONS STATE
 // ==========================================================
 
-QString GLWidget::createImplicitFragmentShader(SurfaceObject &o)
+QString GLWidget::createImplicitFragmentShader(SurfaceObject &o, int splitPass)
 {
     const QString &activeEqF = o.implicitUsesCrossSection ? o.eqCrossSectionF : o.eqImplicitF;
     QString safeEqF = GlslTranslator::translateEquation(activeEqF);
@@ -6484,7 +6536,11 @@ QString GLWidget::createImplicitFragmentShader(SurfaceObject &o)
     // possono precedere la dichiarazione dell'UBO nel template senza problemi.
     QString implicitLib = loadShaderSource(":/shaders/implicit.glsl");
 
-    QString finalSource = "#version 450\n\n" + commonCode + "\n"
+    // Il disegno diviso del ray marching trasparente (splitPass 1 o 2) e' una
+    // variante dietro #define: senza, lo shader e' quello di sempre.
+    const QString splitDefine = splitPass > 0 ? QStringLiteral("#define RM_SPLIT_PASS %1\n").arg(splitPass)
+                                              : QString();
+    QString finalSource = "#version 450\n" + splitDefine + "\n" + commonCode + "\n"
                           + implicitLib + "\n" + templateSource;
 
     // Variabili iniettate, condivise tra superficie esterna e interna.

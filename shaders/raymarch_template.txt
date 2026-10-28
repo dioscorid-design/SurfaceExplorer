@@ -906,23 +906,60 @@ void main() {
         // che col blend lascia il pixel com'e' -- lo stesso che scartarlo; qui
         // si scarta, perche' un colore senza superficie non ha una profondita'.
         if (!more) { discard; return; }
+#if defined(RM_SPLIT_PASS) && RM_SPLIT_PASS == 1
+        // DISEGNO DIVISO, parte 1 (solo con oggetti opachi in scena, vedi
+        // GLWidget::implicitSplitPipelines): la sola riflessione della prima
+        // faccia, alla profondita' della prima faccia. Il resto (volume, uscita,
+        // gusci successivi) e' la parte 2, alla profondita' dell'uscita: un
+        // opaco che sta fra le due scarta la parte 2 col test di profondita',
+        // e il fondo del trasparente non si disegna piu' sopra di lui. Le due
+        // parti, miscelate da dietro in avanti (parte 2, poi parte 1), danno
+        // lo stesso colore del disegno unico: l'"over" e' associativo.
+        {
+            writeHitDepth(pEnter);
+            FragColor = vec4(shadeSurface(pEnter, rayDir, false, false), aFront);
+            return;
+        }
+#endif
+#if defined(RM_SPLIT_PASS) && RM_SPLIT_PASS == 2
+        // Parte 2: la profondita' e' quella dell'ULTIMA faccia trovata (l'uscita
+        // se il solido e' pieno, la parete di fondo se e' un guscio sottile),
+        // scritta dopo il ciclo: un opaco che sta davanti a tutta questa parte
+        // la scarta col test di profondita'. gl_FragDepth si scrive in un punto
+        // solo e senza rami (scritta solo in qualche ramo e' indefinita negli
+        // altri).
+        vec3 pLast = pEnter;
+#else
         // La profondita' e' quella della prima faccia, la piu' vicina.
         writeHitDepth(pEnter);
+#endif
         for (int f = 0; f < MAX_FACES && more; f++) {
             // --- FACCIA DI ENTRATA: la sua riflessione (shading) si compone ---
             // withAO=false: l'AO e' invisibile sotto alpha<1 + Beer-Lambert.
-            vec3 enterRGB = shadeSurface(pEnter, rayDir, false, false);
             // alpha della superficie frontale (riflesso di Fresnel morbido):
             // contributo di superficie, NON dipende dallo spessore.
             float aSurf = aFront;
+#if defined(RM_SPLIT_PASS) && RM_SPLIT_PASS == 2
+            // La riflessione della prima faccia e' della parte 1.
+            if (f > 0) {
+                vec3 enterRGB = shadeSurface(pEnter, rayDir, false, false);
+                accumRGB += (1.0 - accumA) * aSurf * enterRGB;
+                accumA   += (1.0 - accumA) * aSurf;
+            }
+#else
+            vec3 enterRGB = shadeSurface(pEnter, rayDir, false, false);
             accumRGB += (1.0 - accumA) * aSurf * enterRGB;
             accumA   += (1.0 - accumA) * aSurf;
+#endif
 
             // --- USCITA: prossimo crossing = faccia posteriore di questo guscio.
             vec3 pExit;
             float tEnter = dot(pEnter - rayPos, rayDir);
             bool gotExit = marchNextLayer(rayPos, rayDir, tEnter + 0.005, pExit);
             if (!gotExit) { more = false; break; }
+#if defined(RM_SPLIT_PASS) && RM_SPLIT_PASS == 2
+            pLast = pExit;
+#endif
 
             // --- ASSORBIMENTO DEL VOLUME tra entrata e uscita (Beer-Lambert) ---
             // dipende SOLO dalla lunghezza del cammino interno -> continuo,
@@ -940,9 +977,15 @@ void main() {
             float tExit = dot(pExit - rayPos, rayDir);
             more = marchNextLayer(rayPos, rayDir, tExit + 0.005, pNext);
             pEnter = pNext;
+#if defined(RM_SPLIT_PASS) && RM_SPLIT_PASS == 2
+            if (more) pLast = pNext;
+#endif
             if (accumA > 0.995) break;     // gia' opaco: inutile proseguire
         }
 
+#if defined(RM_SPLIT_PASS) && RM_SPLIT_PASS == 2
+        writeHitDepth(pLast);
+#endif
         // accumRGB e' PRE-moltiplicato per accumA. La pipeline implicita usa blend
         // a alpha dritto (srcColor = SrcAlpha), quindi l'hardware rimoltiplichera'
         // per FragColor.a: dividiamo qui per non applicarlo due volte. Lo sfondo

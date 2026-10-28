@@ -841,13 +841,27 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
         const bool transparent = (o.implicitIllConditioned ? 1.0f : o.alpha) < 0.999f;
         const DrawPhase rmPhase = transparent ? DrawPhase::Transparent : DrawPhase::Opaque;
         if (phase == rmPhase && o.pipelineImplicit && m_bgVbo) {
-            cb->setGraphicsPipeline(implicitPipelineFor(o, transparent));
-            cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-            cb->setShaderResources(o.bindings);
-
+            // Trasparente con OPACHI in scena: due parti (vedi
+            // implicitSplitPipelines), la seconda -- il fondo -- per prima, che
+            // si miscela da dietro in avanti. Senza opachi (o se le pipeline
+            // non si fanno) il disegno e' uno solo, com'era.
+            QRhiGraphicsPipeline *splitFront = nullptr, *splitRest = nullptr;
+            const bool split = transparent && sceneHasOpaqueBesides(o)
+                               && implicitSplitPipelines(o, splitFront, splitRest);
             const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
-            cb->setVertexInput(0, 1, &vbufBinding);
-            cb->draw(6);
+            auto drawQuad = [&](QRhiGraphicsPipeline *pipeline) {
+                cb->setGraphicsPipeline(pipeline);
+                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                cb->setShaderResources(o.bindings);
+                cb->setVertexInput(0, 1, &vbufBinding);
+                cb->draw(6);
+            };
+            if (split) {
+                drawQuad(splitRest);
+                drawQuad(splitFront);
+            } else {
+                drawQuad(implicitPipelineFor(o, transparent));
+            }
         }
         return;
     }

@@ -1635,7 +1635,18 @@ private:
     // (la prima faccia di un trasparente nascondeva tutto cio' che gli stava
     // dietro, anche un altro trasparente).
     QRhiGraphicsPipeline *implicitPipelineFor(SurfaceObject &o, bool transparent);
-    QString createImplicitFragmentShader(SurfaceObject &o);
+    // Il ray marching trasparente con OGGETTI OPACHI in scena si disegna in due
+    // parti (la riflessione della prima faccia, e il resto alla profondita'
+    // dell'uscita), cosi' il test di profondita' toglie la parte che sta dietro
+    // un opaco. Le due pipeline (senza scrittura della profondita'), costruite
+    // al primo uso; false se non si e' riusciti a farle.
+    bool implicitSplitPipelines(SurfaceObject &o, QRhiGraphicsPipeline *&front, QRhiGraphicsPipeline *&rest);
+    // Almeno un altro oggetto IN SCENA che disegna qualcosa di opaco.
+    bool sceneHasOpaqueBesides(const SurfaceObject &o) const;
+    QRhiGraphicsPipeline *newImplicitNoDepthWritePipeline(SurfaceObject &o, const QShader &vs, const QShader &fs);
+    // splitPass: 0 lo shader di sempre; 1 e 2 le due parti del disegno diviso
+    // del ray marching trasparente (RM_SPLIT_PASS nel template).
+    QString createImplicitFragmentShader(SurfaceObject &o, int splitPass = 0);
     QString createBackgroundFragmentShader(bool isTextureMode, const QString &customCode);
 
 public:

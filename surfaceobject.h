@@ -428,6 +428,10 @@ struct SurfaceObject
     QShader implicitVs, implicitFs;
     int implicitPipelineGen = 0;
     int seeThroughGen = -1;
+    // Le due parti del disegno diviso (GLWidget::implicitSplitPipelines).
+    QRhiGraphicsPipeline *pipelineSplitFront = nullptr;
+    QRhiGraphicsPipeline *pipelineSplitRest = nullptr;
+    int splitGen = -1;
     QRhiShaderResourceBindings *bindingsImplicit = nullptr;
 
 };
