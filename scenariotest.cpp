@@ -6475,6 +6475,72 @@ void ScenarioTest::runSceneTransparencyScenarios()
         gl->grabFramebuffer().save(m_outDir + QStringLiteral("/transp-example.png"));
         gl->setClocksDrivenByRecorder(false);
     }
+    // LA SCENA DEI PROBLEMI CHE RESTANO (non e' una verifica): due situazioni in cui
+    // la trasparenza fra oggetti e' ancora sbagliata, per il confronto a occhio.
+    //  1) A SINISTRA due tori concatenati, rosso e blu: il disegno e' per OGGETTO
+    //     (ordinati per centro), quindi uno copre sempre l'altro dappertutto
+    //     invece di passare davanti e dietro nei due punti dell'incatenamento.
+    //  2) AL CENTRO una sfera opaca rossa dentro l'ambiente trasparente in ray
+    //     marching: il ray marching compone le sue facce in un solo punto e non
+    //     conosce la profondita' dell'opaco, quindi anche la faccia POSTERIORE
+    //     dell'ambiente (che sta dietro la sfera rossa) si disegna sopra di lei.
+    if (loadSurface(kRM)) {
+        gl->stopAllTimers();
+        gl->setClocksDrivenByRecorder(true);
+        gl->setColor(0.2f, 0.6f, 0.9f);
+        gl->setAlpha(0.6f);
+        m_mw->m_currentHintText = QStringLiteral("Transparency: what is still wrong.\n"
+            "Left, two linked tori: each should pass in front of the other at one crossing and behind it at the other. "
+            "Instead the blue one covers the red one everywhere, because objects are drawn one after the other, "
+            "ordered by their center.\n"
+            "Center, an opaque red sphere inside the transparent environment: it should look red through one blue layer, "
+            "but the environment's far wall is drawn over it too, so the red is almost lost.");
+        m_mw->m_currentHintSeconds = 14.0f;
+        const QString torus = libraryPath(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"));
+        // Il centro: una sfera opaca rossa piccola dentro l'ambiente.
+        m_mw->addShapeToScene(libraryPath(kParam));
+        wait(400);
+        gl->setColor(0.95f, 0.1f, 0.1f);
+        gl->setAlpha(1.0f);
+        gl->setObjectScale(0.5f);
+        gl->setObjectPosition(QVector3D(0.0f, 0.0f, 0.0f));
+        // Due tori concatenati a sinistra.
+        m_mw->addShapeToScene(torus);
+        wait(400);
+        gl->setColor(0.9f, 0.15f, 0.15f);
+        gl->setAlpha(0.5f);
+        gl->setObjectScale(0.7f);
+        gl->setObjectPosition(QVector3D(-2.8f, 0.0f, 0.0f));
+        {
+            GLWidget::Orientation o = gl->objectOrientation(gl->selectedObject());
+            o.rotation = QQuaternion::fromAxisAndAngle(1.0f, 0.0f, 0.0f, -40.0f);
+            o.userRotated = true;
+            gl->setObjectOrientation(gl->selectedObject(), o);
+        }
+        m_mw->addShapeToScene(torus);
+        wait(400);
+        gl->setColor(0.15f, 0.25f, 0.95f);
+        gl->setAlpha(0.5f);
+        gl->setObjectScale(0.7f);
+        gl->setObjectPosition(QVector3D(-2.8f + 0.68f, 0.0f, 0.0f));
+        {
+            GLWidget::Orientation o = gl->objectOrientation(gl->selectedObject());
+            o.rotation = QQuaternion::fromAxisAndAngle(1.0f, 0.0f, 0.0f, 50.0f);
+            o.userRotated = true;
+            gl->setObjectOrientation(gl->selectedObject(), o);
+        }
+        wait(400);
+        m_mw->selectSceneObject(0);
+        gl->setCameraPos(QVector3D(0.0f, 0.0f, 6.0f));
+        wait(400);
+        PresetSerializer::MotionRunState run;
+        const QJsonObject json = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Transparency Problems"), run, false);
+        QFile f(m_outDir + QStringLiteral("/Transparency Problems.json"));
+        check(f.open(QIODevice::WriteOnly) && f.write(QJsonDocument(json).toJson()) > 0,
+              QStringLiteral("scena Transparency Problems scritta nel report"));
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/transp-problems.png"));
+        gl->setClocksDrivenByRecorder(false);
+    }
     scene(kParam, kRM, QVector3D(0.0f, 0.0f, -1.5f), 1.0f, QStringLiteral("5-rm-behind-param"));
     scene(kRM, kParam, QVector3D(0.0f, 0.0f, -1.5f), 1.0f, QStringLiteral("6-param-behind-rm"));
 }
