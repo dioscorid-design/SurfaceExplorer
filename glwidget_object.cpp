@@ -830,6 +830,20 @@ QRhiResourceUpdateBatch *GLWidget::runObjectCompute(SurfaceObject &o, QRhiComman
     return resourceUpdates;
 }
 
+// L'oggetto ha qualcosa da disegnare nella fase dei trasparenti.
+bool GLWidget::hasTransparentPart(const SurfaceObject &o) const
+{
+    if (o.engineMode == ModeImplicit)
+        return (o.implicitIllConditioned ? 1.0f : o.alpha) < 0.999f;
+    if (!o.engine) return false;
+    const std::vector<MeshPart> &parts = o.engine->getMeshParts();
+    if (parts.size() > 1 && !o.meshAppearanceUniform) {
+        for (const MeshPart &p : parts)
+            if (p.alpha >= 0.0f && p.alpha < 0.99f) return true;
+    }
+    return o.renderMode != 2 && o.alpha < 0.99f;
+}
+
 void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &outputSize, DrawPhase phase)
 {
     if (o.engineMode == ModeImplicit) {
@@ -840,6 +854,27 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
         // dietro. Con un oggetto solo l'immagine e' la stessa nelle due fasi.
         const bool transparent = (o.implicitIllConditioned ? 1.0f : o.alpha) < 0.999f;
         const DrawPhase rmPhase = transparent ? DrawPhase::Transparent : DrawPhase::Opaque;
+        // Le due passate dei trasparenti: indietro = il "resto" del disegno
+        // diviso, avanti = la riflessione della prima faccia.
+        if (transparent && (phase == DrawPhase::TransparentBack || phase == DrawPhase::TransparentFront)) {
+            if (o.pipelineImplicit && m_bgVbo) {
+                QRhiGraphicsPipeline *front = nullptr, *rest = nullptr;
+                QRhiGraphicsPipeline *pipeline = nullptr;
+                if (implicitSplitPipelines(o, front, rest))
+                    pipeline = (phase == DrawPhase::TransparentBack) ? rest : front;
+                else if (phase == DrawPhase::TransparentBack)
+                    pipeline = implicitPipelineFor(o, true);   // senza divisione: tutto indietro
+                if (pipeline) {
+                    const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
+                    cb->setGraphicsPipeline(pipeline);
+                    cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                    cb->setShaderResources(o.bindings);
+                    cb->setVertexInput(0, 1, &vbufBinding);
+                    cb->draw(6);
+                }
+            }
+            return;
+        }
         if (phase == rmPhase && o.pipelineImplicit && m_bgVbo) {
             // Trasparente con OPACHI in scena: due parti (vedi
             // implicitSplitPipelines), la seconda -- il fondo -- per prima, che
@@ -1003,7 +1038,9 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
                 for (const MeshPart *p : solidParts)
                     if (partAlpha(*p) < 0.99f) transp.push_back(p);
 
-                if (phase == DrawPhase::Transparent && transp.size() > 1) {
+                const bool tBack  = (phase == DrawPhase::Transparent || phase == DrawPhase::TransparentBack);
+                const bool tFront = (phase == DrawPhase::Transparent || phase == DrawPhase::TransparentFront);
+                if ((tBack || tFront) && transp.size() > 1) {
                     const std::vector<Vertex> &verts = o.engine->getVertices();
                     const QMatrix4x4 mvNow = m_view * o.model;
                     auto depthOf = [&](const MeshPart *p) -> float {
@@ -1031,21 +1068,30 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
                 // Disegna solo se entrambe le pipeline di trasparenza sono
                 // valide: dopo un errore di compilazione una puo' essere
                 // nulla, e passarla a Metal causa EXC_BAD_ACCESS.
-                if (phase == DrawPhase::Transparent && o.pipelineTranspBack && o.pipelineTranspFront) {
-                    cb->setGraphicsPipeline(o.pipelineTranspBack);
-                    for (const MeshPart *p : transp)
-                        drawPart(*p, p->meshIndex * o.uboBlockStride);
-
-                    cb->setGraphicsPipeline(o.pipelineTranspFront);
-                    for (const MeshPart *p : transp)
-                        drawPart(*p, p->meshIndex * o.uboBlockStride);
+                if ((tBack || tFront) && o.pipelineTranspBack && o.pipelineTranspFront) {
+                    if (tBack) {
+                        cb->setGraphicsPipeline(o.pipelineTranspBack);
+                        for (const MeshPart *p : transp)
+                            drawPart(*p, p->meshIndex * o.uboBlockStride);
+                    }
+                    if (tFront) {
+                        cb->setGraphicsPipeline(o.pipelineTranspFront);
+                        for (const MeshPart *p : transp)
+                            drawPart(*p, p->meshIndex * o.uboBlockStride);
+                    }
                 }
             } else if (o.alpha < 0.99f) {
-                if (phase == DrawPhase::Transparent && o.pipelineTranspBack && o.pipelineTranspFront) {
-                    cb->setGraphicsPipeline(o.pipelineTranspBack);
-                    drawWhole();
-                    cb->setGraphicsPipeline(o.pipelineTranspFront);
-                    drawWhole();
+                const bool tBack  = (phase == DrawPhase::Transparent || phase == DrawPhase::TransparentBack);
+                const bool tFront = (phase == DrawPhase::Transparent || phase == DrawPhase::TransparentFront);
+                if ((tBack || tFront) && o.pipelineTranspBack && o.pipelineTranspFront) {
+                    if (tBack) {
+                        cb->setGraphicsPipeline(o.pipelineTranspBack);
+                        drawWhole();
+                    }
+                    if (tFront) {
+                        cb->setGraphicsPipeline(o.pipelineTranspFront);
+                        drawWhole();
+                    }
                 }
             } else {
                 if (phase == DrawPhase::Opaque && o.pipelineOpaque) {

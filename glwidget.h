@@ -1418,7 +1418,14 @@ protected:
                                               QRhiResourceUpdateBatch *resourceUpdates);
     // Le tre fasi del disegno: render() le fa per tutti gli oggetti, una
     // dopo l'altra (opachi, trasparenti in ordine di profondita', linee).
-    enum class DrawPhase { Opaque, Transparent, Lines };
+    // Transparent: tutto il trasparente di un oggetto in una volta (un solo oggetto
+    // trasparente in scena). Con piu' oggetti trasparenti si disegna a DUE passate
+    // su tutti: prima le facce posteriori (e, per il ray marching, il "resto"),
+    // poi le anteriori (la riflessione della prima faccia), ciascuna dal piu'
+    // lontano al piu' vicino per centro: per i solidi convessi compenetrati e'
+    // molto piu' fedele del disegno oggetto per oggetto.
+    enum class DrawPhase { Opaque, Transparent, TransparentBack, TransparentFront, Lines };
+    bool hasTransparentPart(const SurfaceObject &o) const;
     void drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &outputSize, DrawPhase phase);
     void drawFlatObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &outputSize);
     void mousePressEvent(QMouseEvent *event) override;

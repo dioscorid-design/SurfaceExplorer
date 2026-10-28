@@ -995,6 +995,13 @@ void main() {
         return;
     }
 
+#if defined(RM_SPLIT_PASS) && RM_SPLIT_PASS == 1
+    // Il modo ergosfera (esterna trasparente + interna opaca) non si divide: lo
+    // disegna per intero la parte 2, la parte 1 non ha niente da aggiungere.
+    discard;
+    return;
+#endif
+
     // === MODO ERGOSFERA: superficie esterna TRASPARENTE + interna OPACA ===
     // La passata 1 (map) e' la superficie ESTERNA (limite statico): trasparente
     // con alpha = ubuf.alpha (slider UI). Poi marciamo sul campo INTERNO opaco

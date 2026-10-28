@@ -2372,7 +2372,18 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             std::stable_sort(byDepth.begin(), byDepth.end(),
                              [&](const SurfaceObject *a, const SurfaceObject *b) { return depthOf(a) < depthOf(b); });
         }
-        for (SurfaceObject *obj : byDepth) drawObject(*obj, cb, outputSize, DrawPhase::Transparent);
+        // Un solo trasparente: tutto in una volta, com'era. Due o piu': due
+        // passate su tutti (facce posteriori, poi anteriori), ciascuna dal piu'
+        // lontano al piu' vicino.
+        int transparentCount = 0;
+        for (const SurfaceObject *obj : byDepth)
+            if (hasTransparentPart(*obj)) ++transparentCount;
+        if (transparentCount >= 2) {
+            for (SurfaceObject *obj : byDepth) drawObject(*obj, cb, outputSize, DrawPhase::TransparentBack);
+            for (SurfaceObject *obj : byDepth) drawObject(*obj, cb, outputSize, DrawPhase::TransparentFront);
+        } else {
+            for (SurfaceObject *obj : byDepth) drawObject(*obj, cb, outputSize, DrawPhase::Transparent);
+        }
         for (const auto &obj : m_objects)
             if (isOnStage(*obj)) drawObject(*obj, cb, outputSize, DrawPhase::Lines);
     }

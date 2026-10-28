@@ -6500,21 +6500,75 @@ void ScenarioTest::runSceneTransparencyScenarios()
                   .arg(qRed(c)).arg(qGreen(c)).arg(qBlue(c)));
         gl->setClocksDrivenByRecorder(false);
     }
-    // LA SCENA DEI PROBLEMI CHE RESTANO (non e' una verifica): la situazione in cui
-    // la trasparenza fra oggetti e' ancora sbagliata, per il confronto a occhio.
-    //  Due tori concatenati, rosso e blu: il disegno e' per OGGETTO (ordinati per
-    //  centro), quindi uno copre sempre l'altro dappertutto invece di passare
-    //  davanti e dietro nei due punti dell'incatenamento. (L'opaco dentro un ray
-    //  marching trasparente, l'altro caso, e' risolto: vedi sopra.)
+    // L'ERGOSFERA (esterna trasparente + interna opaca nello stesso shader) non si
+    // divide in due disegni: con un oggetto opaco in scena, lontano dal suo
+    // centro, il centro dell'ergosfera deve restare quello di prima.
+    if (loadRecord(QStringLiteral("records/Rotations/Implicit/3D/Ergosphere.json"))) {
+        gl->stopAllTimers();
+        gl->setClocksDrivenByRecorder(true);
+        wait(500);
+        const QImage alone = gl->grabFramebuffer();
+        m_mw->addShapeToScene(libraryPath(kParam));
+        wait(500);
+        gl->setColor(0.9f, 0.1f, 0.1f);
+        gl->setAlpha(1.0f);
+        gl->setObjectScale(0.15f);
+        gl->setObjectPosition(QVector3D(3.0f, 3.0f, 0.0f));
+        m_mw->selectSceneObject(0);
+        wait(500);
+        const QImage withObject = gl->grabFramebuffer();
+        // Tutta la riga centrale (il guscio esterno, a bordo, ha l'alpha < 1: e' li' che
+        // un raddoppio si vedrebbe; l'opaco e' fuori riga).
+        int worst = 0, worstX = 0;
+        const int row = alone.height() / 2;
+        for (int x = 0; x < alone.width(); ++x) {
+            const QRgb p1 = alone.pixel(x, row), p2 = withObject.pixel(x, row);
+            const int diff = std::abs(qRed(p1) - qRed(p2)) + std::abs(qGreen(p1) - qGreen(p2)) + std::abs(qBlue(p1) - qBlue(p2));
+            if (diff > worst) { worst = diff; worstX = x; }
+        }
+        check(worst <= 6, QStringLiteral("ergosfera con un opaco lontano: la riga centrale resta com'era (scarto massimo %1 in x=%2)")
+                              .arg(worst).arg(worstX));
+        alone.save(m_outDir + QStringLiteral("/transp-ergosphere-alone.png"));
+        withObject.save(m_outDir + QStringLiteral("/transp-ergosphere-with-object.png"));
+        gl->setClocksDrivenByRecorder(false);
+    }
+    // ORDINE fra due trasparenti compenetrati (immagini, non una verifica): ambiente RM
+    // blu e sfera parametrica verde che lo compenetra, con il centro davanti o
+    // dietro a quello dell'ambiente. Disegnando prima le facce posteriori di
+    // tutti e poi le anteriori, la zona comune e' mescolata allo stesso modo nei
+    // due casi (disegnando oggetto per oggetto, la sfera "dopo" copriva l'altra).
+    for (float zc : { 0.3f, -0.3f }) {
+        if (!loadSurface(kRM)) break;
+        gl->stopAllTimers();
+        gl->setClocksDrivenByRecorder(true);
+        gl->setColor(0.2f, 0.6f, 0.9f);
+        gl->setAlpha(0.75f);
+        m_mw->addShapeToScene(libraryPath(kParam));
+        wait(400);
+        gl->setColor(0.2f, 0.9f, 0.2f);
+        gl->setAlpha(0.7f);
+        gl->setObjectScale(0.8f);
+        gl->setObjectPosition(QVector3D(0.9f, 0.0f, zc));
+        m_mw->selectSceneObject(0);
+        gl->setCameraPos(QVector3D(0.0f, 0.0f, 6.0f));
+        wait(500);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/transp-order-z%1.png").arg(zc > 0 ? "front" : "back"));
+        gl->setClocksDrivenByRecorder(false);
+    }
+    // LA SCENA DEI TORI CONCATENATI (non e' una verifica): il caso piu' difficile
+    // della trasparenza fra oggetti, per il confronto a occhio. Con le facce
+    // posteriori prima delle anteriori si mescolano in modo plausibile; resta
+    // approssimato perche' l'ordine fra oggetti e' per centro.
     if (loadSurface(kRM)) {
         gl->stopAllTimers();
         gl->setClocksDrivenByRecorder(true);
         gl->setColor(0.2f, 0.6f, 0.9f);
         gl->setAlpha(0.6f);
-        m_mw->m_currentHintText = QStringLiteral("Transparency: what is still wrong.\n"
-            "Two linked tori: each should pass in front of the other at one crossing and behind it at the other. "
-            "Instead the blue one covers the red one everywhere, because objects are drawn one after the other, "
-            "ordered by their center.");
+        m_mw->m_currentHintText = QStringLiteral("Transparency between objects: two linked tori.\n"
+            "Transparent objects are drawn back faces first, then front faces, each pass from the farthest object "
+            "(by its center) to the nearest, so overlapping convex shapes blend plausibly. What is still approximate: "
+            "the order among objects is by center, so interlocked or non-convex shapes can still show a wrong "
+            "layer at some crossings.");
         m_mw->m_currentHintSeconds = 10.0f;
         const QString torus = libraryPath(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"));
         // Due tori concatenati a sinistra.
@@ -6547,10 +6601,10 @@ void ScenarioTest::runSceneTransparencyScenarios()
         gl->setCameraPos(QVector3D(0.0f, 0.0f, 6.0f));
         wait(400);
         PresetSerializer::MotionRunState run;
-        const QJsonObject json = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Transparency Problems"), run, false);
-        QFile f(m_outDir + QStringLiteral("/Transparency Problems.json"));
+        const QJsonObject json = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Transparency Linked Tori"), run, false);
+        QFile f(m_outDir + QStringLiteral("/Transparency Linked Tori.json"));
         check(f.open(QIODevice::WriteOnly) && f.write(QJsonDocument(json).toJson()) > 0,
-              QStringLiteral("scena Transparency Problems scritta nel report"));
+              QStringLiteral("scena Transparency Linked Tori scritta nel report"));
         gl->grabFramebuffer().save(m_outDir + QStringLiteral("/transp-problems.png"));
         gl->setClocksDrivenByRecorder(false);
     }
