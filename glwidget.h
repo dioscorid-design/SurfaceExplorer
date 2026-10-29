@@ -1366,16 +1366,6 @@ public:
     bool wireframeQuadsActive() const;
     // Prima della cattura: il wireframe di tutti gli oggetti PUO' andare a strisce?
     bool wireframeQuadsEligible() const;
-    // ANTIALIASING (MSAA) del display. I campioni che il dispositivo supporta
-    // (sempre compreso 1 = spento) e il cambio: false se `samples` non e' fra
-    // quelli supportati (nulla cambia). Il cambio rifa' tutte le pipeline: dipendono
-    // dai campioni del render target. Una cattura molto grande (beginHiResCapture)
-    // lo sospende da sola, perche' i campioni moltiplicano la memoria del buffer.
-    QList<int> supportedMsaaSamples();
-    bool setMsaaSamples(int samples);
-    int msaaSamples() const { return sampleCount(); }
-    // Il valore da applicare appena la GPU e' pronta (letto dalle impostazioni).
-    void setStartupMsaaSamples(int samples) { m_startupMsaa = samples; }
     // Quanti indici di linea ha il wireframe in scena (0 = nessun wireframe): il
     // costo di un ridisegno. Serve a limitare lo spessore di una cattura.
     qint64 wireframeIndexTotal() const {
@@ -1793,9 +1783,6 @@ private:
     float m_cameraPitch;
     float m_cameraRoll = 0.0f;
     float m_cameraFov = 45.0f; // gradi, vedi setCameraFov()
-    int m_startupMsaa = 1;
-    int m_msaaBeforeCapture = 0;           // campioni da rimettere a fine cattura (0 = nessuna sospensione)
-    void invalidateSampleDependentPipelines();
     int m_captureLineWidth = 1;            // vedi setCaptureLineWidth
     QVector<QPoint> wireframeOffsets() const;
     void prepareWireQuads(SurfaceObject &o, QRhiResourceUpdateBatch *resourceUpdates);

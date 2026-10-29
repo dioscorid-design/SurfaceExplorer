@@ -717,7 +717,6 @@ void MainWindow::resetTextureAndSoundForNewScene()
 
 void MainWindow::resetAppearanceForNewScene()
 {
-    resetAntialiasing();
     // (Colore e colori 1/2 dello sfondo: scena di default, in testa.) Il verde
     // della superficie vive solo nel motore.
     const QColor defaultGreen = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
@@ -1483,7 +1482,7 @@ void MainWindow::warnSharedConstantsOnRecordLoad(const QString &recordPath)
 void MainWindow::applySurfaceExample(LibraryItem d, bool asObject)
 {
     // Un load normale riscrive la scena intera: si torna al solo ambiente.
-    if (!asObject) { resetToSingleObject(); resetAntialiasing(); }
+    if (!asObject) resetToSingleObject();
     // L'ambiente prende il nome della Shape (elenco del dock Objects).
     if (!asObject) setEnvironmentName(d.name);
     if (!asObject) restartSceneTimeline();
@@ -2015,7 +2014,6 @@ void MainWindow::stopMotionForRecordLoad()
 
 void MainWindow::applyRecordMode(const LibraryItem &data, const SceneState &file, bool asObject)
 {
-    if (!asObject) resetAntialiasing();
     const bool isImplicit = data.isImplicitMode;
     // Le superfici implicite da script sono gestite da applyCommonData: non sovrascrivere.
     const bool isImplicitScript = isImplicit && !data.scriptCode.isEmpty();
