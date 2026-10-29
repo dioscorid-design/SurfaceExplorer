@@ -258,6 +258,16 @@ private:
     // 2.0: trasparenza fra oggetti (immagini di prova nel report). Da sola:
     // --scenario-only scene-transparency.
     void runSceneTransparencyScenarios();
+    // SONDA (non e' una verifica): a quali dimensioni la GPU riesce a rendere un
+    // fotogramma fuori schermo, in quanto tempo e con quanta memoria. Da sola:
+    // --scenario-only hires-probe.
+    void runHiResProbeScenarios();
+    // Lo scatto di un'immagine a risoluzione libera (ImageCapture): dimensioni dal
+    // rapporto, riquadro guida, e che il riquadro dica la verita' (un'immagine piu'
+    // larga della vista mostra il soggetto alla stessa frazione di larghezza: il
+    // campo orizzontale resta quello della vista). Da sola: --scenario-only
+    // image-capture.
+    void runImageCaptureScenarios();
     // 2.0: flussi geodetici come oggetti, col loro tempo anche non selezionati.
     void runSceneGeodesicScenarios();
     // 2.0: il master su tutta la scena (oggetti e moduli della scena).

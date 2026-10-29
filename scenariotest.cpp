@@ -26,6 +26,11 @@
 #include <QFile>
 #include <QDockWidget>
 #include <QElapsedTimer>
+#include "imagecapture.h"
+#include <QImageReader>
+#include <QComboBox>
+#include <QTimer>
+#include <sys/resource.h>
 #include <QSlider>
 #include <QLineEdit>
 #include <QDoubleSpinBox>
@@ -38,6 +43,7 @@
 #include <QMimeData>
 #include <QDropEvent>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QTimer>
 #include <QAbstractButton>
 #include <QKeyEvent>
@@ -1933,6 +1939,16 @@ void ScenarioTest::run()
     }
     if (m_only == QLatin1String("scene-motion")) {
         runSceneMotionScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("image-capture")) {
+        runImageCaptureScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("hires-probe")) {
+        runHiResProbeScenarios();
         finish();
         return;
     }
@@ -6385,6 +6401,170 @@ void ScenarioTest::runSceneMotionScenarios()
         wait(200);
         check(gl->isObjectRotating(0), QStringLiteral("e il GO dell'ambiente lo fa ruotare di nuovo"));
         m_mw->onStopClicked();
+    }
+}
+
+void ScenarioTest::runImageCaptureScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Immagine a risoluzione libera (ImageCapture) =="));
+
+    // LOGICA PURA.
+    check(ImageCapture::sizeFor(16.0 / 9.0, 3840) == QSize(3840, 2160)
+              && ImageCapture::sizeFor(2.0 / 3.0, 3000) == QSize(2000, 3000)
+              && ImageCapture::sizeFor(1.0, 1000) == QSize(1000, 1000),
+          QStringLiteral("sizeFor: 16:9 a 3840 -> 3840x2160, 2:3 a 3000 -> 2000x3000, 1:1 -> quadrato"));
+    check(qFuzzyCompare(ImageCapture::verticalScaleFor(2.0, 1.5), 0.75f)
+              && qFuzzyCompare(ImageCapture::verticalScaleFor(1.0, 1.5), 1.0f),
+          QStringLiteral("verticalScaleFor: piu' largo della vista -> riduce il campo verticale, piu' stretto -> 1"));
+    {
+        const QRect narrow = ImageCapture::guideRect(QSize(1200, 800), 1.0);     // 1:1 in 3:2
+        const QRect wide = ImageCapture::guideRect(QSize(1200, 800), 3.0);       // 3:1 in 3:2
+        check(narrow == QRect(200, 0, 800, 800) && wide == QRect(0, 200, 1200, 400),
+              QStringLiteral("guideRect: stretto -> piena altezza al centro, largo -> piena larghezza al centro"));
+    }
+    check(gl->maxTextureSize() >= 4096, QStringLiteral("limite di texture della GPU letto (%1)").arg(gl->maxTextureSize()));
+
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    gl->stopAllTimers();
+    gl->setClocksDrivenByRecorder(true);
+    wait(500);
+    check(ImageCapture::secondsPerMegapixel(gl) > 0.0, QStringLiteral("secondi per megapixel misurati"));
+
+    const double viewRatio = double(gl->width()) / double(std::max(1, gl->height()));
+    // La frazione di larghezza che il soggetto occupa (pixel diversi dallo sfondo).
+    auto spanFraction = [](const QImage &img) {
+        const QRgb bg = img.pixel(2, img.height() / 2);
+        auto differs = [&](int x, int y) {
+            const QRgb p = img.pixel(x, y);
+            return std::abs(qRed(p) - qRed(bg)) + std::abs(qGreen(p) - qGreen(bg)) + std::abs(qBlue(p) - qBlue(bg)) > 30;
+        };
+        int lo = -1, hi = -1;
+        const int y = img.height() / 2;
+        for (int x = 0; x < img.width(); ++x)
+            if (differs(x, y)) { if (lo < 0) lo = x; hi = x; }
+        return lo < 0 ? 0.0 : double(hi - lo + 1) / double(img.width());
+    };
+
+    QString err;
+    const QSize s1 = ImageCapture::sizeFor(viewRatio, 1600);
+    const QImage img1 = ImageCapture::render(gl, s1, viewRatio, &err);
+    check(!img1.isNull() && img1.size() == s1,
+          QStringLiteral("immagine col rapporto della vista: dimensione chiesta (%1x%2) %3")
+              .arg(s1.width()).arg(s1.height()).arg(err));
+
+    // Il doppio di larghezza, stessa altezza: con il campo orizzontale della vista il
+    // soggetto occupa la stessa frazione di larghezza (col verticale fisso, la meta').
+    const double wideRatio = viewRatio * 2.0;
+    const QSize s2 = ImageCapture::sizeFor(wideRatio, 3200);
+    const QImage img2 = ImageCapture::render(gl, s2, wideRatio, &err);
+    check(!img2.isNull() && img2.size() == s2,
+          QStringLiteral("immagine larga il doppio: dimensione chiesta (%1x%2) %3")
+              .arg(s2.width()).arg(s2.height()).arg(err));
+    if (!img1.isNull() && !img2.isNull()) {
+        const double f1 = spanFraction(img1), f2 = spanFraction(img2);
+        check(f1 > 0.05 && std::abs(f2 - f1) < 0.15 * f1,
+              QStringLiteral("immagine piu' larga della vista: il soggetto occupa la stessa frazione di larghezza "
+                             "(%1 contro %2; col campo verticale fisso sarebbe la meta')")
+                  .arg(f1, 0, 'f', 3).arg(f2, 0, 'f', 3));
+    }
+
+    // Piu' stretta della vista: il campo verticale non cambia, si taglia ai lati.
+    const double narrowRatio = viewRatio * 0.5;
+    const QSize s3 = ImageCapture::sizeFor(narrowRatio, 1600);
+    const QImage img3 = ImageCapture::render(gl, s3, narrowRatio, &err);
+    check(!img3.isNull() && img3.size() == s3,
+          QStringLiteral("immagine piu' stretta: dimensione chiesta (%1x%2)").arg(s3.width()).arg(s3.height()));
+    // Dopo lo scatto il campo visivo e' quello di prima (stessa immagine di prima).
+    const QImage again = ImageCapture::render(gl, s1, viewRatio, &err);
+    check(!again.isNull() && again == img1, QStringLiteral("dopo uno scatto largo, il campo visivo e' tornato quello della vista"));
+    // IL FLUSSO INTERO, col dialogo vero: lo si accetta da un timer dopo averne
+    // fatto uno screenshot, il file va in un percorso di prova.
+    {
+        const QString out = m_outDir + QStringLiteral("/image-capture-flow.png");
+        QFile::remove(out);
+        ImageCapture::setTestSavePath(out);
+        QString dialogPng = m_outDir + QStringLiteral("/image-capture-dialog.png");
+        {   // Il test non deve dipendere da cio' che una prova a mano ha salvato.
+            QSettings st;
+            for (const char *k : { "imagePrintLength", "imagePrintUnit", "imageDpi", "imageSizeMode", "imageLongSide", "imageRatioIndex" })
+                st.remove(QString::fromLatin1(k));
+        }
+        bool sawDialog = false;
+        QString printText;
+        ImageCapture::setTestDialogHandler([&](QDialog *d) {
+            sawDialog = true;
+            d->grab().save(dialogPng);
+            // La misura di stampa (desktop e iPad): 50 cm a 300 dpi sono 5906 pixel.
+            for (QComboBox *c : d->findChildren<QComboBox *>())
+                if (c->count() == 2 && c->itemText(1) == QStringLiteral("Print size")) c->setCurrentIndex(1);
+            QCoreApplication::processEvents();
+            d->grab().save(m_outDir + QStringLiteral("/image-capture-dialog-print.png"));
+            for (QLabel *l : d->findChildren<QLabel *>())
+                if (l->text().contains(QStringLiteral("megapixel"))) printText = l->text();
+            // Si torna ai pixel per lo scatto vero.
+            for (QComboBox *c : d->findChildren<QComboBox *>())
+                if (c->count() == 2 && c->itemText(1) == QStringLiteral("Print size")) c->setCurrentIndex(0);
+            d->accept();
+        });
+        const bool done = ImageCapture::run(gl, m_mw, m_outDir);
+        ImageCapture::setTestSavePath(QString());
+        ImageCapture::setTestDialogHandler(nullptr);
+        const QSize onDisk = QImageReader(out).size();
+        check(printText.contains(QStringLiteral("5906")),
+              QStringLiteral("misura di stampa: 50 cm a 300 dpi -> 5906 pixel (%1)")
+                  .arg(QString(printText).remove(QRegularExpression(QStringLiteral("<[^>]*>"))).left(60)));
+        check(sawDialog && done && QFile::exists(out) && onDisk.isValid() && onDisk.width() > 100,
+              QStringLiteral("flusso intero: dialogo, rendering e PNG salvato (dialogo %1, salvato %2, su disco %3x%4)")
+                  .arg(sawDialog).arg(done).arg(onDisk.width()).arg(onDisk.height()));
+    }
+    gl->setClocksDrivenByRecorder(false);
+}
+
+void ScenarioTest::runHiResProbeScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Sonda: rendering fuori schermo a dimensioni crescenti =="));
+    if (QRhi *rhi = gl->getRhi()) {
+        const int tmax = rhi->resourceLimit(QRhi::TextureSizeMax);
+        m_lines.append(QStringLiteral("limite di texture della GPU: %1 pixel per lato (backend %2)")
+                           .arg(tmax).arg(rhi->backendName()));
+        qInfo() << "HIRES limite texture" << tmax << rhi->backendName();
+    }
+    auto rssMb = []() {
+        struct rusage ru{};
+        getrusage(RUSAGE_SELF, &ru);
+        return double(ru.ru_maxrss) / (1024.0 * 1024.0);   // macOS: byte
+    };
+    const QList<QSize> sizes = { QSize(3840, 2160), QSize(7680, 4320), QSize(8192, 8192),
+                                 QSize(12288, 6912), QSize(16384, 9216), QSize(16384, 16384) };
+    const QStringList scenes = { QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"),
+                                 QStringLiteral("surfaces/Implicit/3D/Chmutov.json") };
+    for (const QString &scene : scenes) {
+        if (!loadSurface(scene)) continue;
+        gl->stopAllTimers();
+        gl->setClocksDrivenByRecorder(true);
+        wait(500);
+        for (const QSize &sz : sizes) {
+            QElapsedTimer t;
+            t.start();
+            gl->beginHiResCapture(sz.width(), sz.height());
+            const QImage img = gl->getFrameForVideo(sz.width(), sz.height(), true);
+            const qint64 ms = t.elapsed();
+            gl->endHiResCapture();
+            const bool ok = !img.isNull() && img.size() == sz;
+            const QString line = QStringLiteral("%1 %2x%3: %4, %5 ms, immagine %6x%7, memoria massima del processo %8 MB")
+                .arg(scene.section(QLatin1Char('/'), -1)).arg(sz.width()).arg(sz.height())
+                .arg(ok ? QStringLiteral("OK") : QStringLiteral("NON RIUSCITO")).arg(ms)
+                .arg(img.width()).arg(img.height()).arg(rssMb(), 0, 'f', 0);
+            m_lines.append(line);
+            qInfo().noquote() << "HIRES" << line;
+            wait(300);
+            if (!ok) break;
+        }
+        gl->setClocksDrivenByRecorder(false);
     }
 }
 
