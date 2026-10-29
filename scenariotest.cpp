@@ -6475,6 +6475,17 @@ void ScenarioTest::runAntialiasingScenarios()
     }
     check(gl->setMsaaSamples(1) && gl->msaaSamples() == 1, QStringLiteral("si torna a spento"));
     shot();
+    // Lo slider si azzera uscendo dal preset.
+    QSlider *slider = m_mw->ui->antialiasSlider;
+    slider->setValue(1);
+    check(gl->msaaSamples() == 2, QStringLiteral("lo slider a 1 accende 2 campioni (%1)").arg(gl->msaaSamples()));
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) {
+        wait(300);
+        check(slider->value() == 0 && gl->msaaSamples() == 1,
+              QStringLiteral("caricando un altro preset l'antialiasing torna a Off (slider %1, campioni %2)")
+                  .arg(slider->value()).arg(gl->msaaSamples()));
+        check(m_mw->ui->lblValAntialias->text() == QStringLiteral("Off"), QStringLiteral("l'etichetta dice Off"));
+    }
 }
 
 void ScenarioTest::runImageCaptureScenarios()

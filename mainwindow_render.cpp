@@ -1191,9 +1191,9 @@ void MainWindow::setupRendererDock()
     });
 
     // ANTIALIASING (MSAA) del display: 0 = spento (di default), 1..3 = 2x, 4x, 8x.
-    // E' un'impostazione dell'applicazione, non della scena: non sporca nulla e non
-    // finisce nei preset. Se la GPU non supporta il livello scelto, un avviso lo dice
-    // e lo slider torna al piu' alto che supporta.
+    // Non e' della scena: non sporca nulla e non finisce nei preset. Torna a Off
+    // quando si esce dal preset (resetAntialiasing). Se la GPU non supporta il
+    // livello scelto, un avviso lo dice e lo slider torna al piu' alto che supporta.
     {
         static const int kSamples[] = { 1, 2, 4, 8 };
         auto labelFor = [](int level) {
@@ -1203,13 +1203,7 @@ void MainWindow::setupRendererDock()
         ui->antialiasSlider->setSingleStep(1);
         ui->antialiasSlider->setPageStep(1);
         UiStyleManager::setupBigSliders(nullptr, nullptr, nullptr, nullptr, ui->antialiasSlider);
-        const int saved = qBound(0, QSettings().value("antialiasLevel", 0).toInt(), 3);
-        {
-            const QSignalBlocker block(ui->antialiasSlider);
-            ui->antialiasSlider->setValue(saved);
-        }
-        ui->lblValAntialias->setText(labelFor(saved));
-        ui->glWidget->setStartupMsaaSamples(kSamples[saved]);
+        ui->lblValAntialias->setText(labelFor(0));
         connect(ui->antialiasSlider, &QSlider::valueChanged, this, [this, labelFor](int level) {
             level = qBound(0, level, 3);
             if (!ui->glWidget->setMsaaSamples(kSamples[level])) {
@@ -1229,7 +1223,6 @@ void MainWindow::setupRendererDock()
                 ui->glWidget->setMsaaSamples(kSamples[level]);
             }
             ui->lblValAntialias->setText(labelFor(level));
-            QSettings().setValue("antialiasLevel", level);
         });
     }
 
@@ -2487,6 +2480,12 @@ bool MainWindow::isWholeSceneEmpty() const
 // ==========================================================
 // RENDERING & VISUALS
 // ==========================================================
+
+void MainWindow::resetAntialiasing()
+{
+    if (ui->antialiasSlider && ui->antialiasSlider->value() != 0)
+        ui->antialiasSlider->setValue(0);   // valueChanged spegne l'MSAA e aggiorna l'etichetta
+}
 
 void MainWindow::resetTransparency()
 {
