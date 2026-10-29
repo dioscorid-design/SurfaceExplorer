@@ -188,7 +188,14 @@ struct UboData {
     // resta di 496 byte. Dichiarato in ENTRAMBI gli shader parametrici (regola
     // Adreno, vedi CLAUDE.md); lo usa solo il fragment.
     float u_globalTexture;
-    float _pad4[2];
+    // WIREFRAME A STRISCE DI TRIANGOLI (HAS_WIRE_QUAD, solo nelle catture di
+    // immagini): meta' spessore della linea e dimensione dell'immagine, in pixel.
+    // Il blocco cresce di una riga (512 byte). Dichiarati in ENTRAMBI gli shader
+    // parametrici (regola Adreno, vedi CLAUDE.md); li usa solo il vertex.
+    float u_wireHalfWidth;
+    float u_wireViewW;
+    float u_wireViewH;
+    float _pad4[3];
 };
 
 class GLWidget : public QRhiWidget
@@ -1353,6 +1360,22 @@ public:
     // sparirebbero. Si ottiene ridisegnandole con la finestra spostata di qualche
     // pixel. Si rimette a 1 a cattura finita.
     void setCaptureLineWidth(int pixels);
+    // True se il wireframe di TUTTI gli oggetti si disegna a strisce di triangoli
+    // (spessore libero, bordo sfumato); false se qualcuno ricade sulle linee native
+    // ridisegnate (tubi, mesh custom). Valido dopo il primo fotogramma della cattura.
+    bool wireframeQuadsActive() const;
+    // Prima della cattura: il wireframe di tutti gli oggetti PUO' andare a strisce?
+    bool wireframeQuadsEligible() const;
+    // ANTIALIASING (MSAA) del display. I campioni che il dispositivo supporta
+    // (sempre compreso 1 = spento) e il cambio: false se `samples` non e' fra
+    // quelli supportati (nulla cambia). Il cambio rifa' tutte le pipeline: dipendono
+    // dai campioni del render target. Una cattura molto grande (beginHiResCapture)
+    // lo sospende da sola, perche' i campioni moltiplicano la memoria del buffer.
+    QList<int> supportedMsaaSamples();
+    bool setMsaaSamples(int samples);
+    int msaaSamples() const { return sampleCount(); }
+    // Il valore da applicare appena la GPU e' pronta (letto dalle impostazioni).
+    void setStartupMsaaSamples(int samples) { m_startupMsaa = samples; }
     // Quanti indici di linea ha il wireframe in scena (0 = nessun wireframe): il
     // costo di un ridisegno. Serve a limitare lo spessore di una cattura.
     qint64 wireframeIndexTotal() const {
@@ -1770,8 +1793,13 @@ private:
     float m_cameraPitch;
     float m_cameraRoll = 0.0f;
     float m_cameraFov = 45.0f; // gradi, vedi setCameraFov()
+    int m_startupMsaa = 1;
+    int m_msaaBeforeCapture = 0;           // campioni da rimettere a fine cattura (0 = nessuna sospensione)
+    void invalidateSampleDependentPipelines();
     int m_captureLineWidth = 1;            // vedi setCaptureLineWidth
     QVector<QPoint> wireframeOffsets() const;
+    void prepareWireQuads(SurfaceObject &o, QRhiResourceUpdateBatch *resourceUpdates);
+    int m_captureSerial = 0;
     float m_captureVerticalScale = 1.0f;   // vedi setCaptureVerticalScale
     // Il campo visivo verticale con cui si disegna: m_cameraFov, scalato in
     // tangente durante una cattura d'immagine.

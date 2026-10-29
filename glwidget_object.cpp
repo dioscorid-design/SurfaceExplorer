@@ -29,6 +29,10 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
     m_uboData.x_min = o.xMin; m_uboData.x_max = o.xMax;
     m_uboData.y_min = o.yMin; m_uboData.y_max = o.yMax;
     m_uboData.z_min = o.zMin; m_uboData.z_max = o.zMax;
+    // Strisce del wireframe (catture di immagini): meta' spessore e dimensione, in pixel.
+    m_uboData.u_wireHalfWidth = 0.5f * float(m_captureLineWidth);
+    m_uboData.u_wireViewW = float(renderTarget()->pixelSize().width());
+    m_uboData.u_wireViewH = float(renderTarget()->pixelSize().height());
 
     // POSA DELL'OGGETTO: il modello e' suo, proiezione e vista della camera.
     QMatrix4x4 mvp;
@@ -626,7 +630,9 @@ void GLWidget::prepareObjectGeometry(SurfaceObject &o, QRhiResourceUpdateBatch *
         }
         resourceUpdates->updateDynamicBuffer(o.wireframeIbo, 0, iSize, o.wireframeIndices.data());
         o.wireframeNeedsUpdate = false;
+        o.wireQuadSerial = -1;   // le strisce dipendono dagli indici
     }
+    prepareWireQuads(o, resourceUpdates);
 }
 
 QRhiResourceUpdateBatch *GLWidget::runObjectCompute(SurfaceObject &o, QRhiCommandBuffer *cb,
@@ -1126,7 +1132,29 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
 
     // WIREFRAME, dopo il solido (vedi la nota sull'ordine sopra).
     if (anyWireframe && phase == DrawPhase::Lines) {
-        if (o.wireframePipeline && o.wireframeIndexCount > 0) {
+        if (m_captureLineWidth > 1 && o.wireQuadPipeline && o.wireQuadVbo && o.wireQuadSerial == m_captureSerial
+            && o.wireframeIndexCount > 0) {
+            // Cattura di un'immagine: strisce di triangoli, una istanza per segmento.
+            cb->setGraphicsPipeline(o.wireQuadPipeline);
+            cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+            auto drawSegments = [&](int firstSegment, int segments, int meshIndex) {
+                const QRhiCommandBuffer::DynamicOffset ofs(0, meshIndex * o.uboBlockStride);
+                cb->setShaderResources(srb, 1, &ofs);
+                const QRhiCommandBuffer::VertexInput inst(o.wireQuadVbo, quint32(firstSegment) * 8 * sizeof(float));
+                cb->setVertexInput(0, 1, &inst);
+                cb->draw(6, segments);
+            };
+            if (o.wireframeRanges.size() <= 1) {
+                drawSegments(0, o.wireframeIndexCount / 2, 0);
+            } else {
+                for (const WireframeRange &r : o.wireframeRanges) {
+                    if (r.indexCount <= 0) continue;
+                    if (r.meshIndex >= 0 && r.meshIndex < (int)parts.size()
+                        && !partIsWireframe(parts[r.meshIndex])) continue;
+                    drawSegments(r.indexOffset / 2, r.indexCount / 2, r.meshIndex);
+                }
+            }
+        } else if (o.wireframePipeline && o.wireframeIndexCount > 0) {
             cb->setGraphicsPipeline(o.wireframePipeline);
             const QRhiCommandBuffer::VertexInput vbufBinding(o.vbo, 0);
 

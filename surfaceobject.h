@@ -291,6 +291,13 @@ struct SurfaceObject
     QRhiBuffer *borderWireIbo = nullptr;
     bool borderUploaded = false;
     QRhiGraphicsPipeline *wireframePipeline = nullptr;
+    // WIREFRAME A STRISCE DI TRIANGOLI, solo per le catture di immagini (vedi
+    // GLWidget::prepareWireQuads): un'istanza per segmento (i due estremi, 32
+    // byte) e la pipeline che le espande in strisce di spessore e bordo sfumato
+    // a piacere. wireQuadSerial = la cattura per cui sono pronti.
+    QRhiBuffer *wireQuadVbo = nullptr;
+    QRhiGraphicsPipeline *wireQuadPipeline = nullptr;
+    int wireQuadSerial = -1;
     std::vector<unsigned int> wireframeIndices;
     bool wireframeNeedsUpdate = true;
     int wireframeIndexCount = 0;

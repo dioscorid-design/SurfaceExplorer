@@ -268,6 +268,7 @@ private:
     // campo orizzontale resta quello della vista). Da sola: --scenario-only
     // image-capture.
     void runImageCaptureScenarios();
+    void runAntialiasingScenarios();
     // 2.0: flussi geodetici come oggetti, col loro tempo anche non selezionati.
     void runSceneGeodesicScenarios();
     // 2.0: il master su tutta la scena (oggetti e moduli della scena).
