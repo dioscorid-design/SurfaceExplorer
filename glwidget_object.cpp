@@ -1128,9 +1128,12 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
     if (anyWireframe && phase == DrawPhase::Lines) {
         if (o.wireframePipeline && o.wireframeIndexCount > 0) {
             cb->setGraphicsPipeline(o.wireframePipeline);
-            cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
             const QRhiCommandBuffer::VertexInput vbufBinding(o.vbo, 0);
 
+            // Con uno spessore > 1 (cattura di immagini) il wireframe si ridisegna con
+            // la finestra spostata: vedi setCaptureLineWidth.
+            for (const QPoint &off : wireframeOffsets()) {
+            cb->setViewport(QRhiViewport(off.x(), off.y(), outputSize.width(), outputSize.height()));
             if (o.wireframeRanges.size() <= 1) {
                 const QRhiCommandBuffer::DynamicOffset ofs(0, 0);
                 cb->setShaderResources(srb, 1, &ofs);
@@ -1156,6 +1159,7 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
                     cb->drawIndexed(r.indexCount);
                 }
             }
+            }
         }
     }
 
@@ -1166,8 +1170,9 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
         && o.wireframePipeline && o.borderVbo && o.borderWireIbo && o.borderUploaded) {
         const int partSlots = std::max(1, (int)parts.size());
         cb->setGraphicsPipeline(o.borderPipelineWire ? o.borderPipelineWire : o.wireframePipeline);
-        cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
         const QRhiCommandBuffer::VertexInput borderBinding(o.borderVbo, 0);
+        for (const QPoint &off : wireframeOffsets()) {
+        cb->setViewport(QRhiViewport(off.x(), off.y(), outputSize.width(), outputSize.height()));
         for (const SurfaceEngine::BorderRange &r : o.engine->getBorderRanges()) {
             if (r.wireIndexCount <= 0) continue;
             const int slot = partSlots + std::clamp(r.meshIndex, 0, partSlots - 1);
@@ -1177,6 +1182,7 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
                                r.wireIndexOffset * sizeof(unsigned int),
                                QRhiCommandBuffer::IndexUInt32);
             cb->drawIndexed(r.wireIndexCount, 1, 0, r.vertexOffset);
+        }
         }
     }
 }

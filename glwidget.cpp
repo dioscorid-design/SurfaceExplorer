@@ -6045,6 +6045,26 @@ void GLWidget::setCaptureVerticalScale(float scale)
     m_captureVerticalScale = qBound(0.05f, scale, 1.0f);
 }
 
+void GLWidget::setCaptureLineWidth(int pixels)
+{
+    m_captureLineWidth = qBound(1, pixels, 8);
+}
+
+// Gli spostamenti (in pixel) della finestra con cui si ridisegna il wireframe per
+// dargli lo spessore chiesto: i punti di un disco, centrati sull'origine.
+QVector<QPoint> GLWidget::wireframeOffsets() const
+{
+    QVector<QPoint> offs;
+    const int n = m_captureLineWidth;
+    const double c = (n - 1) / 2.0;
+    for (int j = 0; j < n; ++j)
+        for (int i = 0; i < n; ++i)
+            if (std::hypot(i - c, j - c) <= n / 2.0)
+                offs.append(QPoint(int(std::floor(i - c)), int(std::floor(j - c))));
+    if (offs.isEmpty()) offs.append(QPoint(0, 0));
+    return offs;
+}
+
 int GLWidget::maxTextureSize()
 {
     return rhi() ? rhi()->resourceLimit(QRhi::TextureSizeMax) : 4096;
