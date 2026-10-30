@@ -2784,7 +2784,61 @@ void GLWidget::updateRotation() {
     update();
 }
 
-void GLWidget::advanceRotationsBy(float dtSeconds) {
+void GLWidget::captureEnvironmentRotationBase()
+{
+    if (m_objects.empty()) return;
+    const SurfaceObject &env = *m_objects.front();
+    m_envRotationBase.valid = true;
+    m_envRotationBase.rotation = env.rotationQuat;
+    m_envRotationBase.omega = env.omega;
+    m_envRotationBase.phi = env.phi;
+    m_envRotationBase.psi = env.psi;
+    m_envRotationBase.scene = m_sceneRotation;
+    m_envRotationBase.time = m_sceneTime;
+    m_envRotationEndT = m_sceneTime;
+}
+
+bool GLWidget::environmentRotationBaseStale() const
+{
+    return !m_envRotationBase.valid || m_sceneTime <= 0.0f
+           || std::abs(m_sceneTime - m_envRotationEndT) > 1e-3f;
+}
+
+void GLWidget::seekEnvironmentRotations(float target)
+{
+    if (m_objects.empty()) return;
+    target = std::max(0.0f, target);
+    SurfaceObject &env = *m_objects.front();
+    if (target < m_sceneTime) {
+        // Indietro solo fino alla posa di base: prima di lei il T e' di un altro
+        // moto (il path), che le rotazioni non sanno rifare.
+        if (environmentRotationBaseStale()) return;
+        target = std::max(target, m_envRotationBase.time);
+        env.rotationQuat = m_envRotationBase.rotation;
+        env.omega = m_envRotationBase.omega;
+        env.phi = m_envRotationBase.phi;
+        env.psi = m_envRotationBase.psi;
+        m_sceneRotation = m_envRotationBase.scene;
+        m_sceneTime = m_envRotationBase.time;
+    } else if (environmentRotationBaseStale()) {
+        captureEnvironmentRotationBase();
+    }
+    // Un tick alla volta (come dal vivo), poi il resto: l'arrivo non dipende
+    // dalla partenza. I segnali di rotazione si danno una volta sola.
+    const float tick = kRotationTickMs / 1000.0f;
+    float remaining = target - m_sceneTime;
+    {
+        const QSignalBlocker block(this);
+        for (; remaining >= tick; remaining -= tick) advanceRotationsBy(tick, true);
+        if (remaining > 1e-4f) advanceRotationsBy(remaining, true);
+    }
+    m_sceneTime = target;   // esatto, senza gli arrotondamenti dei tick
+    m_envRotationEndT = target;
+    emit rotationChanged();
+    update();
+}
+
+void GLWidget::advanceRotationsBy(float dtSeconds, bool seekEnvironment) {
     // L'unita' di avanzamento e' il tick live di rotationTimer: le velocita'
     // dei dock sono tarate su quello. Convertire dtSeconds in tick
     // equivalenti garantisce che il recorder, passando il dt del suo frame
@@ -2798,10 +2852,19 @@ void GLWidget::advanceRotationsBy(float dtSeconds) {
     // della timeline resta fermo.
     for (const auto &obj : m_objects) {
         SurfaceObject &o = *obj;
-        if (!o.rotating || !isOnStage(o)) continue;
+        if (seekEnvironment) {
+            if (!isEnvironment(o)) continue;
+        } else if (!o.rotating || !isOnStage(o)) {
+            continue;
+        }
         // Il GO dell'AMBIENTE e' il moto della camera quando il path e' fermo
-        // (i due si escludono): T corre con lui, come col path.
-        if (isEnvironment(o)) advanceSceneTime(dtSeconds);
+        // (i due si escludono): T corre con lui, come col path. Da T = 0 si
+        // ricorda la posa, per il cursore T.
+        if (isEnvironment(o)) {
+            if (!seekEnvironment && environmentRotationBaseStale()) captureEnvironmentRotationBase();
+            advanceSceneTime(dtSeconds);
+            if (!seekEnvironment) m_envRotationEndT = m_sceneTime;
+        }
 
         float dPrec = o.precessionSpeed * speedMult3D;
         float dNut  = o.nutationSpeed   * speedMult3D;

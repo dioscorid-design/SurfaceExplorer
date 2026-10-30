@@ -349,9 +349,23 @@ void MainWindow::advanceSceneBy(double dt, bool selectedGeoFlow)
 void MainWindow::seekSceneTime(float target)
 {
     GLWidget *gl = ui->glWidget;
-    const std::optional<CameraPaths::Path> path = cameraPath();
-    if (!gl || !path || m_isRecording) return;
+    std::optional<CameraPaths::Path> path = cameraPath();
+    if (!gl || m_isRecording) return;
     target = std::max(0.0f, target);
+    // Path e rotazioni dell'ambiente si escludono: il cursore muove quello che ha
+    // la camera. Un path scritto e fermo con il GO acceso (cameraPath() lo
+    // restituisce lo stesso, e' l'ultimo moto avviato) non conta: muove la rotazione.
+    if (path && !pathRunning(CameraPaths::Path4D) && !pathRunning(CameraPaths::Path3D)
+        && gl->isObjectRotating(0) && gl->objectHasRotationSpeed(0))
+        path.reset();
+    // Senza path, il moto della camera sono le rotazioni dell'ambiente.
+    if (!path) {
+        if (!gl->objectHasRotationSpeed(0)) return;
+        gl->seekEnvironmentRotations(target);
+        m_sceneTimeReached = std::max(m_sceneTimeReached, target);
+        refreshSceneTimeLabel();
+        return;
+    }
     // Indietro si riparte da 0 (T compreso), poi avanti con CameraPaths::advance,
     // lo stesso del tick, UN TICK ALLA VOLTA alla velocita' di adesso: la
     // camera del path 4D dipende anche dal passo prima (la proiezione usa
@@ -392,8 +406,10 @@ void MainWindow::refreshSceneTimeSlider()
     GLWidget *gl = ui->glWidget;
     const float t = gl->sceneTime();
     m_sceneTimeReached = std::max(m_sceneTimeReached, t);
-    // Il cursore muove il path dell'ambiente: serve che la camera ne segua uno.
-    m_sceneTimeSlider->setEnabled(cameraPath().has_value() && !m_isRecording);
+    // Il cursore muove il moto della camera dell'ambiente: un path, o le sue
+    // rotazioni (anche a GO spento).
+    m_sceneTimeSlider->setEnabled((cameraPath().has_value() || gl->objectHasRotationSpeed(0))
+                                  && !m_isRecording);
     // Le finestre contano su T: senza un moto della camera T non corre.
     const bool windows = gl->selectedObject() > 0 && sceneTimeCanRun();
     m_objectWindowIn->setEnabled(windows);

@@ -7782,14 +7782,14 @@ void ScenarioTest::runSceneTimelineScenarios()
               && !m_mw->m_sceneTimeLabel->isVisibleTo(m_mw),
           QStringLiteral("ambiente senza path: In/Out e cursore spenti, T nascosto"));
     // Le rotazioni dell'ambiente sono l'altro moto della camera: con le sue
-    // velocita' T puo' correre (In/Out e T accesi; il cursore resta del path).
+    // velocita' T puo' correre (In/Out, T e cursore accesi).
     m_mw->selectSceneObject(0);
     gl->setPrecessionSpeed(0.5f);
     m_mw->selectSceneObject(1);
     m_mw->refreshSceneTimeLabel();
-    check(m_mw->m_objectWindowIn->isEnabled() && !m_mw->m_sceneTimeSlider->isEnabled()
+    check(m_mw->m_objectWindowIn->isEnabled() && m_mw->m_sceneTimeSlider->isEnabled()
               && m_mw->m_sceneTimeLabel->isVisibleTo(m_mw),
-          QStringLiteral("ambiente con le velocita' di rotazione: In/Out attivi, T visibile, cursore spento"));
+          QStringLiteral("ambiente con le velocita' di rotazione: In/Out attivi, T visibile, cursore attivo"));
 
     // Ambiente col path 4D: T corre col path.
     if (!loadRecord(kCoil)) return;
@@ -8154,7 +8154,7 @@ void ScenarioTest::runSceneSeekScenarios()
 {
     GLWidget *gl = m_mw->ui->glWidget;
     m_lines.append(QString());
-    m_lines.append(QStringLiteral("== Timeline: il cursore T muove il solo path dell'ambiente =="));
+    m_lines.append(QStringLiteral("== Timeline: il cursore T muove il solo moto della camera dell'ambiente (path o rotazioni) =="));
     const QString kCoil = QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Cytherean Coil.json");
     if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
     m_mw->refreshSceneTimeLabel();
@@ -8251,6 +8251,64 @@ void ScenarioTest::runSceneSeekScenarios()
     m_mw->refreshSceneTimeLabel();
     check(m_mw->m_sceneTimeSlider->maximum() >= 600,
           QStringLiteral("la scala del cursore arriva a %1 s").arg(m_mw->m_sceneTimeSlider->maximum() / 10.0));
+
+    // Il cursore con le ROTAZIONI dell'ambiente, senza path e a GO spento.
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    m_mw->addShapeToScene(spherePath);
+    wait(300);
+    const int other = gl->selectedObject();
+    gl->setSpinSpeed(0.6f);
+    gl->setPrecessionSpeed(0.4f);
+    if (gl->isObjectRotating(other)) m_mw->onStopClicked();
+    m_mw->selectSceneObject(0);
+    gl->setSpinSpeed(0.6f);
+    gl->setPrecessionSpeed(0.4f);
+    if (gl->isObjectRotating(0)) m_mw->onStopClicked();
+    m_mw->refreshSceneTimeLabel();
+    check(!m_mw->cameraPath().has_value() && gl->objectHasRotationSpeed(0) && !gl->isObjectRotating(0)
+              && m_mw->m_sceneTimeSlider->isEnabled(),
+          QStringLiteral("rotazioni dell'ambiente, GO spento, senza path: cursore attivo"));
+    auto envQuat = [&]() { return gl->objectOrientation(0).rotation; };
+    const QQuaternion otherQ = gl->objectOrientation(other).rotation;
+    const QQuaternion e0 = envQuat();
+    m_mw->seekSceneTime(2.0f);
+    const QQuaternion e2 = envQuat();
+    const QQuaternion scene2 = gl->sceneRotation().rotation;
+    m_mw->seekSceneTime(4.0f);
+    const QQuaternion e4 = envQuat();
+    m_mw->seekSceneTime(2.0f);
+    check(gl->sceneTime() == 2.0f && !same(e0, e2) && !same(e2, e4) && same(envQuat(), e2)
+              && same(gl->sceneRotation().rotation, scene2),
+          QStringLiteral("rotazioni: a 2 s la posa cambia; a 4 s e di nuovo a 2 s ambiente e scena come prima"));
+    m_mw->seekSceneTime(0.0f);
+    check(same(envQuat(), e0) && gl->sceneTime() == 0.0f,
+          QStringLiteral("rotazioni: a 0 s la posa e' quella di partenza"));
+    check(same(gl->objectOrientation(other).rotation, otherQ),
+          QStringLiteral("rotazioni: gli altri oggetti non si toccano"));
+    // Il cursore del dock e il passo del REC coincidono con lo stesso moto.
+    m_mw->m_sceneTimeSlider->setValue(20);
+    check(same(envQuat(), e2) && std::abs(gl->sceneTime() - 2.0f) < 1e-4f,
+          QStringLiteral("rotazioni: cursore del dock a 20 = stessa posa dei 2 s"));
+
+    // Path scritto E rotazioni, path fermo e GO acceso (come le scene con la Cross
+    // Section come ambiente): il cursore muove la rotazione, non il path.
+    if (!loadRecord(kCoil)) return;
+    m_mw->onDepartureClicked();
+    gl->setSpinSpeed(0.6f);
+    gl->setPrecessionSpeed(0.4f);
+    if (!gl->isObjectRotating(0)) m_mw->onStopClicked();
+    const bool setUp = !m_mw->pathRunning(CameraPaths::Path4D) && gl->isObjectRotating(0);
+    const Shot pathBefore = shot();
+    const QQuaternion r0 = envQuat();
+    m_mw->seekSceneTime(2.0f);
+    const QQuaternion r2 = envQuat();
+    m_mw->seekSceneTime(1.0f);
+    m_mw->seekSceneTime(2.0f);
+    check(setUp && !same(r0, r2) && same(envQuat(), r2) && equal(shot(), pathBefore),
+          QStringLiteral("path scritto e fermo, GO acceso: il cursore muove la rotazione, il path resta com'era "
+                         "(pronto %1, posa cambia %2, torna uguale %3, path uguale %4, cameraPath %5, T %6)")
+              .arg(setUp).arg(!same(r0, r2)).arg(same(envQuat(), r2)).arg(equal(shot(), pathBefore))
+              .arg(m_mw->cameraPath().has_value()).arg(gl->sceneTime()));
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()

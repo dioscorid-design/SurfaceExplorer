@@ -1205,7 +1205,17 @@ public:
     // la usa il tick live (updateRotation, dt=16ms) e il loop di registrazione
     // (dt del frame virtuale) — niente copie della cinematica nel recorder
     // (vedi CLAUDE.md).
-    void advanceRotationsBy(float dtSeconds);
+    // `seekEnvironment`: solo l'AMBIENTE, anche a GO spento (il cursore T, vedi
+    // seekEnvironmentRotations): stessa cinematica, nessun altro oggetto.
+    void advanceRotationsBy(float dtSeconds, bool seekEnvironment = false);
+    // CURSORE T con le rotazioni dell'ambiente: porta la posa dell'ambiente (e
+    // della scena, sceneRotation) a quella che avrebbe al tempo `target`, e T con
+    // lei. Indietro si riparte dalla posa che c'era a T = 0 (catturata alla
+    // prima partenza da T = 0, o qui), poi avanti UN TICK ALLA VOLTA con
+    // advanceRotationsBy, alle velocita' di adesso: lo stesso moto del dal vivo
+    // e del REC. Gli altri oggetti non si toccano. Limite: una rotazione data col
+    // mouse dopo T = 0 si perde tornando indietro.
+    void seekEnvironmentRotations(float target);
     // Clock esterno (registrazione): con il flag attivo i tick live NON
     // avanzano i moti — li avanza il loop del recorder col tempo virtuale del
     // frame. Lo STATO pero' resta vero (rotationTimer attivo, isAnimating()
@@ -1856,6 +1866,21 @@ private:
     float m_viewOmega = 0.0f, m_viewPhi = 0.0f, m_viewPsi = 0.0f;
     // La rotazione della scena data dall'ambiente: vedi sceneRotation.
     SceneRotation m_sceneRotation;
+    // La posa dell'ambiente a T = 0 (o dove le rotazioni sono subentrate), per il cursore T (seekEnvironmentRotations).
+    struct EnvironmentRotationBase {
+        bool valid = false;
+        QQuaternion rotation;
+        float omega = 0.0f, phi = 0.0f, psi = 0.0f;
+        SceneRotation scene;
+        float time = 0.0f;   // il T di quella posa (0, o dove le rotazioni hanno preso il posto del path)
+    };
+    EnvironmentRotationBase m_envRotationBase;
+    // Il T a cui le rotazioni dell'ambiente sono arrivate: se T e' altrove l'ha
+    // mosso un altro moto (il path) e la posa di base non vale piu'.
+    float m_envRotationEndT = 0.0f;
+    void captureEnvironmentRotationBase();
+    // La posa di base va rifatta: mai presa, T = 0, o T mosso da altro dopo.
+    bool environmentRotationBaseStale() const;
     // Una rotazione 4D dell'ambiente (scatti, GO): la stessa agli oggetti.
     void rotateSelected4D(float dOmega, float dPhi, float dPsi);
     bool sceneFollowsEnvironment(const SurfaceObject &o) const {
