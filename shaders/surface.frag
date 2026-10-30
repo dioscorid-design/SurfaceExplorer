@@ -196,9 +196,9 @@ bool borderFragmentCovered() {
 void main() {
 #ifdef PEEL
     {
-        const float pz = gl_FragCoord.z;
-        if (pz <= texelFetch(u_peelPrev, ivec2(gl_FragCoord.xy), 0).r) discard;
-        PeelDepth = pz;
+        const float stored = 1.0 - gl_FragCoord.z;
+        if (stored >= texelFetch(u_peelPrev, ivec2(gl_FragCoord.xy), 0).r) discard;
+        PeelDepth = stored;
     }
 #endif
 #ifdef HAS_BORDER

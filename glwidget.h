@@ -1376,10 +1376,12 @@ public:
     bool wireframeQuadsActive() const;
     // Prima della cattura: il wireframe di tutti gli oggetti PUO' andare a strisce?
     bool wireframeQuadsEligible() const;
-    // Quanti indici di linea ha il wireframe in scena (0 = nessun wireframe): il
-    // costo di un ridisegno. Serve a limitare lo spessore di una cattura.
-    // True se qualcosa si sta disegnando in wireframe (un oggetto, o una sua parte):
-    // wireframeIndexTotal conta anche gli indici delle superfici piene.
+    // Quanti strati avrebbe il depth peeling a questa dimensione (0 = nessuno, i
+    // trasparenti si disegnano a due passate, con l'ordine per oggetto).
+    int peelLayersFor(const QSize &size) const;
+    // True se la scena usa il depth peeling: due o piu' trasparenti.
+    bool sceneUsesPeel() const { return transparentObjectsOnStage().size() >= 2; }
+    // True se qualcosa si sta disegnando in wireframe (un oggetto, o una sua parte).
     bool hasVisibleWireframe() const {
         for (const auto &o : m_objects) {
             if (o->engineMode != SurfaceObject::ModeParametric || !o->engine || o->wireframeIndexCount <= 0) continue;
@@ -1484,7 +1486,7 @@ protected:
     // lontano al piu' vicino per centro: per i solidi convessi compenetrati e'
     // molto piu' fedele del disegno oggetto per oggetto.
     // Peel: un solo strato del depth peeling (disegna nei render target degli strati).
-    enum class DrawPhase { Opaque, Transparent, TransparentBack, TransparentFront, Peel, Lines };
+    enum class DrawPhase { Opaque, Transparent, TransparentBack, TransparentFront, Peel, LinesDepth, Lines };
     bool hasTransparentPart(const SurfaceObject &o) const;
     // Profondita' in vista (z, piu' negativo = piu' lontano) della faccia piu'
     // vicina e di quella piu' lontana dell'oggetto, da una sfera che lo contiene
@@ -1573,11 +1575,11 @@ private:
     QRhiTexture *m_dummyTexture = nullptr;
     QRhiSampler *m_sampler = nullptr;
 
-    // DEPTH PEELING dei trasparenti parametrici (due o piu' in scena). Ogni strato
-    // k e' il frammento PIU' VICINO oltre quello dello strato k-1, per pixel:
-    // colore RGBA8 + profondita' R32F (scritta dallo shader, PEEL in surface.frag),
-    // in un render target offscreen. Gli strati si fondono poi nel main pass dal
-    // piu' lontano al piu' vicino (peelComposite), con la profondita' dello strato
+    // DEPTH PEELING dei trasparenti (due o piu' in scena). Ogni strato k e' il
+    // frammento PIU' VICINO oltre quello dello strato k-1, per pixel: colore RGBA8 +
+    // profondita' R32F (1 - z, scritta dallo shader, PEEL in surface.frag), in un
+    // render target offscreen. Gli strati si fondono poi nel main pass dal piu'
+    // lontano al piu' vicino (drawPeelComposite), con la profondita' dello strato
     // come gl_FragDepth: gli opachi gia' disegnati li coprono come sempre.
     // Lo shader dell'oggetto legge la profondita' dello strato PRECEDENTE da
     // m_peelPrev (binding 5 di tutti i binding di superficie, peelPrevBinding).
@@ -1598,10 +1600,11 @@ private:
     QRhiRenderPassDescriptor *m_peelRp = nullptr;
     QRhiSampler *m_peelSampler = nullptr;
     QRhiGraphicsPipeline *m_peelCompositePipeline = nullptr;
-    bool m_peelFailed = false;
+    qint64 m_peelFailedPixels = std::numeric_limits<qint64>::max();   // da qui in su non si ritenta
     bool ensurePeelResources(const QSize &size, int layers);
     void releasePeelResources(bool all);
     bool ensurePeelPipeline(SurfaceObject &o);
+    std::vector<SurfaceObject *> transparentObjectsOnStage() const;
     // Gli strati nei loro render target (fuori dal main pass); false = niente
     // peeling, si disegna a due passate.
     bool renderPeelLayers(QRhiCommandBuffer *cb, const QSize &outputSize, int layers,

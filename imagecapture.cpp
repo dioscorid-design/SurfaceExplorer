@@ -475,7 +475,11 @@ private:
 
         const double mp = double(m_size.width()) * m_size.height() / 1e6;
         const double seconds = m_secPerMp * mp;
-        const double gb = double(m_size.width()) * m_size.height() * 4.0 * 3.0 / 1e9;   // colore, profondita', copia
+        // Colore, profondita', copia; con due o piu' trasparenti anche gli strati.
+        const bool peel = m_gl->sceneUsesPeel();
+        const int layers = peel ? m_gl->peelLayersFor(m_size) : 0;
+        const double bytesPerPixel = 4.0 * 3.0 + (layers > 0 ? 8.0 * (layers + 1) : 0.0);
+        const double gb = double(m_size.width()) * m_size.height() * bytesPerPixel / 1e9;
         QString text = tr("<b>%1 &times; %2 px</b> (%3 megapixel)")
                            .arg(m_size.width()).arg(m_size.height()).arg(mp, 0, 'f', 1);
         if (tooBig)
@@ -488,6 +492,17 @@ private:
         if (memLimited)
             text += tr("<br><span style='color:#e8a030'>Reduced to %1 megapixel, the most this device can render safely.</span>")
                         .arg(maxPixels() / 1000000);
+        if (peel) {
+            // Il fotogramma deve mostrare cio' che mostra lo schermo: se a questa
+            // dimensione la trasparenza fra oggetti cambia, lo si dice prima dello scatto.
+            const double dpr = m_gl->devicePixelRatioF();
+            const int viewLayers = m_gl->peelLayersFor(QSize(int(m_gl->width() * dpr), int(m_gl->height() * dpr)));
+            if (layers == 0)
+                text += tr("<br><span style='color:#e8a030'>Too large for exact transparency: overlapping transparent objects are ordered object by object, and may differ from the view.</span>");
+            else if (layers < viewLayers)
+                text += tr("<br><span style='color:#e8a030'>Transparency keeps %1 overlapping layers here, %2 in the view.</span>")
+                            .arg(layers).arg(viewLayers);
+        }
         if (!print) {
             // Cosa sono quei pixel su carta, per chi non pensa in pixel.
             for (int dpi : { 300, 150 }) {

@@ -6643,12 +6643,18 @@ void ScenarioTest::runSceneTransparencyScenarios()
     GLWidget *gl = m_mw->ui->glWidget;
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Scena: trasparenza fra oggetti (immagini) =="));
+    check(gl->peelLayersFor(QSize(3840, 2160)) == 6 && gl->peelLayersFor(QSize(3840, 2560)) == 4
+              && gl->peelLayersFor(QSize(7680, 4320)) == 4 && gl->peelLayersFor(QSize(7680, 7680)) == 0,
+          QStringLiteral("strati del peeling sul desktop: 6 al 4K, 4 a 3840 in 3:2 e all'8K, nessuno oltre i 45 Mpixel"));
     const QString kParam = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
     const QString kRM = QStringLiteral("surfaces/Implicit/3D/Sphere.json");
     auto libraryPath = [this](const QString &rel) {
         for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
             if (it.filePath.endsWith(rel)) return it.filePath;
         return QString();
+    };
+    auto colorDistance = [](QRgb a, QRgb b) {
+        return std::abs(qRed(a) - qRed(b)) + std::abs(qGreen(a) - qGreen(b)) + std::abs(qBlue(a) - qBlue(b));
     };
     // Una scena: ambiente (verde) e un oggetto (rosso), entrambi al 50%.
     auto scene = [&](const QString &env, const QString &obj, const QVector3D &pos, float objScale,
@@ -6748,6 +6754,81 @@ void ScenarioTest::runSceneTransparencyScenarios()
         check(qRed(c) > 100,
               QStringLiteral("opaco rosso dentro il ray marching trasparente: si vede rosso (R %1 contro 67 senza la correzione; G %2, B %3)")
                   .arg(qRed(c)).arg(qGreen(c)).arg(qBlue(c)));
+        // Lo stesso con un SECONDO trasparente, lontano: si passa al depth peeling, e il
+        // centro non deve cambiare (col ray marching in un solo frammento alla prima
+        // faccia, il fondo tornava sopra l'opaco).
+        m_mw->addShapeToScene(libraryPath(kParam));
+        wait(400);
+        gl->setColor(0.9f, 0.8f, 0.1f);
+        gl->setAlpha(0.5f);
+        gl->setObjectScale(0.15f);
+        gl->setObjectPosition(QVector3D(2.4f, 1.4f, 0.0f));
+        m_mw->selectSceneObject(0);
+        wait(500);
+        const QImage peeled = gl->grabFramebuffer();
+        peeled.save(m_outDir + QStringLiteral("/transp-opaque-inside-peel.png"));
+        const QRgb cp = peeled.pixel(peeled.width() / 2, peeled.height() / 2);
+        check(qRed(cp) > 100 && colorDistance(c, cp) <= 12,
+              QStringLiteral("opaco dentro il ray marching, con due trasparenti: resta rosso come col trasparente solo (%1 contro %2)")
+                  .arg(QColor(cp).name(), QColor(c).name()));
+        gl->setClocksDrivenByRecorder(false);
+    }
+    // DENSITA' DEGLI STRATI: un pixel con due facce deve avere due strati, non di piu'.
+    // Il secondo trasparente sta lontano: il centro non lo tocca, e dev'essere uguale
+    // con un trasparente solo (due passate) e con due (depth peeling). Uno strato vuoto
+    // che faceva ripartire da capo ridisegnava le stesse facce, piu' dense.
+    for (const QString &env : { kParam, kRM }) {
+        if (!loadSurface(env)) break;
+        gl->stopAllTimers();
+        gl->setClocksDrivenByRecorder(true);
+        gl->setColor(0.1f, 0.8f, 0.1f);
+        gl->setAlpha(0.5f);
+        m_mw->addShapeToScene(libraryPath(kParam));
+        wait(400);
+        gl->setColor(0.9f, 0.1f, 0.1f);
+        gl->setAlpha(1.0f);
+        gl->setObjectScale(0.15f);
+        gl->setObjectPosition(QVector3D(2.4f, 1.4f, 0.0f));
+        wait(500);
+        const QImage one = gl->grabFramebuffer();
+        gl->setAlpha(0.5f);
+        wait(500);
+        const QImage two = gl->grabFramebuffer();
+        const int layersWithTwo = gl->m_peelLayers;
+        gl->setAlpha(1.0f);
+        wait(500);
+        check(layersWithTwo > 0 && gl->m_peelLayers == 0,
+              QStringLiteral("gli strati si liberano quando resta un solo trasparente (%1 strati con due, %2 con uno)")
+                  .arg(layersWithTwo).arg(gl->m_peelLayers));
+        const QRgb a = one.pixel(one.width() / 2, one.height() / 2);
+        const QRgb b = two.pixel(two.width() / 2, two.height() / 2);
+        two.save(m_outDir + QStringLiteral("/transp-layers-density-%1.png").arg(env == kRM ? QStringLiteral("rm") : QStringLiteral("param")));
+        check(colorDistance(a, b) <= 12,
+              QStringLiteral("%1: col depth peeling la densita' di un pixel a due facce non cambia (%2 contro %3)")
+                  .arg(env == kRM ? QStringLiteral("ray marching") : QStringLiteral("parametrico"), QColor(b).name(), QColor(a).name()));
+        // Il dialogo dell'immagine dice quando la trasparenza fra oggetti cambia.
+        if (env == kParam) {
+            gl->setAlpha(0.5f);
+            wait(300);
+            auto warningAt = [&](int longSide) {
+                QString text;
+                ImageCapture::setTestDialogHandler([&](QDialog *d) {
+                    for (QSpinBox *s : d->findChildren<QSpinBox *>())
+                        if (s->singleStep() == 256) s->setValue(longSide);
+                    QCoreApplication::processEvents();
+                    for (QLabel *l : d->findChildren<QLabel *>())
+                        if (l->text().contains(QStringLiteral("megapixel"))) text = l->text();
+                    d->reject();
+                });
+                ImageCapture::run(gl, m_mw, m_outDir);
+                ImageCapture::setTestDialogHandler(nullptr);
+                return text;
+            };
+            const QString at8K = warningAt(7680), at16K = warningAt(16384);
+            check(at8K.contains(QStringLiteral("overlapping layers")) && at16K.contains(QStringLiteral("Too large for exact transparency")),
+                  QStringLiteral("dialogo dell'immagine, due trasparenti: avviso a 7680 px (meno strati) e a 16384 px (niente strati)"));
+        }
+        m_mw->selectSceneObject(0);
         gl->setClocksDrivenByRecorder(false);
     }
     // L'ERGOSFERA (esterna trasparente + interna opaca nello stesso shader) non si

@@ -2,11 +2,15 @@
 layout(location=0) in vec2 fragCoord;
 layout(location=0) out vec4 FragColor;
 #ifdef PEEL
-// Depth peeling (GLWidget::renderPeelLayers): l'oggetto e' UN frammento per pixel,
-// alla profondita' della sua prima faccia; si scarta se non sta oltre lo strato
-// precedente. Variante dietro #define: lo shader normale non cambia.
+// Depth peeling (GLWidget::renderPeelLayers): il ray marching trasparente da' due
+// frammenti per pixel, uno per strato: la prima faccia e il resto del disegno (quello
+// del disegno diviso, RM_SPLIT_PASS 2, che questa variante accende). Si scarta cio'
+// che non sta oltre lo strato precedente. Variante dietro #define: lo shader normale
+// non cambia.
 layout(location=1) out float PeelDepth;
 layout(binding=5) uniform sampler2D u_peelPrev;
+// Lo strato precedente, come 1 - z (vedi surface.frag): 0 = pixel finito.
+float peelPrevStored() { return texelFetch(u_peelPrev, ivec2(gl_FragCoord.xy), 0).r; }
 #endif
 
 layout(std140, binding=0) uniform SceneUBO {
@@ -647,20 +651,30 @@ vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner) {
 // solo il test passa sempre (lo sfondo non scrive profondita'): l'immagine e'
 // quella di prima. Chi non scarta il frammento DEVE passare di qui: una
 // gl_FragDepth scritta solo in qualche ramo e' indefinita negli altri.
-void writeHitDepth(vec3 pModel) {
+float hitDepth(vec3 pModel) {
     vec4 clip = ubuf.u_mvpMatrix * vec4(pModel, 1.0);
     float z = (abs(clip.w) > 1e-6) ? clip.z / clip.w : 1.0;
     // NDC da [-1, 1] (OpenGL) a [0, 1]; gli altri backend sono gia' li'.
     if (%CLIP_Z_ZERO_TO_ONE% == 0) z = z * 0.5 + 0.5;
-    z = clamp(z, 0.0, 1.0);
+    return clamp(z, 0.0, 1.0);
+}
+
+void writeHitDepth(vec3 pModel) {
+    float z = hitDepth(pModel);
 #ifdef PEEL
-    if (z <= texelFetch(u_peelPrev, ivec2(gl_FragCoord.xy), 0).r) discard;
-    PeelDepth = z;
+    float stored = 1.0 - z;
+    if (stored >= peelPrevStored()) discard;
+    PeelDepth = stored;
 #endif
     gl_FragDepth = z;
 }
 
 void main() {
+#ifdef PEEL
+    // Pixel finito: lo strato precedente non ha trovato niente, questo nemmeno. Senza
+    // marcia, che e' la parte cara di ogni strato.
+    if (peelPrevStored() <= 0.0) discard;
+#endif
     vec2 ndc = fragCoord * 2.0 - 1.0;
     ndc.y = -ndc.y;
 
@@ -918,6 +932,17 @@ void main() {
         // che col blend lascia il pixel com'e' -- lo stesso che scartarlo; qui
         // si scarta, perche' un colore senza superficie non ha una profondita'.
         if (!more) { discard; return; }
+#ifdef PEEL
+        // DEPTH PEELING: le due parti del disegno diviso qui sotto, ciascuna nel suo
+        // strato. Se lo strato precedente sta davanti alla prima faccia tocca a lei,
+        // altrimenti al resto, alla profondita' dell'ultima faccia: un opaco o un altro
+        // trasparente che sta fra le due finisce nel mezzo, al posto giusto.
+        if (1.0 - hitDepth(pEnter) < peelPrevStored()) {
+            writeHitDepth(pEnter);
+            FragColor = vec4(shadeSurface(pEnter, rayDir, false, false), aFront);
+            return;
+        }
+#endif
 #if defined(RM_SPLIT_PASS) && RM_SPLIT_PASS == 1
         // DISEGNO DIVISO, parte 1 (solo con oggetti opachi in scena, vedi
         // GLWidget::implicitSplitPipelines): la sola riflessione della prima

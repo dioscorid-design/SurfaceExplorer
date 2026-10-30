@@ -2337,16 +2337,16 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // PRIMA del main pass (render target propri); il main pass li fonde sopra gli
     // opachi. Altrimenti, o se le risorse non si creano, vale il disegno a due passate.
     bool usePeel = false;
-    if (!m_isFlatView) {
-        std::vector<SurfaceObject *> peelObjs;
-        for (const auto &obj : m_objects)
-            if (isOnStage(*obj) && hasTransparentPart(*obj)) peelObjs.push_back(obj.get());
-        // Memoria: 8 byte per pixel e strato. Oltre i ~3 Mpixel meno strati, oltre
-        // gli ~8 (scatti di immagini grandi) niente peeling.
-        const qint64 pixels = qint64(outputSize.width()) * outputSize.height();
-        const int layers = pixels <= 3200000 ? kMaxPeelLayers : (pixels <= 8500000 ? 4 : 0);
+    {
+        const std::vector<SurfaceObject *> peelObjs = transparentObjectsOnStage();
+        const int layers = peelLayersFor(outputSize);
         if (peelObjs.size() >= 2 && layers > 0)
             usePeel = renderPeelLayers(cb, outputSize, layers, peelObjs, resourceUpdates);
+        else if (m_peelLayers > 0) {
+            // Non servono piu': decine di byte a pixel, si restituiscono.
+            releasePeelResources(false);
+            refreshSurfaceBindings();
+        }
     }
 
     // --- RENDER PASS ---
@@ -6866,8 +6866,8 @@ QString GLWidget::createImplicitFragmentShader(SurfaceObject &o, int splitPass)
 
     // Il disegno diviso del ray marching trasparente (splitPass 1 o 2) e' una
     // variante dietro #define: senza, lo shader e' quello di sempre.
-    // splitPass 3 = la variante del depth peeling (PEEL), non una parte del disegno diviso.
-    const QString splitDefine = splitPass == 3 ? QStringLiteral("#define PEEL\n")
+    // splitPass 3 = la variante del depth peeling (PEEL): le due parti in strati diversi.
+    const QString splitDefine = splitPass == 3 ? QStringLiteral("#define PEEL\n#define RM_SPLIT_PASS 2\n")
                               : splitPass > 0 ? QStringLiteral("#define RM_SPLIT_PASS %1\n").arg(splitPass)
                                               : QString();
     QString finalSource = "#version 450\n" + splitDefine + "\n" + commonCode + "\n"

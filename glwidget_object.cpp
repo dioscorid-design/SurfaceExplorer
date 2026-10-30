@@ -1360,59 +1360,86 @@ void GLWidget::releasePeelResources(bool all)
     m_peelSampler = nullptr;
 }
 
+// I trasparenti in scena: con due o piu' si disegnano a strati.
+std::vector<SurfaceObject *> GLWidget::transparentObjectsOnStage() const
+{
+    std::vector<SurfaceObject *> objs;
+    if (m_isFlatView) return objs;
+    for (const auto &obj : m_objects)
+        if (isOnStage(*obj) && hasTransparentPart(*obj)) objs.push_back(obj.get());
+    return objs;
+}
+
+int GLWidget::peelLayersFor(const QSize &size) const
+{
+    const qint64 pixels = qint64(size.width()) * size.height();
+    if (pixels >= m_peelFailedPixels) return 0;
+    // Memoria: 8 byte per pixel e strato, piu' 8 per la copia e la profondita' comune.
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    // Su telefono e tablet conta anche il tempo: ogni strato ridisegna i trasparenti.
+    return pixels <= 8500000 ? 4 : 0;
+#else
+    // 6 strati fino al 4K (476 MB), 4 fino all'8K di ogni formato tranne il quadrato (1.8 GB).
+    return pixels <= 8500000 ? kMaxPeelLayers : (pixels <= 45000000 ? 4 : 0);
+#endif
+}
+
 bool GLWidget::ensurePeelResources(const QSize &size, int layers)
 {
-    if (m_peelFailed || !rhi() || layers < 2 || layers > kMaxPeelLayers) return false;
+    if (!rhi() || layers < 2 || layers > kMaxPeelLayers) return false;
     if (m_peelLayers == layers && m_peelSize == size && m_peel[0].rt && m_peelCompositePipeline) return true;
 
-    auto fail = [this]() {
+    const qint64 pixels = qint64(size.width()) * size.height();
+    // Fallire a un'immagine enorme non deve togliere il peeling alla vista: non si
+    // ritenta solo da quella dimensione in su.
+    auto fail = [this](qint64 fromPixels) {
         qWarning() << "depth peeling: risorse non create, i trasparenti si disegnano a due passate.";
         releasePeelResources(true);
-        m_peelFailed = true;
+        m_peelFailedPixels = fromPixels;
         refreshSurfaceBindings();
         return false;
     };
-    if (!rhi()->isTextureFormatSupported(QRhiTexture::R32F, QRhiTexture::RenderTarget)) return fail();
+    if (!rhi()->isTextureFormatSupported(QRhiTexture::R32F, QRhiTexture::RenderTarget)) return fail(0);
 
     releasePeelResources(false);
     if (!m_peelSampler) {
         m_peelSampler = rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
                                           QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
-        if (!m_peelSampler->create()) return fail();
+        if (!m_peelSampler->create()) return fail(pixels);
     }
     m_peelDepthRb = rhi()->newRenderBuffer(QRhiRenderBuffer::DepthStencil, size, 1);
-    if (!m_peelDepthRb->create()) return fail();
+    if (!m_peelDepthRb->create()) return fail(pixels);
 
     for (int k = 0; k < layers; ++k) {
         PeelLayer &l = m_peel[k];
         l.color = rhi()->newTexture(QRhiTexture::RGBA8, size, 1, QRhiTexture::RenderTarget);
         l.depth = rhi()->newTexture(QRhiTexture::R32F, size, 1, QRhiTexture::RenderTarget);
-        if (!l.color->create() || !l.depth->create()) return fail();
+        if (!l.color->create() || !l.depth->create()) return fail(pixels);
         QRhiTextureRenderTargetDescription desc;
         desc.setColorAttachments({ QRhiColorAttachment(l.color), QRhiColorAttachment(l.depth) });
         desc.setDepthStencilBuffer(m_peelDepthRb);
         l.rt = rhi()->newTextureRenderTarget(desc);
         if (!m_peelRp) m_peelRp = l.rt->newCompatibleRenderPassDescriptor();
         l.rt->setRenderPassDescriptor(m_peelRp);
-        if (!l.rt->create()) return fail();
+        if (!l.rt->create()) return fail(pixels);
         // La composizione legge colore e profondita' dello strato per texel.
         l.compSrb = rhi()->newShaderResourceBindings();
         l.compSrb->setBindings({
             QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, l.color, m_peelSampler),
             QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, l.depth, m_peelSampler)
         });
-        if (!l.compSrb->create()) return fail();
+        if (!l.compSrb->create()) return fail(pixels);
     }
 
     // La profondita' dello strato PRECEDENTE, letta dallo shader degli oggetti.
     m_peelPrev = rhi()->newTexture(QRhiTexture::R32F, size, 1, QRhiTexture::RenderTarget);
-    if (!m_peelPrev->create()) return fail();
+    if (!m_peelPrev->create()) return fail(pixels);
     QRhiTextureRenderTargetDescription prevDesc;
     prevDesc.setColorAttachments({ QRhiColorAttachment(m_peelPrev) });
     m_peelPrevRt = rhi()->newTextureRenderTarget(prevDesc);
     if (!m_peelPrevRp) m_peelPrevRp = m_peelPrevRt->newCompatibleRenderPassDescriptor();
     m_peelPrevRt->setRenderPassDescriptor(m_peelPrevRp);
-    if (!m_peelPrevRt->create()) return fail();
+    if (!m_peelPrevRt->create()) return fail(pixels);
 
     if (!m_peelCompositePipeline) {
         static const char *vsSrc =
@@ -1435,7 +1462,7 @@ bool GLWidget::ensurePeelResources(const QSize &size, int layers)
             "}\n";
         const QShader vs = bakeShader(vsSrc, QShader::VertexStage);
         const QShader fs = bakeShader(fsSrc, QShader::FragmentStage);
-        if (!vs.isValid() || !fs.isValid()) return fail();
+        if (!vs.isValid() || !fs.isValid()) return fail(pixels);
         QRhiGraphicsPipeline::TargetBlend blend;
         blend.enable   = true;
         blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
@@ -1452,7 +1479,7 @@ bool GLWidget::ensurePeelResources(const QSize &size, int layers)
         m_peelCompositePipeline->setTargetBlends({ blend });
         m_peelCompositePipeline->setShaderResourceBindings(m_peel[0].compSrb);
         m_peelCompositePipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
-        if (!m_peelCompositePipeline->create()) return fail();
+        if (!m_peelCompositePipeline->create()) return fail(pixels);
     }
 
     m_peelLayers = layers;
@@ -1548,8 +1575,8 @@ bool GLWidget::renderPeelLayers(QRhiCommandBuffer *cb, const QSize &outputSize, 
         if (!ensurePeelPipeline(*o)) return false;
 
     // Da qui non si torna indietro: il batch dei buffer entra nella prima passata.
-    // Lo strato 0 parte da profondita' 0 (nulla da scartare).
-    cb->beginPass(m_peelPrevRt, QColor(0, 0, 0, 0), { 1.0f, 0 }, updates);
+    // Lo strato 0 parte da profondita' 0 (nulla da scartare): la texture tiene 1 - z.
+    cb->beginPass(m_peelPrevRt, QColor::fromRgbF(1.0f, 1.0f, 1.0f, 1.0f), { 1.0f, 0 }, updates);
     updates = nullptr;
     cb->endPass();
     for (int k = 0; k < m_peelLayers; ++k) {
