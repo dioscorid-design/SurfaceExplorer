@@ -1000,7 +1000,8 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
     // trasparente dietro spariva del tutto. Il solido opaco scrive
     // comunque depth, quindi il wireframe disegnato dopo resta
     // correttamente occluso da cio' che gli sta davanti.
-    if (anySolid && phase != DrawPhase::Lines) {
+    const bool linesPhase = (phase == DrawPhase::Lines || phase == DrawPhase::LinesDepth);
+    if (anySolid && !linesPhase) {
         // Solido
         if (o.indexCount > 0 && o.vbo && o.ibo) {
             cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
@@ -1157,11 +1158,11 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
     }
 
     // WIREFRAME, dopo il solido (vedi la nota sull'ordine sopra).
-    if (anyWireframe && phase == DrawPhase::Lines) {
+    if (anyWireframe && linesPhase) {
         if (m_captureLineWidth > 1 && o.wireQuadPipeline && o.wireQuadVbo && o.wireQuadSerial == m_captureSerial
             && o.wireframeIndexCount > 0) {
             // Cattura di un'immagine: strisce di triangoli, una istanza per segmento.
-            cb->setGraphicsPipeline(o.wireQuadPipeline);
+            cb->setGraphicsPipeline(phase == DrawPhase::LinesDepth ? o.wireQuadDepthPipeline : o.wireQuadPipeline);
             cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
             auto drawSegments = [&](int firstSegment, int segments, int meshIndex) {
                 const QRhiCommandBuffer::DynamicOffset ofs(0, meshIndex * o.uboBlockStride);
@@ -1180,7 +1181,7 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
                     drawSegments(r.indexOffset / 2, r.indexCount / 2, r.meshIndex);
                 }
             }
-        } else if (o.wireframePipeline && o.wireframeIndexCount > 0) {
+        } else if (phase == DrawPhase::Lines && o.wireframePipeline && o.wireframeIndexCount > 0) {
             cb->setGraphicsPipeline(o.wireframePipeline);
             const QRhiCommandBuffer::VertexInput vbufBinding(o.vbo, 0);
 
@@ -1457,7 +1458,7 @@ bool GLWidget::ensurePeelResources(const QSize &size, int layers)
             "    ivec2 c = ivec2(gl_FragCoord.xy);\n"
             "    vec4 col = texelFetch(uColor, c, 0);\n"
             "    if (col.a <= 0.0) discard;\n"
-            "    gl_FragDepth = texelFetch(uDepth, c, 0).r;\n"
+            "    gl_FragDepth = 1.0 - texelFetch(uDepth, c, 0).r;\n"
             "    o = col;\n"
             "}\n";
         const QShader vs = bakeShader(vsSrc, QShader::VertexStage);

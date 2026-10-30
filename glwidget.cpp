@@ -2422,6 +2422,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         } else {
             for (SurfaceObject *obj : byDepth) drawObject(*obj, cb, outputSize, DrawPhase::Transparent);
         }
+        // Le strisce del wireframe (catture): la profondita' di tutte, poi il colore.
+        if (m_captureLineWidth > 1)
+            for (const auto &obj : m_objects)
+                if (isOnStage(*obj)) drawObject(*obj, cb, outputSize, DrawPhase::LinesDepth);
         for (const auto &obj : m_objects)
             if (isOnStage(*obj)) drawObject(*obj, cb, outputSize, DrawPhase::Lines);
     }
@@ -2580,6 +2584,8 @@ void GLWidget::releaseObjectResources(SurfaceObject &o)
         delete o.wireQuadPipeline;
         o.wireQuadPipeline = nullptr;
     }
+    delete o.wireQuadDepthPipeline;
+    o.wireQuadDepthPipeline = nullptr;
     if (o.wireQuadVbo) {
         delete o.wireQuadVbo;
         o.wireQuadVbo = nullptr;
@@ -6153,13 +6159,19 @@ void GLWidget::setCaptureLineWidth(int pixels)
 {
     m_captureLineWidth = qBound(1, pixels, 64);
     ++m_captureSerial;   // nuova cattura: le strisce si ricostruiscono
+    if (m_captureLineWidth > 1) return;
+    // Cattura finita: 32 byte a segmento che a schermo non servono.
+    for (const auto &o : m_objects) {
+        delete o->wireQuadVbo;
+        o->wireQuadVbo = nullptr;
+    }
 }
 
 bool GLWidget::wireframeQuadsEligible() const
 {
     if (m_isFlatView) return false;
     for (const auto &o : m_objects) {
-        if (o->wireframeIndexCount <= 0) continue;
+        if (!objectShowsWireframe(*o)) continue;
         if (o->engineMode != SurfaceObject::ModeParametric || o->isCustomMesh || !o->engine) return false;
         if (o->engine->isTubeModeActive() && !o->engine->isScriptModeActive()) return false;
     }
@@ -6169,7 +6181,7 @@ bool GLWidget::wireframeQuadsEligible() const
 bool GLWidget::wireframeQuadsActive() const
 {
     for (const auto &o : m_objects)
-        if (o->wireframeIndexCount > 0 && !o->wireQuadPipeline) return false;
+        if (objectShowsWireframe(*o) && !o->wireQuadPipeline) return false;
     return true;
 }
 
@@ -6179,6 +6191,9 @@ bool GLWidget::wireframeQuadsActive() const
 // copertura calcolata nel fragment. I vertici della superficie li valuta la GPU:
 // per questo l'istanza porta i due estremi (come stanno nel buffer della
 // superficie) e il vertex shader (HAS_WIRE_QUAD) valuta tutti e due.
+// Due passate, come fra gli opachi: prima la profondita' del corpo delle linee, poi
+// il colore. A ogni pixel passa solo la linea piu' vicina, quindi agli incroci non
+// vince l'ultima disegnata e con alpha < 1 le giunzioni non si sommano.
 // Non adatto a tubi e mesh custom (posizioni non valutabili dai soli estremi):
 // quelli restano sulle linee native.
 void GLWidget::prepareWireQuads(SurfaceObject &o, QRhiResourceUpdateBatch *resourceUpdates)
@@ -6186,7 +6201,7 @@ void GLWidget::prepareWireQuads(SurfaceObject &o, QRhiResourceUpdateBatch *resou
     if (m_captureLineWidth <= 1 || o.wireQuadSerial == m_captureSerial) return;
     o.wireQuadSerial = m_captureSerial;
     if (o.engineMode != SurfaceObject::ModeParametric || o.isCustomMesh || m_isFlatView) return;
-    if (!o.wireframePipeline || o.wireframeIndices.size() < 2 || !o.engine) return;
+    if (!o.wireframePipeline || o.wireframeIndices.size() < 2 || !objectShowsWireframe(o)) return;
 
     if (!o.wireQuadPipeline) {
         QString vsSource = createVertexShaderSource(o, o.eqX, o.eqY, o.eqZ, o.eqW);
@@ -6194,11 +6209,14 @@ void GLWidget::prepareWireQuads(SurfaceObject &o, QRhiResourceUpdateBatch *resou
             return;
         QString fsSource = createFragmentShaderSource(o, o.customFragmentCode);
         const QString define = QStringLiteral("#version 450\n#define HAS_WIRE_QUAD\n");
+        QString fsDepthSource = fsSource;
         vsSource.replace(QStringLiteral("#version 450"), define);
         fsSource.replace(QStringLiteral("#version 450"), define);
+        fsDepthSource.replace(QStringLiteral("#version 450"), define + QStringLiteral("#define WIRE_QUAD_DEPTH\n"));
         const QShader vs = bakeShader(vsSource.toUtf8(), QShader::VertexStage);
         const QShader fs = bakeShader(fsSource.toUtf8(), QShader::FragmentStage);
-        if (!vs.isValid() || !fs.isValid()) return;
+        const QShader fsDepth = bakeShader(fsDepthSource.toUtf8(), QShader::FragmentStage);
+        if (!vs.isValid() || !fs.isValid() || !fsDepth.isValid()) return;
 
         QRhiVertexInputLayout layout;
         layout.setBindings({ QRhiVertexInputBinding(8 * sizeof(float), QRhiVertexInputBinding::PerInstance, 1) });
@@ -6212,25 +6230,35 @@ void GLWidget::prepareWireQuads(SurfaceObject &o, QRhiResourceUpdateBatch *resou
         blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
         blend.srcAlpha = QRhiGraphicsPipeline::One;
         blend.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+        QRhiGraphicsPipeline::TargetBlend noColor;
+        noColor.colorWrite = {};
         ensureDynamicBindings(o, o.surfaceTexture ? o.surfaceTexture : m_dummyTexture);
-        QRhiGraphicsPipeline *p = rhi()->newGraphicsPipeline();
-        p->setTopology(QRhiGraphicsPipeline::Triangles);
-        p->setVertexInputLayout(layout);
-        p->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
-        p->setSampleCount(renderTarget()->sampleCount());
-        p->setDepthTest(true);
-        p->setDepthWrite(false);   // i bordi sfumati non devono coprire le linee vicine
-        p->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
-        p->setCullMode(QRhiGraphicsPipeline::None);
-        p->setTargetBlends({ blend });
-        p->setShaderResourceBindings(o.bindingsDyn ? o.bindingsDyn : o.bindings);
-        p->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
-        if (!p->create()) {
+        auto makePipeline = [&](const QShader &frag, bool depthPass) -> QRhiGraphicsPipeline * {
+            QRhiGraphicsPipeline *p = rhi()->newGraphicsPipeline();
+            p->setTopology(QRhiGraphicsPipeline::Triangles);
+            p->setVertexInputLayout(layout);
+            p->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, frag } });
+            p->setSampleCount(renderTarget()->sampleCount());
+            p->setDepthTest(true);
+            p->setDepthWrite(depthPass);
+            p->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
+            p->setCullMode(QRhiGraphicsPipeline::None);
+            p->setTargetBlends({ depthPass ? noColor : blend });
+            p->setShaderResourceBindings(o.bindingsDyn ? o.bindingsDyn : o.bindings);
+            p->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+            if (p->create()) return p;
             qWarning() << "prepareWireQuads: create() fallita, si ricade sulle linee native.";
             delete p;
+            return nullptr;
+        };
+        o.wireQuadDepthPipeline = makePipeline(fsDepth, true);
+        if (!o.wireQuadDepthPipeline) return;
+        o.wireQuadPipeline = makePipeline(fs, false);
+        if (!o.wireQuadPipeline) {
+            delete o.wireQuadDepthPipeline;
+            o.wireQuadDepthPipeline = nullptr;
             return;
         }
-        o.wireQuadPipeline = p;
     }
 
     // Le istanze: i due estremi di ogni segmento.
@@ -6248,10 +6276,10 @@ void GLWidget::prepareWireQuads(SurfaceObject &o, QRhiResourceUpdateBatch *resou
     const quint32 bytes = quint32(data.size() * sizeof(float));
     if (!o.wireQuadVbo || o.wireQuadVbo->size() < bytes) {
         delete o.wireQuadVbo;
-        o.wireQuadVbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, bytes);
+        o.wireQuadVbo = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::VertexBuffer, bytes);
         o.wireQuadVbo->create();
     }
-    resourceUpdates->updateDynamicBuffer(o.wireQuadVbo, 0, bytes, data.data());
+    resourceUpdates->uploadStaticBuffer(o.wireQuadVbo, 0, bytes, data.data());
 }
 
 // Gli spostamenti (in pixel) della finestra con cui si ridisegna il wireframe per
@@ -8294,6 +8322,8 @@ void GLWidget::buildPipeline(SurfaceObject &o) {
     if (o.wireQuadPipeline) {   // nasce dagli stessi sorgenti: si rifa' con loro
         delete o.wireQuadPipeline;
         o.wireQuadPipeline = nullptr;
+        delete o.wireQuadDepthPipeline;
+        o.wireQuadDepthPipeline = nullptr;
         o.wireQuadSerial = -1;
     }
     o.wireframePipeline = rhi()->newGraphicsPipeline();

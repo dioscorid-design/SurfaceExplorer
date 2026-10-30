@@ -1367,8 +1367,9 @@ public:
     // Spessore, in pixel dell'immagine, con cui si disegnano le linee dei wireframe
     // durante una cattura (1 = linea nativa della GPU). Le linee della GPU sono
     // sempre larghe un pixel: in un'immagine molto piu' grande della vista
-    // sparirebbero. Si ottiene ridisegnandole con la finestra spostata di qualche
-    // pixel. Si rimette a 1 a cattura finita.
+    // sparirebbero. Si ottiene con strisce di triangoli (prepareWireQuads) o, per tubi
+    // e mesh custom, ridisegnandole con la finestra spostata di qualche pixel. Si
+    // rimette a 1 a cattura finita, e le strisce si liberano.
     void setCaptureLineWidth(int pixels);
     // True se il wireframe di TUTTI gli oggetti si disegna a strisce di triangoli
     // (spessore libero, bordo sfumato); false se qualcuno ricade sulle linee native
@@ -1383,20 +1384,34 @@ public:
     bool sceneUsesPeel() const { return transparentObjectsOnStage().size() >= 2; }
     // True se qualcosa si sta disegnando in wireframe (un oggetto, o una sua parte).
     bool hasVisibleWireframe() const {
-        for (const auto &o : m_objects) {
-            if (o->engineMode != SurfaceObject::ModeParametric || !o->engine || o->wireframeIndexCount <= 0) continue;
-            const std::vector<MeshPart> &parts = o->engine->getMeshParts();
-            if (parts.size() > 1) {
-                for (const MeshPart &p : parts) if (effectivePartRenderMode(*o, p) == 2) return true;
-            } else if (o->renderMode == 2) {
-                return true;
-            }
-        }
+        for (const auto &o : m_objects)
+            if (objectShowsWireframe(*o)) return true;
         return false;
     }
+    bool objectShowsWireframe(const SurfaceObject &o) const {
+        if (o.engineMode != SurfaceObject::ModeParametric || !o.engine || o.wireframeIndexCount <= 0) return false;
+        if (!isOnStage(o)) return false;
+        const std::vector<MeshPart> &parts = o.engine->getMeshParts();
+        if (parts.size() <= 1) return o.renderMode == 2;
+        for (const MeshPart &p : parts) if (effectivePartRenderMode(o, p) == 2) return true;
+        return false;
+    }
+    // Quanti indici di linea ha il wireframe visibile (0 = nessun wireframe): il costo
+    // di un ridisegno, per limitare lo spessore di una cattura. Solo cio' che si
+    // disegna: le superfici piene hanno gli indici ma non le linee.
     qint64 wireframeIndexTotal() const {
         qint64 n = 0;
-        for (const auto &o : m_objects) n += o->wireframeIndexCount;
+        for (const auto &o : m_objects) {
+            if (!objectShowsWireframe(*o)) continue;
+            const std::vector<MeshPart> &parts = o->engine->getMeshParts();
+            if (o->wireframeRanges.size() <= 1) {
+                n += o->wireframeIndexCount;
+                continue;
+            }
+            for (const WireframeRange &r : o->wireframeRanges)
+                if (r.meshIndex < 0 || r.meshIndex >= int(parts.size())
+                    || effectivePartRenderMode(*o, parts[r.meshIndex]) == 2) n += r.indexCount;
+        }
         return n;
     }
     // Il lato massimo di una texture / buffer della GPU (QRhi::TextureSizeMax).

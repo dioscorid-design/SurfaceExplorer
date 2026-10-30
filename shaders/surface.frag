@@ -22,8 +22,10 @@ layout(location = 9) in vec4 v_wireDist;
 layout(location = 0) out vec4 FragColor;
 #ifdef PEEL
 // Depth peeling (GLWidget::renderPeelLayers): profondita' del frammento nello
-// strato, e quella dello strato precedente da cui ripartire. Vive solo in questa
-// variante: il blocco SceneUBO non cambia.
+// strato, e quella dello strato precedente da cui ripartire. Si tiene 1 - z: uno
+// strato parte azzerato, cioe' piu' lontano di tutto, e un pixel dove uno strato non
+// ha trovato niente resta finito (con z, 0 faceva ripartire da capo e ridisegnava le
+// stesse facce). Vive solo in questa variante: il blocco SceneUBO non cambia.
 layout(location = 1) out float PeelDepth;
 layout(binding = 5) uniform sampler2D u_peelPrev;
 #endif
@@ -243,6 +245,11 @@ void main() {
         // (estremi arrotondati, bordo sfumato).
         const float beyond = max(max(-v_wireDist.y, v_wireDist.y - v_wireDist.z), 0.0);
         const float coverage = clamp(v_wireDist.w - length(vec2(v_wireDist.x, beyond)) + 0.5, 0.0, 1.0);
+#ifdef WIRE_QUAD_DEPTH
+        // Passata di sola profondita' (GLWidget::drawObject): il corpo della linea, non
+        // il bordo sfumato, che coprirebbe le linee vicine.
+        if (coverage < 0.5) discard;
+#endif
         FragColor = vec4(ubuf.color, ubuf.alpha * coverage);
 #else
         FragColor = vec4(ubuf.color, ubuf.alpha);

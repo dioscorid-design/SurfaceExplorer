@@ -297,6 +297,7 @@ struct SurfaceObject
     // a piacere. wireQuadSerial = la cattura per cui sono pronti.
     QRhiBuffer *wireQuadVbo = nullptr;
     QRhiGraphicsPipeline *wireQuadPipeline = nullptr;
+    QRhiGraphicsPipeline *wireQuadDepthPipeline = nullptr;   // la passata di profondita'
     int wireQuadSerial = -1;
     std::vector<unsigned int> wireframeIndices;
     bool wireframeNeedsUpdate = true;
