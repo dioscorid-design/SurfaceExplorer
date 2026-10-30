@@ -15,15 +15,15 @@
 # azzerarne uno NON tocca l'altro. E' voluto, ma va ricordato.
 #
 # COSA CANCELLA (e perche' non basta un solo posto)
-#   1. ~/Library/Preferences/com.dioscorid.SurfaceExplorer-dmg.plist
+#   1. ~/Library/Preferences/com.dioscorid.SurfaceExplorer2-dmg.plist
 #      Il dominio di QSettings: qui sta libraryRootPath. Il nome NON e' il
 #      bundle id -- QSettings su macOS costruisce il dominio da
 #      organizationName + applicationName (vedi main.cpp), non dall'id.
-#   2. ~/Library/Preferences/com.dioscorid.surfaceexplorer.dmg.plist
+#   2. ~/Library/Preferences/com.dioscorid.surfaceexplorer2.dmg.plist
 #      Lo scrive Cocoa (stato dei pannelli, ultima cartella dei dialoghi):
 #      lasciarlo non falsa il test della libreria, ma il pannello si
 #      riaprirebbe dove eri l'ultima volta invece che sulla home.
-#   3. ~/Library/Containers/com.dioscorid.surfaceexplorer.dmg/
+#   3. ~/Library/Containers/com.dioscorid.surfaceexplorer2.dmg/
 #      Il DMG non e' sandboxed e non dovrebbe averne uno, ma un container con
 #      questo id ESISTE su questa macchina: lo ha creato la build di test
 #      sandbox quando ereditava l'id del DMG (corretto in 0f85329). Dentro ci
@@ -39,7 +39,7 @@
 #
 # A QUALE APP SI APPLICA: a TUTTE quelle del canale DMG.
 # Non azzera "un'applicazione" ma un CANALE: le preferenze cancellate qui sono
-# condivise da qualunque bundle con id "...surfaceexplorer.dmg", ovunque si
+# condivise da qualunque bundle con id "...surfaceexplorer2.dmg", ovunque si
 # trovi -- /Applications, build/Desktop_Qt_6_10-Release,
 # build/Desktop_Qt_6_10-Debug. Tutti leggono lo stesso libraryRootPath, quindi
 # NON serve installare il DMG per provare una modifica: basta lanciare il
@@ -50,13 +50,15 @@
 #   ./ExC/Mac/reset_dmg_state.sh --run               azzera e lancia /Applications
 #   ./ExC/Mac/reset_dmg_state.sh --run --app build/Desktop_Qt_6_10-Release/SurfaceExplorer.app
 #                                                    azzera e lancia quel bundle
+#   ./ExC/Mac/reset_dmg_state.sh --import-1x         come sopra, ma il primo avvio importa
+#                                                    le impostazioni della 1.x (se c'e')
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
 BUNDLE_ID="com.dioscorid.surfaceexplorer2.dmg"
 # Dominio QSettings: NON coincide col bundle id. Vedi il commento sopra.
 QT_DOMAIN="com.dioscorid.SurfaceExplorer2-dmg"
-APP="/Applications/Surface Explorer 2.0.app"
+APP="/Applications/Surface Explorer v2.app"
 
 info() { printf '\033[36m•\033[0m %s\n' "$1"; }
 ok()   { printf '\033[32m✓\033[0m %s\n' "$1"; }
@@ -64,17 +66,24 @@ warn() { printf '\033[33m!\033[0m %s\n' "$1"; }
 err()  { printf '\033[31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
 
 DO_RUN=0
+IMPORT_1X=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --run) DO_RUN=1 ;;
+    --import-1x) IMPORT_1X=1 ;;
     # Percorso di un .app da lanciare al posto di quello in /Applications: le
     # preferenze sono le stesse per ogni bundle con id "...dmg", quindi si puo'
     # provare il binario appena compilato senza installarlo.
     --app) shift; [ -n "${1:-}" ] || err "--app richiede un percorso"; APP="$1" ;;
-    *) err "argomento sconosciuto: $1 (usa --run, --app <percorso.app>)" ;;
+    *) err "argomento sconosciuto: $1 (usa --run, --import-1x, --app <percorso.app>)" ;;
   esac
   shift
 done
+
+# Prima di cancellare: con l'app assente le impostazioni sparirebbero senza la prova.
+if [ "$DO_RUN" -eq 1 ]; then
+  [ -d "$APP" ] || err "App non trovata: $APP"
+fi
 
 # L'app DEVE essere chiusa: se gira, cfprefsd riscrive le preferenze alla
 # chiusura e il reset viene annullato senza che si veda nulla.
@@ -124,6 +133,13 @@ fi
 killall -u "$USER" cfprefsd 2>/dev/null || true
 ok "Cache cfprefsd svuotata."
 
+# 5. Con la 1.x sullo stesso Mac il primo avvio ne importerebbe le impostazioni
+#    (main.cpp), libraryRootPath compresa, e il primo avvio vero non si vedrebbe mai.
+if [ "$IMPORT_1X" -eq 0 ]; then
+  defaults write "$QT_DOMAIN" settings1xImportDone -bool true
+  info "Import dalla 1.x saltato (--import-1x per provarlo)."
+fi
+
 echo
 ok "Il canale DMG risulta ora MAI APERTO."
 warn "La libreria su disco NON e' stata toccata: se vuoi provare una vera prima"
@@ -131,7 +147,6 @@ warn "installazione, sposta o rinomina anche la cartella dei preset."
 echo
 
 if [ "$DO_RUN" -eq 1 ]; then
-  [ -d "$APP" ] || err "App non trovata: $APP"
   info "Avvio $APP ..."
   # Data del binario: il test piu' frequente e' su una modifica appena fatta, e
   # firmare un bundle NON lo ricompila (release_macos.sh firma cio' che trova).

@@ -85,10 +85,10 @@ rm -f "$DMG_PATH"
 STAGING_DIR="$BUILD_DIR/dmg_staging"
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
-# Nel DMG l'app si chiama "Surface Explorer 2.0.app": con lo stesso nome della 1.x
+# Nel DMG l'app si chiama "Surface Explorer v2.app": con lo stesso nome della 1.x
 # la copia in Applicazioni la sostituirebbe. Si rinomina DOPO la firma (la firma non
 # copre il nome della cartella del bundle); l'eseguibile dentro resta SurfaceExplorer.
-APP_DISPLAY_NAME="Surface Explorer $VERSION"
+APP_DISPLAY_NAME="Surface Explorer v${VERSION%%.*}"
 cp -R "$APP_PATH" "$STAGING_DIR/$APP_DISPLAY_NAME.app"
 ln -s /Applications "$STAGING_DIR/Applications"
 hdiutil create -volname "$APP_DISPLAY_NAME" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_PATH"

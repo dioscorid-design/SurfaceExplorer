@@ -115,7 +115,8 @@ int main(int argc, char *argv[])
                                                    : QStringLiteral("SurfaceExplorer"));
         // Primo avvio col dominio nuovo: si riparte dalle impostazioni della 1.x
         // (cartella della libreria, finestre, scelte) invece di chiedere tutto da capo.
-        // Da qui in poi le due app non condividono piu' nulla.
+        // Da qui in poi le impostazioni sono separate: resta in comune solo la cartella
+        // della libreria, finche' si sceglie la stessa.
         if (isDmg && isV2) {
             // Non si guarda allKeys(): su macOS QSettings unisce anche i domini piu' larghi
             // (organizzazione, globale), quindi non e' mai vuoto. Basta la cartella della
@@ -123,12 +124,17 @@ int main(int argc, char *argv[])
             // impostazioni della 1.x si leggono dal suo file, non dal dominio, per non
             // portarsi dietro anche le chiavi globali del sistema.
             QSettings mine;
-            if (!mine.contains(QStringLiteral("libraryRootPath"))) {
-                const QSettings old(QDir::homePath()
-                                    + QStringLiteral("/Library/Preferences/com.dioscorid.SurfaceExplorer-dmg.plist"),
-                                    QSettings::NativeFormat);
-                for (const QString &key : old.allKeys())
-                    mine.setValue(key, old.value(key));
+            // Una volta sola: la cartella puo' mancare anche dopo (una radice di sistema
+            // si toglie), e ripetere l'import cancellerebbe le scelte fatte nella 2.x.
+            if (!mine.value(QStringLiteral("settings1xImportDone")).toBool()) {
+                if (!mine.contains(QStringLiteral("libraryRootPath"))) {
+                    const QSettings old(QDir::homePath()
+                                        + QStringLiteral("/Library/Preferences/com.dioscorid.SurfaceExplorer-dmg.plist"),
+                                        QSettings::NativeFormat);
+                    for (const QString &key : old.allKeys())
+                        mine.setValue(key, old.value(key));
+                }
+                mine.setValue(QStringLiteral("settings1xImportDone"), true);
                 mine.sync();
             }
         }

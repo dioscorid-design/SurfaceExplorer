@@ -110,7 +110,7 @@ cd "$PROJECT_DIR"
 # ---------------------------------------------------------------------------
 # -DSE_APPSTORE_ID=ON: questa build simula il canale APP STORE, quindi deve
 # avere il suo bundle id. Senza, CMakeLists le darebbe quello del DMG
-# ("...surfaceexplorer.dmg"), perche' il discriminante normale e' il generatore
+# ("...surfaceexplorer2.dmg"), perche' il discriminante normale e' il generatore
 # e qui non si usa Xcode. Conseguenze MISURATE: --reset azzerava container e
 # dominio dell'App Store mentre l'app leggeva e scriveva quelli del DMG (il
 # reset "non funzionava" e la libreria si riapriva sul percorso precedente), e

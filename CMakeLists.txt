@@ -300,17 +300,21 @@ elseif (APPLE)
     # funzionare e la libreria si riapriva sul percorso precedente. In piu' i
     # due bundle con lo stesso id (test e /Applications) si contendevano
     # l'attivazione, da cui l'icona nel Dock sostituita da un'altra copia.
-    # La 2.0 DMG ha un'identita' PROPRIA (id "...surfaceexplorer2.dmg" e nome "Surface
-    # Explorer 2.0") per poter stare in Applicazioni accanto alla 1.x: con lo stesso id e lo
+    # La 2.x DMG ha un'identita' PROPRIA (id "...surfaceexplorer2.dmg" e nome "Surface
+    # Explorer v2") per poter stare in Applicazioni accanto alla 1.x: con lo stesso id e lo
     # stesso nome le due app erano la stessa applicazione per launchd, il Dock e TCC, e
-    # una sostituiva l'altra. Il suffisso ".dmg" resta: main.cpp lo usa per riconoscere
-    # il canale (e "surfaceexplorer2" per scegliere il dominio delle impostazioni).
+    # una sostituiva l'altra. Nel nome solo la major, come nell'id: con "2.0" la 2.1 si
+    # sarebbe installata accanto alla 2.0, stesso id e cartella diversa. La "v" serve:
+    # senza si confonderebbe con "SurfaceExplorer 2", la copia TestFlight in Applicazioni
+    # accanto a SurfaceExplorer.app (il "2" lo aggiunge macOS alla cartella). Il suffisso
+    # ".dmg" resta: main.cpp lo usa per riconoscere il canale (e "surfaceexplorer2" per
+    # scegliere il dominio delle impostazioni).
     if (CMAKE_GENERATOR STREQUAL "Xcode" OR SE_APPSTORE_ID)
         set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer")        # App Store
         set(SE_MACOS_BUNDLE_NAME "Surface Explorer")
     else()
         set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer2.dmg")   # Developer ID, 2.x
-        set(SE_MACOS_BUNDLE_NAME "Surface Explorer ${PROJECT_VERSION}")
+        set(SE_MACOS_BUNDLE_NAME "Surface Explorer v${PROJECT_VERSION_MAJOR}")
     endif()
 
     # --- CONFIGURAZIONE NOME APP MACOS ---
@@ -325,7 +329,7 @@ elseif (APPLE)
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info-macos.plist"
 
         # 1. Nome nella BARRA DEI MENU (Accanto alla Mela )
-        # (nel DMG il nome porta la versione: vedi SE_MACOS_BUNDLE_NAME; Info-macos.plist
+        # (nel DMG il nome porta la major: vedi SE_MACOS_BUNDLE_NAME; Info-macos.plist
         # lo legge da MACOSX_BUNDLE_BUNDLE_NAME)
         MACOSX_BUNDLE_BUNDLE_NAME "${SE_MACOS_BUNDLE_NAME}"
 
