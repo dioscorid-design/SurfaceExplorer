@@ -21,7 +21,7 @@ set -e
 
 # --- CONFIGURAZIONE ---
 APP_NAME="SurfaceExplorer"
-BUNDLE_ID="com.dioscorid.surfaceexplorer"
+BUNDLE_ID="com.dioscorid.surfaceexplorer2.dmg"
 SIGN_IDENTITY="Developer ID Application: GAETANO MOSCHETTI (BAPKX72394)"
 NOTARY_PROFILE="notarytool-profile"
 REPO="dioscorid-design/SurfaceExplorer"
@@ -85,9 +85,13 @@ rm -f "$DMG_PATH"
 STAGING_DIR="$BUILD_DIR/dmg_staging"
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
-cp -R "$APP_PATH" "$STAGING_DIR/"
+# Nel DMG l'app si chiama "Surface Explorer 2.0.app": con lo stesso nome della 1.x
+# la copia in Applicazioni la sostituirebbe. Si rinomina DOPO la firma (la firma non
+# copre il nome della cartella del bundle); l'eseguibile dentro resta SurfaceExplorer.
+APP_DISPLAY_NAME="Surface Explorer $VERSION"
+cp -R "$APP_PATH" "$STAGING_DIR/$APP_DISPLAY_NAME.app"
 ln -s /Applications "$STAGING_DIR/Applications"
-hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_PATH"
+hdiutil create -volname "$APP_DISPLAY_NAME" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_PATH"
 rm -rf "$STAGING_DIR"
 
 echo ">>> 4. Firma del .dmg..."

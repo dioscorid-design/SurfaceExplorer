@@ -300,10 +300,17 @@ elseif (APPLE)
     # funzionare e la libreria si riapriva sul percorso precedente. In piu' i
     # due bundle con lo stesso id (test e /Applications) si contendevano
     # l'attivazione, da cui l'icona nel Dock sostituita da un'altra copia.
+    # La 2.0 DMG ha un'identita' PROPRIA (id "...surfaceexplorer2.dmg" e nome "Surface
+    # Explorer 2.0") per poter stare in Applicazioni accanto alla 1.x: con lo stesso id e lo
+    # stesso nome le due app erano la stessa applicazione per launchd, il Dock e TCC, e
+    # una sostituiva l'altra. Il suffisso ".dmg" resta: main.cpp lo usa per riconoscere
+    # il canale (e "surfaceexplorer2" per scegliere il dominio delle impostazioni).
     if (CMAKE_GENERATOR STREQUAL "Xcode" OR SE_APPSTORE_ID)
         set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer")        # App Store
+        set(SE_MACOS_BUNDLE_NAME "Surface Explorer")
     else()
-        set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer.dmg")    # Developer ID
+        set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer2.dmg")   # Developer ID, 2.x
+        set(SE_MACOS_BUNDLE_NAME "Surface Explorer ${PROJECT_VERSION}")
     endif()
 
     # --- CONFIGURAZIONE NOME APP MACOS ---
@@ -318,10 +325,12 @@ elseif (APPLE)
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info-macos.plist"
 
         # 1. Nome nella BARRA DEI MENU (Accanto alla Mela )
-        MACOSX_BUNDLE_BUNDLE_NAME "Surface Explorer"
+        # (nel DMG il nome porta la versione: vedi SE_MACOS_BUNDLE_NAME; Info-macos.plist
+        # lo legge da MACOSX_BUNDLE_BUNDLE_NAME)
+        MACOSX_BUNDLE_BUNDLE_NAME "${SE_MACOS_BUNDLE_NAME}"
 
         # 2. Nome dell'icona nel Launchpad/Dock
-        MACOSX_BUNDLE_DISPLAY_NAME "Surface Explorer"
+        MACOSX_BUNDLE_DISPLAY_NAME "${SE_MACOS_BUNDLE_NAME}"
 
         # 3. Nome del file fisico (.app)
         OUTPUT_NAME "SurfaceExplorer"

@@ -6474,7 +6474,10 @@ void ScenarioTest::runImageCaptureScenarios()
     // sparirebbero. Con lo spessore in proporzione l'immagine ha piu' pixel di linea.
     {
         const int prevMode = gl->globalRenderMode();
+        gl->setGlobalRenderMode(0);
+        check(!gl->hasVisibleWireframe(), QStringLiteral("superficie piena: nessun wireframe visibile (la scelta dello spessore si spegne)"));
         gl->setGlobalRenderMode(2);
+        check(gl->hasVisibleWireframe(), QStringLiteral("superficie in wireframe: wireframe visibile (la scelta dello spessore e' attiva)"));
         auto inkOf = [](const QImage &im) {
             const QRgb bg = im.pixel(1, 1);
             qint64 n = 0;
@@ -6496,12 +6499,14 @@ void ScenarioTest::runImageCaptureScenarios()
             check(gl->wireframeQuadsActive() && gl->wireframeQuadsEligible(),
                   QStringLiteral("wireframe parametrico: nella cattura si disegna a strisce di triangoli"));
             check(a2 > a1 * 1.5, QStringLiteral("wireframe in un'immagine grande: pixel di linea %1 con spessore, %2 senza").arg(a2).arg(a1));
-            gl->setCaptureLineWidth(10);
-            gl->beginHiResCapture(sw.width(), sw.height());
-            const QImage w10 = gl->getFrameForVideo(sw.width(), sw.height(), true);
-            gl->setCaptureLineWidth(1);
-            gl->endHiResCapture();
-            w10.save(m_outDir + QStringLiteral("/image-capture-wire-w10.png"));
+            for (int wpx : { 3, 6 }) {   // per guardare a occhio i giunti fra i segmenti
+                gl->setCaptureLineWidth(wpx);
+                gl->beginHiResCapture(sw.width(), sw.height());
+                const QImage wImg = gl->getFrameForVideo(sw.width(), sw.height(), true);
+                gl->setCaptureLineWidth(1);
+                gl->endHiResCapture();
+                wImg.save(m_outDir + QStringLiteral("/image-capture-wire-w%1.png").arg(wpx));
+            }
             thick.save(m_outDir + QStringLiteral("/image-capture-wire-thick.png"));
             thin.save(m_outDir + QStringLiteral("/image-capture-wire-thin.png"));
         } else {

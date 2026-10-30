@@ -2,6 +2,7 @@
 #include <QSurfaceFormat>
 #include <QIcon>
 #include <QSettings>
+#include <QDir>
 #include <QWindow>
 #include <QScreen>
 #include "mainwindow.h"
@@ -105,9 +106,32 @@ int main(int argc, char *argv[])
                                    + QStringLiteral("/../Info.plist"),
                                    QSettings::NativeFormat);
         const QString id = bundleInfo.value(QStringLiteral("CFBundleIdentifier")).toString();
-        QCoreApplication::setApplicationName(id.endsWith(QLatin1String(".dmg"))
-                                             ? QStringLiteral("SurfaceExplorer-dmg")
-                                             : QStringLiteral("SurfaceExplorer"));
+        // La 2.0 DMG ("...surfaceexplorer2.dmg") ha il suo dominio, cosi' sta in
+        // Applicazioni accanto alla 1.x senza contendersi le impostazioni.
+        const bool isDmg = id.endsWith(QLatin1String(".dmg"));
+        const bool isV2 = id.contains(QLatin1String("surfaceexplorer2"));
+        QCoreApplication::setApplicationName(isDmg ? (isV2 ? QStringLiteral("SurfaceExplorer2-dmg")
+                                                            : QStringLiteral("SurfaceExplorer-dmg"))
+                                                   : QStringLiteral("SurfaceExplorer"));
+        // Primo avvio col dominio nuovo: si riparte dalle impostazioni della 1.x
+        // (cartella della libreria, finestre, scelte) invece di chiedere tutto da capo.
+        // Da qui in poi le due app non condividono piu' nulla.
+        if (isDmg && isV2) {
+            // Non si guarda allKeys(): su macOS QSettings unisce anche i domini piu' larghi
+            // (organizzazione, globale), quindi non e' mai vuoto. Basta la cartella della
+            // libreria per dire "primo avvio": la chiede sempre, e la 1.x la ha gia'. Le
+            // impostazioni della 1.x si leggono dal suo file, non dal dominio, per non
+            // portarsi dietro anche le chiavi globali del sistema.
+            QSettings mine;
+            if (!mine.contains(QStringLiteral("libraryRootPath"))) {
+                const QSettings old(QDir::homePath()
+                                    + QStringLiteral("/Library/Preferences/com.dioscorid.SurfaceExplorer-dmg.plist"),
+                                    QSettings::NativeFormat);
+                for (const QString &key : old.allKeys())
+                    mine.setValue(key, old.value(key));
+                mine.sync();
+            }
+        }
     }
 #else
     QCoreApplication::setApplicationName("SurfaceExplorer");

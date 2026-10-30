@@ -1368,6 +1368,20 @@ public:
     bool wireframeQuadsEligible() const;
     // Quanti indici di linea ha il wireframe in scena (0 = nessun wireframe): il
     // costo di un ridisegno. Serve a limitare lo spessore di una cattura.
+    // True se qualcosa si sta disegnando in wireframe (un oggetto, o una sua parte):
+    // wireframeIndexTotal conta anche gli indici delle superfici piene.
+    bool hasVisibleWireframe() const {
+        for (const auto &o : m_objects) {
+            if (o->engineMode != SurfaceObject::ModeParametric || !o->engine || o->wireframeIndexCount <= 0) continue;
+            const std::vector<MeshPart> &parts = o->engine->getMeshParts();
+            if (parts.size() > 1) {
+                for (const MeshPart &p : parts) if (effectivePartRenderMode(*o, p) == 2) return true;
+            } else if (o->renderMode == 2) {
+                return true;
+            }
+        }
+        return false;
+    }
     qint64 wireframeIndexTotal() const {
         qint64 n = 0;
         for (const auto &o : m_objects) n += o->wireframeIndexCount;

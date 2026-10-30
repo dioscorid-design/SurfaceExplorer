@@ -53,10 +53,10 @@
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
-BUNDLE_ID="com.dioscorid.surfaceexplorer.dmg"
+BUNDLE_ID="com.dioscorid.surfaceexplorer2.dmg"
 # Dominio QSettings: NON coincide col bundle id. Vedi il commento sopra.
-QT_DOMAIN="com.dioscorid.SurfaceExplorer-dmg"
-APP="/Applications/SurfaceExplorer.app"
+QT_DOMAIN="com.dioscorid.SurfaceExplorer2-dmg"
+APP="/Applications/Surface Explorer 2.0.app"
 
 info() { printf '\033[36m•\033[0m %s\n' "$1"; }
 ok()   { printf '\033[32m✓\033[0m %s\n' "$1"; }
@@ -85,7 +85,7 @@ done
 # quindi il reset si applica a tutti e tre e uno qualsiasi di essi, se in
 # esecuzione, puo' annullarlo. Guardare solo /Applications lasciava passare
 # proprio il caso di chi prova il binario appena compilato.
-RUNNING="$(pgrep -fl "SurfaceExplorer.app/Contents/MacOS/SurfaceExplorer" 2>/dev/null || true)"
+RUNNING="$(pgrep -fl "\.app/Contents/MacOS/SurfaceExplorer" 2>/dev/null || true)"
 if [ -n "$RUNNING" ]; then
   printf '\033[31m✗ Surface Explorer e in esecuzione:\033[0m\n%s\n' "$RUNNING" >&2
   err "Chiudila prima: alla chiusura cfprefsd riscriverebbe le preferenze e il reset sarebbe annullato."
