@@ -2810,15 +2810,17 @@ void GLWidget::seekEnvironmentRotations(float target)
     target = std::max(0.0f, target);
     SurfaceObject &env = *m_objects.front();
     if (target < m_sceneTime) {
-        // Indietro solo fino alla posa di base: prima di lei il T e' di un altro
-        // moto (il path), che le rotazioni non sanno rifare.
+        // Indietro: la posa di base (quella da cui le rotazioni sono partite). Sotto
+        // il suo T il tempo era di un altro moto (il path) e l'ambiente non
+        // ruotava: la posa e' la stessa, e la base scende al T voluto, come se le
+        // rotazioni fossero partite da li'.
         if (environmentRotationBaseStale()) return;
-        target = std::max(target, m_envRotationBase.time);
         env.rotationQuat = m_envRotationBase.rotation;
         env.omega = m_envRotationBase.omega;
         env.phi = m_envRotationBase.phi;
         env.psi = m_envRotationBase.psi;
         m_sceneRotation = m_envRotationBase.scene;
+        m_envRotationBase.time = std::min(m_envRotationBase.time, target);
         m_sceneTime = m_envRotationBase.time;
     } else if (environmentRotationBaseStale()) {
         captureEnvironmentRotationBase();

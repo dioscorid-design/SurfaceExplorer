@@ -8301,13 +8301,18 @@ void ScenarioTest::runSceneSeekScenarios()
     const Shot pathBefore = shot();
     const QQuaternion r0 = envQuat();
     m_mw->seekSceneTime(2.0f);
-    const QQuaternion r2 = envQuat();
+    // Fino a 0, anche se T era gia' avanzato per il path: la posa di partenza.
+    m_mw->seekSceneTime(0.0f);
+    const bool zeroed = same(envQuat(), r0) && gl->sceneTime() == 0.0f;
+    // Da 0 la rotazione conta da 0: a 2 s la posa e' quella di 2 s di rotazione, e ci si torna.
+    m_mw->seekSceneTime(2.0f);
+    const QQuaternion r2b = envQuat();
     m_mw->seekSceneTime(1.0f);
     m_mw->seekSceneTime(2.0f);
-    check(setUp && !same(r0, r2) && same(envQuat(), r2) && equal(shot(), pathBefore),
+    check(setUp && zeroed && !same(r0, r2b) && same(envQuat(), r2b) && equal(shot(), pathBefore),
           QStringLiteral("path scritto e fermo, GO acceso: il cursore muove la rotazione, il path resta com'era "
-                         "(pronto %1, posa cambia %2, torna uguale %3, path uguale %4, cameraPath %5, T %6)")
-              .arg(setUp).arg(!same(r0, r2)).arg(same(envQuat(), r2)).arg(equal(shot(), pathBefore))
+                         "(pronto %1, azzerata %2, torna uguale %3, path uguale %4, cameraPath %5, T %6)")
+              .arg(setUp).arg(zeroed).arg(same(envQuat(), r2b)).arg(equal(shot(), pathBefore))
               .arg(m_mw->cameraPath().has_value()).arg(gl->sceneTime()));
 }
 
