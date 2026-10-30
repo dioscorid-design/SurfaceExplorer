@@ -1963,8 +1963,13 @@ private:
     // LO SCORRIMENTO: il path dell'ambiente (e T) al tempo target, in corsa o
     // fermo. Solo l'ambiente: gli oggetti non si toccano.
     void seekSceneTime(float target);
+    void seekPathTo(CameraPaths::Path path, float target);
     // Il T piu' lontano raggiunto: con le finestre fa la scala del cursore.
     float m_sceneTimeReached = 0.0f;
+    // Il cursore ha riportato T indietro mentre la camera l'avevano le rotazioni: il
+    // tempo del path e' rimasto dov'era. Il prossimo seek o la prossima partenza lo
+    // ricalcolano da 0, cosi' a ogni T corrisponde la stessa posa.
+    bool m_pathOutOfStep = false;
     float sceneTimeSpan() const;
     void refreshSceneTimeSlider();
     // T PUO' CORRERE: l'ambiente ha un moto della camera, un path scritto o

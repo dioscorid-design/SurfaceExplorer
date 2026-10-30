@@ -830,6 +830,7 @@ void MainWindow::onDepartureClicked()
 
     if (handoffFrom3D && ui->glWidget) ui->glWidget->beginPathHandoff();
 
+    if (m_pathOutOfStep && !m_isRecording && ui->glWidget) seekPathTo(CameraPaths::Path4D, ui->glWidget->sceneTime());
     m_paths->start(CameraPaths::Path4D);
     m_scene.lastCameraMotion = "path4D";
     m_userStoppedCameraMotion = false;
@@ -921,6 +922,7 @@ void MainWindow::onDeparture3DClicked()
 
     if (handoffFrom4D && ui->glWidget) ui->glWidget->beginPathHandoff();
 
+    if (m_pathOutOfStep && !m_isRecording && ui->glWidget) seekPathTo(CameraPaths::Path3D, ui->glWidget->sceneTime());
     m_paths->start(CameraPaths::Path3D);
     m_scene.lastCameraMotion = "path3D";
     m_userStoppedCameraMotion = false;

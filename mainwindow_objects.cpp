@@ -361,11 +361,21 @@ void MainWindow::seekSceneTime(float target)
     // Senza path, il moto della camera sono le rotazioni dell'ambiente.
     if (!path) {
         if (!gl->objectHasRotationSpeed(0)) return;
+        const float before = gl->sceneTime();
         gl->seekEnvironmentRotations(target);
+        if (gl->sceneTime() < before) m_pathOutOfStep = true;
         m_sceneTimeReached = std::max(m_sceneTimeReached, target);
         refreshSceneTimeLabel();
         return;
     }
+    seekPathTo(*path, target);
+    m_sceneTimeReached = std::max(m_sceneTimeReached, target);
+    refreshSceneTimeLabel();
+}
+
+void MainWindow::seekPathTo(CameraPaths::Path path, float target)
+{
+    GLWidget *gl = ui->glWidget;
     // Indietro si riparte da 0 (T compreso), poi avanti con CameraPaths::advance,
     // lo stesso del tick, UN TICK ALLA VOLTA alla velocita' di adesso: la
     // camera del path 4D dipende anche dal passo prima (la proiezione usa
@@ -373,17 +383,18 @@ void MainWindow::seekSceneTime(float target)
     // un salto unico il punto d'arrivo cambiava secondo da dove si partiva. Un
     // minuto sono 2000 tick: istantaneo. In corsa o fermo, il path resta
     // com'era; gli oggetti non si toccano (il cursore e' solo dell'ambiente).
-    if (target < gl->sceneTime()) m_paths->resetTime(*path);
-    float ticks = (target - gl->sceneTime()) * 1000.0f / float(std::max(1, m_paths->interval(*path)));
+    // Si riparte da 0 anche se il path e' rimasto indietro rispetto a T: vedi
+    // m_pathOutOfStep.
+    if (target < gl->sceneTime() || m_pathOutOfStep) m_paths->resetTime(path);
+    m_pathOutOfStep = false;
+    float ticks = (target - gl->sceneTime()) * 1000.0f / float(std::max(1, m_paths->interval(path)));
     // Prima il pezzo di tick, poi i tick interi: l'ultimo passo e' sempre un
     // tick, come dal vivo, e l'arrivo non dipende dalla partenza.
     const float fraction = ticks - std::floor(ticks);
-    if (ticks <= 0.0f) m_paths->applyCameraAt(*path, m_paths->time(*path));
-    else if (fraction > 1e-4f) m_paths->advance(*path, fraction);
-    for (int k = int(std::floor(ticks)); k > 0; --k) m_paths->advance(*path, 1.0f);
+    if (ticks <= 0.0f) m_paths->applyCameraAt(path, m_paths->time(path));
+    else if (fraction > 1e-4f) m_paths->advance(path, fraction);
+    for (int k = int(std::floor(ticks)); k > 0; --k) m_paths->advance(path, 1.0f);
     gl->setSceneTime(target);   // esatto, senza gli arrotondamenti dei tick
-    m_sceneTimeReached = std::max(m_sceneTimeReached, target);
-    refreshSceneTimeLabel();
 }
 
 // La scala del cursore: almeno 10 s, e fino al piu' lontano fra il T

@@ -8575,6 +8575,18 @@ void ScenarioTest::runSceneSeekScenarios()
                          "(pronto %1, azzerata %2, torna uguale %3, path uguale %4, cameraPath %5, T %6)")
               .arg(setUp).arg(zeroed).arg(same(envQuat(), r2b)).arg(equal(shot(), pathBefore))
               .arg(m_mw->cameraPath().has_value()).arg(gl->sceneTime()));
+    // T e' sceso sotto il punto da cui le rotazioni avevano sostituito il path: il path
+    // riparte da quel T, e il cursore in avanti trova la posa di quel T.
+    const float speed2 = m_mw->m_scene.pathSpeed4D / float(m_mw->m_paths->interval(CameraPaths::Path4D));
+    m_mw->onDepartureClicked();
+    const float resumedT = m_mw->m_paths->time(CameraPaths::Path4D);
+    const bool running = m_mw->pathRunning(CameraPaths::Path4D);
+    m_mw->seekSceneTime(3.0f);
+    check(running && std::abs(resumedT - 2.0f * speed2) < 1e-3f && gl->sceneTime() == 3.0f
+              && std::abs(m_mw->m_paths->time(CameraPaths::Path4D) - 3.0f * speed2) < 1e-3f,
+          QStringLiteral("T riportato indietro con le rotazioni: il path riparte da 2 s (t %1, atteso %2), a 3 s t %3")
+              .arg(resumedT).arg(2.0f * speed2).arg(m_mw->m_paths->time(CameraPaths::Path4D)));
+    m_mw->onDepartureClicked();
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()
