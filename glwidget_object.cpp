@@ -472,7 +472,8 @@ void GLWidget::prepareObjectTexture(SurfaceObject &o, QRhiResourceUpdateBatch *r
             if (o.bindings && m_dummyTexture) {
                 o.bindings->setBindings({
                     QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, o.ubo),
-                    QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_dummyTexture, m_sampler)
+                    QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_dummyTexture, m_sampler),
+                    peelPrevBinding()
                 });
                 o.bindings->create();
             }
@@ -501,7 +502,8 @@ void GLWidget::prepareObjectTexture(SurfaceObject &o, QRhiResourceUpdateBatch *r
 
         o.bindings->setBindings({
             QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, o.ubo),
-            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, o.surfaceTexture, m_sampler)
+            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, o.surfaceTexture, m_sampler),
+            peelPrevBinding()
         });
         o.bindings->create();
 
@@ -903,6 +905,18 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
             }
             return;
         }
+        // Depth peeling: un frammento per pixel (la sua prima faccia) nello strato.
+        if (phase == DrawPhase::Peel) {
+            if (transparent && o.pipelinePeel && o.pipelineImplicit && m_bgVbo) {
+                const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
+                cb->setGraphicsPipeline(o.pipelinePeel);
+                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                cb->setShaderResources(o.bindings);
+                cb->setVertexInput(0, 1, &vbufBinding);
+                cb->draw(6);
+            }
+            return;
+        }
         if (phase == rmPhase && o.pipelineImplicit && m_bgVbo) {
             // Trasparente con OPACHI in scena: due parti (vedi
             // implicitSplitPipelines), la seconda -- il fondo -- per prima, che
@@ -1093,6 +1107,14 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
                                      });
                 }
 
+                // Depth peeling: tutte le parti trasparenti in un colpo, l'ordine
+                // lo fa il depth test dello strato.
+                if (phase == DrawPhase::Peel && o.pipelinePeel) {
+                    cb->setGraphicsPipeline(o.pipelinePeel);
+                    for (const MeshPart *p : transp)
+                        drawPart(*p, p->meshIndex * o.uboBlockStride);
+                }
+
                 // Disegna solo se entrambe le pipeline di trasparenza sono
                 // valide: dopo un errore di compilazione una puo' essere
                 // nulla, e passarla a Metal causa EXC_BAD_ACCESS.
@@ -1109,6 +1131,10 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
                     }
                 }
             } else if (o.alpha < 0.99f) {
+                if (phase == DrawPhase::Peel && o.pipelinePeel) {
+                    cb->setGraphicsPipeline(o.pipelinePeel);
+                    drawWhole();
+                }
                 const bool tBack  = (phase == DrawPhase::Transparent || phase == DrawPhase::TransparentBack);
                 const bool tFront = (phase == DrawPhase::Transparent || phase == DrawPhase::TransparentFront);
                 if ((tBack || tFront) && o.pipelineTranspBack && o.pipelineTranspFront) {
@@ -1264,5 +1290,290 @@ void GLWidget::drawFlatObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSi
         const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
         cb->setVertexInput(0, 1, &vbufBinding);
         cb->draw(6);
+    }
+}
+
+// ==========================================================
+// DEPTH PEELING DEI TRASPARENTI (vedi glwidget.h, m_peel)
+// ==========================================================
+
+QRhiShaderResourceBinding GLWidget::peelPrevBinding() const
+{
+    return QRhiShaderResourceBinding::sampledTexture(
+        5, QRhiShaderResourceBinding::FragmentStage,
+        m_peelPrev ? m_peelPrev : m_dummyTexture,
+        m_peelSampler ? m_peelSampler : m_sampler);
+}
+
+// I binding di superficie puntano a m_peelPrev: ricreata quella, vanno riagganciati
+// (stessa tecnica di ensureUboCapacity: updateResources, mai delete+new, le
+// pipeline ne tengono il puntatore).
+void GLWidget::refreshSurfaceBindings()
+{
+    for (const auto &op : m_objects) {
+        SurfaceObject &o = *op;
+        if (o.bindingsDyn) {
+            QRhiTexture *tex = o.bindingsDynTexture;
+            o.bindingsDynTexture = nullptr;
+            ensureDynamicBindings(o, tex);
+        }
+        rebindPartImages(o);
+        // Anche i binding statici (ray marching): stesso layout, risorsa nuova.
+        if (o.bindings && o.ubo) {
+            o.bindings->setBindings({
+                QRhiShaderResourceBinding::uniformBuffer(
+                    0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, o.ubo),
+                QRhiShaderResourceBinding::sampledTexture(
+                    1, QRhiShaderResourceBinding::FragmentStage,
+                    o.surfaceTexture ? o.surfaceTexture : m_dummyTexture, m_sampler),
+                peelPrevBinding()
+            });
+            o.bindings->updateResources();
+        }
+    }
+}
+
+void GLWidget::releasePeelResources(bool all)
+{
+    for (PeelLayer &l : m_peel) {
+        delete l.compSrb;
+        delete l.rt;
+        if (l.color) { l.color->destroy(); delete l.color; }
+        if (l.depth) { l.depth->destroy(); delete l.depth; }
+        l = PeelLayer();
+    }
+    m_peelLayers = 0;
+    m_peelSize = QSize();
+    delete m_peelPrevRt;
+    m_peelPrevRt = nullptr;
+    if (m_peelPrev) { m_peelPrev->destroy(); delete m_peelPrev; m_peelPrev = nullptr; }
+    delete m_peelDepthRb;
+    m_peelDepthRb = nullptr;
+    if (!all) return;
+    delete m_peelPrevRp;
+    m_peelPrevRp = nullptr;
+    delete m_peelRp;
+    m_peelRp = nullptr;
+    delete m_peelCompositePipeline;
+    m_peelCompositePipeline = nullptr;
+    delete m_peelSampler;
+    m_peelSampler = nullptr;
+}
+
+bool GLWidget::ensurePeelResources(const QSize &size, int layers)
+{
+    if (m_peelFailed || !rhi() || layers < 2 || layers > kMaxPeelLayers) return false;
+    if (m_peelLayers == layers && m_peelSize == size && m_peel[0].rt && m_peelCompositePipeline) return true;
+
+    auto fail = [this]() {
+        qWarning() << "depth peeling: risorse non create, i trasparenti si disegnano a due passate.";
+        releasePeelResources(true);
+        m_peelFailed = true;
+        refreshSurfaceBindings();
+        return false;
+    };
+    if (!rhi()->isTextureFormatSupported(QRhiTexture::R32F, QRhiTexture::RenderTarget)) return fail();
+
+    releasePeelResources(false);
+    if (!m_peelSampler) {
+        m_peelSampler = rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
+                                          QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
+        if (!m_peelSampler->create()) return fail();
+    }
+    m_peelDepthRb = rhi()->newRenderBuffer(QRhiRenderBuffer::DepthStencil, size, 1);
+    if (!m_peelDepthRb->create()) return fail();
+
+    for (int k = 0; k < layers; ++k) {
+        PeelLayer &l = m_peel[k];
+        l.color = rhi()->newTexture(QRhiTexture::RGBA8, size, 1, QRhiTexture::RenderTarget);
+        l.depth = rhi()->newTexture(QRhiTexture::R32F, size, 1, QRhiTexture::RenderTarget);
+        if (!l.color->create() || !l.depth->create()) return fail();
+        QRhiTextureRenderTargetDescription desc;
+        desc.setColorAttachments({ QRhiColorAttachment(l.color), QRhiColorAttachment(l.depth) });
+        desc.setDepthStencilBuffer(m_peelDepthRb);
+        l.rt = rhi()->newTextureRenderTarget(desc);
+        if (!m_peelRp) m_peelRp = l.rt->newCompatibleRenderPassDescriptor();
+        l.rt->setRenderPassDescriptor(m_peelRp);
+        if (!l.rt->create()) return fail();
+        // La composizione legge colore e profondita' dello strato per texel.
+        l.compSrb = rhi()->newShaderResourceBindings();
+        l.compSrb->setBindings({
+            QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, l.color, m_peelSampler),
+            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, l.depth, m_peelSampler)
+        });
+        if (!l.compSrb->create()) return fail();
+    }
+
+    // La profondita' dello strato PRECEDENTE, letta dallo shader degli oggetti.
+    m_peelPrev = rhi()->newTexture(QRhiTexture::R32F, size, 1, QRhiTexture::RenderTarget);
+    if (!m_peelPrev->create()) return fail();
+    QRhiTextureRenderTargetDescription prevDesc;
+    prevDesc.setColorAttachments({ QRhiColorAttachment(m_peelPrev) });
+    m_peelPrevRt = rhi()->newTextureRenderTarget(prevDesc);
+    if (!m_peelPrevRp) m_peelPrevRp = m_peelPrevRt->newCompatibleRenderPassDescriptor();
+    m_peelPrevRt->setRenderPassDescriptor(m_peelPrevRp);
+    if (!m_peelPrevRt->create()) return fail();
+
+    if (!m_peelCompositePipeline) {
+        static const char *vsSrc =
+            "#version 440\n"
+            "void main() {\n"
+            "    vec2 p = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));\n"
+            "    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n"
+            "}\n";
+        static const char *fsSrc =
+            "#version 440\n"
+            "layout(location = 0) out vec4 o;\n"
+            "layout(binding = 0) uniform sampler2D uColor;\n"
+            "layout(binding = 1) uniform sampler2D uDepth;\n"
+            "void main() {\n"
+            "    ivec2 c = ivec2(gl_FragCoord.xy);\n"
+            "    vec4 col = texelFetch(uColor, c, 0);\n"
+            "    if (col.a <= 0.0) discard;\n"
+            "    gl_FragDepth = texelFetch(uDepth, c, 0).r;\n"
+            "    o = col;\n"
+            "}\n";
+        const QShader vs = bakeShader(vsSrc, QShader::VertexStage);
+        const QShader fs = bakeShader(fsSrc, QShader::FragmentStage);
+        if (!vs.isValid() || !fs.isValid()) return fail();
+        QRhiGraphicsPipeline::TargetBlend blend;
+        blend.enable   = true;
+        blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
+        blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+        blend.srcAlpha = QRhiGraphicsPipeline::One;
+        blend.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+        m_peelCompositePipeline = rhi()->newGraphicsPipeline();
+        m_peelCompositePipeline->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
+        m_peelCompositePipeline->setSampleCount(renderTarget()->sampleCount());
+        m_peelCompositePipeline->setDepthTest(true);
+        m_peelCompositePipeline->setDepthWrite(false);
+        m_peelCompositePipeline->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
+        m_peelCompositePipeline->setCullMode(QRhiGraphicsPipeline::None);
+        m_peelCompositePipeline->setTargetBlends({ blend });
+        m_peelCompositePipeline->setShaderResourceBindings(m_peel[0].compSrb);
+        m_peelCompositePipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+        if (!m_peelCompositePipeline->create()) return fail();
+    }
+
+    m_peelLayers = layers;
+    m_peelSize = size;
+    refreshSurfaceBindings();
+    return true;
+}
+
+// La variante PEEL del fragment dell'oggetto: no culling (facce anteriori e
+// posteriori sono strati come gli altri), profondita' scritta (il piu' vicino
+// vince), niente blend (lo strato tiene un solo frammento per pixel).
+bool GLWidget::ensurePeelPipeline(SurfaceObject &o)
+{
+    const bool implicit = (o.engineMode == ModeImplicit);
+    // Chiave del sorgente: la generazione dello shader RM (negativa) o parametrico.
+    const int key = implicit ? -(o.implicitPipelineGen + 1) : o.peelSourceGen;
+    if (o.peelBuiltGen == key && o.pipelinePeel) return true;
+    if (o.peelBuiltGen == key) return false;
+    // Una volta per sorgente, riuscisse o no: un fallimento non si ritenta a ogni frame.
+    o.peelBuiltGen = key;
+    delete o.pipelinePeel;
+    o.pipelinePeel = nullptr;
+    if (implicit) {
+        if (!o.pipelineImplicit || !o.implicitVs.isValid() || !m_peelRp) return false;
+        const QShader fsRm = bakeShader(createImplicitFragmentShader(o, 3).toUtf8(), QShader::FragmentStage);
+        if (!fsRm.isValid()) return false;
+        QRhiVertexInputLayout rmLayout;
+        rmLayout.setBindings({ { sizeof(Vertex) } });
+        rmLayout.setAttributes({
+            { 0, 0, QRhiVertexInputAttribute::Float3, offsetof(Vertex, position) },
+            { 0, 1, QRhiVertexInputAttribute::Float4, offsetof(Vertex, normal) },
+            { 0, 2, QRhiVertexInputAttribute::Float2, offsetof(Vertex, texCoord) }
+        });
+        QRhiGraphicsPipeline::TargetBlend off;
+        off.enable = false;
+        QRhiGraphicsPipeline *rp = rhi()->newGraphicsPipeline();
+        rp->setTopology(QRhiGraphicsPipeline::Triangles);
+        rp->setVertexInputLayout(rmLayout);
+        rp->setShaderStages({ { QRhiShaderStage::Vertex, o.implicitVs }, { QRhiShaderStage::Fragment, fsRm } });
+        rp->setSampleCount(1);
+        rp->setDepthTest(true);
+        rp->setDepthWrite(true);
+        rp->setDepthOp(QRhiGraphicsPipeline::Less);
+        rp->setCullMode(QRhiGraphicsPipeline::None);
+        rp->setTargetBlends({ off, off });
+        rp->setShaderResourceBindings(o.bindings);
+        rp->setRenderPassDescriptor(m_peelRp);
+        if (!rp->create()) {
+            delete rp;
+            return false;
+        }
+        o.pipelinePeel = rp;
+        return true;
+    }
+    if (o.peelFsSource.isEmpty() || !o.peelVs.isValid() || !m_peelRp || !o.bindingsDyn) return false;
+    const QShader fs = bakeShader(o.peelFsSource.toUtf8(), QShader::FragmentStage);
+    if (!fs.isValid()) return false;
+
+    QRhiVertexInputLayout inputLayout;
+    inputLayout.setBindings({ { sizeof(Vertex) } });
+    inputLayout.setAttributes({
+        { 0, 0, QRhiVertexInputAttribute::Float4, offsetof(Vertex, position) },
+        { 0, 1, QRhiVertexInputAttribute::Float4, offsetof(Vertex, normal)   },
+        { 0, 2, QRhiVertexInputAttribute::Float2, offsetof(Vertex, texCoord) }
+    });
+    QRhiGraphicsPipeline::TargetBlend noBlend;
+    noBlend.enable = false;
+    QRhiGraphicsPipeline *p = rhi()->newGraphicsPipeline();
+    p->setVertexInputLayout(inputLayout);
+    p->setShaderStages({ { QRhiShaderStage::Vertex, o.peelVs }, { QRhiShaderStage::Fragment, fs } });
+    p->setSampleCount(1);
+    p->setDepthTest(true);
+    p->setDepthWrite(true);
+    p->setDepthOp(QRhiGraphicsPipeline::Less);
+    p->setCullMode(QRhiGraphicsPipeline::None);
+    p->setTargetBlends({ noBlend, noBlend });
+    p->setShaderResourceBindings(o.bindingsDyn);
+    p->setRenderPassDescriptor(m_peelRp);
+    if (!p->create()) {
+        qWarning() << "buildPipeline: create() peel fallita.";
+        delete p;
+        return false;
+    }
+    o.pipelinePeel = p;
+    return true;
+}
+
+bool GLWidget::renderPeelLayers(QRhiCommandBuffer *cb, const QSize &outputSize, int layers,
+                                const std::vector<SurfaceObject *> &objs, QRhiResourceUpdateBatch *&updates)
+{
+    if (!ensurePeelResources(outputSize, layers)) return false;
+    for (SurfaceObject *o : objs)
+        if (!ensurePeelPipeline(*o)) return false;
+
+    // Da qui non si torna indietro: il batch dei buffer entra nella prima passata.
+    // Lo strato 0 parte da profondita' 0 (nulla da scartare).
+    cb->beginPass(m_peelPrevRt, QColor(0, 0, 0, 0), { 1.0f, 0 }, updates);
+    updates = nullptr;
+    cb->endPass();
+    for (int k = 0; k < m_peelLayers; ++k) {
+        cb->beginPass(m_peel[k].rt, QColor(0, 0, 0, 0), { 1.0f, 0 });
+        for (SurfaceObject *o : objs) drawObject(*o, cb, outputSize, DrawPhase::Peel);
+        cb->endPass();
+        if (k + 1 < m_peelLayers) {
+            QRhiResourceUpdateBatch *copy = rhi()->nextResourceUpdateBatch();
+            copy->copyTexture(m_peelPrev, m_peel[k].depth);
+            cb->resourceUpdate(copy);
+        }
+    }
+    return true;
+}
+
+// Gli strati nel main pass, dal piu' lontano al piu' vicino. La profondita' dello
+// strato fa da gl_FragDepth: gli opachi gia' disegnati coprono cio' che sta dietro.
+void GLWidget::drawPeelComposite(QRhiCommandBuffer *cb, const QSize &outputSize)
+{
+    if (!m_peelCompositePipeline) return;
+    for (int k = m_peelLayers - 1; k >= 0; --k) {
+        cb->setGraphicsPipeline(m_peelCompositePipeline);
+        cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+        cb->setShaderResources(m_peel[k].compSrb);
+        cb->draw(3);
     }
 }

@@ -259,7 +259,8 @@ bool GLWidget::ensureUboCapacity(SurfaceObject &o, int partCount)
                 o.bindingsDynTexture ? o.bindingsDynTexture : m_dummyTexture, m_sampler),
             tubeFramesBinding(o),
             borderEdgesBinding(o),
-            sharedEdgesBinding(o)
+            sharedEdgesBinding(o),
+            peelPrevBinding()
         });
         o.bindingsDyn->updateResources();
     }
@@ -286,7 +287,8 @@ bool GLWidget::ensureUboCapacity(SurfaceObject &o, int partCount)
                 0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, o.ubo),
             QRhiShaderResourceBinding::sampledTexture(
                 1, QRhiShaderResourceBinding::FragmentStage,
-                o.surfaceTexture ? o.surfaceTexture : m_dummyTexture, m_sampler)
+                o.surfaceTexture ? o.surfaceTexture : m_dummyTexture, m_sampler),
+            peelPrevBinding()
         });
         o.bindings->updateResources();
     }
@@ -323,7 +325,8 @@ void GLWidget::ensureDynamicBindings(SurfaceObject &o, QRhiTexture *tex)
             1, QRhiShaderResourceBinding::FragmentStage, tex, m_sampler),
         tubeFramesBinding(o),
         borderEdgesBinding(o),
-        sharedEdgesBinding(o)
+        sharedEdgesBinding(o),
+        peelPrevBinding()
     });
 
     if (isNew) {
@@ -1819,7 +1822,8 @@ void GLWidget::syncPartImages(SurfaceObject &o, QRhiResourceUpdateBatch *resourc
                 1, QRhiShaderResourceBinding::FragmentStage, entry.tex, m_sampler),
             tubeFramesBinding(o),
             borderEdgesBinding(o),
-            sharedEdgesBinding(o)
+            sharedEdgesBinding(o),
+            peelPrevBinding()
         });
         entry.srb->create();
         o.partImages.insert(path, entry);
@@ -1841,7 +1845,8 @@ void GLWidget::rebindPartImages(SurfaceObject &o)
                 1, QRhiShaderResourceBinding::FragmentStage, it->tex, m_sampler),
             tubeFramesBinding(o),
             borderEdgesBinding(o),
-            sharedEdgesBinding(o)
+            sharedEdgesBinding(o),
+            peelPrevBinding()
         });
         it->srb->updateResources();
     }
@@ -1924,7 +1929,8 @@ void GLWidget::initObjectResources(SurfaceObject &o)
                                                  o.ubo),
         QRhiShaderResourceBinding::sampledTexture(1,
                                                   QRhiShaderResourceBinding::FragmentStage,
-                                                  m_dummyTexture, m_sampler)
+                                                  m_dummyTexture, m_sampler),
+        peelPrevBinding()
     });
     o.bindings->create();
 
@@ -2327,6 +2333,22 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         resourceUpdates = runObjectCompute(o, cb, resourceUpdates);
     }
 
+    // DEPTH PEELING: con due o piu' trasparenti gli strati si disegnano
+    // PRIMA del main pass (render target propri); il main pass li fonde sopra gli
+    // opachi. Altrimenti, o se le risorse non si creano, vale il disegno a due passate.
+    bool usePeel = false;
+    if (!m_isFlatView) {
+        std::vector<SurfaceObject *> peelObjs;
+        for (const auto &obj : m_objects)
+            if (isOnStage(*obj) && hasTransparentPart(*obj)) peelObjs.push_back(obj.get());
+        // Memoria: 8 byte per pixel e strato. Oltre i ~3 Mpixel meno strati, oltre
+        // gli ~8 (scatti di immagini grandi) niente peeling.
+        const qint64 pixels = qint64(outputSize.width()) * outputSize.height();
+        const int layers = pixels <= 3200000 ? kMaxPeelLayers : (pixels <= 8500000 ? 4 : 0);
+        if (peelObjs.size() >= 2 && layers > 0)
+            usePeel = renderPeelLayers(cb, outputSize, layers, peelObjs, resourceUpdates);
+    }
+
     // --- RENDER PASS ---
     QColor clearColor = QColor::fromRgbF(m_bgColor.x(), m_bgColor.y(), m_bgColor.z());
     cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, resourceUpdates);
@@ -2378,7 +2400,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         int transparentCount = 0;
         for (const SurfaceObject *obj : byDepth)
             if (hasTransparentPart(*obj)) ++transparentCount;
-        if (transparentCount >= 2) {
+        if (usePeel) {
+            drawPeelComposite(cb, outputSize);
+        } else if (transparentCount >= 2) {
             // Dal piu' lontano al piu' vicino, ma per la SUPERFICIE e non per il
             // centro: nelle facce posteriori conta la piu' lontana dell'oggetto,
             // nelle anteriori la piu' vicina. Due solidi con lo stesso centro (o
@@ -2407,6 +2431,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
 
 void GLWidget::releaseResources()
 {
+    releasePeelResources(true);
     for (const auto &obj : m_objects) releaseObjectResources(*obj);
     for (RetiredObject &r : m_retiredObjects) {
         releaseObjectResources(*r.obj);
@@ -2577,6 +2602,10 @@ void GLWidget::releaseObjectResources(SurfaceObject &o)
     if (o.pipelineTranspFront) {
         delete o.pipelineTranspFront;
         o.pipelineTranspFront = nullptr;
+    }
+    if (o.pipelinePeel) {
+        delete o.pipelinePeel;
+        o.pipelinePeel = nullptr;
     }
     if (o.borderPipelineOpaque) {
         delete o.borderPipelineOpaque;
@@ -6772,7 +6801,9 @@ QString GLWidget::createImplicitFragmentShader(SurfaceObject &o, int splitPass)
 
     // Il disegno diviso del ray marching trasparente (splitPass 1 o 2) e' una
     // variante dietro #define: senza, lo shader e' quello di sempre.
-    const QString splitDefine = splitPass > 0 ? QStringLiteral("#define RM_SPLIT_PASS %1\n").arg(splitPass)
+    // splitPass 3 = la variante del depth peeling (PEEL), non una parte del disegno diviso.
+    const QString splitDefine = splitPass == 3 ? QStringLiteral("#define PEEL\n")
+                              : splitPass > 0 ? QStringLiteral("#define RM_SPLIT_PASS %1\n").arg(splitPass)
                                               : QString();
     QString finalSource = "#version 450\n" + splitDefine + "\n" + commonCode + "\n"
                           + implicitLib + "\n" + templateSource;
@@ -8084,6 +8115,13 @@ void GLWidget::buildPipeline(SurfaceObject &o) {
     freePipe(o.pipelineOpaque);
     freePipe(o.pipelineTranspBack);
     freePipe(o.pipelineTranspFront);
+    // Il depth peeling si ricompila al primo uso (ensurePeelPipeline), sullo stesso
+    // sorgente con PEEL definito subito dopo la #version.
+    freePipe(o.pipelinePeel);
+    o.peelFsSource = fsSource;
+    o.peelFsSource.insert(fsSource.indexOf(QLatin1Char('\n')) + 1, QStringLiteral("#define PEEL\n"));
+    o.peelVs = vs;
+    ++o.peelSourceGen;
     freePipe(o.wireframePipeline);
     freePipe(o.borderPipelineOpaque);
     freePipe(o.borderPipelineWire);

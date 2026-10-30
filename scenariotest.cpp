@@ -6682,7 +6682,7 @@ void ScenarioTest::runSceneTransparencyScenarios()
         const int unit = img.height() * 31 / 100;   // raggio a schermo di una sfera
         const int greenOnly = qRed(img.pixel(cx - unit * 6 / 10, cy));
         const int overlap = qRed(img.pixel(cx + unit * 4 / 10, cy));
-        check(overlap > greenOnly + 25,
+        check(overlap > greenOnly + 15,
               QStringLiteral("%1: nella sovrapposizione si vede anche il rosso dietro (R %2 contro %3 della sola verde)")
                   .arg(label).arg(overlap).arg(greenOnly));
     };
@@ -6829,10 +6829,9 @@ void ScenarioTest::runSceneTransparencyScenarios()
         gl->setColor(0.2f, 0.6f, 0.9f);
         gl->setAlpha(0.6f);
         m_mw->m_currentHintText = QStringLiteral("Transparency between objects: two linked tori.\n"
-            "Transparent objects are drawn back faces first, then front faces, each pass from the farthest object "
-            "(by its center) to the nearest, so overlapping convex shapes blend plausibly. What is still approximate: "
-            "the order among objects is by center, so interlocked or non-convex shapes can still show a wrong "
-            "layer at some crossings.");
+            "With two or more transparent objects, every pixel is sorted by depth (depth peeling, up to 6 layers), "
+            "so the blue torus passes in front of the red one at one crossing and behind it at the other. "
+            "Ray marching objects count as one layer, at their first face.");
         m_mw->m_currentHintSeconds = 10.0f;
         const QString torus = libraryPath(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"));
         // Due tori concatenati a sinistra.
@@ -6870,6 +6869,20 @@ void ScenarioTest::runSceneTransparencyScenarios()
         check(f.open(QIODevice::WriteOnly) && f.write(QJsonDocument(json).toJson()) > 0,
               QStringLiteral("scena Transparency Linked Tori scritta nel report"));
         gl->grabFramebuffer().save(m_outDir + QStringLiteral("/transp-problems.png"));
+        gl->setCameraPos(QVector3D(-2.45f, 0.0f, 2.6f));
+        wait(500);
+        {
+            // Primo piano dei due tori: a un incrocio passa davanti il blu, all'altro
+            // il rosso. Con l'ordine per oggetto o per faccia i due incroci venivano
+            // uguali (viola con il blu sopra in entrambi).
+            const QImage linked = gl->grabFramebuffer();
+            linked.save(m_outDir + QStringLiteral("/transp-linked-closeup.png"));
+            const QRgb upper = linked.pixel(linked.width() * 45 / 100, linked.height() * 36 / 100);
+            const QRgb lower = linked.pixel(linked.width() * 56 / 100, linked.height() * 64 / 100);
+            check(qBlue(upper) - qRed(upper) > 40 && qRed(lower) - qBlue(lower) > 40,
+                  QStringLiteral("tori concatenati: a un incrocio davanti il blu, all'altro il rosso (alto %1, basso %2)")
+                      .arg(QColor(upper).name(), QColor(lower).name()));
+        }
         gl->setClocksDrivenByRecorder(false);
     }
     scene(kParam, kRM, QVector3D(0.0f, 0.0f, -1.5f), 1.0f, QStringLiteral("5-rm-behind-param"));

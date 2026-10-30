@@ -20,6 +20,13 @@ layout(location = 9) in vec4 v_wireDist;
 
 // --- OUTPUT ---
 layout(location = 0) out vec4 FragColor;
+#ifdef PEEL
+// Depth peeling (GLWidget::renderPeelLayers): profondita' del frammento nello
+// strato, e quella dello strato precedente da cui ripartire. Vive solo in questa
+// variante: il blocco SceneUBO non cambia.
+layout(location = 1) out float PeelDepth;
+layout(binding = 5) uniform sampler2D u_peelPrev;
+#endif
 
 layout(std140, binding = 0) uniform SceneUBO {
     mat4 u_mvpMatrix;
@@ -187,6 +194,13 @@ bool borderFragmentCovered() {
 
 // --- MAIN (LOGICA DI ILLUMINAZIONE CALIBRATA) ---
 void main() {
+#ifdef PEEL
+    {
+        const float pz = gl_FragCoord.z;
+        if (pz <= texelFetch(u_peelPrev, ivec2(gl_FragCoord.xy), 0).r) discard;
+        PeelDepth = pz;
+    }
+#endif
 #ifdef HAS_BORDER
     if (ubuf.u_isBorder != 0 && borderFragmentCovered()) discard;
 #endif

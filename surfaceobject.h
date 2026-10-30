@@ -307,6 +307,14 @@ struct SurfaceObject
     QRhiGraphicsPipeline *pipelineOpaque = nullptr;
     QRhiGraphicsPipeline *pipelineTranspBack = nullptr;
     QRhiGraphicsPipeline *pipelineTranspFront = nullptr;
+    // DEPTH PEELING (vedi GLWidget::renderPeelLayers): variante del fragment con
+    // PEEL, costruita al primo uso (peelFsSource e' il sorgente da compilare,
+    // peelPipelineGen dice per quale generazione di shader e' stata fatta).
+    QRhiGraphicsPipeline *pipelinePeel = nullptr;
+    QString peelFsSource;
+    QShader peelVs;
+    int peelSourceGen = 0;
+    int peelBuiltGen = -1;
     // BORDO: pipeline proprie, opaca e a linee, con lo stato di pipelineOpaque
     // e wireframePipeline ma col fragment del bordo (HAS_BORDER): solo lui
     // contiene il discard dei tratti coperti. Nel fragment della superficie un

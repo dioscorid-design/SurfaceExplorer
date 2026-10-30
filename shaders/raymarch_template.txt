@@ -1,6 +1,13 @@
 #version 450
 layout(location=0) in vec2 fragCoord;
 layout(location=0) out vec4 FragColor;
+#ifdef PEEL
+// Depth peeling (GLWidget::renderPeelLayers): l'oggetto e' UN frammento per pixel,
+// alla profondita' della sua prima faccia; si scarta se non sta oltre lo strato
+// precedente. Variante dietro #define: lo shader normale non cambia.
+layout(location=1) out float PeelDepth;
+layout(binding=5) uniform sampler2D u_peelPrev;
+#endif
 
 layout(std140, binding=0) uniform SceneUBO {
     mat4 u_mvpMatrix; mat4 u_mvMatrix; mat4 u_mMatrix;
@@ -645,7 +652,12 @@ void writeHitDepth(vec3 pModel) {
     float z = (abs(clip.w) > 1e-6) ? clip.z / clip.w : 1.0;
     // NDC da [-1, 1] (OpenGL) a [0, 1]; gli altri backend sono gia' li'.
     if (%CLIP_Z_ZERO_TO_ONE% == 0) z = z * 0.5 + 0.5;
-    gl_FragDepth = clamp(z, 0.0, 1.0);
+    z = clamp(z, 0.0, 1.0);
+#ifdef PEEL
+    if (z <= texelFetch(u_peelPrev, ivec2(gl_FragCoord.xy), 0).r) discard;
+    PeelDepth = z;
+#endif
+    gl_FragDepth = z;
 }
 
 void main() {

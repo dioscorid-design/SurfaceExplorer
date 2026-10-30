@@ -1473,7 +1473,8 @@ protected:
     // poi le anteriori (la riflessione della prima faccia), ciascuna dal piu'
     // lontano al piu' vicino per centro: per i solidi convessi compenetrati e'
     // molto piu' fedele del disegno oggetto per oggetto.
-    enum class DrawPhase { Opaque, Transparent, TransparentBack, TransparentFront, Lines };
+    // Peel: un solo strato del depth peeling (disegna nei render target degli strati).
+    enum class DrawPhase { Opaque, Transparent, TransparentBack, TransparentFront, Peel, Lines };
     bool hasTransparentPart(const SurfaceObject &o) const;
     // Profondita' in vista (z, piu' negativo = piu' lontano) della faccia piu'
     // vicina e di quella piu' lontana dell'oggetto, da una sfera che lo contiene
@@ -1561,6 +1562,43 @@ private:
     bool m_shaderErrorReported = false;
     QRhiTexture *m_dummyTexture = nullptr;
     QRhiSampler *m_sampler = nullptr;
+
+    // DEPTH PEELING dei trasparenti parametrici (due o piu' in scena). Ogni strato
+    // k e' il frammento PIU' VICINO oltre quello dello strato k-1, per pixel:
+    // colore RGBA8 + profondita' R32F (scritta dallo shader, PEEL in surface.frag),
+    // in un render target offscreen. Gli strati si fondono poi nel main pass dal
+    // piu' lontano al piu' vicino (peelComposite), con la profondita' dello strato
+    // come gl_FragDepth: gli opachi gia' disegnati li coprono come sempre.
+    // Lo shader dell'oggetto legge la profondita' dello strato PRECEDENTE da
+    // m_peelPrev (binding 5 di tutti i binding di superficie, peelPrevBinding).
+    static constexpr int kMaxPeelLayers = 6;
+    struct PeelLayer {
+        QRhiTexture *color = nullptr;
+        QRhiTexture *depth = nullptr;
+        QRhiTextureRenderTarget *rt = nullptr;
+        QRhiShaderResourceBindings *compSrb = nullptr;
+    };
+    PeelLayer m_peel[kMaxPeelLayers];
+    int m_peelLayers = 0;
+    QSize m_peelSize;
+    QRhiTexture *m_peelPrev = nullptr;
+    QRhiTextureRenderTarget *m_peelPrevRt = nullptr;
+    QRhiRenderPassDescriptor *m_peelPrevRp = nullptr;
+    QRhiRenderBuffer *m_peelDepthRb = nullptr;
+    QRhiRenderPassDescriptor *m_peelRp = nullptr;
+    QRhiSampler *m_peelSampler = nullptr;
+    QRhiGraphicsPipeline *m_peelCompositePipeline = nullptr;
+    bool m_peelFailed = false;
+    bool ensurePeelResources(const QSize &size, int layers);
+    void releasePeelResources(bool all);
+    bool ensurePeelPipeline(SurfaceObject &o);
+    // Gli strati nei loro render target (fuori dal main pass); false = niente
+    // peeling, si disegna a due passate.
+    bool renderPeelLayers(QRhiCommandBuffer *cb, const QSize &outputSize, int layers,
+                          const std::vector<SurfaceObject *> &objs, QRhiResourceUpdateBatch *&updates);
+    void drawPeelComposite(QRhiCommandBuffer *cb, const QSize &outputSize);
+    QRhiShaderResourceBinding peelPrevBinding() const;
+    void refreshSurfaceBindings();
 
 
 
