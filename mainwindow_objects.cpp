@@ -136,6 +136,7 @@ void MainWindow::selectSceneObject(int index)
     // Quello lasciato, se era in moto, continua con m_geoObjectsTimer.
     if (m_geoAnimTimer) m_geoAnimTimer->stop();
     gl->selectObject(index);
+    loadObjectPathText();
     openObjectSession(m_objectSessions[index]);
     m_geoTime = m_objectSessions[index].geoTime;
     if (m_objectSessions[index].geoAnimating && m_geoAnimTimer) m_geoAnimTimer->start();
@@ -623,11 +624,22 @@ bool MainWindow::loadSceneFile(const QString &path)
                                 float(window.value(QStringLiteral("out")).toDouble(0.0)));
         }
         {
+            const int selected = gl->selectedObject();
+            const auto loadPath = [gl, selected](int kind, const QJsonArray &path) {
+                if (!path.isEmpty())
+                    gl->setObjectPath(selected, kind, path.at(0).toString(), path.at(1).toString(),
+                                      path.at(2).toString(), path.at(3).toString());
+            };
             const QJsonArray path = o.value(QStringLiteral("path")).toArray();
-            if (!path.isEmpty())
-                gl->setObjectPath(gl->selectedObject(), path.at(0).toString(), path.at(1).toString(),
-                                  path.at(2).toString(), path.at(3).toString());
-            gl->setObjectPathRunning(gl->selectedObject(), o.value(QStringLiteral("pathRunning")).toBool(true));
+            loadPath(path.size() > 3 ? SurfaceEngine::ObjectPath4D : SurfaceEngine::ObjectPath3D, path);
+            loadPath(SurfaceEngine::ObjectPath4D, o.value(QStringLiteral("path4D")).toArray());
+            if (o.value(QStringLiteral("pathKind")).toString() == QLatin1String("path4D"))
+                gl->setObjectPathKind(selected, SurfaceEngine::ObjectPath4D);
+            gl->setObjectPathRunning(selected, o.value(QStringLiteral("pathRunning")).toBool(true));
+            gl->setObjectPathSpeed(selected, SurfaceEngine::ObjectPath3D,
+                                   o.value(QStringLiteral("pathSpeed3D")).toInt(SurfaceObject::kPathSpeedDefault));
+            gl->setObjectPathSpeed(selected, SurfaceEngine::ObjectPath4D,
+                                   o.value(QStringLiteral("pathSpeed4D")).toInt(SurfaceObject::kPathSpeedDefault));
         }
         applyObjectMotion(o.value(QStringLiteral("motion")).toObject());
         captureObjectStartPose();
@@ -860,9 +872,8 @@ void MainWindow::setupObjectsDock()
     m_objectList = new QListWidget(w);
     lay->addWidget(m_objectList, 1);
 
-    // I campi numerici: sul desktop X Y Z in una riga, Scale in una e In Out
-    // nell'altra (Scale In Out insieme chiedevano 423px, il dock ne ha 400:
-    // provato). Su mobile coi tasti freccia da dito del selettore Multi Mesh
+    // I campi numerici: sul desktop X Y Z in una riga e In Out nell'altra. Su
+    // mobile coi tasti freccia da dito del selettore Multi Mesh
     // (installMobileSpinButtons, in fondo): le frecce native erano quasi
     // irraggiungibili. E uno per riga, etichette in colonna (pareggiate in
     // fondo): tre campi coi tasti chiedono ~630px, il dock ne ha 400 su iPad e
@@ -908,54 +919,6 @@ void MainWindow::setupObjectsDock()
             m_sceneObjectsChanged = true;
         });
     }
-
-    // PATH del selezionato (timeline 2a): X(t), Y(t), Z(t) che si sommano alla
-    // posizione e, nelle scene 4D, P(t) lungo la quarta coordinata; t = il
-    // tempo dell'oggetto. Vuoti = nessun path. In una matrice 2x2 (X Y / Z P)
-    // col suo GO accanto: quattro campi in fila non stanno nei 400px del dock.
-    // L'Invio: sul desktop lo consuma il filtro tastiera (isObjectPathField);
-    // su mobile il dock nasce dopo il filtro (setupStyling) e arriva come
-    // returnPressed. Uscire dal campo non applica nulla.
-    auto *pathGrid = new QGridLayout();
-    pathGrid->addWidget(rowLabel(QStringLiteral("Path")), 0, 0, 2, 1);
-    const char *pathHints[4] = { "X(t)", "Y(t)", "Z(t)", "P(t)" };
-    const char *pathNames[4] = { "lineObjectPathX", "lineObjectPathY", "lineObjectPathZ", "lineObjectPathP" };
-    for (int i = 0; i < 4; ++i) {
-        m_objectPath[i] = new QLineEdit(w);
-        m_objectPath[i]->setObjectName(QLatin1String(pathNames[i]));
-        m_objectPath[i]->setPlaceholderText(QLatin1String(pathHints[i]));
-        pathGrid->addWidget(m_objectPath[i], i / 2, 1 + i % 2);
-        connect(m_objectPath[i], &QLineEdit::textChanged, this, [this]() {
-            if (m_refreshingObjects) return;
-            refreshObjectPathControls();
-            // Le costanti citate dal path si sbloccano (o tornano neutre) subito.
-            updateConstantsUIState();
-        });
-        connect(m_objectPath[i], &QLineEdit::returnPressed, this, [this, i]() {
-            m_objectPath[i]->clearFocus();
-            QGuiApplication::inputMethod()->hide();
-            applyObjectPathFromDock();
-        });
-    }
-    pathGrid->setColumnStretch(1, 1);
-    pathGrid->setColumnStretch(2, 1);
-    m_objectPath[3]->setToolTip(QStringLiteral("P(t) moves the object along the fourth coordinate "
-                                               "(4D scenes only)."));
-    m_btnObjectPathGo = new QPushButton(QStringLiteral("GO"), w);
-    pathGrid->addWidget(m_btnObjectPathGo, 0, 3, 2, 1, Qt::AlignVCenter);
-    connect(m_btnObjectPathGo, &QPushButton::clicked, this, &MainWindow::onObjectPathGoClicked);
-    lay->addLayout(pathGrid);
-
-    // SCALA del selezionato: la stessa che cambiano rotella, pinch e
-    // Back/Forward con l'oggetto selezionato (GLWidget::zoomCamera).
-    QHBoxLayout *scaleRow = fieldRow(true);
-    scaleRow->addWidget(rowLabel(QStringLiteral("Scale")));
-    m_objectScale = new QDoubleSpinBox(w);
-    m_objectScale->setRange(0.01, 100.0);
-    m_objectScale->setSingleStep(0.1);
-    m_objectScale->setDecimals(2);
-    m_objectScale->setLocale(QLocale::c());
-    scaleRow->addWidget(m_objectScale, 1);
 
     // TIMELINE: la finestra di comparsa del selezionato, in secondi
     // dell'orologio di scena (0 = dall'inizio / fino alla fine).
@@ -1011,16 +974,17 @@ void MainWindow::setupObjectsDock()
             updateMasterButtonState();
         });
     }
-    connect(m_objectScale, &QDoubleSpinBox::valueChanged, this, [this](double v) {
-        if (m_refreshingObjects) return;
-        ui->glWidget->setObjectScale(float(v));
+    // La scala dell'oggetto la cambiano rotella, pinch e Back/Forward
+    // (GLWidget::zoomCamera).
+    connect(ui->glWidget, &GLWidget::objectScaleChangedByUser, this, [this]() {
         m_sceneObjectsChanged = true;
     });
-    connect(ui->glWidget, &GLWidget::objectScaleChangedByUser, this, [this](float s) {
+    // La posizione spostata dai tasti del dock 3D (GLWidget::virtualMove).
+    connect(ui->glWidget, &GLWidget::objectPositionChangedByUser, this, [this](const QVector3D &p) {
         m_sceneObjectsChanged = true;
-        if (!m_objectScale) return;
+        if (!m_objectPos[0]) return;
         m_refreshingObjects = true;
-        m_objectScale->setValue(s);
+        for (int i = 0; i < 3; ++i) m_objectPos[i]->setValue(p[i]);
         m_refreshingObjects = false;
     });
 
@@ -1040,8 +1004,8 @@ void MainWindow::setupObjectsDock()
                                        + 2 * m_objectList->frameWidth());
     }
     // Colonna delle etichette larga quanto la piu' lunga, misurata con lo
-    // stile applicato: col font del testo d'aiuto "Scale" sforava di 10px e
-    // la sua riga restava sfalsata.
+    // stile applicato: col font del testo d'aiuto una piu' lunga sforava di
+    // 10px e la sua riga restava sfalsata.
     if (fieldPerRow) {
         int labelWidth = 0;
         for (QLabel *label : std::as_const(rowLabels)) {
@@ -1054,7 +1018,7 @@ void MainWindow::setupObjectsDock()
     // nel suo layout. No-op su desktop. I campi restano scrivibili (prima su
     // mobile cambiavano solo con le frecce): vedi installMobileSpinButtons.
     for (QDoubleSpinBox *box : { m_objectPos[0], m_objectPos[1], m_objectPos[2],
-                                 m_objectScale, m_objectWindowIn, m_objectWindowOut }) {
+                                 m_objectWindowIn, m_objectWindowOut }) {
         editLikePathFields(box);
         UiStyleManager::installMobileSpinButtons(box, 0, /*editable=*/true);
     }
@@ -1103,15 +1067,7 @@ void MainWindow::refreshObjectsUi()
         m_objectPos[i]->setValue(i == 0 ? p.x() : i == 1 ? p.y() : p.z());
         m_objectPos[i]->setEnabled(selected > 0);
     }
-    m_objectScale->setValue(gl->objectScale());
-    m_objectScale->setEnabled(selected > 0);
-    {
-        const QStringList path = gl->objectPath(selected);
-        for (int i = 0; i < 4; ++i) {
-            m_objectPath[i]->setText(selected > 0 ? path.value(i) : QString());
-            m_objectPath[i]->setEnabled(selected > 0);
-        }
-    }
+    loadObjectPathText();
     m_objectWindowIn->setValue(gl->objectWindowIn(selected));
     m_objectWindowOut->setValue(gl->objectWindowOut(selected));
     m_btnObjectDuplicate->setEnabled(selected > 0);
@@ -1125,46 +1081,106 @@ void MainWindow::refreshObjectsUi()
         m_btnObjectSelector->setText(QStringLiteral("%1/%2 %3").arg(selected + 1).arg(n).arg(name));
     }
     m_refreshingObjects = false;
-    refreshObjectPathControls();
+    showPathFields();
+    updatePath4DControls();
+    checkPath3DFields();
+    refreshPathControls();
     refreshSceneTimeLabel();
 }
 
-// INVIO su un campo del path: la regola dei path dell'ambiente, col path
-// FERMO che aspetta il suo GO (richiesta dell'utente, 2026-10-24: prima ogni
-// Invio, e ogni uscita dal campo, applicava e avviava anche un path scritto a
-// meta'). In corsa la modifica entra subito; svuotati tutti i campi il path
-// si toglie, e con lui il moto.
-void MainWindow::applyObjectPathFromDock()
+bool MainWindow::pathFieldsShowObject() const
+{
+    return ui->glWidget && ui->glWidget->selectedObject() > 0;
+}
+
+QString *MainWindow::objectPathSlot(const QLineEdit *edit)
+{
+    const QLineEdit *fields3D[] = { ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D };
+    const QLineEdit *fields4D[] = { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P };
+    for (int i = 0; i < 3; ++i)
+        if (edit == fields3D[i]) return &m_objectPathText[SurfaceEngine::ObjectPath3D][i];
+    for (int i = 0; i < 4; ++i)
+        if (edit == fields4D[i]) return &m_objectPathText[SurfaceEngine::ObjectPath4D][i];
+    return nullptr;
+}
+
+void MainWindow::loadObjectPathText()
 {
     GLWidget *gl = ui->glWidget;
-    if (!gl->isObjectPathRunning(gl->selectedObject())) return;
-    if (commitObjectPathFields()) {
+    const int selected = gl->selectedObject();
+    for (int kind = 0; kind < 2; ++kind) {
+        const QStringList path = gl->objectPath(selected, kind);
+        for (int i = 0; i < 4; ++i) m_objectPathText[kind][i] = selected > 0 ? path.value(i) : QString();
+    }
+}
+
+void MainWindow::showPathFields()
+{
+    const bool object = pathFieldsShowObject();
+    for (const auto &f : lineFieldTable()) {
+        QLineEdit *edit = f.first;
+        if (!edit || !isPathEquationField(edit->objectName())) continue;
+        const QString *slot = objectPathSlot(edit);
+        const QString text = !object ? *f.second : slot ? *slot : QString();
+        if (edit->text() == text) continue;
+        const QSignalBlocker blocker(edit);
+        edit->setText(text);
+        edit->setCursorPosition(0);   // l'inizio di un'espressione lunga
+    }
+    GLWidget *gl = ui->glWidget;
+    if (!gl) return;
+    const int selected = gl->selectedObject();
+    const QSignalBlocker block3D(ui->speed3DSlider), block4D(ui->speed4DSlider);
+    ui->speed3DSlider->setValue(object ? gl->objectPathSpeed(selected, SurfaceEngine::ObjectPath3D)
+                                       : m_scene.pathSpeed3D);
+    ui->speed4DSlider->setValue(object ? gl->objectPathSpeed(selected, SurfaceEngine::ObjectPath4D)
+                                       : m_scene.pathSpeed4D);
+}
+
+void MainWindow::setSelectedObjectPathSpeed(int kind, int speed)
+{
+    ui->glWidget->setObjectPathSpeed(ui->glWidget->selectedObject(), kind, speed);
+    m_sceneObjectsChanged = true;
+}
+
+// INVIO su un campo del path: la regola dei path dell'ambiente, col path
+// FERMO che aspetta il suo Departure (richiesta dell'utente, 2026-10-24: prima
+// ogni Invio, e ogni uscita dal campo, applicava e avviava anche un path scritto
+// a meta'). In corsa la modifica entra subito; svuotati tutti i campi il path
+// si toglie, e con lui il moto.
+void MainWindow::applyObjectPathFromDock(int kind)
+{
+    GLWidget *gl = ui->glWidget;
+    if (!gl->isObjectPathRunning(gl->selectedObject(), kind)) return;
+    if (commitObjectPathFields(kind)) {
         updateMasterButtonState();
         refreshSceneTimeLabel();
     }
 }
 
-// GO: applica i campi e avvia il path, dal tempo a cui era (come Departure);
-// a path in corsa lo ferma. Vale anche a scena ferma dal master: e' il
-// comando del solo path, come GO per le rotazioni.
-void MainWindow::onObjectPathGoClicked()
+// Departure con un oggetto selezionato: applica i campi e avvia il path, dal
+// tempo a cui era, al posto dell'altro tipo se era quello a correre; a path in
+// corsa lo ferma. Vale anche a scena ferma dal master: e' il comando del solo
+// path, come GO per le rotazioni.
+void MainWindow::onObjectPathGoClicked(int kind)
 {
     GLWidget *gl = ui->glWidget;
     const int selected = gl->selectedObject();
     if (selected <= 0) return;
-    if (gl->isObjectPathRunning(selected)) {
+    if (gl->isObjectPathRunning(selected, kind)) {
         gl->setObjectPathRunning(selected, false);
     } else {
-        if (!commitObjectPathFields()) return;
+        if (!commitObjectPathFields(kind)) return;
+        gl->setObjectPathKind(selected, kind);
         gl->setObjectPathRunning(selected, true);
     }
     updateMasterButtonState();
     refreshSceneTimeLabel();
 }
 
-// Il path scritto nel dock, al selezionato. Senza la sostituzione virgola ->
+// Il path scritto nei dock, al selezionato. Senza la sostituzione virgola ->
 // punto dei path della camera: romperebbe mod(a,b), atan2(y,x) e simili.
-bool MainWindow::commitObjectPathFields()
+bool MainWindow::commitObjectPathFields(int kind)
 {
     // Un secondo Invio mentre il popup d'errore e' aperto.
     if (m_refreshingObjects || m_applyingObjectPath) return false;
@@ -1172,8 +1188,8 @@ bool MainWindow::commitObjectPathFields()
     const int selected = gl->selectedObject();
     if (selected <= 0) return false;
     QString text[4];
-    for (int i = 0; i < 4; ++i) text[i] = m_objectPath[i]->text().trimmed();
-    const QStringList current = gl->objectPath(selected);
+    for (int i = 0; i < 4; ++i) text[i] = m_objectPathText[kind][i].trimmed();
+    const QStringList current = gl->objectPath(selected, kind);
     if (text[0] == current.value(0) && text[1] == current.value(1) && text[2] == current.value(2)
         && text[3] == current.value(3))
         return true;
@@ -1181,7 +1197,7 @@ bool MainWindow::commitObjectPathFields()
     bool ok = true;
     for (int i = 0; i < 4 && ok; ++i)
         ok = InputValidator::validateExpressionSyntax(this, text[i], QLatin1String("XYZP").mid(i, 1) + "(t)");
-    if (ok && !gl->setObjectPath(selected, text[0], text[1], text[2], text[3])) {
+    if (ok && !gl->setObjectPath(selected, kind, text[0], text[1], text[2], text[3])) {
         ok = false;
         QMessageBox::warning(this, QStringLiteral("Error"),
                              QStringLiteral("Object path compilation error.\nCheck the syntax: "
@@ -1190,27 +1206,42 @@ bool MainWindow::commitObjectPathFields()
     m_applyingObjectPath = false;
     if (!ok) return false;   // il testo resta, per correggerlo; il path e' quello di prima
     m_sceneObjectsChanged = true;
-    refreshObjectPathControls();
+    refreshPathControls();
     return true;
 }
 
-void MainWindow::refreshObjectPathControls()
+void MainWindow::refreshPathControls()
 {
-    if (!m_btnObjectPathGo || !ui->glWidget) return;
+    if (!m_paths || !ui->glWidget) return;
     GLWidget *gl = ui->glWidget;
     const int selected = gl->selectedObject();
-    const bool running = gl->isObjectPathRunning(selected);
-    bool written = false;
-    for (QLineEdit *field : m_objectPath) written = written || !field->text().trimmed().isEmpty();
-    m_btnObjectPathGo->setText(running ? QStringLiteral("STOP") : QStringLiteral("GO"));
-    // GO avvia cio' che e' scritto: senza campi non c'e' niente da avviare.
-    m_btnObjectPathGo->setEnabled(selected > 0 && (running || written));
-    // P(t) solo nelle scene 4D e sugli oggetti parametrici (il ray marching non
-    // passa dalla proiezione 4D). Una P gia' scritta resta modificabile, per
-    // poterla togliere se l'ambiente non e' piu' 4D.
-    m_objectPath[3]->setEnabled(selected > 0
-                                && ((sceneIs4D() && !implicitMode())
-                                    || !m_objectPath[3]->text().trimmed().isEmpty()));
+    const QString departure = QStringLiteral("DEPARTURE"), stop = QStringLiteral("STOP");
+    ui->lineR_P3D->setEnabled(selected == 0);
+    if (selected == 0) {
+        ui->btnDeparture->setText(pathRunning(CameraPaths::Path4D) ? stop : departure);
+        ui->btnDeparture3D->setText(pathRunning(CameraPaths::Path3D) ? stop : departure);
+        return;
+    }
+    const bool running3D = gl->isObjectPathRunning(selected, SurfaceEngine::ObjectPath3D);
+    const bool running4D = gl->isObjectPathRunning(selected, SurfaceEngine::ObjectPath4D);
+    const auto written = [this](int kind) {
+        for (const QString &text : m_objectPathText[kind])
+            if (!text.trimmed().isEmpty()) return true;
+        return false;
+    };
+    const bool written4D = written(SurfaceEngine::ObjectPath4D);
+    ui->btnDeparture3D->setText(running3D ? stop : departure);
+    ui->btnDeparture->setText(running4D ? stop : departure);
+    // Departure avvia cio' che e' scritto: senza campi non c'e' niente da avviare.
+    ui->btnDeparture3D->setEnabled(running3D || written(SurfaceEngine::ObjectPath3D));
+    ui->btnDeparture->setEnabled(running4D || written4D);
+    // Il path 4D solo nelle scene 4D e sugli oggetti parametrici: e' la P a
+    // distinguerlo dal 3D, e il ray marching non passa dalla proiezione 4D. Uno
+    // gia' scritto resta modificabile, per poterlo togliere se l'ambiente non e'
+    // piu' 4D.
+    const bool usable4D = (sceneIs4D() && !implicitMode()) || written4D;
+    for (QLineEdit *field : { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P })
+        field->setEnabled(usable4D);
 }
 
 bool MainWindow::sceneTimeCanRun() const

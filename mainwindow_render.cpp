@@ -1005,8 +1005,15 @@ void MainWindow::setupRendererDock()
     ui->speed3DSlider->setRange(1, 100); setPathSpeed3D(10);
     ui->speed4DSlider->setRange(1, 100); setPathSpeed4D(10);
     // Il trascinamento scrive lo stato (vedi pathSpeed3D).
-    connect(ui->speed3DSlider, &QSlider::valueChanged, this, [this](int v) { m_scene.pathSpeed3D = v; });
-    connect(ui->speed4DSlider, &QSlider::valueChanged, this, [this](int v) { m_scene.pathSpeed4D = v; });
+    // Come i campi dei path, gli slider sono di cio' che e' selezionato.
+    connect(ui->speed3DSlider, &QSlider::valueChanged, this, [this](int v) {
+        if (pathFieldsShowObject()) setSelectedObjectPathSpeed(SurfaceEngine::ObjectPath3D, v);
+        else m_scene.pathSpeed3D = v;
+    });
+    connect(ui->speed4DSlider, &QSlider::valueChanged, this, [this](int v) {
+        if (pathFieldsShowObject()) setSelectedObjectPathSpeed(SurfaceEngine::ObjectPath4D, v);
+        else m_scene.pathSpeed4D = v;
+    });
     // FOV UNICO (dock renderer, sotto Light). Prima erano due slider separati nei
     // dock 3D e 4D, attivi solo con la RISPETTIVA path in corsa: andavano in
     // conflitto (due controlli sullo stesso m_cameraFov) e da fermo erano
@@ -2189,7 +2196,7 @@ void MainWindow::updateBorderControlsGate()
 // riaccende anche il FOV): qui si spengono soltanto, per ultimi; tornando su
 // Surface li rimette a posto updateRenderState, che l'handler di
 // radioBackground chiama.
-// Il path e' dell'AMBIENTE: in una scena il cui ambiente lo permette resta
+// Il dock 4D segue l'AMBIENTE: in una scena il cui ambiente lo permette resta
 // usabile anche con un oggetto in ray marching selezionato (prima i tasti si
 // spegnevano aggiungendo una sfera RM a un record col path 4D); e un ambiente
 // in ray marching 3D lo usa se nella scena c'e' una Cross Section
@@ -2198,10 +2205,17 @@ void MainWindow::updatePath4DControls()
 {
     const bool path4DUsable = environment4DUsable();
     for (QWidget *w : { (QWidget*)ui->lineX_P,  (QWidget*)ui->lineY_P,
-                        (QWidget*)ui->lineZ_P,  (QWidget*)ui->lineP_P,
-                        (QWidget*)ui->lineAlpha_P, (QWidget*)ui->lineBeta_P,
-                        (QWidget*)ui->lineGamma_P }) {
+                        (QWidget*)ui->lineZ_P,  (QWidget*)ui->lineP_P }) {
         if (w) w->setEnabled(path4DUsable);
+    }
+    // Gli angoli sono della camera: il path di un oggetto non li ha.
+    for (QWidget *w : { (QWidget*)ui->lineAlpha_P, (QWidget*)ui->lineBeta_P,
+                        (QWidget*)ui->lineGamma_P }) {
+        if (w) w->setEnabled(path4DUsable && !pathFieldsShowObject());
+    }
+    if (pathFieldsShowObject()) {
+        checkPathFields();
+        return;
     }
 
     // DEPARTURE e VIEW hanno DUE condizioni, non una: il modo deve

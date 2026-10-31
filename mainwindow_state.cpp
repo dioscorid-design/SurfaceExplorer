@@ -548,7 +548,15 @@ void MainWindow::bindLineFields()
         // della digitazione (Run one-shot dei limiti, completezza del dominio)
         // leggono lo stato, e col solo textChanged lo trovavano indietro di un
         // tasto -- u max svuotato accendeva il Run, riscritto lo spegneva.
-        const auto write = [state](const QString &t) { *state = t; };
+        // Con un oggetto selezionato i campi dei path sono i suoi: quello
+        // dell'ambiente resta dov'e'.
+        const auto write = [this, edit, state](const QString &t) {
+            if (pathFieldsShowObject() && isPathEquationField(edit->objectName())) {
+                if (QString *slot = objectPathSlot(edit)) *slot = t;
+                return;
+            }
+            *state = t;
+        };
         connect(edit, &QLineEdit::textEdited, this, write);
         connect(edit, &QLineEdit::textChanged, this, write);
         *state = edit->text();
@@ -568,6 +576,7 @@ void MainWindow::setLineText(QString &state, const QString &text)
     for (const auto &f : lineFieldTable()) {
         if (f.second != &state) continue;
         if (QLineEdit *edit = f.first) {
+            if (pathFieldsShowObject() && isPathEquationField(edit->objectName())) return;
             // A segnali bloccati: e' il programma che scrive, non l'utente.
             const QSignalBlocker blocker(edit);
             edit->setText(text);
@@ -586,11 +595,13 @@ void MainWindow::showLineFields()
         // conferma farebbe validare all'uscita dal campo un testo che l'utente
         // non ha mai scritto (e su un dominio 0/0 uscirebbe un popup a sproposito).
         setUserEditPending(edit, false);
+        if (isPathEquationField(edit->objectName())) continue;   // showPathFields
         if (edit->text() == *f.second) continue;
         const QSignalBlocker blocker(edit);
         edit->setText(*f.second);
         edit->setCursorPosition(0);   // l'inizio di un'espressione lunga
     }
+    showPathFields();
     // Cio' che i textChanged dei campi farebbero, una volta sola sullo stato
     // intero: costanti in uso (limiti e path le citano) e tasti Departure.
     updateConstantsUIState();

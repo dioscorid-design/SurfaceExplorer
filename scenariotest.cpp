@@ -1,6 +1,7 @@
 #include "scenariotest.h"
 
 #include "mainwindow.h"
+#include "mainwindow_p.h"
 #include "ui_mainwindow.h"
 #include "glwidget.h"
 #include "librarymanager.h"
@@ -1302,9 +1303,16 @@ QString ScenarioTest::lineFieldsProblem() const
     QStringList bad;
     for (const auto &f : m_mw->lineFieldTable()) {
         if (!f.first) continue;
-        if (*f.second != f.first->text())
+        // Con un oggetto selezionato i campi dei path mostrano il suo: lo stato
+        // tiene quello della camera.
+        QString state = *f.second;
+        if (m_mw->pathFieldsShowObject() && isPathEquationField(f.first->objectName())) {
+            const QString *slot = m_mw->objectPathSlot(f.first);
+            state = slot ? *slot : QString();
+        }
+        if (state != f.first->text())
             bad << QStringLiteral("%1: stato \"%2\", campo \"%3\"")
-                       .arg(f.first->objectName(), *f.second, f.first->text());
+                       .arg(f.first->objectName(), state, f.first->text());
     }
     return bad.join(QStringLiteral("; "));
 }
@@ -5777,7 +5785,7 @@ void ScenarioTest::runSceneObjectScenarios()
         const float entered = gl->objectPosition().x();
         x->selectAll();
         keys(QStringLiteral("7"));
-        m_mw->m_objectScale->setFocus();   // esce dal campo senza Invio
+        m_mw->m_objectPos[1]->setFocus();   // esce dal campo senza Invio
         wait(100);
         check(qFuzzyCompare(typing, 1.2f) && qFuzzyCompare(entered, 2.5f)
                   && qFuzzyCompare(gl->objectPosition().x(), 2.5f) && std::abs(x->value() - 2.5) < 1e-9,
@@ -5840,13 +5848,68 @@ void ScenarioTest::runSceneObjectScenarios()
     const float s1 = gl->objectScale();
     check(std::abs(s1 - std::exp(0.12f)) < 1e-4f && gl->getCameraPos() == cam0,
           QStringLiteral("rotella sull'oggetto: scala %1, camera ferma").arg(s1));
-    check(std::abs(m_mw->m_objectScale->value() - s1) < 0.006 && m_mw->hasUnsavedWork(),
-          QStringLiteral("il dock mostra la scala (%1) e la scena e' da salvare").arg(m_mw->m_objectScale->value()));
+    check(m_mw->hasUnsavedWork(), QStringLiteral("la scala cambiata: la scena e' da salvare"));
     gl->virtualMove(GLWidget::MoveBack, 0.05f, 0.05f);
     check(gl->objectScale() < s1 && gl->getCameraPos() == cam0,
           QStringLiteral("Back sull'oggetto: rimpicciolisce (%1), camera ferma").arg(gl->objectScale()));
-    m_mw->m_objectScale->setValue(2.0);
-    check(std::abs(gl->objectScale() - 2.0f) < 1e-6f, QStringLiteral("Scale = 2 dal dock"));
+    // GLI ALTRI TASTI DEL DOCK 3D: spostano e girano l'oggetto come si vede a
+    // schermo; con l'ambiente muovono la camera.
+    {
+        const auto near3 = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 1e-4f; };
+        const auto angle = [](QQuaternion a, QQuaternion b) {
+            return 2.0f * qRadiansToDegrees(std::acos(std::min(1.0f, std::abs(QQuaternion::dotProduct(a, b)))));
+        };
+        const float step = 0.05f * 5.0f;    // il passo di virtualMove con speed3D = 0.05
+        const QVector3D objectPos = gl->objectPosition();
+        const QQuaternion objectRot = gl->orientation().rotation;
+        const float camRoll = gl->getCameraRoll();
+        m_mw->markWholeSceneClean();
+        gl->virtualMove(GLWidget::MoveUp, 0.05f, 0.05f);
+        check(near3(gl->objectPosition(), objectPos + QVector3D(0.0f, step, 0.0f)) && gl->getCameraPos() == cam0,
+              QStringLiteral("Up sull'oggetto: sale (Y %1), camera ferma").arg(gl->objectPosition().y()));
+        check(std::abs(m_mw->m_objectPos[1]->value() - gl->objectPosition().y()) < 0.006 && m_mw->hasUnsavedWork(),
+              QStringLiteral("il dock mostra la posizione (Y %1) e la scena e' da salvare")
+                  .arg(m_mw->m_objectPos[1]->value()));
+        gl->virtualMove(GLWidget::MoveDown, 0.05f, 0.05f);
+        gl->virtualMove(GLWidget::MoveRight, 0.05f, 0.05f);
+        check(near3(gl->objectPosition(), objectPos + QVector3D(step, 0.0f, 0.0f)),
+              QStringLiteral("Down e Right: X %1, Y %2").arg(gl->objectPosition().x()).arg(gl->objectPosition().y()));
+        gl->virtualMove(GLWidget::MoveLeft, 0.05f, 0.05f);
+        check(near3(gl->objectPosition(), objectPos), QStringLiteral("Left: l'oggetto torna dov'era"));
+        // A scena girata di 90 gradi attorno a Z, la destra dello schermo e' la
+        // -Y dell'oggetto: la scena dritta darebbe +X.
+        const GLWidget::SceneRotation sceneRot = gl->sceneRotation();
+        GLWidget::SceneRotation turned = sceneRot;
+        turned.rotation = QQuaternion::fromAxisAndAngle(0.0f, 0.0f, 1.0f, 90.0f);
+        gl->setSceneRotation(turned);
+        gl->virtualMove(GLWidget::MoveRight, 0.05f, 0.05f);
+        check(near3(gl->objectPosition(), objectPos + QVector3D(0.0f, -step, 0.0f)),
+              QStringLiteral("scena girata: Right segue lo schermo, non gli assi dell'oggetto"));
+        gl->setSceneRotation(sceneRot);
+        gl->setObjectPosition(objectPos);
+        gl->virtualMove(GLWidget::RollLeft, 0.05f, 0.05f);
+        const QQuaternion rolled = QQuaternion::fromAxisAndAngle(0.0f, 0.0f, 1.0f, 0.5f) * objectRot;
+        check(angle(gl->orientation().rotation, rolled) < 1e-2f && gl->getCameraRoll() == camRoll,
+              QStringLiteral("Roll Left sull'oggetto: gira attorno alla vista, roll della camera fermo"));
+        gl->virtualMove(GLWidget::RollRight, 0.05f, 0.05f);
+        check(angle(gl->orientation().rotation, objectRot) < 1e-2f,
+              QStringLiteral("Roll Right: torna l'orientamento di prima"));
+        const QVector3D cam1 = gl->getCameraPos();
+        m_mw->selectSceneObject(0);
+        wait(200);
+        gl->virtualMove(GLWidget::MoveUp, 0.05f, 0.05f);
+        gl->virtualMove(GLWidget::RollLeft, 0.05f, 0.05f);
+        const QVector3D camUp = gl->getCameraPos();
+        const float rollUp = gl->getCameraRoll();
+        gl->virtualMove(GLWidget::MoveDown, 0.05f, 0.05f);
+        gl->virtualMove(GLWidget::RollRight, 0.05f, 0.05f);
+        m_mw->selectSceneObject(1);
+        wait(200);
+        check(near3(camUp, cam1 + QVector3D(0.0f, step, 0.0f)) && rollUp != camRoll
+                  && near3(gl->objectPosition(), objectPos),
+              QStringLiteral("Up e Roll sull'ambiente: si muove la camera, l'oggetto resta"));
+    }
+    gl->setObjectScale(2.0f);
     const QImage big = gl->grabFramebuffer();
     m_mw->m_btnObjectDuplicate->click();
     wait(400);
@@ -6278,6 +6341,26 @@ void ScenarioTest::runSceneMotionScenarios()
           QStringLiteral("ambiente col path in corsa: GO e velocita' accesi, scatti 4D spenti"));
     const QQuaternion sceneQ1 = gl->sceneRotation().rotation;
     const QVector3D sceneA1 = gl->sceneRotation().angles4D;
+    // I tasti del dock 3D: spenti sull'ambiente (sono la camera, che e' del
+    // path), accesi sull'oggetto (muovono lui).
+    {
+        const bool onEnvironment = m_mw->ui->btnUp->isEnabled() || m_mw->ui->btnRollLeft->isEnabled();
+        m_mw->selectSceneObject(1);
+        wait(200);
+        const bool onObject = m_mw->ui->btnUp->isEnabled() && m_mw->ui->btnBackward->isEnabled()
+                              && m_mw->ui->btnRollLeft->isEnabled();
+        const bool scatti4D = m_mw->ui->btnPPlus->isEnabled();
+        const QVector3D pos = gl->objectPosition();
+        m_mw->ui->btnUp->click();
+        wait(200);
+        const bool moved = gl->objectPosition() != pos;
+        gl->setObjectPosition(pos);
+        m_mw->selectSceneObject(0);
+        wait(200);
+        check(!onEnvironment && onObject && !scatti4D && moved,
+              QStringLiteral("path in corsa: tasti 3D spenti sull'ambiente, accesi sull'oggetto (Up lo sposta), "
+                             "dock 4D spento"));
+    }
     m_mw->onStopClicked();   // GO
     wait(400);
     check(gl->isObjectRotating(0) && !m_mw->pathRunning(CameraPaths::Path4D) && gl->isObjectRotating(1)
@@ -7179,17 +7262,17 @@ void ScenarioTest::runSceneSoundScenarios()
         setConstantByField(QStringLiteral("A"), QStringLiteral("3"));
         wait(200);
         const QVector3D base = gl->objectPosition();
-        m_mw->m_objectPath[0]->setText(QStringLiteral("A*cos(t)"));
-        m_mw->m_objectPath[1]->setText(QStringLiteral("2*B"));
-        m_mw->m_objectPath[2]->setText(QStringLiteral("s+1"));
+        m_mw->ui->lineX_P3D->setText(QStringLiteral("A*cos(t)"));
+        m_mw->ui->lineY_P3D->setText(QStringLiteral("2*B"));
+        m_mw->ui->lineZ_P3D->setText(QStringLiteral("s+1"));
         m_lastPopup.clear();
-        m_mw->onObjectPathGoClicked();
+        m_mw->onObjectPathGoClicked(SurfaceEngine::ObjectPath3D);
         wait(200);
         const QVector3D eff = gl->objectEffectivePosition(1);
         check(gl->isObjectPathRunning(1) && m_lastPopup.isEmpty(),
               QStringLiteral("path dell'oggetto con costanti nelle formule: accettato (%1)").arg(m_lastPopup));
-        m_mw->onObjectPathGoClicked();   // STOP
-        gl->setObjectPath(1, QStringLiteral("A"), QStringLiteral("2*B"), QStringLiteral("s+1"), QString());
+        m_mw->onObjectPathGoClicked(SurfaceEngine::ObjectPath3D);   // STOP
+        gl->setObjectPath(1, SurfaceEngine::ObjectPath3D, QStringLiteral("A"), QStringLiteral("2*B"), QStringLiteral("s+1"), QString());
         const QVector3D at0 = gl->objectEffectivePosition(1) - base;
         check(qAbs(at0.x() - m_mw->ui->lineA->text().toFloat()) < 1e-4f
                   && qAbs(at0.y() - 2.0f * m_mw->ui->lineB->text().toFloat()) < 1e-4f,
@@ -7209,11 +7292,11 @@ void ScenarioTest::runSceneSoundScenarios()
         const int sphere = gl->objectCount() - 1;
         check(gl->selectedObject() == sphere && !m_mw->ui->aSlider->isEnabled(),
               QStringLiteral("sfera come oggetto: A bloccata (nessuna formula la usa)"));
-        m_mw->m_objectPath[0]->setText(QStringLiteral("A"));
+        m_mw->ui->lineX_P3D->setText(QStringLiteral("A"));
         wait(200);
         check(m_mw->ui->aSlider->isEnabled() && m_mw->ui->lineA->isEnabled(),
               QStringLiteral("A scritta nel path dell'oggetto: lo slider A si sblocca"));
-        m_mw->m_objectPath[0]->setText(QString());
+        m_mw->ui->lineX_P3D->setText(QString());
         wait(200);
         check(!m_mw->ui->aSlider->isEnabled(), QStringLiteral("path svuotato: A di nuovo bloccata"));
         m_mw->removeSceneObject(sphere);
@@ -7351,7 +7434,7 @@ void ScenarioTest::runSceneSoundScenarios()
         wait(200);
         const QVector3D b2 = gl->objectPosition();
         const QVector3D e2 = gl->objectEffectivePosition(1);
-        check(gl->objectPath(1).value(0) == QStringLiteral("A")
+        check(gl->objectPath(1, SurfaceEngine::ObjectPath3D).value(0) == QStringLiteral("A")
                   && qAbs((e2.x() - b2.x()) - m_mw->ui->lineA->text().toFloat()) < 1e-4f,
               QStringLiteral("scena caricata: il path dell'oggetto usa le sue costanti (A=%1)").arg(m_mw->ui->lineA->text()));
         m_mw->selectSceneObject(0);
@@ -7512,16 +7595,21 @@ void ScenarioTest::runSceneDepthScenarios()
               QStringLiteral("l'ambiente ha il nome della Shape (%1)").arg(m_mw->m_objectSessions[0].name));
     }
 
-    // IL PATH E' DELL'AMBIENTE: un oggetto RM selezionato non spegne i suoi tasti.
+    // IL PATH DELL'AMBIENTE RESTA SUO: un oggetto RM selezionato non lo spegne.
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Path dell'ambiente con un oggetto RM selezionato =="));
     if (loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S2xS1/Klein Racing.json"))) {
         const bool running = m_mw->pathRunning(CameraPaths::Path4D);
         m_mw->addShapeToScene(libraryPath(kRM));
         wait(800);
-        check(gl->selectedObject() == 1 && m_mw->implicitMode() && m_mw->ui->btnDeparture->isEnabled()
-                  && m_mw->ui->lineX_P->isEnabled(),
-              QStringLiteral("sfera RM selezionata: Departure/STOP e campi del path accesi (path %1)")
+        // L'oggetto in ray marching ha il solo path 3D: non passa dalla proiezione 4D.
+        const bool onObject = gl->selectedObject() == 1 && m_mw->implicitMode() && m_mw->ui->lineX_P3D->isEnabled()
+                              && !m_mw->ui->lineX_P->isEnabled();
+        m_mw->selectSceneObject(0);
+        wait(200);
+        check(onObject && m_mw->ui->btnDeparture->isEnabled() && m_mw->ui->lineX_P->isEnabled(),
+              QStringLiteral("sfera RM selezionata: il suo path 3D acceso; sull'ambiente Departure/STOP e campi del "
+                             "path 4D (path %1)")
                   .arg(running ? QStringLiteral("in corsa") : QStringLiteral("fermo")));
     }
 
@@ -8193,7 +8281,7 @@ void ScenarioTest::runScenePathScenarios()
 {
     GLWidget *gl = m_mw->ui->glWidget;
     m_lines.append(QString());
-    m_lines.append(QStringLiteral("== Timeline: il path di un oggetto, X(t) Y(t) Z(t), col suo orologio e il suo GO =="));
+    m_lines.append(QStringLiteral("== Timeline: il path di un oggetto, X(t) Y(t) Z(t), nei dock 3D e 4D, col suo orologio =="));
     if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
     QString spherePath;
     for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
@@ -8204,15 +8292,20 @@ void ScenarioTest::runScenePathScenarios()
     const int sphere = gl->selectedObject();
     const QVector3D base = gl->objectPosition();
     auto near = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 1e-3f; };
-    // I campi e l'Invio vero (filtro tastiera, isObjectPathField).
-    auto setPathFields = [this](const QString &x, const QString &y, const QString &z) {
-        m_mw->m_objectPath[0]->setText(x);
-        m_mw->m_objectPath[1]->setText(y);
-        m_mw->m_objectPath[2]->setText(z);
-        pressEnter(m_mw->m_objectPath[0]);
+    Ui::MainWindow *ui = m_mw->ui;
+    // I campi del dock 3D e l'Invio vero (filtro tastiera, isPathEquationField).
+    auto setPathFields = [this, ui](const QString &x, const QString &y, const QString &z) {
+        ui->lineX_P3D->setText(x);
+        ui->lineY_P3D->setText(y);
+        ui->lineZ_P3D->setText(z);
+        pressEnter(ui->lineX_P3D);
     };
-    QPushButton *go = m_mw->m_btnObjectPathGo;
-    check(!m_mw->m_objectPath[3]->isEnabled(), QStringLiteral("scena 3D: campo P(t) spento"));
+    QPushButton *go = ui->btnDeparture3D;
+    check(!ui->lineX_P->isEnabled() && !ui->lineP_P->isEnabled() && !ui->btnDeparture->isEnabled(),
+          QStringLiteral("scena 3D: il path 4D dell'oggetto e' spento, resta il 3D"));
+    check(!ui->lineR_P3D->isEnabled() && !ui->lineAlpha_P->isEnabled() && !ui->pushView3D->isEnabled()
+              && !ui->pushView->isEnabled(),
+          QStringLiteral("oggetto selezionato: R, angoli e viste spenti, sono della camera"));
 
     // Il dock Objects largo come gli altri (400) e il suo contenuto ci sta.
     check(m_mw->m_dockObjects->minimumWidth() == 400 && m_mw->m_dockObjects->maximumWidth() == 400
@@ -8223,16 +8316,20 @@ void ScenarioTest::runScenePathScenarios()
     // Dal dock: la virgola di mod(t,2) resta (niente sostituzione col punto).
     // Il path fermo aspetta il suo GO: l'Invio non applica nulla.
     m_mw->markWholeSceneClean();
-    check(!go->isEnabled(), QStringLiteral("campi vuoti: GO spento"));
+    check(!go->isEnabled(), QStringLiteral("campi vuoti: Departure spento"));
     setPathFields(QStringLiteral("2*t"), QStringLiteral("mod(t,2)"), QStringLiteral("0.7*floor(t)"));
-    check(!gl->objectHasPath(sphere) && go->isEnabled() && go->text() == QLatin1String("GO"),
-          QStringLiteral("path fermo: l'Invio non applica, GO acceso"));
+    check(!gl->objectHasPath(sphere) && go->isEnabled() && go->text() == QLatin1String("DEPARTURE"),
+          QStringLiteral("path fermo: l'Invio non applica, Departure acceso"));
+    check(ui->lineX_P->text().isEmpty() && !ui->btnDeparture->isEnabled() && m_mw->m_scene.path.x3D.isEmpty(),
+          QStringLiteral("scritto nel dock 3D resta suo: il dock 4D e il path della camera restano vuoti"));
     go->click();
-    const QStringList path = gl->objectPath(sphere);
+    const QStringList path = gl->objectPath(sphere, SurfaceEngine::ObjectPath3D);
     check(gl->objectHasPath(sphere) && gl->isObjectPathRunning(sphere) && path.value(1) == QLatin1String("mod(t,2)")
               && m_mw->hasUnsavedWork() && m_mw->masterActivity().objectPathAvailable
-              && go->text() == QLatin1String("STOP"),
-          QStringLiteral("GO: path 2*t, mod(t,2), 0.7*floor(t) compilato e in corsa, il master lo conta"));
+              && go->text() == QLatin1String("STOP") && ui->btnDeparture->text() == QLatin1String("DEPARTURE")
+              && !m_mw->m_paths->anyRunning(),
+          QStringLiteral("Departure: path 2*t, mod(t,2), 0.7*floor(t) compilato e in corsa, il master lo conta, "
+                         "la camera non parte"));
     check(near(gl->objectEffectivePosition(sphere), base),
           QStringLiteral("t = 0: la sfera e' nella sua posizione"));
 
@@ -8255,6 +8352,42 @@ void ScenarioTest::runScenePathScenarios()
     gl->advanceClocksBy(1.0f);
     check(near(gl->objectEffectivePosition(sphere), base + QVector3D(5.0f, 0.5f, 1.4f)),
           QStringLiteral("t = 2.5: mod(t,2) torna a 0.5"));
+
+    // LA VELOCITA' e' dell'oggetto e di quel path, indipendente dalla camera:
+    // lo slider segue la selezione. A 60 il t corre il doppio; a 30, il default,
+    // in secondi. La scala e' quella della camera.
+    {
+        const int cameraSpeed = m_mw->m_scene.pathSpeed3D;
+        const float tBefore = gl->objectPathTime(sphere);
+        const bool showsDefault = ui->speed3DSlider->value() == SurfaceObject::kPathSpeedDefault;
+        m_mw->markWholeSceneClean();
+        ui->speed3DSlider->setValue(60);
+        gl->advanceClocksBy(1.0f);
+        check(showsDefault && qAbs(gl->objectPathTime(sphere) - tBefore - 2.0f) < 1e-4f
+                  && m_mw->m_scene.pathSpeed3D == cameraSpeed && m_mw->hasUnsavedWork(),
+              QStringLiteral("Speed 60 sull'oggetto: t +%1 in 1 s, velocita' della camera ferma a %2, scena da salvare")
+                  .arg(gl->objectPathTime(sphere) - tBefore).arg(m_mw->m_scene.pathSpeed3D));
+        m_mw->selectSceneObject(0);
+        wait(100);
+        const bool cameraShown = ui->speed3DSlider->value() == cameraSpeed;
+        ui->speed3DSlider->setValue(cameraSpeed + 5);
+        const bool cameraMoved = m_mw->m_scene.pathSpeed3D == cameraSpeed + 5;
+        m_mw->selectSceneObject(sphere);
+        wait(100);
+        check(cameraShown && cameraMoved && ui->speed3DSlider->value() == 60
+                  && gl->objectPathSpeed(sphere, SurfaceEngine::ObjectPath3D) == 60,
+              QStringLiteral("lo slider segue la selezione: camera %1 sull'ambiente, 60 sull'oggetto").arg(cameraSpeed));
+        ui->speed3DSlider->setValue(SurfaceObject::kPathSpeedDefault);
+        m_mw->selectSceneObject(0);
+        wait(100);
+        ui->speed3DSlider->setValue(cameraSpeed);
+        m_mw->selectSceneObject(sphere);
+        wait(100);
+        gl->stopAllTimers();
+        // Di nuovo a t = 2.5 per il resto della sezione.
+        m_mw->resetSelectedObject();
+        gl->advanceClocksBy(2.5f);
+    }
 
     // Master STOP ferma l'orologio del path, START lo riaccende.
     m_mw->performMasterStop();
@@ -8291,48 +8424,65 @@ void ScenarioTest::runScenePathScenarios()
         m_lastPopup.clear();
         setPathFields(x, QStringLiteral("mod(t,2)"), z);
         wait(300);
-        check(!m_lastPopup.isEmpty() && gl->objectPath(sphere).value(0) == QLatin1String("2*t")
-                  && gl->objectPath(sphere).value(2) == QLatin1String("0.7*floor(t)"),
+        check(!m_lastPopup.isEmpty() && gl->objectPath(sphere, SurfaceEngine::ObjectPath3D).value(0) == QLatin1String("2*t")
+                  && gl->objectPath(sphere, SurfaceEngine::ObjectPath3D).value(2) == QLatin1String("0.7*floor(t)"),
               what + QStringLiteral(" rifiutata: popup, resta il path di prima"));
     };
     refused(QStringLiteral("2*t+"), QStringLiteral("0.7*floor(t)"), QStringLiteral("2*t+"));
     refused(QStringLiteral("2*t+q"), QStringLiteral("0.7*floor(t)"), QStringLiteral("variabile sconosciuta q"));
     refused(QStringLiteral("2*t"), QStringLiteral("K1"), QStringLiteral("K1 in un oggetto"));
     m_mw->refreshObjectsUi();
-    check(m_mw->m_objectPath[0]->text() == QLatin1String("2*t"),
-          QStringLiteral("il dock rimostra il path valido"));
+    check(ui->lineX_P3D->text() == QLatin1String("2*t"), QStringLiteral("il dock rimostra il path valido"));
 
-    // In corsa l'Invio applica; il GO lo ferma e da fermo la modifica aspetta
-    // il GO, che la applica e riparte dal tempo a cui era.
+    // In corsa l'Invio applica; Departure lo ferma e da fermo la modifica aspetta
+    // Departure, che la applica e riparte dal tempo a cui era.
     setPathFields(QStringLiteral("3*t"), QStringLiteral("mod(t,2)"), QStringLiteral("0.7*floor(t)"));
-    check(gl->objectPath(sphere).value(0) == QLatin1String("3*t") && gl->isObjectPathRunning(sphere),
+    check(gl->objectPath(sphere, SurfaceEngine::ObjectPath3D).value(0) == QLatin1String("3*t") && gl->isObjectPathRunning(sphere),
           QStringLiteral("in corsa: l'Invio applica X = 3*t"));
     gl->advanceClocksBy(0.5f);
     go->click();
     const float tHeld = gl->objectPathTime(sphere);
     setPathFields(QStringLiteral("2*t"), QStringLiteral("mod(t,2)"), QStringLiteral("0.7*floor(t)"));
     gl->advanceClocksBy(0.5f);
-    check(!gl->isObjectPathRunning(sphere) && go->text() == QLatin1String("GO")
-              && gl->objectPath(sphere).value(0) == QLatin1String("3*t") && gl->objectPathTime(sphere) == tHeld,
-          QStringLiteral("GO ferma il path (t %1); da fermo l'Invio non applica X = 2*t").arg(tHeld));
+    check(!gl->isObjectPathRunning(sphere) && go->text() == QLatin1String("DEPARTURE")
+              && gl->objectPath(sphere, SurfaceEngine::ObjectPath3D).value(0) == QLatin1String("3*t") && gl->objectPathTime(sphere) == tHeld,
+          QStringLiteral("Departure ferma il path (t %1); da fermo l'Invio non applica X = 2*t").arg(tHeld));
     go->click();
-    check(gl->isObjectPathRunning(sphere) && gl->objectPath(sphere).value(0) == QLatin1String("2*t")
+    check(gl->isObjectPathRunning(sphere) && gl->objectPath(sphere, SurfaceEngine::ObjectPath3D).value(0) == QLatin1String("2*t")
               && gl->objectPathTime(sphere) == tHeld,
-          QStringLiteral("GO applica X = 2*t e riparte da t = %1").arg(gl->objectPathTime(sphere)));
+          QStringLiteral("Departure applica X = 2*t e riparte da t = %1").arg(gl->objectPathTime(sphere)));
 
     // Svuotati tutti i campi, l'Invio toglie il path; poi lo si rimette.
     setPathFields(QString(), QString(), QString());
     check(!gl->objectHasPath(sphere) && !go->isEnabled() && !m_mw->masterActivity().objectPathAvailable,
-          QStringLiteral("campi svuotati + Invio: il path non c'e' piu', GO spento"));
-    m_mw->m_objectPath[0]->setText(QStringLiteral("2*t"));
-    m_mw->m_objectPath[1]->setText(QStringLiteral("mod(t,2)"));
-    m_mw->m_objectPath[2]->setText(QStringLiteral("0.7*floor(t)"));
+          QStringLiteral("campi svuotati + Invio: il path non c'e' piu', Departure spento"));
+    ui->lineX_P3D->setText(QStringLiteral("2*t"));
+    ui->lineY_P3D->setText(QStringLiteral("mod(t,2)"));
+    ui->lineZ_P3D->setText(QStringLiteral("0.7*floor(t)"));
     go->click();
 
-    // L'ambiente non ha path: campi spenti.
+    // I campi seguono la selezione: l'ambiente mostra il path della camera, che
+    // resta suo; col ritorno all'oggetto tornano le sue formule.
     m_mw->selectSceneObject(0);
-    check(!m_mw->m_objectPath[0]->isEnabled() && m_mw->m_objectPath[0]->text().isEmpty(),
-          QStringLiteral("ambiente selezionato: campi del path vuoti e spenti"));
+    wait(100);
+    check(ui->lineX_P3D->text().isEmpty() && ui->lineX_P3D->isEnabled() && ui->lineR_P3D->isEnabled()
+              && ui->lineAlpha_P->isEnabled() && go->text() == QLatin1String("DEPARTURE") && !go->isEnabled(),
+          QStringLiteral("ambiente selezionato: campi e Departure della camera, R e angoli di nuovo accesi"));
+    ui->lineX_P3D->setText(QStringLiteral("5"));
+    ui->lineR_P3D->setText(QStringLiteral("t"));
+    check(go->isEnabled(), QStringLiteral("un path scritto per la camera accende Departure"));
+    m_mw->selectSceneObject(sphere);
+    wait(100);
+    check(ui->lineX_P3D->text() == QLatin1String("2*t") && ui->lineR_P3D->text().isEmpty()
+              && go->text() == QLatin1String("STOP") && m_mw->m_scene.path.x3D == QLatin1String("5")
+              && m_mw->m_scene.path.roll3D == QLatin1String("t"),
+          QStringLiteral("sull'oggetto i campi tornano i suoi, il path della camera resta nello stato"));
+    m_mw->selectSceneObject(0);
+    wait(100);
+    check(ui->lineX_P3D->text() == QLatin1String("5") && ui->lineR_P3D->text() == QLatin1String("t"),
+          QStringLiteral("di nuovo sull'ambiente: il path della camera nei campi"));
+    ui->lineX_P3D->clear();
+    ui->lineR_P3D->clear();
     m_mw->selectSceneObject(sphere);
 
     // Duplicate: la Shape com'e' ora, aperta come dal ramo Shapes. Niente path
@@ -8362,35 +8512,65 @@ void ScenarioTest::runScenePathScenarios()
     if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))
         && m_mw->loadSceneFile(file)) {
         wait(300);
-        const QStringList loaded = gl->objectPath(1);
+        const QStringList loaded = gl->objectPath(1, SurfaceEngine::ObjectPath3D);
         check(gl->objectCount() == 2 && gl->objectHasPath(1) && gl->isObjectPathRunning(1)
                   && loaded.value(0) == QLatin1String("2*t") && loaded.value(1) == QLatin1String("mod(t,2)")
                   && loaded.value(2) == QLatin1String("0.7*floor(t)"),
               QStringLiteral("Save/Load: path %1, in corsa").arg(loaded.join(QStringLiteral(", "))));
     }
 
-    // SCENA 4D: P(t) sposta l'oggetto lungo la quarta coordinata, prima della
-    // proiezione. Qui una costante, per confrontare due immagini ferme.
+    // SCENA 4D: il path 4D, con P(t), che sposta l'oggetto lungo la quarta
+    // coordinata prima della proiezione. Qui una costante, per confrontare due
+    // immagini ferme.
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Timeline: P(t) del path di un oggetto in una scena 4D =="));
     if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/Non-orientables/Klein Bottle.json"))) return;
     m_mw->addShapeToScene(spherePath);
     wait(400);
     const int sphere4D = gl->selectedObject();
-    check(m_mw->sceneIs4D() && m_mw->m_objectPath[3]->isEnabled(),
-          QStringLiteral("scena 4D (Klein Bottle): campo P(t) acceso"));
+    check(m_mw->sceneIs4D() && ui->lineP_P->isEnabled() && ui->lineX_P->isEnabled(),
+          QStringLiteral("scena 4D (Klein Bottle): path 4D dell'oggetto acceso"));
+    QPushButton *go3D = ui->btnDeparture3D;
+    go = ui->btnDeparture;
     gl->stopAllTimers();
     gl->setClocksDrivenByRecorder(true);
     gl->setProjectionMode(1);
     wait(400);
     const QImage plain = gl->grabFramebuffer();
-    m_mw->m_objectPath[3]->setText(QStringLiteral("1.5"));
+    ui->lineP_P->setText(QStringLiteral("1.5"));
     go->click();
     wait(400);
     const QImage shifted = gl->grabFramebuffer();
-    check(gl->objectPath(sphere4D).value(3) == QLatin1String("1.5") && gl->isObjectPathRunning(sphere4D)
+    check(gl->objectPath(sphere4D, SurfaceEngine::ObjectPath4D).value(3) == QLatin1String("1.5")
+              && gl->isObjectPathRunning(sphere4D, SurfaceEngine::ObjectPath4D)
               && near(gl->objectEffectivePosition(sphere4D), gl->objectPosition()) && shifted != plain,
           QStringLiteral("P(t) = 1.5: la sfera cambia a schermo, la posizione 3D no"));
+
+    // I DUE PATH SI ESCLUDONO, come quelli della camera, ognuno con le sue
+    // formule, il suo orologio e la sua velocita'.
+    gl->advanceClocksBy(1.0f);
+    const float t4D = gl->objectPathTime(sphere4D);
+    ui->lineX_P3D->setText(QStringLiteral("t"));
+    const bool otherUntouched = ui->lineX_P->text().isEmpty()
+                                && go->text() == QLatin1String("STOP") && go3D->text() == QLatin1String("DEPARTURE");
+    go3D->click();
+    gl->advanceClocksBy(0.5f);
+    check(otherUntouched && gl->isObjectPathRunning(sphere4D, SurfaceEngine::ObjectPath3D)
+              && !gl->isObjectPathRunning(sphere4D, SurfaceEngine::ObjectPath4D)
+              && go3D->text() == QLatin1String("STOP") && go->text() == QLatin1String("DEPARTURE")
+              && qAbs(gl->objectPathTime(sphere4D) - 0.5f) < 1e-4f
+              && near(gl->objectEffectivePosition(sphere4D), gl->objectPosition() + QVector3D(0.5f, 0.0f, 0.0f)),
+          QStringLiteral("Departure 3D ferma il 4D: t proprio da capo (%1), X = t, P non conta")
+              .arg(gl->objectPathTime(sphere4D)));
+    ui->speed4DSlider->setValue(15);
+    go->click();
+    gl->advanceClocksBy(2.0f);
+    check(gl->isObjectPathRunning(sphere4D, SurfaceEngine::ObjectPath4D) && !gl->isObjectPathRunning(sphere4D, SurfaceEngine::ObjectPath3D)
+              && qAbs(gl->objectPathTime(sphere4D) - t4D - 1.0f) < 1e-4f
+              && gl->objectPathSpeed(sphere4D, SurfaceEngine::ObjectPath3D) == SurfaceObject::kPathSpeedDefault,
+          QStringLiteral("Departure 4D ferma il 3D e riprende dal suo t (%1), Speed 15 solo sul 4D")
+              .arg(gl->objectPathTime(sphere4D)));
+    ui->speed4DSlider->setValue(45);
     go->click();   // fermo: il file lo dice
     const QJsonObject json4D = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Path4D"), run, false);
     const QJsonObject saved = json4D.value(QStringLiteral("objects")).toArray().at(0).toObject();
@@ -8399,15 +8579,57 @@ void ScenarioTest::runScenePathScenarios()
         QFile f(file4D);
         if (f.open(QIODevice::WriteOnly)) { f.write(QJsonDocument(json4D).toJson()); f.close(); }
     }
-    check(saved.value(QStringLiteral("path")).toArray().size() == 4
+    check(saved.value(QStringLiteral("path")).toArray().size() == 3
+              && saved.value(QStringLiteral("path4D")).toArray().size() == 4
+              && saved.value(QStringLiteral("pathKind")).toString() == QLatin1String("path4D")
+              && saved.value(QStringLiteral("pathSpeed4D")).toInt() == 45
+              && !saved.contains(QStringLiteral("pathSpeed3D"))
               && !saved.value(QStringLiteral("pathRunning")).toBool(true),
-          QStringLiteral("Save: quattro formule e il path fermo"));
+          QStringLiteral("Save: i due path, quello in uso, la velocita' cambiata e il path fermo"));
     gl->setClocksDrivenByRecorder(false);
     if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))
         && m_mw->loadSceneFile(file4D)) {
         wait(300);
-        check(gl->objectPath(1).value(3) == QLatin1String("1.5") && gl->objectHasPath(1) && !gl->isObjectPathRunning(1),
-              QStringLiteral("Load: P(t) = %1, path fermo").arg(gl->objectPath(1).value(3)));
+        check(gl->objectPath(1, SurfaceEngine::ObjectPath4D).value(3) == QLatin1String("1.5")
+                  && gl->objectPath(1, SurfaceEngine::ObjectPath3D).value(0) == QLatin1String("t")
+                  && gl->objectPathKind(1) == SurfaceEngine::ObjectPath4D && gl->objectHasPath(1) && !gl->isObjectPathRunning(1)
+                  && gl->objectPathSpeed(1, SurfaceEngine::ObjectPath4D) == 45,
+              QStringLiteral("Load: i due path, il 4D in uso con P(t) = %1 e Speed 45, fermo")
+                  .arg(gl->objectPath(1, SurfaceEngine::ObjectPath4D).value(3)));
+    }
+
+    // UNA SCENA DI PRIMA: "path" con quattro formule e' il path 4D, e con un
+    // path solo si riscrive uguale.
+    {
+        QFile saved4D(file4D);
+        QJsonObject old = saved4D.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(saved4D.readAll()).object()
+                                                            : QJsonObject();
+        QJsonArray objects = old.value(QStringLiteral("objects")).toArray();
+        QJsonObject first = objects.at(0).toObject();
+        const QJsonArray formulas = first.value(QStringLiteral("path4D")).toArray();
+        first[QStringLiteral("path")] = formulas;
+        for (const char *key : { "path4D", "pathKind", "pathSpeed3D", "pathSpeed4D", "pathRunning" })
+            first.remove(QLatin1String(key));
+        objects[0] = first;
+        old[QStringLiteral("objects")] = objects;
+        const QString oldFile = m_outDir + QStringLiteral("/scene-path-old.json");
+        {
+            QFile f(oldFile);
+            if (f.open(QIODevice::WriteOnly)) { f.write(QJsonDocument(old).toJson()); f.close(); }
+        }
+        if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))
+            && m_mw->loadSceneFile(oldFile)) {
+            wait(300);
+            gl->stopAllTimers();
+            PresetSerializer::MotionRunState oldRun;
+            const QJsonObject resaved = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Old"), oldRun, false)
+                                            .value(QStringLiteral("objects")).toArray().at(0).toObject();
+            check(gl->objectPathKind(1) == SurfaceEngine::ObjectPath4D && gl->objectPath(1, SurfaceEngine::ObjectPath4D).value(3) == QLatin1String("1.5")
+                      && !gl->objectHasPath(1, SurfaceEngine::ObjectPath3D) && gl->objectPathSpeed(1, SurfaceEngine::ObjectPath4D) == SurfaceObject::kPathSpeedDefault
+                      && resaved.value(QStringLiteral("path")).toArray() == formulas
+                      && !resaved.contains(QStringLiteral("path4D")) && !resaved.contains(QStringLiteral("pathSpeed4D")),
+                  QStringLiteral("scena di prima con P(t): path 4D, velocita' di default (t in secondi), si risalva uguale"));
+        }
     }
 }
 
@@ -8436,8 +8658,8 @@ void ScenarioTest::runSceneSeekScenarios()
     const int sphere = gl->selectedObject();
     gl->setSpinSpeed(0.6f);
     if (!gl->isObjectRotating(sphere)) m_mw->onStopClicked();
-    m_mw->m_objectPath[0]->setText(QStringLiteral("t"));
-    m_mw->applyObjectPathFromDock();
+    m_mw->ui->lineX_P3D->setText(QStringLiteral("t"));
+    m_mw->applyObjectPathFromDock(SurfaceEngine::ObjectPath3D);
 
     struct Shot { float pathT; QVector3D camera, view; };
     auto shot = [&]() {

@@ -64,7 +64,7 @@ void MainWindow::stopObjectForMaster()
 
     // Ferma le rotazioni 3D/4D delegando al suo tasto dedicato
     if (ui->glWidget && ui->glWidget->isAnimating()) onStopClicked();
-    // E il path dell'oggetto (dock Objects), che ha un orologio suo.
+    // E il path dell'oggetto, che ha un orologio suo.
     if (ui->glWidget) ui->glWidget->setObjectPathRunning(ui->glWidget->selectedObject(), false);
 }
 
@@ -90,7 +90,7 @@ void MainWindow::startObjectForMaster()
         gl->resumeMotion();
         if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
     }
-    // Il path dell'oggetto (dock Objects).
+    // Il path dell'oggetto.
     gl->setObjectPathRunning(gl->selectedObject(), true);
 }
 
@@ -1933,7 +1933,7 @@ void MainWindow::updateMasterButtonState()
     // tasti dei dock qui sotto sia il master.
     const MasterActivity act = masterActivity();
     // Il GO del path dell'oggetto (dock Objects), che il master ferma e riavvia.
-    refreshObjectPathControls();
+    refreshPathControls();
 
     if (ui->glWidget) {
         const bool geomHasTime = act.eqAvailable;

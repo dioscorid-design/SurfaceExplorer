@@ -5418,7 +5418,7 @@ void GLWidget::zoomCamera(float delta) {
     // stesso passo a ogni grandezza.
     if (objectZoomActive()) {
         setObjectScale(m_obj->scale * std::exp(delta * 0.1f));
-        emit objectScaleChangedByUser(m_obj->scale);
+        emit objectScaleChangedByUser();
         return;
     }
     // Calcoliamo il vettore "Avanti" completo
@@ -5630,7 +5630,8 @@ bool GLWidget::anyClockAdvanced() const
     if (m_timeBg != 0.0f) return true;
     for (const auto &obj : m_objects) {
         const SurfaceObject &o = *obj;
-        if (o.timeGeom != 0.0f || o.timeTex != 0.0f || o.borderTimeTex != 0.0f || o.pathTime != 0.0f)
+        if (o.timeGeom != 0.0f || o.timeTex != 0.0f || o.borderTimeTex != 0.0f
+            || o.pathTime[0] != 0.0f || o.pathTime[1] != 0.0f)
             return true;
         if (o.engine)
             for (const MeshPart &mp : o.engine->getMeshParts())
@@ -5645,7 +5646,7 @@ void GLWidget::resetObjectClocks(int index)
     SurfaceObject &o = *m_objects[index];
     o.timeGeom = 0.0f;
     o.timeTex = 0.0f;
-    o.pathTime = 0.0f;
+    o.pathTime[0] = o.pathTime[1] = 0.0f;
     if (o.engine) {
         for (MeshPart &mp : o.engine->mutableMeshParts())
             mp.timeTex = 0.0f;
@@ -5680,11 +5681,25 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
     QVector3D front(sin(radYaw), 0, -cos(radYaw));
     QVector3D right(cos(radYaw), 0, sin(radYaw));
 
-    // Back/Forward con un oggetto della scena selezionato: la sua scala, come
-    // la rotella (zoomCamera).
-    if (objectZoomActive() && (dir == MoveForward || dir == MoveBack)) {
-        zoomCamera(dir == MoveForward ? speed : -speed);
-        return;
+    // Tasti del dock 3D con un oggetto della scena selezionato: agiscono su di
+    // lui e non sulla camera. Back/Forward la scala, come la rotella (zoomCamera);
+    // gli altri negli assi dello schermo, letti dalla vista: valgono anche con la
+    // camera girata e sul path. Il nome del tasto e' il verso dell'oggetto a
+    // schermo, opposto a quello in cui la camera faceva scorrere la scena.
+    if (objectZoomActive()) {
+        const QVector3D screenRight = m_view.row(0).toVector3D();
+        const QVector3D screenUp = m_view.row(1).toVector3D();
+        switch (dir) {
+        case MoveForward: zoomCamera(speed); return;
+        case MoveBack:    zoomCamera(-speed); return;
+        case MoveLeft:    moveObjectOnScreen(-screenRight * speed); return;
+        case MoveRight:   moveObjectOnScreen(screenRight * speed); return;
+        case MoveUp:      moveObjectOnScreen(screenUp * speed); return;
+        case MoveDown:    moveObjectOnScreen(-screenUp * speed); return;
+        case RollLeft:    rollObjectOnScreen(rollSpeed); return;
+        case RollRight:   rollObjectOnScreen(-rollSpeed); return;
+        default: break;   // il dock 4D: sotto
+        }
     }
 
     switch (dir) {
@@ -5765,6 +5780,26 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
         break;
     }
 
+    update();
+}
+
+// La posizione dell'oggetto sta DENTRO la rotazione della scena
+// (prepareObjectUniforms): lo spostamento visto a schermo va riportato li'.
+void GLWidget::moveObjectOnScreen(const QVector3D &delta)
+{
+    setObjectPosition(m_obj->position + m_sceneRotation.rotation.conjugated().rotatedVector(delta));
+    emit objectPositionChangedByUser(m_obj->position);
+}
+
+// Attorno alla direzione di vista (la riga z della vista esce dallo schermo:
+// angolo positivo = antiorario a schermo), portata dentro la rotazione della
+// scena come la posizione. Gira attorno al centro dell'oggetto.
+void GLWidget::rollObjectOnScreen(float angle)
+{
+    const QVector3D axis = m_sceneRotation.rotation.conjugated().rotatedVector(m_view.row(2).toVector3D());
+    m_obj->rotationQuat = (QQuaternion::fromAxisAndAngle(axis, angle) * m_obj->rotationQuat).normalized();
+    markUserRotated();
+    emit rotationChanged();
     update();
 }
 
@@ -5968,7 +6003,7 @@ void GLWidget::resetAllClocks() {
                 mp.timeTex = 0.0f;
         }
         o.borderTimeTex = 0.0f;
-        o.pathTime = 0.0f;
+        o.pathTime[0] = o.pathTime[1] = 0.0f;
         if (&o != m_obj) { o.timeGeom = 0.0f; o.timeTex = 0.0f; }
     }
     resetTime();
@@ -6034,13 +6069,17 @@ bool GLWidget::hasTimeline() const
     return false;
 }
 
-bool GLWidget::setObjectPath(int index, const QString &x, const QString &y, const QString &z,
+bool GLWidget::setObjectPath(int index, int kind, const QString &x, const QString &y, const QString &z,
                              const QString &p)
 {
     if (index <= 0 || index >= int(m_objects.size()) || !m_objects[index]->engine) return false;
     SurfaceObject &o = *m_objects[index];
     const bool hadP = objectHasP(o);
-    if (!o.engine->compileObjectPath(x, y, z, p)) return false;
+    if (!o.engine->compileObjectPath(kind, x, y, z, p)) return false;
+    // Il path in uso e' uno scritto, se ce n'e': il primo scritto, o l'altro
+    // quando questo si svuota.
+    const int other = 1 - o.pathKind;
+    if (!o.engine->objectPathActive(o.pathKind) && o.engine->objectPathActive(other)) o.pathKind = other;
     // La P(t) entra o esce dallo shader (HAS_OBJECT_P): si ricompila il suo.
     if (objectHasP(o) != hadP) rebuildShader(o);
     // L'orologio del path avanza nel render: serve il tick dei fotogrammi.
@@ -6061,6 +6100,35 @@ bool GLWidget::isObjectPathRunning(int index) const
     return objectHasPath(index) && m_objects[index]->pathRunning;
 }
 
+bool GLWidget::isObjectPathRunning(int index, int kind) const
+{
+    return isObjectPathRunning(index) && m_objects[index]->pathKind == kind;
+}
+
+int GLWidget::objectPathKind(int index) const
+{
+    return index >= 0 && index < int(m_objects.size()) ? m_objects[index]->pathKind : 0;
+}
+
+void GLWidget::setObjectPathKind(int index, int kind)
+{
+    if (index <= 0 || index >= int(m_objects.size())) return;
+    m_objects[index]->pathKind = kind;
+    update();
+}
+
+int GLWidget::objectPathSpeed(int index, int kind) const
+{
+    return index >= 0 && index < int(m_objects.size()) ? m_objects[index]->pathSpeed[kind]
+                                                       : SurfaceObject::kPathSpeedDefault;
+}
+
+void GLWidget::setObjectPathSpeed(int index, int kind, int speed)
+{
+    if (index <= 0 || index >= int(m_objects.size())) return;
+    m_objects[index]->pathSpeed[kind] = speed;
+}
+
 bool GLWidget::anyObjectPathRunning() const
 {
     for (int k = 1; k < int(m_objects.size()); ++k)
@@ -6068,22 +6136,28 @@ bool GLWidget::anyObjectPathRunning() const
     return false;
 }
 
-QStringList GLWidget::objectPath(int index) const
+QStringList GLWidget::objectPath(int index, int kind) const
 {
     if (index < 0 || index >= int(m_objects.size()) || !m_objects[index]->engine)
         return { QString(), QString(), QString(), QString() };
-    return m_objects[index]->engine->objectPath();
+    return m_objects[index]->engine->objectPath(kind);
 }
 
 bool GLWidget::objectHasPath(int index) const
 {
+    return objectHasPath(index, objectPathKind(index));
+}
+
+bool GLWidget::objectHasPath(int index, int kind) const
+{
     return index > 0 && index < int(m_objects.size()) && m_objects[index]->engine
-           && m_objects[index]->engine->objectPathActive();
+           && m_objects[index]->engine->objectPathActive(kind);
 }
 
 float GLWidget::objectPathTime(int index) const
 {
-    return index >= 0 && index < int(m_objects.size()) ? m_objects[index]->pathTime : 0.0f;
+    if (index < 0 || index >= int(m_objects.size())) return 0.0f;
+    return m_objects[index]->pathTime[m_objects[index]->pathKind];
 }
 
 QVector3D GLWidget::effectivePosition(SurfaceObject &o)
@@ -6093,8 +6167,8 @@ QVector3D GLWidget::effectivePosition(SurfaceObject &o)
 
 QVector4D GLWidget::pathOffset(SurfaceObject &o)
 {
-    if (isEnvironment(o) || !o.engine || !o.engine->objectPathActive()) return QVector4D();
-    return o.engine->evaluateObjectPath(o.pathTime);
+    if (isEnvironment(o) || !o.engine || !o.engine->objectPathActive(o.pathKind)) return QVector4D();
+    return o.engine->evaluateObjectPath(o.pathKind, o.pathTime[o.pathKind]);
 }
 
 QVector3D GLWidget::objectEffectivePosition(int index) const
@@ -6126,7 +6200,8 @@ void GLWidget::advanceObjectClocksBy(SurfaceObject &o, float dt) {
     // scatti): preso qui, che e' il punto comune a render live e REC.
     o.tubeFrameDt = dt;
     // Il tempo del path dell'oggetto: il suo orologio (fermo col master).
-    if (o.pathRunning && o.engine && o.engine->objectPathActive()) o.pathTime += dt;
+    if (o.pathRunning && o.engine && o.engine->objectPathActive(o.pathKind))
+        o.pathTime[o.pathKind] += dt * float(o.pathSpeed[o.pathKind]) / float(SurfaceObject::kPathSpeedDefault);
     if (o.surfaceAnimating) o.timeGeom += dt;
     if (o.texAnimating)     o.timeTex  += dt;
 

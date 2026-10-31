@@ -244,11 +244,18 @@ struct SurfaceObject
     // suoi moti restano fermi. L'ambiente e' sempre in scena.
     float windowIn = 0.0f;
     float windowOut = 0.0f;
-    // Il TEMPO DEL SUO PATH (SurfaceEngine::compileObjectPath): un orologio
-    // suo, che avanza mentre l'oggetto e' in scena, ha un path e pathRunning
-    // (il master lo spegne e lo riaccende); si azzera col RESET (suo o della
-    // scena).
-    float pathTime = 0.0f;
+    // I SUOI PATH (SurfaceEngine::compileObjectPath): il 3D e il 4D, alternativi
+    // come quelli della camera; pathKind e' quello in uso, l'ultimo avviato.
+    // Ognuno ha il suo TEMPO, un orologio dell'oggetto, che avanza mentre
+    // l'oggetto e' in scena, il path in uso c'e' e pathRunning (il master lo
+    // spegne e lo riaccende); si azzera col RESET (suo o della scena).
+    // E la sua VELOCITA', nelle unita' dello slider dei path della camera (un
+    // millesimo per tick di 30 ms): a parita' di slider stesso t della camera.
+    // Il default da' un t in secondi, come nelle scene che non la scrivono.
+    static constexpr int kPathSpeedDefault = 30;
+    float pathTime[2] = { 0.0f, 0.0f };
+    int pathSpeed[2] = { kPathSpeedDefault, kPathSpeedDefault };
+    int pathKind = 0;
     bool pathRunning = true;
     // SCALA uniforme dell'oggetto (2.0): modello = traslazione * rotazione *
     // scala. 1 = come fino alla 1.4. La cambiano rotella, pinch, Back/Forward

@@ -1495,16 +1495,18 @@ void MainWindow::updateConstantsUIState() {
                 " " + m_scene.path.x3D + " " + m_scene.path.y3D +
                 " " + m_scene.path.z3D + " " + m_scene.path.roll3D;
 
-    // Il path dell'OGGETTO selezionato (dock Objects): X(t), Y(t), Z(t), P(t)
+    // Il path dell'OGGETTO selezionato (dock 3D e 4D): X(t), Y(t), Z(t), P(t)
     // sono exprtk con A..F/s registrate (m_objectPathSymbols), quindi una
     // costante citata solo da li' resta sbloccata e non va resettata dal ramo
     // !used. Il testo scritto nei campi e il path applicato (che dopo un load
     // o un cambio di oggetto puo' non essere ancora nei campi).
     if (ui->glWidget && ui->glWidget->selectedObject() > 0) {
-        for (const QString &f : ui->glWidget->objectPath(ui->glWidget->selectedObject()))
-            mathText += " " + f;
-        for (QLineEdit *field : m_objectPath)
-            if (field) mathText += " " + field->text();
+        for (int kind = 0; kind < 2; ++kind) {
+            for (const QString &f : ui->glWidget->objectPath(ui->glWidget->selectedObject(), kind))
+                mathText += " " + f;
+            for (const QString &text : m_objectPathText[kind])
+                mathText += " " + text;
+        }
     }
 
     // 2b. CIO' CHE E' A SCHERMO, da solo. Con modifiche in sospeso uno slider

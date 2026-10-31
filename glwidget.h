@@ -254,6 +254,8 @@ public:
     // Back/Forward ne cambiano la scala invece di muovere la camera; con
     // l'ambiente selezionato muovono la camera come sempre. Il FOV resta della
     // camera. Anche con un path in corsa: la scala non e' la camera.
+    // Alla stessa condizione gli altri tasti del dock 3D (Up, Down, Left, Right,
+    // Roll) spostano e girano l'oggetto (virtualMove).
     bool objectZoomActive() const {
         return m_objects.size() > 1 && m_obj != m_objects.front().get();
     }
@@ -279,21 +281,30 @@ public:
     bool hasTimeline() const;
     // IL PATH DI UN OGGETTO: X(t), Y(t), Z(t) che si sommano alla sua
     // posizione, t = SurfaceObject::pathTime, un orologio SUO (non T): corre
-    // col flag pathRunning (il tasto GO del dock e il master lo fermano e lo
-    // riavviano), si azzera col RESET. Mai l'ambiente. false = sintassi
-    // sbagliata (resta quello di prima). P(t) sposta l'oggetto lungo la quarta
-    // coordinata, prima della proiezione 4D -> 3D (prepareObjectUniforms).
-    bool setObjectPath(int index, const QString &x, const QString &y, const QString &z,
+    // col flag pathRunning (Departure e il master lo fermano e lo riavviano), si
+    // azzera col RESET. Mai l'ambiente. false = sintassi sbagliata (resta quello
+    // di prima). P(t) sposta l'oggetto lungo la quarta coordinata, prima della
+    // proiezione 4D -> 3D (prepareObjectUniforms).
+    // I path sono due, 3D e 4D (SurfaceEngine::ObjectPathKind), alternativi:
+    // chi non dice il tipo parla di quello in uso (objectPathKind).
+    bool setObjectPath(int index, int kind, const QString &x, const QString &y, const QString &z,
                        const QString &p);
-    QStringList objectPath(int index) const;
+    QStringList objectPath(int index, int kind) const;
     bool objectHasPath(int index) const;
+    bool objectHasPath(int index, int kind) const;
+    int objectPathKind(int index) const;
+    void setObjectPathKind(int index, int kind);
+    int objectPathSpeed(int index, int kind) const;
+    void setObjectPathSpeed(int index, int kind, int speed);
     // L'oggetto ha una P(t) applicata: il suo vertex la contiene (HAS_OBJECT_P).
     bool objectHasP(const SurfaceObject &o) const {
-        return !isEnvironment(o) && o.engine && !o.engine->objectPath().value(3).isEmpty();
+        return !isEnvironment(o) && o.engine
+               && !o.engine->objectPath(SurfaceEngine::ObjectPath4D).value(3).isEmpty();
     }
     float objectPathTime(int index) const;
     void setObjectPathRunning(int index, bool on);
     bool isObjectPathRunning(int index) const;
+    bool isObjectPathRunning(int index, int kind) const;
     bool anyObjectPathRunning() const;
     // Dove l'oggetto si disegna adesso: posizione + path.
     QVector3D objectEffectivePosition(int index) const;
@@ -1428,9 +1439,11 @@ public:
 
 signals:
     void rotationChanged();
-    // La scala dell'oggetto selezionato e' cambiata da rotella/pinch/tasti: il
-    // dock Objects la mostra e la scena e' da salvare.
-    void objectScaleChangedByUser(float scale);
+    // La scala dell'oggetto selezionato e' cambiata da rotella/pinch/tasti: la
+    // scena e' da salvare.
+    void objectScaleChangedByUser();
+    // Lo stesso per la posizione, dai tasti del dock 3D.
+    void objectPositionChangedByUser(const QVector3D &position);
     // L'utente ha toccato/cliccato la scena in quel punto (coordinate locali al
     // widget). Serve a MainWindow per chiudere il messaggio in sovrimpressione
     // quando il tocco cade dentro il suo riquadro: su iOS il gesto passa TUTTO
@@ -1901,6 +1914,10 @@ private:
     bool environmentRotationBaseStale() const;
     // Una rotazione 4D dell'ambiente (scatti, GO): la stessa agli oggetti.
     void rotateSelected4D(float dOmega, float dPhi, float dPsi);
+    // I tasti del dock 3D sull'oggetto selezionato (virtualMove): lo spostamento
+    // e il rollio come si vedono a schermo.
+    void moveObjectOnScreen(const QVector3D &delta);
+    void rollObjectOnScreen(float angle);
     bool sceneFollowsEnvironment(const SurfaceObject &o) const {
         return m_objects.size() > 1 && isEnvironment(o);
     }

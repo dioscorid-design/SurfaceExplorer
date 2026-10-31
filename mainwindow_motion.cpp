@@ -50,8 +50,18 @@ void MainWindow::setupMotionDocks()
     // Fermi durante il REC: li avanza il recorder, col dt del suo frame.
     m_paths = new CameraPaths(ui->glWidget, m_scene, [this] { return m_isRecording; }, this);
 
-    ui->btnDeparture->setEnabled(false); connect(ui->btnDeparture, &QPushButton::clicked, this, &MainWindow::onDepartureClicked);
-    ui->btnDeparture3D->setEnabled(false); connect(ui->btnDeparture3D, &QPushButton::clicked, this, &MainWindow::onDeparture3DClicked);
+    // Il tasto e' di cio' che e' selezionato; onDeparture*Clicked resta la camera,
+    // che master, load e reset comandano qualunque sia il selezionato.
+    ui->btnDeparture->setEnabled(false);
+    connect(ui->btnDeparture, &QPushButton::clicked, this, [this] {
+        if (pathFieldsShowObject()) onObjectPathGoClicked(SurfaceEngine::ObjectPath4D);
+        else onDepartureClicked();
+    });
+    ui->btnDeparture3D->setEnabled(false);
+    connect(ui->btnDeparture3D, &QPushButton::clicked, this, [this] {
+        if (pathFieldsShowObject()) onObjectPathGoClicked(SurfaceEngine::ObjectPath3D);
+        else onDeparture3DClicked();
+    });
 
     m_scene.pathViewMode4D = ModeTangential;
     m_scene.pathViewMode3D = ModeTangential;
@@ -79,7 +89,10 @@ void MainWindow::setupMotionDocks()
     for (QLineEdit* pathEdit : { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P,
                                  ui->lineAlpha_P, ui->lineBeta_P, ui->lineGamma_P,
                                  ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D, ui->lineR_P3D }) {
-        connect(pathEdit, &QLineEdit::textEdited, this, [this] { m_constantsEditPending = true; });
+        // Il path di un oggetto sblocca le sue costanti appena scritte.
+        connect(pathEdit, &QLineEdit::textEdited, this, [this] {
+            if (!pathFieldsShowObject()) m_constantsEditPending = true;
+        });
         connect(pathEdit, &QLineEdit::textChanged, this, &MainWindow::updateConstantsUIState);
         // Un path scritto (o svuotato) cambia cio' che il master avrebbe da
         // accendere: il suo testo va rifatto (vedi masterActivity).
@@ -692,6 +705,12 @@ void MainWindow::commitPathFieldOnEnter(const QString& fieldName)
     //   campi validi + path in corsa -> ricompila al volo
     //   campi validi + path fermo    -> avvia     (ramo DEPARTURE)
     //   campi vuoti  + path fermo    -> niente
+    // Con un oggetto selezionato i campi sono il suo path, che ha la sua regola.
+    if (pathFieldsShowObject()) {
+        applyObjectPathFromDock(fieldName.endsWith("_P3D") ? SurfaceEngine::ObjectPath3D
+                                                           : SurfaceEngine::ObjectPath4D);
+        return;
+    }
     if (fieldName.endsWith("_P3D")) {
         if (!m_paths) return;
         if (pathRunning(CameraPaths::Path3D)) {
@@ -880,6 +899,11 @@ void MainWindow::checkPathFields()
     // updateViewButtonsEnabled si protegge gia' da se'.
     if (!m_paths || !ui->btnDeparture) return;
 
+    if (pathFieldsShowObject()) {
+        refreshPathControls();
+        updateViewButtonsEnabled();
+        return;
+    }
     if (pathRunning(CameraPaths::Path4D)) {
         ui->btnDeparture->setEnabled(true);
     } else {
@@ -959,6 +983,11 @@ void MainWindow::checkPath3DFields()
     // Stessa guardia di checkPathFields: timer non ancora costruiti all'avvio.
     if (!m_paths || !ui->btnDeparture3D) return;
 
+    if (pathFieldsShowObject()) {
+        refreshPathControls();
+        updateViewButtonsEnabled();
+        return;
+    }
     if (pathRunning(CameraPaths::Path3D)) {
         ui->btnDeparture3D->setEnabled(true);
     } else {
@@ -976,8 +1005,10 @@ void MainWindow::updateViewButtonsEnabled()
     // cui partira' l'altro path (m_scene.pathViewMode4D/m_scene.pathViewMode3D sono letti nei tick).
     bool path4D = pathRunning(CameraPaths::Path4D);
     bool path3D = pathRunning(CameraPaths::Path3D);
-    ui->pushView->setEnabled(path4D || hasPath4DInput());
-    ui->pushView3D->setEnabled(path3D || hasPath3DInput());
+    // Sono viste della camera: l'oggetto selezionato non ne ha.
+    const bool cameraFields = !pathFieldsShowObject();
+    ui->pushView->setEnabled(cameraFields && (path4D || hasPath4DInput()));
+    ui->pushView3D->setEnabled(cameraFields && (path3D || hasPath3DInput()));
 
     // Gli slider FOV seguono lo stesso ciclo di vita dei path (questa funzione
     // e' chiamata ovunque un path parta o si fermi); il fattore proiezione e'
@@ -1000,6 +1031,14 @@ void MainWindow::setNavControlsEnabled(bool enabled)
     // Tasti di spostamento a click dei dock 3D/4D (X±, Y±, left/right, roll, ...).
     for (QPushButton* btn : m_navButtons) {
         if (btn) btn->setEnabled(enabled);
+    }
+
+    // Con un oggetto selezionato i tasti del dock 3D muovono lui e non la
+    // camera (GLWidget::virtualMove): il path non c'entra, come per la rotella.
+    if (!enabled && ui->glWidget->objectZoomActive()) {
+        for (QPushButton *b : { ui->btnForward, ui->btnBackward, ui->btnLeft, ui->btnRight,
+                                ui->btnUp, ui->btnDown, ui->btnRollLeft, ui->btnRollRight })
+            if (b) b->setEnabled(true);
     }
 
     // RIACCENSIONE NON INCONDIZIONATA. Questa funzione spegne i tasti mentre un

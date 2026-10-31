@@ -402,6 +402,8 @@ void VideoRecorder::toggleRecord()
             m_mainWindow->m_paths->start(CameraPaths::Path3D);
             m_mainWindow->ui->btnDeparture3D->setText("STOP");
         }
+        // Con un oggetto selezionato i tasti dicono il suo path, non la camera.
+        m_mainWindow->refreshPathControls();
         if (wasTimeAnimating) {
             m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
             m_mainWindow->ui->glWidget->startAnimationTimer();

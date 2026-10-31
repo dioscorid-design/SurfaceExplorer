@@ -1000,15 +1000,28 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
             window["out"] = double(gl->objectWindowOut(k));
             o["timeline"] = window;
         }
-        // Il path dell'oggetto (X(t), Y(t), Z(t) e, se c'e', P(t)), e il suo GO
-        // solo se e' spento: le scene di prima restano scritte uguali.
+        // I path dell'oggetto: "path" con tre formule e' il 3D, con quattro il 4D,
+        // e "path4D" il 4D quando ci sono tutti e due. Tipo in uso, stop e
+        // velocita' solo se non sono quelli di default: una scena con un path
+        // solo resta scritta uguale.
         if (gl->objectHasPath(k)) {
-            const QStringList path = gl->objectPath(k);
-            QJsonArray formulas{ path.value(0), path.value(1), path.value(2) };
-            if (!path.value(3).isEmpty()) formulas.append(path.value(3));
-            o["path"] = formulas;
+            const QStringList path3D = gl->objectPath(k, SurfaceEngine::ObjectPath3D);
+            const QStringList path4D = gl->objectPath(k, SurfaceEngine::ObjectPath4D);
+            const QJsonArray formulas3D{ path3D.value(0), path3D.value(1), path3D.value(2) };
+            const QJsonArray formulas4D{ path4D.value(0), path4D.value(1), path4D.value(2), path4D.value(3) };
+            const bool has3D = gl->objectHasPath(k, SurfaceEngine::ObjectPath3D);
+            const bool has4D = gl->objectHasPath(k, SurfaceEngine::ObjectPath4D);
+            o["path"] = has3D ? formulas3D : formulas4D;
+            if (has3D && has4D) {
+                o["path4D"] = formulas4D;
+                if (gl->objectPathKind(k) == SurfaceEngine::ObjectPath4D) o["pathKind"] = QStringLiteral("path4D");
+            }
             if (!gl->isObjectPathRunning(k)) o["pathRunning"] = false;
         }
+        if (gl->objectPathSpeed(k, SurfaceEngine::ObjectPath3D) != SurfaceObject::kPathSpeedDefault)
+            o["pathSpeed3D"] = gl->objectPathSpeed(k, SurfaceEngine::ObjectPath3D);
+        if (gl->objectPathSpeed(k, SurfaceEngine::ObjectPath4D) != SurfaceObject::kPathSpeedDefault)
+            o["pathSpeed4D"] = gl->objectPathSpeed(k, SurfaceEngine::ObjectPath4D);
         o["motion"] = m_mainWindow->objectMotionJson();
         // L'oggetto come un RECORD: la Shape non porta texture, fasce e moti
         // (se ne perdevano). Il moto della camera, lo sfondo e il suono che il

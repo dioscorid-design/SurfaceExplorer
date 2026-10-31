@@ -1879,28 +1879,41 @@ private:
     QDockWidget *m_dockObjects = nullptr;
     QListWidget *m_objectList = nullptr;
     QDoubleSpinBox *m_objectPos[3] = { nullptr, nullptr, nullptr };
-    QDoubleSpinBox *m_objectScale = nullptr;
     // Timeline: finestra di comparsa del selezionato e T nella barra di stato.
     QDoubleSpinBox *m_objectWindowIn = nullptr;
     QDoubleSpinBox *m_objectWindowOut = nullptr;
     // Il path del selezionato: X(t), Y(t), Z(t) sommati alla posizione, P(t)
-    // lungo la quarta coordinata (solo nelle scene 4D), e il suo GO/STOP.
-    QLineEdit *m_objectPath[4] = { nullptr, nullptr, nullptr, nullptr };
-    QPushButton *m_btnObjectPathGo = nullptr;
+    // lungo la quarta coordinata (solo nelle scene 4D). Si scrive nei campi dei
+    // dock 3D e 4D, che seguono la selezione, slider Speed compreso: con
+    // l'ambiente sono i path della camera (m_scene.path), con un oggetto i suoi
+    // due, 3D e 4D, alternativi come quelli della camera (R, alfa, beta e gamma
+    // spenti, l'oggetto non li ha). Qui il testo nei campi, forse non applicato,
+    // per tipo (SurfaceEngine::ObjectPathKind) e formula (X, Y, Z, P).
+    QString m_objectPathText[2][4];
+    bool pathFieldsShowObject() const;
+    // Dove sta il testo del campo, nullptr per quelli che l'oggetto non ha.
+    QString *objectPathSlot(const QLineEdit *edit);
+    // m_objectPathText = i path applicati del selezionato.
+    void loadObjectPathText();
+    // Campi e slider Speed mostrano cio' che e' selezionato (a segnali bloccati).
+    void showPathFields();
+    void setSelectedObjectPathSpeed(int kind, int speed);
     // Il cursore della timeline (decimi di secondo) e il T che mostra.
     QSlider *m_sceneTimeSlider = nullptr;
     QLabel *m_sceneTimeValue = nullptr;
     bool m_applyingObjectPath = false;
-    // Come i path dell'ambiente, ma il path FERMO aspetta il suo GO: l'Invio su
-    // un campo applica la modifica solo a path in corsa (svuotati tutti, il
-    // path si toglie). GO applica i campi e lo avvia, a meta' corsa lo ferma.
-    void applyObjectPathFromDock();
-    void onObjectPathGoClicked();
+    // Come i path dell'ambiente, ma il path FERMO aspetta il suo Departure:
+    // l'Invio su un campo applica la modifica solo a path in corsa (svuotati
+    // tutti, il path si toglie). Departure applica i campi e lo avvia, a meta'
+    // corsa lo ferma.
+    void applyObjectPathFromDock(int kind);
+    void onObjectPathGoClicked(int kind);
     // I campi scritti nel dock al selezionato: false = formula rifiutata
     // (popup), resta il path di prima.
-    bool commitObjectPathFields();
-    // Testo e accensione di GO e del campo P (scena 4D, o una P da togliere).
-    void refreshObjectPathControls();
+    bool commitObjectPathFields(int kind);
+    // I tasti Departure dicono il moto di cio' che e' selezionato; con un oggetto
+    // anche la loro accensione, R e il dock 4D (scena 4D, o un path da togliere).
+    void refreshPathControls();
     QLabel *m_sceneTimeLabel = nullptr;
     QTimer *m_sceneTimeLabelTimer = nullptr;
     void refreshSceneTimeLabel();

@@ -101,7 +101,7 @@ protected:
                     return true;
                 }
 
-                // Campi path camera: l'Invio AVVIA il path se e' fermo e i campi
+                // Campi dei path: l'Invio AVVIA il path se e' fermo e i campi
                 // lo definiscono, lo ricompila al volo se e' gia' in corsa, e lo
                 // ferma se i campi sono stati svuotati (vedi
                 // commitPathFieldOnEnter, che tiene i tre casi in un punto solo).
@@ -110,15 +110,6 @@ protected:
                     if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
                         mainWin->commitPathFieldOnEnter(on);
                     }
-                    return true;
-                }
-
-                // Path di un oggetto: in corsa l'Invio applica la modifica,
-                // fermo aspetta il suo GO (applyObjectPathFromDock).
-                if (isObjectPathField(on)) {
-                    if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
-                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent()))
-                        mainWin->applyObjectPathFromDock();
                     return true;
                 }
 
@@ -450,7 +441,7 @@ protected:
                     return true;
                 }
 
-                // Campi path camera: avvia / ricompila / ferma secondo lo stato,
+                // Campi dei path: avvia / ricompila / ferma secondo lo stato,
                 // come nel filtro desktop.
                 if (isPathEquationField(obj->objectName())) {
                     if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();

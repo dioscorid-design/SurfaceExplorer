@@ -313,9 +313,9 @@ inline const QRegularExpression kReTimeVar("\\b(t|iTime|u_time)\\b");
 // ==========================================
 // Filtro per Desktop: Blocca l'andata a capo nelle equazioni
 // ==========================================
-// Campi delle equazioni path camera (4D e 3D): l'Invio su questi campi, a
-// moto attivo, ricompila il path al volo (commitPathFieldOnEnter). Usato dai
-// filtri tastiera desktop e mobile, che consumano il Return.
+// Campi delle equazioni dei path (4D e 3D): l'Invio su questi campi, a moto
+// attivo, ricompila il path al volo (commitPathFieldOnEnter). Usato dai filtri
+// tastiera desktop e mobile, che consumano il Return.
 inline bool isPathEquationField(const QString& objectName)
 {
     static const QSet<QString> kPathFields = {
@@ -324,18 +324,6 @@ inline bool isPathEquationField(const QString& objectName)
         "lineX_P3D", "lineY_P3D", "lineZ_P3D", "lineR_P3D"
     };
     return kPathFields.contains(objectName);
-}
-
-// Campi del path di un OGGETTO (dock Objects, setupObjectsDock): l'Invio passa
-// da applyObjectPathFromDock, che a path fermo non applica nulla. Usato dal
-// filtro tastiera desktop, che consuma il Return (su mobile il dock nasce dopo
-// il filtro: vedi setupObjectsDock).
-inline bool isObjectPathField(const QString& objectName)
-{
-    static const QSet<QString> kObjectPathFields = {
-        "lineObjectPathX", "lineObjectPathY", "lineObjectPathZ", "lineObjectPathP"
-    };
-    return kObjectPathFields.contains(objectName);
 }
 
 // Campi del modulo EQUAZIONI (tab Parametric) che definiscono la superficie:
