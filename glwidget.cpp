@@ -2042,7 +2042,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         const float nearPlane = camDist * 0.0025f;
         const float farPlane  = camDist * 25.0f;
         if (projectionMode == Ortho4D) {
-            float halfHeight = camDist * std::tan(m_cameraFov * 0.5f * M_PI / 180.0f);
+            float halfHeight = camDist * std::tan(effectiveCameraFov() * 0.5f * M_PI / 180.0f);
             float halfWidth = halfHeight * aspect;
             // NEAR SIMMETRICO IN ORTOGONALE (-far invece di nearPlane).
             // In prospettiva la camera e' un punto e il cono si stringe verso di
@@ -2064,7 +2064,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // ampio; il ramo prospettico resta invariato.
             m_projection.ortho(-halfWidth, halfWidth, -halfHeight, halfHeight, -farPlane, farPlane);
         } else {
-            m_projection.perspective(m_cameraFov, aspect, nearPlane, farPlane);
+            m_projection.perspective(effectiveCameraFov(), aspect, nearPlane, farPlane);
         }
 
         m_view.setToIdentity();
@@ -2245,6 +2245,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     };
     applyTubeFields(m_uboData, uboParts.empty() ? nullptr : &uboParts[0], 0);
     m_uboData.u_meshCount = (float)std::max(1, uboPartCount);
+    // Strisce del wireframe (catture di immagini): meta' spessore e dimensione, in pixel.
+    m_uboData.u_wireHalfWidth = 0.5f * float(m_captureLineWidth);
+    m_uboData.u_wireViewW = float(renderTarget()->pixelSize().width());
+    m_uboData.u_wireViewH = float(renderTarget()->pixelSize().height());
     // Col bordo acceso i blocchi raddoppiano: dopo quelli delle parti, uno di
     // bordo per parte (vedi sotto).
     const bool borderOn = (m_borderRadius > 0.0f && m_engineMode == ModeParametric);
@@ -2628,7 +2632,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 QMatrix4x4 viewRotInv = m_view;
                 viewRotInv.setColumn(3, QVector4D(0.0f, 0.0f, 0.0f, 1.0f));
                 viewRotInv = viewRotInv.transposed();   // rotazione: inversa = trasposta
-                const float tanHalf = std::tan(m_cameraFov * 0.5f * float(M_PI) / 180.0f);
+                const float tanHalf = std::tan(effectiveCameraFov() * 0.5f * float(M_PI) / 180.0f);
                 QMatrix4x4 eyeFromNdc;                  // pixel (ndc.x, ndc.y, 1) -> raggio in camera
                 eyeFromNdc.setToIdentity();
                 eyeFromNdc(0, 0) = tanHalf * aspect;
@@ -2777,7 +2781,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             }
             resourceUpdates->updateDynamicBuffer(m_wireframeIbo, 0, iSize, m_wireframeIndices.data());
             wireframeNeedsUpdate = false;
+            m_wireQuadSerial = -1;   // le strisce dipendono dagli indici
         }
+        prepareWireQuads(resourceUpdates);
 
         // SEZIONE TRASPORTATA DEI TUBI: prima del disegno, fuori dal render
         // pass. La passata consuma gli aggiornamenti in coda (i blocchi UBO di
@@ -3234,11 +3240,39 @@ void GLWidget::render(QRhiCommandBuffer *cb)
 
             // WIREFRAME, dopo il solido (vedi la nota sull'ordine sopra).
             if (anyWireframe) {
-                if (m_wireframePipeline && m_wireframeIndexCount > 0) {
+                if (m_captureLineWidth > 1 && m_wireQuadPipeline && m_wireQuadVbo && m_wireQuadSerial == m_captureSerial
+                    && m_wireframeIndexCount > 0) {
+                    // Cattura di un'immagine: strisce di triangoli, una istanza per segmento.
+                    // La profondita' di tutte, poi il colore (vedi prepareWireQuads).
+                    auto drawSegments = [&](int firstSegment, int segments, int meshIndex) {
+                        const QRhiCommandBuffer::DynamicOffset ofs(0, meshIndex * m_uboBlockStride);
+                        cb->setShaderResources(srb, 1, &ofs);
+                        const QRhiCommandBuffer::VertexInput inst(m_wireQuadVbo, quint32(firstSegment) * 8 * sizeof(float));
+                        cb->setVertexInput(0, 1, &inst);
+                        cb->draw(6, segments);
+                    };
+                    for (QRhiGraphicsPipeline *pipeline : { m_wireQuadDepthPipeline, m_wireQuadPipeline }) {
+                        cb->setGraphicsPipeline(pipeline);
+                        cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                        if (m_wireframeRanges.size() <= 1) {
+                            drawSegments(0, m_wireframeIndexCount / 2, 0);
+                            continue;
+                        }
+                        for (const WireframeRange &r : m_wireframeRanges) {
+                            if (r.indexCount <= 0) continue;
+                            if (r.meshIndex >= 0 && r.meshIndex < (int)parts.size()
+                                && !partIsWireframe(parts[r.meshIndex])) continue;
+                            drawSegments(r.indexOffset / 2, r.indexCount / 2, r.meshIndex);
+                        }
+                    }
+                } else if (m_wireframePipeline && m_wireframeIndexCount > 0) {
                     cb->setGraphicsPipeline(m_wireframePipeline);
-                    cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
                     const QRhiCommandBuffer::VertexInput vbufBinding(m_vbo, 0);
 
+                    // Con uno spessore > 1 (cattura di immagini) il wireframe si ridisegna con
+                    // la finestra spostata: vedi setCaptureLineWidth.
+                    for (const QPoint &off : wireframeOffsets()) {
+                    cb->setViewport(QRhiViewport(off.x(), off.y(), outputSize.width(), outputSize.height()));
                     if (m_wireframeRanges.size() <= 1) {
                         const QRhiCommandBuffer::DynamicOffset ofs(0, 0);
                         cb->setShaderResources(srb, 1, &ofs);
@@ -3264,6 +3298,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                             cb->drawIndexed(r.indexCount);
                         }
                     }
+                    }
                 }
             }
 
@@ -3274,8 +3309,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 && m_wireframePipeline && m_borderVbo && m_borderWireIbo && m_borderUploaded) {
                 const int partSlots = std::max(1, (int)parts.size());
                 cb->setGraphicsPipeline(m_borderPipelineWire ? m_borderPipelineWire : m_wireframePipeline);
-                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
                 const QRhiCommandBuffer::VertexInput borderBinding(m_borderVbo, 0);
+                for (const QPoint &off : wireframeOffsets()) {
+                cb->setViewport(QRhiViewport(off.x(), off.y(), outputSize.width(), outputSize.height()));
                 for (const SurfaceEngine::BorderRange &r : engine->getBorderRanges()) {
                     if (r.wireIndexCount <= 0) continue;
                     const int slot = partSlots + std::clamp(r.meshIndex, 0, partSlots - 1);
@@ -3285,6 +3321,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                                        r.wireIndexOffset * sizeof(unsigned int),
                                        QRhiCommandBuffer::IndexUInt32);
                     cb->drawIndexed(r.wireIndexCount, 1, 0, r.vertexOffset);
+                }
                 }
             }
 
@@ -3452,6 +3489,17 @@ void GLWidget::releaseResources()
         delete m_wireframePipeline;
         m_wireframePipeline = nullptr;
     }
+    if (m_wireQuadPipeline) {
+        delete m_wireQuadPipeline;
+        m_wireQuadPipeline = nullptr;
+    }
+    delete m_wireQuadDepthPipeline;
+    m_wireQuadDepthPipeline = nullptr;
+    if (m_wireQuadVbo) {
+        delete m_wireQuadVbo;
+        m_wireQuadVbo = nullptr;
+    }
+    m_wireQuadSerial = -1;
     if (m_surfaceTexture) {
         m_surfaceTexture->destroy();
         delete m_surfaceTexture;
@@ -3783,7 +3831,8 @@ static_assert(offsetof(UboData, u_tubeFramesOn) == 472, "UboData: u_tubeFramesOn
 static_assert(offsetof(UboData, u_tubeFrameBlend) == 476, "UboData: u_tubeFrameBlend fuori posto");
 static_assert(offsetof(UboData, u_sharedEdgesOn) == 480, "UboData: u_sharedEdgesOn fuori posto");
 static_assert(offsetof(UboData, u_globalTexture) == 484, "UboData: u_globalTexture fuori posto");
-static_assert(sizeof(UboData) == 496, "UboData: dopo u_globalTexture (e _pad4) il blocco e' di 496 byte");
+static_assert(offsetof(UboData, u_wireHalfWidth) == 488, "UboData: u_wireHalfWidth fuori posto");
+static_assert(sizeof(UboData) == 512, "UboData: dopo u_globalTexture, i tre campi del wireframe e _pad4 il blocco e' di 512 byte");
 static_assert(sizeof(UboData) % 16 == 0, "UboData: dimensione non multipla di 16 (std140)");
 
 bool GLWidget::setTubeCurve(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq,
@@ -6486,6 +6535,16 @@ void GLWidget::resetTextureTime(bool background) {
     update();
 }
 
+bool GLWidget::anyClockAdvanced() const
+{
+    if (m_timeGeom != 0.0f || m_timeTex != 0.0f || m_timeBg != 0.0f || m_borderTimeTex != 0.0f)
+        return true;
+    if (engine)
+        for (const MeshPart &mp : engine->getMeshParts())
+            if (mp.timeTex != 0.0f) return true;
+    return false;
+}
+
 void GLWidget::resetAllClocks() {
     if (engine) {
         for (MeshPart &mp : engine->mutableMeshParts())
@@ -6553,6 +6612,152 @@ GLWidget::ClockTimes GLWidget::clockTimes() const {
 // UTILITIES
 // ==========================================================
 
+void GLWidget::setCaptureLineWidth(int pixels)
+{
+    m_captureLineWidth = qBound(1, pixels, 64);
+    ++m_captureSerial;   // nuova cattura: le strisce si ricostruiscono
+    if (m_captureLineWidth > 1) return;
+    // Cattura finita: 32 byte a segmento che a schermo non servono.
+    delete m_wireQuadVbo;
+    m_wireQuadVbo = nullptr;
+}
+
+bool GLWidget::wireframeQuadsEligible() const
+{
+    if (m_isFlatView) return false;
+    if (!hasVisibleWireframe()) return true;
+    if (m_engineMode != ModeParametric || m_isCustomMesh || !engine) return false;
+    if (engine->isTubeModeActive() && !engine->isScriptModeActive()) return false;
+    return true;
+}
+
+// WIREFRAME A STRISCE DI TRIANGOLI (solo catture di immagini con spessore > 1).
+// Le linee della GPU sono sempre larghe un pixel e senza bordo sfumato; qui ogni
+// segmento diventa una striscia di due triangoli larga a piacere, con la
+// copertura calcolata nel fragment. I vertici della superficie li valuta la GPU:
+// per questo l'istanza porta i due estremi (come stanno nel buffer della
+// superficie) e il vertex shader (HAS_WIRE_QUAD) valuta tutti e due.
+// Due passate, come fra gli opachi: prima la profondita' del corpo delle linee, poi
+// il colore. A ogni pixel passa solo la linea piu' vicina, quindi agli incroci non
+// vince l'ultima disegnata e con alpha < 1 le giunzioni non si sommano.
+// Non adatto a tubi e mesh custom: quelli restano sulle linee native.
+void GLWidget::prepareWireQuads(QRhiResourceUpdateBatch *resourceUpdates)
+{
+    if (m_captureLineWidth <= 1 || m_wireQuadSerial == m_captureSerial) return;
+    m_wireQuadSerial = m_captureSerial;
+    if (!hasVisibleWireframe() || !wireframeQuadsEligible() || !m_wireframePipeline || m_wireframeIndices.size() < 2) return;
+
+    if (!m_wireQuadPipeline) {
+        QString vsSource = createVertexShaderSource(m_eqX, m_eqY, m_eqZ, m_eqW);
+        if (vsSource.contains(QLatin1String("#define IS_TUBE")) || vsSource.contains(QLatin1String("#define CUSTOM_MESH")))
+            return;
+        QString fsSource = createFragmentShaderSource(m_customFragmentCode);
+        const QString define = QStringLiteral("#version 450\n#define HAS_WIRE_QUAD\n");
+        QString fsDepthSource = fsSource;
+        vsSource.replace(QStringLiteral("#version 450"), define);
+        fsSource.replace(QStringLiteral("#version 450"), define);
+        fsDepthSource.replace(QStringLiteral("#version 450"), define + QStringLiteral("#define WIRE_QUAD_DEPTH\n"));
+        const QShader vs = bakeShader(vsSource.toUtf8(), QShader::VertexStage);
+        const QShader fs = bakeShader(fsSource.toUtf8(), QShader::FragmentStage);
+        const QShader fsDepth = bakeShader(fsDepthSource.toUtf8(), QShader::FragmentStage);
+        if (!vs.isValid() || !fs.isValid() || !fsDepth.isValid()) return;
+
+        QRhiVertexInputLayout layout;
+        layout.setBindings({ QRhiVertexInputBinding(8 * sizeof(float), QRhiVertexInputBinding::PerInstance, 1) });
+        layout.setAttributes({
+            { 0, 0, QRhiVertexInputAttribute::Float4, 0 },
+            { 0, 1, QRhiVertexInputAttribute::Float4, 4 * sizeof(float) }
+        });
+        QRhiGraphicsPipeline::TargetBlend blend;
+        blend.enable   = true;
+        blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
+        blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+        blend.srcAlpha = QRhiGraphicsPipeline::One;
+        blend.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+        QRhiGraphicsPipeline::TargetBlend noColor;
+        noColor.colorWrite = {};
+        ensureDynamicBindings(m_surfaceTexture ? m_surfaceTexture : m_dummyTexture);
+        auto makePipeline = [&](const QShader &frag, bool depthPass) -> QRhiGraphicsPipeline * {
+            QRhiGraphicsPipeline *p = rhi()->newGraphicsPipeline();
+            p->setTopology(QRhiGraphicsPipeline::Triangles);
+            p->setVertexInputLayout(layout);
+            p->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, frag } });
+            p->setSampleCount(renderTarget()->sampleCount());
+            p->setDepthTest(true);
+            p->setDepthWrite(depthPass);
+            p->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
+            p->setCullMode(QRhiGraphicsPipeline::None);
+            p->setTargetBlends({ depthPass ? noColor : blend });
+            p->setShaderResourceBindings(m_bindingsDyn ? m_bindingsDyn : m_bindings);
+            p->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+            if (p->create()) return p;
+            qWarning() << "prepareWireQuads: create() fallita, si ricade sulle linee native.";
+            delete p;
+            return nullptr;
+        };
+        m_wireQuadDepthPipeline = makePipeline(fsDepth, true);
+        if (!m_wireQuadDepthPipeline) return;
+        m_wireQuadPipeline = makePipeline(fs, false);
+        if (!m_wireQuadPipeline) {
+            delete m_wireQuadDepthPipeline;
+            m_wireQuadDepthPipeline = nullptr;
+            return;
+        }
+    }
+
+    // Le istanze: i due estremi di ogni segmento.
+    const std::vector<Vertex> &vertices = engine->getVertices();
+    const size_t segments = m_wireframeIndices.size() / 2;
+    std::vector<float> data;
+    data.reserve(segments * 8);
+    for (size_t k = 0; k < segments; ++k) {
+        for (int e = 0; e < 2; ++e) {
+            const unsigned int i = m_wireframeIndices[2 * k + e];
+            const QVector4D p = i < vertices.size() ? vertices[i].position : QVector4D();
+            data.insert(data.end(), { p.x(), p.y(), p.z(), p.w() });
+        }
+    }
+    const quint32 bytes = quint32(data.size() * sizeof(float));
+    if (!m_wireQuadVbo || m_wireQuadVbo->size() < bytes) {
+        delete m_wireQuadVbo;
+        m_wireQuadVbo = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::VertexBuffer, bytes);
+        m_wireQuadVbo->create();
+    }
+    resourceUpdates->uploadStaticBuffer(m_wireQuadVbo, 0, bytes, data.data());
+}
+
+// Gli spostamenti (in pixel) della finestra con cui si ridisegna il wireframe per
+// dargli lo spessore chiesto: una croce centrata sull'origine (2n-1 punti contro
+// i ~0.8 n^2 di un disco). Una linea orizzontale prende lo spessore dai punti
+// verticali e una verticale da quelli orizzontali; in diagonale resta almeno 0.7 n.
+QVector<QPoint> GLWidget::wireframeOffsets() const
+{
+    QVector<QPoint> offs;
+    const int n = m_captureLineWidth;
+    const int lo = -((n - 1) / 2);
+    offs.append(QPoint(0, 0));
+    for (int k = lo; k < lo + n; ++k)
+        if (k != 0) { offs.append(QPoint(k, 0)); offs.append(QPoint(0, k)); }
+    return offs;
+}
+
+void GLWidget::setCaptureVerticalScale(float scale)
+{
+    m_captureVerticalScale = qBound(0.05f, scale, 1.0f);
+}
+
+int GLWidget::maxTextureSize()
+{
+    return rhi() ? rhi()->resourceLimit(QRhi::TextureSizeMax) : 4096;
+}
+
+float GLWidget::effectiveCameraFov() const
+{
+    if (m_captureVerticalScale >= 0.9999f) return m_cameraFov;
+    const float halfRad = m_cameraFov * 0.5f * float(M_PI) / 180.0f;
+    return 2.0f * std::atan(std::tan(halfRad) * m_captureVerticalScale) * 180.0f / float(M_PI);
+}
+
 void GLWidget::beginHiResCapture(int w, int h) {
     if (w <= 0 || h <= 0) return;
     m_hiResCapture = true;
@@ -6602,11 +6807,25 @@ QImage GLWidget::getFrameForVideo(int targetW, int targetH, bool useFbo) {
     }
 
     // 3. In hi-res capture il buffer è GIÀ alla risoluzione di export: NON riscalare
-    //    (eviterebbe la nitidezza appena guadagnata). Negli altri casi adatta al
-    //    target con SmoothTransformation (di norma un downscale nitido).
+    //    (eviterebbe la nitidezza appena guadagnata). Negli altri casi (motore
+    //    Screen Upscale con risoluzione fissa) la vista entra TUTTA nel formato
+    //    del video, alla scala dello schermo, e le fasce che avanzano restano
+    //    nere: ai lati se la vista e' piu' stretta del video, sopra e sotto se
+    //    piu' larga. Stirandola (IgnoreAspectRatio) usciva deformata;
+    //    ritagliandola cambiava la scala (con la Library aperta, vista quasi
+    //    quadrata, il toro usciva ingrandito e tagliato). A riempire il formato
+    //    di scena vera e' il motore FBO, che ridisegna con l'aspetto del video.
+    //    Il video conta i PIXEL: grabFramebuffer porta il devicePixelRatio dello
+    //    schermo (2 su Retina) e drawImage disegnava la vista a meta' misura, in
+    //    un quarto del fotogramma.
     if (!m_hiResCapture && targetW > 0 && targetH > 0 &&
             (img.width() != targetW || img.height() != targetH)) {
-        img = img.scaled(targetW, targetH, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        QImage fitted = img.scaled(targetW, targetH, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        fitted.setDevicePixelRatio(1.0);
+        QImage framed(targetW, targetH, fitted.format());
+        framed.fill(Qt::black);
+        QPainter(&framed).drawImage((targetW - fitted.width()) / 2, (targetH - fitted.height()) / 2, fitted);
+        img = framed;
     }
 
     return img;
@@ -8426,6 +8645,13 @@ void GLWidget::buildPipeline() {
     if (m_wireframePipeline) {
         delete m_wireframePipeline;
         m_wireframePipeline = nullptr;
+    }
+    if (m_wireQuadPipeline) {   // nasce dagli stessi sorgenti: si rifa' con loro
+        delete m_wireQuadPipeline;
+        m_wireQuadPipeline = nullptr;
+        delete m_wireQuadDepthPipeline;
+        m_wireQuadDepthPipeline = nullptr;
+        m_wireQuadSerial = -1;
     }
     m_wireframePipeline = rhi()->newGraphicsPipeline();
     m_wireframePipeline->setTopology(QRhiGraphicsPipeline::Lines);

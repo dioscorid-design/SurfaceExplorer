@@ -2171,11 +2171,15 @@ void MainWindow::updateBorderControlsGate()
     GLWidget *gl = ui->glWidget;
     const bool closed = !rayMarching && gl
                         && gl->borderAvailability() == GLWidget::BorderAvailability::None;
-    const bool usable = !rayMarching && !closed;
+    // Senza superficie (dopo NEW) non c'e' un bordo a cui applicare niente:
+    // acceso, il radio sporcherebbe la scena.
+    const bool empty = isSceneEmpty();
+    const bool usable = !rayMarching && !closed && !empty;
     if (ui->radioBorder) {
         ui->radioBorder->setEnabled(usable);
         // Da spento deve dire PERCHE' (regola dei controlli inerti).
         ui->radioBorder->setToolTip(usable ? tr("Edit the border: its color with the sliders below, its thickness with Border Thickness.")
+                                    : empty ? tr("There is no surface: the border follows the edges of a parametric surface.")
                                     : rayMarching ? tr("The border follows the edges of a parametric surface: not available in ray marching.")
                                                   : tr("This surface is closed: every edge is a seam, a pole or lies on another "
                                                        "part of the surface, so there is no border to draw."));
@@ -2338,10 +2342,14 @@ void MainWindow::applyEmptySceneGating()
         if (ui->radioWF)     ui->radioWF->setEnabled(!isRM);
         if (ui->radioShell)  ui->radioShell->setEnabled(true);
         if (ui->radioSolid)  ui->radioSolid->setEnabled(true);
-        // Scelta del marcher: SOLO in Ray Marching (nel ramo parametrico non c'e'
-        // marcher). radioWF qui sopra usa la stessa condizione, al contrario.
-        if (ui->radioMarcherFast)    ui->radioMarcherFast->setEnabled(isRM);
-        if (ui->radioMarcherPrecise) ui->radioMarcherPrecise->setEnabled(isRM);
+        // Scelta del marcher: sempre accesa, come Shell/Solid. Stanno nella
+        // linguetta Ray Marching (panelRenderControls), che nel parametrico non
+        // si vede, e nessun'altra regola li riaccende: con la condizione isRM,
+        // uscendo dalla scena vuota con una Shape parametrica restavano spenti
+        // e il clic sulla linguetta Ray Marching li lasciava cosi', inerti,
+        // fino al preset RM successivo.
+        if (ui->radioMarcherFast)    ui->radioMarcherFast->setEnabled(true);
+        if (ui->radioMarcherPrecise) ui->radioMarcherPrecise->setEnabled(true);
         // NB: il gate di Ray Steps col marcher Precise NON va qui. Questo ramo
         // gira una volta sola, all'uscita dalla scena vuota (m_emptySceneGated
         // viene azzerato sopra): con una superficie gia' carica non passa mai.
@@ -2398,6 +2406,11 @@ bool MainWindow::ensureSurfaceForTexture()
 
     resetScene(implicitMode() ? 1 : 0, /*loadDefaultSurface=*/true);
     return true;
+}
+
+bool MainWindow::isWholeSceneEmpty() const
+{
+    return ui->glWidget && isSceneEmpty();
 }
 
 bool MainWindow::isSceneEmpty() const

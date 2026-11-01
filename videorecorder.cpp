@@ -1,4 +1,5 @@
 #include "videorecorder.h"
+#include "imagecapture.h"
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "glwidget.h"
@@ -440,6 +441,26 @@ void VideoRecorder::toggleRecord()
     QDir().mkpath(defaultVideoDir);
     QString userSelectedFile;
 
+    // VIDEO O IMMAGINE. La scena e' gia' ferma (qui sopra, come per ogni dialogo
+    // del REC); l'immagine la scatta ImageCapture a una risoluzione libera, fuori
+    // schermo, e restoreState rimette in moto cio' che girava.
+    {
+        QMessageBox choice(m_mainWindow);
+        choice.setWindowTitle("Capture");
+        choice.setText("What do you want to capture?");
+        QPushButton *videoBtn = choice.addButton("Video", QMessageBox::AcceptRole);
+        QPushButton *imageBtn = choice.addButton("Image", QMessageBox::ActionRole);
+        choice.addButton("Cancel", QMessageBox::RejectRole);
+        choice.setDefaultButton(videoBtn);
+        choice.exec();
+        if (choice.clickedButton() == imageBtn) {
+            ImageCapture::run(m_mainWindow->ui->glWidget, m_mainWindow, defaultVideoDir);
+            restoreState();
+            return;
+        }
+        if (choice.clickedButton() != videoBtn) { restoreState(); return; }
+    }
+
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     // --- ANDROID e IOS: FINESTRA UNIFICATA MOBILE ---
     int defDur = settings.value("lastRecDuration", 10).toInt();
@@ -488,8 +509,10 @@ void VideoRecorder::toggleRecord()
     fps = QInputDialog::getInt(m_mainWindow, "Frame Rate", fpsPrompt, defaultFPS, 24, maxFps, 1, &ok);
     if (!ok) { restoreState(); return; }
 
+    // "Current View Size" come nel dialogo mobile: e' la sola vista 3D, non il
+    // monitor ne' la finestra (era "Monitor Default (Current Window Size)").
     QStringList resolutions = {
-        "Monitor Default (Current Window Size)",
+        "Current View Size",
         "1080p Full HD (1920x1080)",
         "1440p 2K (2560x1440)",
         "2160p 4K (3840x2160)"
@@ -821,8 +844,8 @@ void VideoRecorder::toggleRecord()
     // export UNA volta (non per-frame, per evitare flicker/ricostruzioni ripetute),
     // così ogni frame è renderizzato nativamente a piena risoluzione e
     // getFrameForVideo lo cattura senza upscale (fix wireframe sfocato).
-    // Per la voce a dimensione corrente (target -1: "Current View Size" su mobile,
-    // "Monitor Default" su desktop) usiamo la dimensione nativa del widget.
+    // Per la voce a dimensione corrente (target -1: "Current View Size") usiamo
+    // la dimensione nativa del widget.
     bool fboCapture = useFBO;
     if (fboCapture) {
         int capW = targetWidth, capH = targetHeight;
@@ -893,21 +916,11 @@ void VideoRecorder::toggleRecord()
         }
 
         // ==============================================================
-        // 3. SCALING E LETTERBOXING (SOLO SE NON USIAMO L'FBO)
+        // 3. FORMATO. Con l'FBO il frame e' gia' alla risoluzione di export; con
+        // Screen Upscale e una risoluzione fissa lo adatta getFrameForVideo
+        // (vista intera, fasce nere): qui ne restava una seconda copia.
         // ==============================================================
-        if (!useFBO && targetWidth > 0 && targetHeight > 0) {
-            QImage scaledFrame = frame.scaled(targetWidth, targetHeight, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-
-            QImage finalFrame(targetWidth, targetHeight, QImage::Format_RGB32);
-            finalFrame.fill(Qt::black);
-            QPainter painter(&finalFrame);
-            int x = (targetWidth - scaledFrame.width()) / 2;
-            int y = (targetHeight - scaledFrame.height()) / 2;
-            painter.drawImage(x, y, scaledFrame);
-            painter.end();
-
-            frame = finalFrame;
-        } else if (!useFBO) {
+        if (!useFBO && (targetWidth <= 0 || targetHeight <= 0)) {
             // Risoluzione nativa: taglia i bordi se dispari (per FFmpeg)
             if (frame.width() % 2 != 0) frame = frame.copy(0, 0, frame.width()-1, frame.height());
             if (frame.height() % 2 != 0) frame = frame.copy(0, 0, frame.width(), frame.height()-1);

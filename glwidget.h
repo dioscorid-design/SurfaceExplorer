@@ -187,7 +187,14 @@ struct UboData {
     // resta di 496 byte. Dichiarato in ENTRAMBI gli shader parametrici (regola
     // Adreno, vedi CLAUDE.md); lo usa solo il fragment.
     float u_globalTexture;
-    float _pad4[2];
+    // WIREFRAME A STRISCE DI TRIANGOLI (HAS_WIRE_QUAD, solo nelle catture di
+    // immagini): meta' spessore della linea e dimensione dell'immagine, in pixel.
+    // Il blocco cresce di una riga (512 byte). Dichiarati in ENTRAMBI gli shader
+    // parametrici (regola Adreno, vedi CLAUDE.md); li usa solo il vertex.
+    float u_wireHalfWidth;
+    float u_wireViewW;
+    float u_wireViewH;
+    float _pad4[3];
 };
 
 class GLWidget : public QRhiWidget
@@ -1074,6 +1081,9 @@ public:
     // del record, riclic della texture). I flag di moto non si toccano: cio'
     // che gira riparte dall'inizio, cio' che e' fermo resta fermo a t = 0.
     void resetAllClocks();
+    // Almeno un orologio di animazione (geometria, texture, sfondo, bordo, fasce)
+    // non e' all'origine: serve a sapere se il RESET dei moti cambierebbe qualcosa.
+    bool anyClockAdvanced() const;
     void setSurfaceAnimating(bool animating);
     bool isSurfaceAnimating() const { return m_surfaceAnimating; }
 
@@ -1117,6 +1127,50 @@ public:
     // restituisce pixel nitidi senza upscale (fix wireframe sfocato nei video).
     // begin va chiamata una volta prima del loop di registrazione, end alla fine.
     void beginHiResCapture(int w, int h);
+    // Cattura di un'IMMAGINE (vedi ImageCapture): il campo visivo VERTICALE e' quello
+    // della vista moltiplicato per questa scala (1 = invariato, mai oltre). Serve a
+    // un'immagine piu' LARGA della vista: col campo verticale fisso mostrerebbe di
+    // piu' ai lati di cio' che si vede a schermo; scalandolo, l'orizzontale resta
+    // quello della vista e il riquadro guida (la parte della vista che entra
+    // nell'immagine) dice la verita'. Si rimette a 1 a cattura finita.
+    void setCaptureVerticalScale(float scale);
+    // Spessore, in pixel dell'immagine, con cui si disegnano le linee dei wireframe
+    // durante una cattura (1 = linea nativa della GPU). Le linee della GPU sono
+    // sempre larghe un pixel: in un'immagine molto piu' grande della vista
+    // sparirebbero. Si ottiene con strisce di triangoli (prepareWireQuads) o, per tubi
+    // e mesh custom, ridisegnandole con la finestra spostata di qualche pixel. Si
+    // rimette a 1 a cattura finita, e le strisce si liberano.
+    void setCaptureLineWidth(int pixels);
+    // True se il wireframe si disegna a strisce di triangoli (spessore libero, bordo
+    // sfumato); false se ricade sulle linee native ridisegnate (tubi, mesh custom).
+    bool wireframeQuadsActive() const { return !hasVisibleWireframe() || m_wireQuadPipeline; }
+    // Prima della cattura: il wireframe PUO' andare a strisce?
+    bool wireframeQuadsEligible() const;
+    // Quanti indici di linea ha il wireframe visibile (0 = nessuno): il costo di un
+    // ridisegno, per limitare lo spessore di una cattura. Solo cio' che si disegna: le
+    // superfici piene hanno gli indici ma non le linee.
+    qint64 wireframeIndexTotal() const {
+        if (!hasVisibleWireframe()) return 0;
+        if (m_wireframeRanges.size() <= 1) return m_wireframeIndexCount;
+        const std::vector<MeshPart> &parts = engine->getMeshParts();
+        qint64 n = 0;
+        for (const WireframeRange &r : m_wireframeRanges)
+            if (r.meshIndex < 0 || r.meshIndex >= int(parts.size())
+                || effectivePartRenderMode(parts[r.meshIndex]) == 2) n += r.indexCount;
+        return n;
+    }
+    // True se qualcosa si sta disegnando in wireframe (la superficie, o una sua parte).
+    bool hasVisibleWireframe() const {
+        if (m_engineMode != ModeParametric || !engine || m_wireframeIndexCount <= 0) return false;
+        const std::vector<MeshPart> &parts = engine->getMeshParts();
+        if (parts.size() > 1) {
+            for (const MeshPart &p : parts) if (effectivePartRenderMode(p) == 2) return true;
+            return false;
+        }
+        return renderMode == 2;
+    }
+    // Il lato massimo di una texture / buffer della GPU (QRhi::TextureSizeMax).
+    int maxTextureSize();
     void endHiResCapture();
     QString getShaderError() const { return m_lastCompilationError; }
     bool validateAndApplyParametricShader(const QString &customLogic);
@@ -1307,6 +1361,16 @@ private:
     QRhiBuffer *m_borderWireIbo = nullptr;
     bool m_borderUploaded = false;
     QRhiGraphicsPipeline *m_wireframePipeline = nullptr;
+    // WIREFRAME A STRISCE DI TRIANGOLI, solo per le catture di immagini (vedi
+    // GLWidget::prepareWireQuads): un'istanza per segmento (i due estremi, 32
+    // byte) e la pipeline che le espande. m_wireQuadSerial = la cattura per cui
+    // sono pronti.
+    QRhiBuffer *m_wireQuadVbo = nullptr;
+    QRhiGraphicsPipeline *m_wireQuadPipeline = nullptr;
+    QRhiGraphicsPipeline *m_wireQuadDepthPipeline = nullptr;   // la passata di profondita'
+    int m_wireQuadSerial = -1;
+    int m_captureSerial = 0;
+    void prepareWireQuads(QRhiResourceUpdateBatch *resourceUpdates);
     std::vector<unsigned int> m_wireframeIndices;
     bool wireframeNeedsUpdate = true;
     int m_wireframeIndexCount = 0;
@@ -1735,6 +1799,12 @@ private:
     float m_cameraPitch;
     float m_cameraRoll = 0.0f;
     float m_cameraFov = 45.0f; // gradi, vedi setCameraFov()
+    int m_captureLineWidth = 1;            // vedi setCaptureLineWidth
+    QVector<QPoint> wireframeOffsets() const;
+    float m_captureVerticalScale = 1.0f;   // vedi setCaptureVerticalScale
+    // Il campo visivo verticale con cui si disegna: m_cameraFov, scalato in
+    // tangente durante una cattura d'immagine.
+    float effectiveCameraFov() const;
     bool m_externalClockActive = false; // vedi setExternalClockActive()
 
     bool m_isPathFollowing = false;   // MODALITA' camera tangent (persiste dopo stop)

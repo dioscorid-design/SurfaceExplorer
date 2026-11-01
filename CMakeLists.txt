@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.16)
 # mainwindow.cpp e restava indietro a ogni bump (bump-version.sh non poteva
 # raggiungerlo e si limitava a stampare un promemoria).
 # Info.plist resta un file a parte, aggiornato da ExC/Mac/bump-version.sh.
-project(SurfaceExplorer VERSION 1.4 LANGUAGES CXX)
+project(SurfaceExplorer VERSION 1.5 LANGUAGES CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -145,6 +145,8 @@ qt_add_executable(SurfaceExplorer
     glsltranslator.cpp
     videorecorder.h
     videorecorder.cpp
+    imagecapture.h
+    imagecapture.cpp
     librarymenucontroller.h
     librarymenucontroller.cpp
     presetserializer.h
@@ -231,9 +233,9 @@ if (IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
         XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist"
         VERSION "${PROJECT_VERSION}"
-        MACOSX_BUNDLE_BUNDLE_VERSION "62"
+        MACOSX_BUNDLE_BUNDLE_VERSION "64"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
-        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "62"
+        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "64"
         XCODE_ATTRIBUTE_MARKETING_VERSION "${PROJECT_VERSION}"
     )
 
@@ -351,9 +353,9 @@ elseif (APPLE)
     set_target_properties(SurfaceExplorer PROPERTIES
         # Build number e versione marketing: stessi campi che il bump di
         # release_testflight_mac.sh tiene allineati con Info.plist.
-        MACOSX_BUNDLE_BUNDLE_VERSION "62"
+        MACOSX_BUNDLE_BUNDLE_VERSION "64"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
-        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "62"
+        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "64"
         XCODE_ATTRIBUTE_MARKETING_VERSION "${PROJECT_VERSION}"
 
         # Sandbox: obbligatoria sull'App Store. Xcode firma con questi
@@ -441,6 +443,11 @@ endif()
 # App Store): sotto sandbox non si possono lanciare eseguibili esterni al bundle,
 # e ffmpeg-kit-full-gpl non e' incorporabile (GPL incompatibile con l'App Store).
 if(APPLE AND NOT IOS)
+    # Il minimo di macOS, fisso: senza, il dmg prende la versione del Mac che compila
+    # (solo Xcode eredita 13 da Qt). Stesso valore per dmg e App Store, e per
+    # LSMinimumSystemVersion (Info-macos.plist).
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0")
+
     target_sources(SurfaceExplorer PRIVATE
         nativevideoencoder.h
         nativevideoencoder_mac.mm
@@ -455,15 +462,20 @@ if(APPLE AND NOT IOS)
     )
 endif()
 
-# --- TEST INTERNI (round-trip dei preset, orologi, scenari d'uso) ---
+# --- TEST INTERNI (round-trip dei preset, orologi, scenari d'uso, immagini) ---
 # Solo nelle build Debug desktop: sono la rete di sicurezza di chi sviluppa
 # (ExC/Mac/Test/*.sh li lanciano sulla build Debug) e nei binari distribuiti
-# sarebbero solo peso, piu' tre opzioni da riga di comando che nessun utente
+# sarebbero solo peso, piu' quattro opzioni da riga di comando che nessun utente
 # deve avere. Le build di rilascio restano fuori da sole: Release di Qt Creator
 # e, per l'App Store, il generatore Xcode (multi-config: CMAKE_BUILD_TYPE e'
 # vuoto). Su iOS/Android main.cpp non li ha mai chiamati.
 # SE_SELF_TESTS e' cio' che main.cpp guarda per agganciarli.
-if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT IOS)
+# L'opzione omonima li mette anche in una build OTTIMIZZATA: e' build/Tests,
+# quella che usano gli script (piu' veloce della Debug, e separata dalle
+# cartelle Debug e Release di Qt Creator). Spenta di default: le build di
+# rilascio restano senza test.
+option(SE_SELF_TESTS "Test interni anche in una build non Debug (build/Tests)" OFF)
+if((CMAKE_BUILD_TYPE STREQUAL "Debug" OR SE_SELF_TESTS) AND NOT ANDROID AND NOT IOS)
     target_sources(SurfaceExplorer PRIVATE
         presetroundtrip.h
         presetroundtrip.cpp
@@ -471,8 +483,16 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT IOS)
         clocktest.cpp
         scenariotest.h
         scenariotest.cpp
+        imagetest.h
+        imagetest.cpp
+        testactivity.h
+        testactivity.mm
         shadercompilelog.h
     )
+    # Fuori da Apple il .mm e' il solo ripiego vuoto: va compilato come C++.
+    if(NOT APPLE)
+        set_source_files_properties(testactivity.mm PROPERTIES LANGUAGE CXX)
+    endif()
     target_compile_definitions(SurfaceExplorer PRIVATE SE_SELF_TESTS)
 endif()
 

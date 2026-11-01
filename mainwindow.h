@@ -62,6 +62,7 @@ class MainWindow : public QMainWindow
     friend class PresetRoundTrip;   // test di andata e ritorno dei preset
     friend class ClockTest;         // test degli orologi di animazione
     friend class ScenarioTest;      // test degli scenari d'uso
+    friend class ImageTest;         // test delle immagini dei preset
 
     // I TIPI DELLA SCENA vivono in scenestate.h (le classi estratte da
     // MainWindow li usano senza includere questa intestazione); qui i nomi
@@ -187,6 +188,9 @@ private slots:
     // tasto NEW). Guarda il MOTORE, non i campi della UI: l'utente puo' aver
     // gia' ricominciato a scrivere senza aver ancora premuto Run.
     bool isSceneEmpty() const;
+    // La scena vuota di NEW per intero (con una sola superficie e' isSceneEmpty;
+    // nome gemello della 2.0, dove conta anche l'assenza di altri oggetti).
+    bool isWholeSceneEmpty() const;
     // Le costanti A..F/S che la SUPERFICIE non usa (equazioni, geodetica,
     // script, limiti, path): quelle che un caricamento di texture puo'
     // riportare al default senza cambiare la forma a schermo.
@@ -269,6 +273,10 @@ private slots:
     // prima di un eventuale reset della vista, che a path fermo gliela toglie.
     void resetMotions(std::optional<CameraPaths::Path> camPath);
     void resetMotions() { resetMotions(cameraPath()); }
+    // Cosa rimetterebbero View e Motions: il RESET chiede solo quando entrambi
+    // hanno qualcosa da fare (se uno solo cambia, fa quello senza domande).
+    bool viewResetChangesSomething() const;
+    bool motionsResetChangesSomething() const;
     // Il path che ha la camera: quello in corsa, o l'ultimo partito se la
     // camera lo segue ancora da fermo (la modalita' path persiste dopo lo stop).
     std::optional<CameraPaths::Path> cameraPath() const;
@@ -1821,6 +1829,10 @@ private:
     void applyRecordSpeedsAndAngles(const LibraryItem &data);
     void startRecordCameraMotion(const LibraryItem &data);
     bool runRecordGeometry(const LibraryItem &data);   // true: scena da script
+    // Il record non ha una superficie: salvato da una scena vuota (NEW), col
+    // solo sfondo o il solo suono. Niente script e vuoti i campi della
+    // superficie della sua modalita'.
+    static bool recordHasNoSurface(const LibraryItem &data);
     void restartRecordClocks(const LibraryItem &data);
     void startRecordSound();
     // PASSI DEL CLIC SU UNA VOCE DELLA LIBRARY (onExampleItemClicked).
@@ -1849,6 +1861,9 @@ private:
     void resetRotationsForNewScene();
     void resetEngineToImplicit(bool loadDefaultSurface);
     void resetEngineToParametric(bool loadDefaultSurface);
+    // LA SUPERFICIE VUOTA nel motore, nella modalita' e nel sotto-tab attuali:
+    // la scena del tasto NEW e di un record senza superficie.
+    void applyEmptySurfaceToEngine();
     void finishSceneReset();
     void clearLibrarySelectionAfterReset();
     // ASSEGNA una scena intera a m_scene, con la vista dei campi: equazioni,
