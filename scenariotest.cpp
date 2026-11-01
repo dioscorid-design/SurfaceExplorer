@@ -8936,6 +8936,86 @@ void ScenarioTest::runShapeBackgroundScenarios()
                   .arg(m_mw->m_scene.bgTexColor1.name(), m_mw->m_scene.bgTexColor2.name()));
     }
     click(ui->radioSurface);
+
+    // RECORD SENZA SUPERFICIE (salvato da NEW col solo sfondo o il solo suono):
+    // si apre come la scena vuota di NEW, da qualunque scena. Il Run del load
+    // validava equazioni vuote: popup "exactly 2 or 3 valid spatial variables",
+    // controlli accesi e, in parametrico, una griglia collassata nell'origine.
+    {
+        m_lines.append(QString());
+        m_lines.append(QStringLiteral("== Record senza superficie: si apre come la scena vuota di NEW =="));
+        const QString kBitorus = QStringLiteral("surfaces/Implicit/3D/Bitorus.json");
+        auto modeTab = [this, ui](int index) {
+            m_discardOnPrompt = true;
+            ui->tabModeSelector->setCurrentIndex(index);
+            wait(1200);
+            m_discardOnPrompt = false;
+        };
+        auto background = [&]() {
+            click(ui->radioBackground);
+            if (!ui->chkBoxTexture->isChecked()) click(ui->chkBoxTexture);
+            selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json"));
+            wait(300);
+            click(ui->radioSurface);
+        };
+        auto saveRecord = [this](const QString &name) {
+            const QString path = m_outDir + QLatin1Char('/') + name;
+            QFile::remove(path);
+            m_acceptNextDialog = true;   // il dialogo dell'hint
+            m_mw->m_presetSerializer->saveMotion(path);
+            m_acceptNextDialog = false;
+            wait(300);
+            check(QFile::exists(path), QStringLiteral("scena vuota -> Save Record: ") + name);
+            return path;
+        };
+        auto reopen = [&](const QString &path, const QString &what, const QString &before,
+                          const std::function<bool()> &kept) {
+            m_discardOnPrompt = true;
+            const bool ready = loadSurface(before);
+            m_discardOnPrompt = false;
+            if (!ready || !QFile::exists(path)) return;
+            LibraryManager lm;
+            const LibraryItem item = lm.parseJson(path, LibraryType::Motion);
+            const int popups = m_popupsClosed;
+            m_lastPopup.clear();
+            m_mw->applyMotionExample(item);
+            wait(1000);
+            const bool noMesh = m_mw->implicitMode() || gl->getEngine()->getIndices().empty();
+            check(m_popupsClosed == popups && m_mw->isSceneEmpty() && noMesh && m_mw->m_emptySceneGated && kept(),
+                  QStringLiteral("%1, aperto dopo %2 -> scena vuota senza popup (popup %3 [%4], vuota %5, "
+                                 "griglia vuota %6, controlli spenti %7, contenuto %8)")
+                      .arg(what, before).arg(m_popupsClosed - popups).arg(m_lastPopup)
+                      .arg(onOff(m_mw->isSceneEmpty()), onOff(noMesh), onOff(m_mw->m_emptySceneGated), onOff(kept())));
+            if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+        };
+        auto bgKept = [gl]() { return gl->isBackgroundTextureEnabled(); };
+        auto soundKept = [this]() { return !m_mw->m_scene.soundScriptText.trimmed().isEmpty(); };
+
+        modeTab(0);
+        pressNew();
+        background();
+        const QString bgRecord = saveRecord(QStringLiteral("no-surface-background.json"));
+        reopen(bgRecord, QStringLiteral("record col solo sfondo"), kTorus, bgKept);
+        reopen(bgRecord, QStringLiteral("record col solo sfondo"), kBitorus, bgKept);
+
+        modeTab(0);
+        pressNew();
+        selectSound(QStringLiteral("sounds/procedural/Alps.json"));
+        if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+        m_popupAnswer = QStringLiteral("Keep the sound");   // selectSound lo lascia fermo
+        const QString soundRecord = saveRecord(QStringLiteral("no-surface-sound.json"));
+        m_popupAnswer.clear();
+        reopen(soundRecord, QStringLiteral("record col solo suono"), kTorus, soundKept);
+
+        modeTab(1);
+        pressNew();
+        background();
+        const QString bgRecordRM = saveRecord(QStringLiteral("no-surface-background-rm.json"));
+        reopen(bgRecordRM, QStringLiteral("record col solo sfondo, Ray Marching"), kTorus, bgKept);
+
+        modeTab(0);
+        pressNew();
+    }
 }
 
 void ScenarioTest::runBorderAuditScenarios()
@@ -9217,6 +9297,26 @@ void ScenarioTest::runResetButtonScenarios()
     wait(1500);
     m_discardOnPrompt = false;
     m_popupAnswer.clear();   // una risposta senza popup non deve restare in sospeso
+
+    // RECORD COL PATH, le rotazioni al suo posto, RESET View: la direzione
+    // d'apertura, cioe' quella del path al tempo 0. La posa fotografata aveva la
+    // posizione del path con la direzione salvata nel file (Gyroid Race: yaw
+    // 121,6 invece di -90).
+    if (loadRecord(QStringLiteral("records/Paths/Implicit/3D/Gyroid Race.json"))) {
+        if (m_mw->pathRunning(CameraPaths::Path3D)) m_mw->onDeparture3DClicked();
+        m_mw->m_paths->applyCameraAt(CameraPaths::Path3D, 0.0f);
+        const float yaw = gl->getEffectiveCameraYaw(), pitch = gl->getEffectiveCameraPitch();
+        gl->setSpinSpeed(0.2f);
+        m_mw->onStopClicked();   // GO: le rotazioni subentrano al path
+        wait(400);
+        m_mw->onStopClicked();
+        m_mw->resetView();
+        wait(400);
+        const float gotYaw = gl->getEffectiveCameraYaw(), gotPitch = gl->getEffectiveCameraPitch();
+        check(std::abs(gotYaw - yaw) < 2.0f && std::abs(gotPitch - pitch) < 2.0f,
+              QStringLiteral("record col path, GO, RESET View -> direzione d'apertura (yaw %1 contro %2, pitch %3 contro %4)")
+                  .arg(gotYaw).arg(yaw).arg(gotPitch).arg(pitch));
+    }
 }
 
 void ScenarioTest::runResetSceneScenarios()
@@ -9300,6 +9400,18 @@ void ScenarioTest::runResetSceneScenarios()
     check(m_mw->m_scene.steps == paramSteps,
           QStringLiteral("riclic e NEW in Ray Marching, poi Parametric -> Steps %1 (attesi %2)")
               .arg(m_mw->m_scene.steps).arg(paramSteps));
+
+    // USCITA DALLA SCENA VUOTA con una Shape parametrica, poi la linguetta Ray
+    // Marching: i radio del marcher accesi. Li accende e spegne solo il blocco
+    // della scena vuota, che all'uscita guardava la modalita' di quel momento.
+    pressNew();
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) {
+        modeTab(1);
+        check(ui->radioMarcherFast->isEnabled() && ui->radioMarcherPrecise->isEnabled(),
+              QStringLiteral("NEW, Shape parametrica, linguetta Ray Marching -> radio del marcher accesi (Fast %1, Precise %2)")
+                  .arg(onOff(ui->radioMarcherFast->isEnabled()), onOff(ui->radioMarcherPrecise->isEnabled())));
+        modeTab(0);
+    }
 }
 
 void ScenarioTest::runMasterRecordsScenarios()
@@ -9533,6 +9645,22 @@ void ScenarioTest::runLibraryPasteScenarios()
     m_mw->m_currentRecordPath = savedRecordPath;
 
     m_mw->m_cutFilePaths.clear();
+
+    // L'INCOLLA DA TASTIERA senza voce selezionata va nel ramo del file per
+    // POSIZIONE, non per le parole del percorso; con un suono selezionato va
+    // accanto a lui. Le due letture di performPasteExample, a libreria intatta:
+    // i percorsi non devono esistere.
+    const QString shapes = LibraryFolders::branchDir(LibraryFolders::Branch::Surfaces);
+    const QString records = LibraryFolders::branchDir(LibraryFolders::Branch::Records);
+    check(LibraryFolders::branchOf(shapes + QStringLiteral("/Sound Records/a.json")) == LibraryFolders::Branch::Surfaces
+              && LibraryFolders::branchOf(records + QStringLiteral("/Sounds/a.json")) == LibraryFolders::Branch::Records,
+          QStringLiteral("Incolla: il ramo di un file non dipende dalle parole del percorso"));
+    QTreeWidgetItem *sound = nullptr;
+    for (QTreeWidgetItemIterator it(m_mw->ui->treeSounds); *it && !sound; ++it)
+        if ((*it)->parent() && (*it)->data(0, LibraryManager::itemRole(LibraryType::Sound)).isValid()) sound = *it;
+    check(sound && QFileInfo::exists(m_mw->m_libraryManager.itemFilePath(sound)),
+          QStringLiteral("Incolla: la voce di un suono da' il suo file (%1)")
+              .arg(sound ? m_mw->m_libraryManager.itemFilePath(sound) : QString()));
 
     // I PRESET DI FABBRICA di ogni ramo stanno nelle risorse, dove Restore
     // Factory li cerca (:/library/presets/<cartella>): le scene mancavano.
