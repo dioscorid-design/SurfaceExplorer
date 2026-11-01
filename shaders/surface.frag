@@ -13,6 +13,10 @@ layout(location = 6) in float v_borderReach;
 // globale, surfaceTextureColor).
 layout(location = 7) in vec3 v_objPos;
 layout(location = 8) in vec3 v_objNormal;
+#ifdef HAS_WIRE_QUAD
+// Posizione del pixel nel riferimento del segmento e meta' spessore (vedi surface.vert).
+layout(location = 9) in vec4 v_wireDist;
+#endif
 
 // --- OUTPUT ---
 layout(location = 0) out vec4 FragColor;
@@ -104,6 +108,12 @@ layout(std140, binding = 0) uniform SceneUBO {
     // una sola su tutta la figura (surfaceTextureColor). Ultimo campo di
     // UboData.
     float u_globalTexture;
+    // NON USATI QUI (il vertex li usa per le strisce del wireframe), ma il blocco
+    // deve combaciare col vertex campo per campo (regola Adreno). Ultimi campi di
+    // UboData.
+    float u_wireHalfWidth;
+    float u_wireViewW;
+    float u_wireViewH;
 } ubuf;
 
 // --- PLACEHOLDER PER CODICE TEXTURE CUSTOM ---
@@ -214,7 +224,20 @@ void main() {
 
     // Se siamo in modalità Wireframe (2) o Bordi (5), usa colore piatto senza luci
     if (ubuf.u_renderMode == 2 || ubuf.u_renderMode == 5) {
+#ifdef HAS_WIRE_QUAD
+        // Striscia del wireframe: copertura del pixel dalla distanza dal SEGMENTO
+        // (estremi arrotondati, bordo sfumato).
+        const float beyond = max(max(-v_wireDist.y, v_wireDist.y - v_wireDist.z), 0.0);
+        const float coverage = clamp(v_wireDist.w - length(vec2(v_wireDist.x, beyond)) + 0.5, 0.0, 1.0);
+#ifdef WIRE_QUAD_DEPTH
+        // Passata di sola profondita' (vedi GLWidget::prepareWireQuads): il corpo della
+        // linea, non il bordo sfumato, che coprirebbe le linee vicine.
+        if (coverage < 0.5) discard;
+#endif
+        FragColor = vec4(ubuf.color, ubuf.alpha * coverage);
+#else
         FragColor = vec4(ubuf.color, ubuf.alpha);
+#endif
         return;
     }
 

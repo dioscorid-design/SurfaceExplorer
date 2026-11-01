@@ -3,6 +3,9 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "glwidget.h"
+#include "imagecapture.h"
+#include <QImageReader>
+#include <QComboBox>
 #include "librarymanager.h"
 #include "libraryfileoperations.h"
 #include "libraryfolders.h"
@@ -27,6 +30,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QTimer>
 #include <QAbstractButton>
 #include <QKeyEvent>
@@ -1885,6 +1889,21 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("hires-probe")) {
+        runHiResProbeScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("image-capture")) {
+        runImageCaptureScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("video-frame")) {
+        runVideoFrameScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("shape-background")) {
         runShapeBackgroundScenarios();
         finish();
@@ -3732,6 +3751,8 @@ void ScenarioTest::run()
     runMeshCountScenarios();
     runStepsScenarios();
     runShapeBackgroundScenarios();
+    runVideoFrameScenarios();
+    runImageCaptureScenarios();
     runAnimatedLoadScenarios();
     runLoadOrderScenarios();
 
@@ -5390,6 +5411,426 @@ void ScenarioTest::runStepsScenarios()
     }
 }
 
+void ScenarioTest::runHiResProbeScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Sonda: rendering fuori schermo a dimensioni crescenti =="));
+    if (QRhi *rhi = gl->getRhi())
+        m_lines.append(QStringLiteral("limite di texture della GPU: %1 pixel per lato (backend %2)")
+                           .arg(rhi->resourceLimit(QRhi::TextureSizeMax)).arg(rhi->backendName()));
+    // Una sola tinta su tutta l'immagine = rendering fallito (e' il sintomo visto su GPU reali).
+    auto uniform = [](const QImage &im) {
+        const QRgb a = im.pixel(0, 0);
+        for (int k = 1; k <= 64; ++k)
+            if (im.pixel(im.width() * k / 65, im.height() * (k * 7 % 64 + 1) / 65) != a) return false;
+        return true;
+    };
+    const QList<QSize> sizes = { QSize(3840, 2160), QSize(7680, 4320), QSize(8192, 8192),
+                                 QSize(12288, 6912), QSize(16384, 9216), QSize(16384, 16384) };
+    const QStringList scenes = { QStringLiteral("records/Static/Hopf Tori.json"),
+                                 QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"),
+                                 QStringLiteral("surfaces/Implicit/3D/Chmutov.json") };
+    for (const QString &scene : scenes) {
+        if (!(scene.startsWith(QLatin1String("records/")) ? loadRecord(scene) : loadSurface(scene))) continue;
+        gl->stopAllTimers();
+        gl->setClocksDrivenByRecorder(true);
+        wait(500);
+        for (const QSize &sz : sizes) {
+            QElapsedTimer t;
+            t.start();
+            QString renderError;
+            const QImage img = ImageCapture::render(gl, sz, double(sz.width()) / sz.height(), &renderError);
+            const qint64 ms = t.elapsed();
+            const bool ok = !img.isNull() && img.size() == sz;
+            const bool flat = ok && uniform(img);
+            const QString line = QStringLiteral("%1 %2x%3: %4, %5 ms%6")
+                .arg(scene.section(QLatin1Char('/'), -1)).arg(sz.width()).arg(sz.height())
+                .arg(ok ? QStringLiteral("OK") : QStringLiteral("NON RIUSCITO")).arg(ms)
+                .arg(flat ? QStringLiteral(", IMMAGINE UNIFORME (colore %1)").arg(QColor(img.pixel(0, 0)).name()) : QString());
+            m_lines.append(line);
+            qInfo().noquote() << "HIRES" << line;
+            wait(300);
+            if (!ok) break;
+        }
+        gl->setClocksDrivenByRecorder(false);
+    }
+}
+
+void ScenarioTest::runImageCaptureScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Immagine a risoluzione libera (ImageCapture) =="));
+
+    // LOGICA PURA.
+    check(ImageCapture::sizeFor(16.0 / 9.0, 3840) == QSize(3840, 2160)
+              && ImageCapture::sizeFor(2.0 / 3.0, 3000) == QSize(2000, 3000)
+              && ImageCapture::sizeFor(1.0, 1000) == QSize(1000, 1000),
+          QStringLiteral("sizeFor: 16:9 a 3840 -> 3840x2160, 2:3 a 3000 -> 2000x3000, 1:1 -> quadrato"));
+    check(qFuzzyCompare(ImageCapture::verticalScaleFor(2.0, 1.5), 0.75f)
+              && qFuzzyCompare(ImageCapture::verticalScaleFor(1.0, 1.5), 1.0f),
+          QStringLiteral("verticalScaleFor: piu' largo della vista -> riduce il campo verticale, piu' stretto -> 1"));
+    {
+        const QRect narrow = ImageCapture::guideRect(QSize(1200, 800), 1.0);     // 1:1 in 3:2
+        const QRect wide = ImageCapture::guideRect(QSize(1200, 800), 3.0);       // 3:1 in 3:2
+        check(narrow == QRect(200, 0, 800, 800) && wide == QRect(0, 200, 1200, 400),
+              QStringLiteral("guideRect: stretto -> piena altezza al centro, largo -> piena larghezza al centro"));
+    }
+    check(gl->maxTextureSize() >= 4096, QStringLiteral("limite di texture della GPU letto (%1)").arg(gl->maxTextureSize()));
+    {
+        QImage flat(640, 480, QImage::Format_RGB32);
+        flat.fill(Qt::magenta);
+        const bool uniform = ImageCapture::isSingleColor(flat);
+        flat.setPixel(3, 5, qRgb(0, 0, 0));   // lontano dai punti sparsi, come un filo di wireframe
+        check(uniform && !ImageCapture::isSingleColor(flat),
+              QStringLiteral("isSingleColor: un pixel diverso, ovunque stia, basta"));
+    }
+    check(ImageCapture::wireFits(0, 0, 1000000000, 64) && ImageCapture::wireFits(6, 6000000, 1000000000, 1)
+              && ImageCapture::wireFits(6, 6000000, 500000, 6) && !ImageCapture::wireFits(6, 6000000, 500000, 7)
+              && !ImageCapture::wireFits(32, 80000000, 30000000, 2),
+          QStringLiteral("wireFits: desktop senza limiti; a un pixel sempre (la dimensione non crolla); oltre spessore o costo no"));
+
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    gl->stopAllTimers();
+    gl->setClocksDrivenByRecorder(true);
+    wait(500);
+    check(ImageCapture::secondsPerMegapixel(gl) > 0.0, QStringLiteral("secondi per megapixel misurati"));
+
+    const double viewRatio = double(gl->width()) / double(std::max(1, gl->height()));
+    // La frazione di larghezza che il soggetto occupa (pixel diversi dallo sfondo).
+    auto spanFraction = [](const QImage &img) {
+        const QRgb bg = img.pixel(2, img.height() / 2);
+        auto differs = [&](int x, int y) {
+            const QRgb p = img.pixel(x, y);
+            return std::abs(qRed(p) - qRed(bg)) + std::abs(qGreen(p) - qGreen(bg)) + std::abs(qBlue(p) - qBlue(bg)) > 30;
+        };
+        int lo = -1, hi = -1;
+        const int y = img.height() / 2;
+        for (int x = 0; x < img.width(); ++x)
+            if (differs(x, y)) { if (lo < 0) lo = x; hi = x; }
+        return lo < 0 ? 0.0 : double(hi - lo + 1) / double(img.width());
+    };
+
+    QString err;
+    const QSize s1 = ImageCapture::sizeFor(viewRatio, 1600);
+    const QImage img1 = ImageCapture::render(gl, s1, viewRatio, &err);
+    check(!img1.isNull() && img1.size() == s1,
+          QStringLiteral("immagine col rapporto della vista: dimensione chiesta (%1x%2) %3")
+              .arg(s1.width()).arg(s1.height()).arg(err));
+
+    // Il doppio di larghezza, stessa altezza: con il campo orizzontale della vista il
+    // soggetto occupa la stessa frazione di larghezza (col verticale fisso, la meta').
+    const double wideRatio = viewRatio * 2.0;
+    const QSize s2 = ImageCapture::sizeFor(wideRatio, 3200);
+    const QImage img2 = ImageCapture::render(gl, s2, wideRatio, &err);
+    check(!img2.isNull() && img2.size() == s2,
+          QStringLiteral("immagine larga il doppio: dimensione chiesta (%1x%2) %3")
+              .arg(s2.width()).arg(s2.height()).arg(err));
+    if (!img1.isNull() && !img2.isNull()) {
+        const double f1 = spanFraction(img1), f2 = spanFraction(img2);
+        check(f1 > 0.05 && std::abs(f2 - f1) < 0.15 * f1,
+              QStringLiteral("immagine piu' larga della vista: il soggetto occupa la stessa frazione di larghezza "
+                             "(%1 contro %2; col campo verticale fisso sarebbe la meta')")
+                  .arg(f1, 0, 'f', 3).arg(f2, 0, 'f', 3));
+    }
+
+    // WIREFRAME: le linee native sono larghe un pixel, in un'immagine grande
+    // sparirebbero. Con lo spessore in proporzione l'immagine ha piu' pixel di linea.
+    {
+        const int prevMode = gl->globalRenderMode();
+        gl->setGlobalRenderMode(0);
+        check(!gl->hasVisibleWireframe(), QStringLiteral("superficie piena: nessun wireframe visibile (la scelta dello spessore si spegne)"));
+        gl->setGlobalRenderMode(2);
+        check(gl->hasVisibleWireframe(), QStringLiteral("superficie in wireframe: wireframe visibile (la scelta dello spessore e' attiva)"));
+        auto inkOf = [](const QImage &im) {
+            const QRgb bg = im.pixel(1, 1);
+            qint64 n = 0;
+            for (int y = 0; y < im.height(); ++y)
+                for (int x = 0; x < im.width(); ++x) {
+                    const QRgb p = im.pixel(x, y);
+                    if (std::abs(qRed(p) - qRed(bg)) + std::abs(qGreen(p) - qGreen(bg)) + std::abs(qBlue(p) - qBlue(bg)) > 30) ++n;
+                }
+            return n;
+        };
+        const QSize sw = ImageCapture::sizeFor(viewRatio, 3200);
+        const QImage thick = ImageCapture::render(gl, sw, viewRatio, &err);
+        gl->setCaptureLineWidth(1);
+        gl->beginHiResCapture(sw.width(), sw.height());
+        const QImage thin = gl->getFrameForVideo(sw.width(), sw.height(), true);
+        gl->endHiResCapture();
+        if (!thick.isNull() && !thin.isNull()) {
+            const qint64 a1 = inkOf(thin), a2 = inkOf(thick);
+            check(gl->wireframeQuadsActive() && gl->wireframeQuadsEligible(),
+                  QStringLiteral("wireframe parametrico: nella cattura si disegna a strisce di triangoli"));
+            check(a2 > a1 * 1.5, QStringLiteral("wireframe in un'immagine grande: pixel di linea %1 con spessore, %2 senza").arg(a2).arg(a1));
+            thick.save(m_outDir + QStringLiteral("/image-capture-wire-thick.png"));
+            thin.save(m_outDir + QStringLiteral("/image-capture-wire-thin.png"));
+            // Un fotogramma fallito (tutto di un colore) col wireframe: si riprova con
+            // meno spessore; se falliscono tutti, un errore e non un'immagine "salvata".
+            ImageCapture::setTestBlankFrames(1);
+            const QImage retried = ImageCapture::render(gl, sw, viewRatio, &err);
+            check(!retried.isNull() && !ImageCapture::isSingleColor(retried),
+                  QStringLiteral("wireframe, fotogramma fallito: si riprova e l'immagine esce"));
+            ImageCapture::setTestBlankFrames(100);
+            err.clear();
+            const QImage allFailed = ImageCapture::render(gl, sw, viewRatio, &err);
+            ImageCapture::setTestBlankFrames(0);
+            check(allFailed.isNull() && !err.isEmpty(),
+                  QStringLiteral("wireframe, tutti i fotogrammi falliti: nessuna immagine, errore (%1)").arg(err));
+            check(!gl->m_wireQuadVbo, QStringLiteral("a cattura finita il buffer delle strisce e' liberato"));
+        } else {
+            check(false, QStringLiteral("wireframe: immagine vuota"));
+        }
+        gl->setGlobalRenderMode(prevMode);
+    }
+    // Senza wireframe ridurre lo spessore non serve: un tentativo solo. Una scena
+    // davvero uniforme (il solo sfondo) non e' un fallimento.
+    {
+        ImageCapture::setTestBlankFrames(1);
+        err.clear();
+        const QImage failed = ImageCapture::render(gl, s1, viewRatio, &err);
+        ImageCapture::setTestBlankFrames(0);
+        check(failed.isNull() && !err.isEmpty(), QStringLiteral("superficie piena, fotogramma fallito: errore al primo tentativo"));
+        const float prevAlpha = gl->globalAlpha();
+        gl->setAlpha(0.0f);
+        wait(200);
+        const QImage background = ImageCapture::render(gl, s1, viewRatio, &err);
+        gl->setAlpha(prevAlpha);
+        wait(200);
+        check(!background.isNull() && ImageCapture::isSingleColor(background),
+              QStringLiteral("scena di solo sfondo: l'immagine uniforme si salva"));
+    }
+
+    // Piu' stretta della vista: il campo verticale non cambia, si taglia ai lati.
+    const double narrowRatio = viewRatio * 0.5;
+    const QSize s3 = ImageCapture::sizeFor(narrowRatio, 1600);
+    const QImage img3 = ImageCapture::render(gl, s3, narrowRatio, &err);
+    check(!img3.isNull() && img3.size() == s3,
+          QStringLiteral("immagine piu' stretta: dimensione chiesta (%1x%2)").arg(s3.width()).arg(s3.height()));
+    // Dopo lo scatto il campo visivo e' quello di prima (stessa immagine di prima).
+    const QImage again = ImageCapture::render(gl, s1, viewRatio, &err);
+    check(!again.isNull() && again == img1, QStringLiteral("dopo uno scatto largo, il campo visivo e' tornato quello della vista"));
+    {
+        auto inkOf = [](const QImage &im) {
+            const QRgb bg = im.pixel(1, 1);
+            qint64 n = 0;
+            for (int y = 0; y < im.height(); ++y)
+                for (int x = 0; x < im.width(); ++x) {
+                    const QRgb p = im.pixel(x, y);
+                    if (std::abs(qRed(p) - qRed(bg)) + std::abs(qGreen(p) - qGreen(bg)) + std::abs(qBlue(p) - qBlue(bg)) > 30) ++n;
+                }
+            return n;
+        };
+        // Scena fitta in wireframe a una dimensione grande: troppi ridisegni per lo
+        // spessore facevano fallire la GPU (immagine tutta magenta).
+        if (loadRecord(QStringLiteral("records/Static/Hopf Tori.json"))) {
+            gl->stopAllTimers();
+            gl->setClocksDrivenByRecorder(true);
+            wait(400);
+            const QSize sb = ImageCapture::sizeFor(viewRatio, 7680);
+            const QImage dense = ImageCapture::render(gl, sb, viewRatio, &err);
+            check(!dense.isNull() && inkOf(dense) > 5000,
+                  QStringLiteral("wireframe fitto a 7680 px: l'immagine non e' di un solo colore (%1 pixel di linea)")
+                      .arg(dense.isNull() ? 0 : inkOf(dense)));
+            gl->setClocksDrivenByRecorder(false);
+        }
+    }
+    // WIREFRAME A STRISCE contro linee native: il taglio CUTOUT e le giunzioni.
+    {
+        auto wireShot = [&](int width, const QSize &size) {
+            gl->setCaptureLineWidth(width);
+            gl->beginHiResCapture(size.width(), size.height());
+            const QImage im = gl->getFrameForVideo(size.width(), size.height(), true);
+            gl->setCaptureLineWidth(1);
+            gl->endHiResCapture();
+            return im.convertToFormat(QImage::Format_RGB32);
+        };
+        auto inked = [](const QImage &im, int x, int y) {
+            const QRgb bg = im.pixel(1, 1), p = im.pixel(x, y);
+            return std::abs(qRed(p) - qRed(bg)) + std::abs(qGreen(p) - qGreen(bg)) + std::abs(qBlue(p) - qBlue(bg)) > 30;
+        };
+        const QSize sw = ImageCapture::sizeFor(viewRatio, 3200);
+        // Il taglio dipende da (u,v): le strisce tagliano dove tagliano le linee native, ne'
+        // piu' ne' meno (con (u,v) sbagliati sparivano bande intere). Ogni pixel di una delle
+        // due immagini ha una linea dell'altra a pochi pixel.
+        if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Multi Meshes/Octahedron Bands.json"))) {
+            gl->stopAllTimers();
+            gl->setClocksDrivenByRecorder(true);
+            gl->setGlobalRenderMode(2);
+            wait(500);
+            const QImage native = wireShot(1, sw), strips = wireShot(3, sw);
+            const bool quads = gl->wireframeQuadsActive() && gl->wireframeQuadsEligible();
+            strips.save(m_outDir + QStringLiteral("/image-capture-cutout-strips.png"));
+            auto uncovered = [&](const QImage &a, const QImage &b) {
+                QVector<char> ink(sw.width() * sw.height(), 0);
+                for (int y = 0; y < sw.height(); ++y)
+                    for (int x = 0; x < sw.width(); ++x)
+                        ink[y * sw.width() + x] = inked(b, x, y);
+                QPair<qint64, qint64> n(0, 0);
+                for (int y = 3; y + 3 < sw.height(); ++y)
+                    for (int x = 3; x + 3 < sw.width(); ++x) {
+                        if (!inked(a, x, y)) continue;
+                        ++n.first;
+                        bool near = false;
+                        for (int dy = -3; dy <= 3 && !near; ++dy)
+                            for (int dx = -3; dx <= 3 && !near; ++dx)
+                                near = ink[(y + dy) * sw.width() + x + dx];
+                        if (!near) ++n.second;
+                    }
+                return n;
+            };
+            const QPair<qint64, qint64> extra = uncovered(strips, native), missing = uncovered(native, strips);
+            check(quads && extra.first > 1000 && extra.second < extra.first / 200 && missing.second < missing.first / 200,
+                  QStringLiteral("wireframe con taglio CUTOUT: strisce (%1) e linee native coincidono "
+                                 "(%2 pixel di striscia di troppo, %3 di linea mancanti su %4)")
+                      .arg(quads).arg(extra.second).arg(missing.second).arg(missing.first));
+            gl->setClocksDrivenByRecorder(false);
+        }
+        // Alpha < 1: una linea si miscela una volta sola, anche dove i segmenti si toccano.
+        if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) {
+            gl->stopAllTimers();
+            gl->setClocksDrivenByRecorder(true);
+            gl->setColor(1.0f, 1.0f, 1.0f);
+            gl->setAlpha(0.5f);
+            gl->setGlobalRenderMode(2);
+            wait(500);
+            const QImage im = wireShot(6, sw);
+            im.save(m_outDir + QStringLiteral("/image-capture-wire-alpha.png"));
+            const int bg = qRed(im.pixel(1, 1));
+            const int once = bg + (255 - bg) / 2, twice = bg + (255 - bg) * 3 / 4;
+            const int limit = (once + twice) / 2;
+            qint64 line = 0, denser = 0;
+            for (int y = 0; y < im.height(); ++y)
+                for (int x = 0; x < im.width(); ++x) {
+                    const int r = qRed(im.pixel(x, y));
+                    if (r > bg + 20) ++line;
+                    if (r > limit) ++denser;
+                }
+            check(line > 1000 && denser < line / 20,
+                  QStringLiteral("wireframe con alpha < 1: pixel miscelati due volte %1 su %2 di linea (il 37 per cento senza la passata di profondita')").arg(denser).arg(line));
+            gl->setClocksDrivenByRecorder(false);
+        }
+        if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+        gl->stopAllTimers();
+        gl->setClocksDrivenByRecorder(true);
+        wait(300);
+    }
+    // IL FLUSSO INTERO, col dialogo vero: lo si accetta da un timer dopo averne
+    // fatto uno screenshot, il file va in un percorso di prova.
+    {
+        const QString out = m_outDir + QStringLiteral("/image-capture-flow.png");
+        QFile::remove(out);
+        ImageCapture::setTestSavePath(out);
+        QString dialogPng = m_outDir + QStringLiteral("/image-capture-dialog.png");
+        {   // Il test non deve dipendere da cio' che una prova a mano ha salvato.
+            QSettings st;
+            for (const char *k : { "imagePrintLength", "imagePrintUnit", "imageDpi", "imageSizeMode", "imageLongSide", "imageRatioIndex" })
+                st.remove(QString::fromLatin1(k));
+        }
+        bool sawDialog = false;
+        QString printText;
+        ImageCapture::setTestDialogHandler([&](QDialog *d) {
+            sawDialog = true;
+            d->grab().save(dialogPng);
+            // La misura di stampa (desktop e iPad): 50 cm a 300 dpi sono 5906 pixel.
+            for (QComboBox *c : d->findChildren<QComboBox *>())
+                if (c->count() == 2 && c->itemText(1) == QStringLiteral("Print size")) c->setCurrentIndex(1);
+            QCoreApplication::processEvents();
+            d->grab().save(m_outDir + QStringLiteral("/image-capture-dialog-print.png"));
+            for (QLabel *l : d->findChildren<QLabel *>())
+                if (l->text().contains(QStringLiteral("megapixel"))) printText = l->text();
+            // Si torna ai pixel per lo scatto vero.
+            for (QComboBox *c : d->findChildren<QComboBox *>())
+                if (c->count() == 2 && c->itemText(1) == QStringLiteral("Print size")) c->setCurrentIndex(0);
+            d->accept();
+        });
+        const bool done = ImageCapture::run(gl, m_mw, m_outDir);
+        ImageCapture::setTestSavePath(QString());
+        ImageCapture::setTestDialogHandler(nullptr);
+        const QSize onDisk = QImageReader(out).size();
+        check(printText.contains(QStringLiteral("5906")),
+              QStringLiteral("misura di stampa: 50 cm a 300 dpi -> 5906 pixel (%1)")
+                  .arg(QString(printText).remove(QRegularExpression(QStringLiteral("<[^>]*>"))).left(60)));
+        check(sawDialog && done && QFile::exists(out) && onDisk.isValid() && onDisk.width() > 100,
+              QStringLiteral("flusso intero: dialogo, rendering e PNG salvato (dialogo %1, salvato %2, su disco %3x%4)")
+                  .arg(sawDialog).arg(done).arg(onDisk.width()).arg(onDisk.height()));
+        // A misura di stampa i dpi vanno nel file: 10 cm a 300 dpi.
+        const QString outPrint = m_outDir + QStringLiteral("/image-capture-print.png");
+        ImageCapture::setTestSavePath(outPrint);
+        ImageCapture::setTestDialogHandler([](QDialog *d) {
+            for (QComboBox *c : d->findChildren<QComboBox *>())
+                if (c->count() == 2 && c->itemText(1) == QStringLiteral("Print size")) c->setCurrentIndex(1);
+            for (QDoubleSpinBox *s : d->findChildren<QDoubleSpinBox *>()) s->setValue(10.0);
+            QCoreApplication::processEvents();
+            d->accept();
+        });
+        const bool donePrint = ImageCapture::run(gl, m_mw, m_outDir);
+        ImageCapture::setTestSavePath(QString());
+        ImageCapture::setTestDialogHandler(nullptr);
+        const QImage printed(outPrint);
+        check(donePrint && std::abs(printed.dotsPerMeterX() - 11811) <= 1 && std::abs(printed.dotsPerMeterY() - 11811) <= 1
+                  && printed.width() == 1181,
+              QStringLiteral("misura di stampa nel PNG: %1 punti al metro (300 dpi), %2 pixel di lato")
+                  .arg(printed.dotsPerMeterX()).arg(printed.width()));
+        {
+            QSettings st;
+            for (const char *k : { "imagePrintLength", "imagePrintUnit", "imageDpi", "imageSizeMode", "imageLongSide", "imageRatioIndex" })
+                st.remove(QString::fromLatin1(k));
+        }
+    }
+    gl->setClocksDrivenByRecorder(false);
+}
+
+void ScenarioTest::runVideoFrameScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Video: fotogramma con Screen Upscale e risoluzione fissa =="));
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    gl->stopAllTimers();
+    gl->setClocksDrivenByRecorder(true);
+    wait(500);
+    const double viewAspect = double(gl->width()) / double(std::max(1, gl->height()));
+    auto isBlack = [](const QImage &img, int x, int y) { return (img.pixel(x, y) & 0x00ffffff) == 0; };
+    // Due formati: 16:9 e quasi quadrato. Il fotogramma deve avere la dimensione
+    // chiesta, la vista intera nel mezzo (non a meta' misura: su Retina
+    // grabFramebuffer porta devicePixelRatio 2) e le fasce nere dalla parte in cui
+    // la vista e' piu' stretta del formato.
+    for (const QSize &target : { QSize(1920, 1080), QSize(1200, 1000) }) {
+        const QImage img = gl->getFrameForVideo(target.width(), target.height(), false);
+        const QString label = QStringLiteral("%1x%2").arg(target.width()).arg(target.height());
+        check(img.size() == target && qFuzzyCompare(img.devicePixelRatio(), 1.0),
+              QStringLiteral("%1: dimensione del video, devicePixelRatio 1 (%2x%3, dpr %4)")
+                  .arg(label).arg(img.width()).arg(img.height()).arg(img.devicePixelRatio()));
+        if (img.size() != target) continue;
+        const double targetAspect = double(target.width()) / double(target.height());
+        const int w = img.width(), h = img.height();
+        // La vista intera riempie il lato in cui entra tutta: al centro non e' nero
+        // e, dal lato pieno, arriva ai bordi (con la vista a meta' misura no).
+        check(!isBlack(img, w / 2, h / 2), QStringLiteral("%1: il centro non e' nero").arg(label));
+        if (viewAspect < targetAspect - 0.02) {
+            check(isBlack(img, 2, h / 2) && isBlack(img, w - 3, h / 2)
+                      && !isBlack(img, w / 2, 2) && !isBlack(img, w / 2, h - 3),
+                  QStringLiteral("%1: vista piu' stretta del formato -> fasce nere ai lati, piena in altezza").arg(label));
+        } else if (viewAspect > targetAspect + 0.02) {
+            check(isBlack(img, w / 2, 2) && isBlack(img, w / 2, h - 3)
+                      && !isBlack(img, 2, h / 2) && !isBlack(img, w - 3, h / 2),
+                  QStringLiteral("%1: vista piu' larga del formato -> fasce nere sopra e sotto, piena in larghezza").arg(label));
+        } else {
+            check(!isBlack(img, 2, h / 2) && !isBlack(img, w / 2, 2),
+                  QStringLiteral("%1: stesso formato della vista -> nessuna fascia").arg(label));
+        }
+    }
+    // Risoluzione nativa (target non positivo): nessun adattamento, immagine intera.
+    {
+        const QImage img = gl->getFrameForVideo(-1, -1, false);
+        check(!img.isNull() && !isBlack(img, img.width() / 2, img.height() / 2),
+              QStringLiteral("dimensione nativa: immagine intera (%1x%2)").arg(img.width()).arg(img.height()));
+    }
+    gl->setClocksDrivenByRecorder(false);
+}
+
 void ScenarioTest::runShapeBackgroundScenarios()
 {
     GLWidget *gl = m_mw->ui->glWidget;
@@ -5431,6 +5872,181 @@ void ScenarioTest::runShapeBackgroundScenarios()
             check(m_mw->m_scene.bgColor.name() == defaultBackgroundColor().name(),
                   QStringLiteral("poi una Shape senza colore di sfondo -> grigio di default (%1)")
                       .arg(m_mw->m_scene.bgColor.name()));
+    }
+    // NIENTE DA SALVARE, e la texture dello SFONDO coi SUOI colori. Da una
+    // scena vuota la Shape si scriveva con le equazioni vuote (riaperta, il
+    // Run del load mostrava un popup); dallo sfondo di default la texture si
+    // scriveva col segnaposto "// Texture Preset" (riaperta, il gradiente di
+    // ripiego); e la texture di sfondo prendeva i colori della superficie.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Save: niente da salvare; la texture dello sfondo coi suoi colori =="));
+    Ui::MainWindow *ui = m_mw->ui;
+    auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
+    m_discardOnPrompt = true;
+    m_mw->onNewSceneClicked();
+    m_discardOnPrompt = false;
+    wait(500);
+    const QString emptyShape = m_outDir + QStringLiteral("/empty-shape.json");
+    QFile::remove(emptyShape);
+    m_lastPopup.clear();
+    m_mw->m_presetSerializer->saveSurface(emptyShape);
+    wait(300);
+    check(!QFile::exists(emptyShape) && m_lastPopup.contains(QLatin1String("no surface")),
+          QStringLiteral("scena vuota -> Save Shape rifiutato (%1)").arg(m_lastPopup));
+    check(!ui->radioBorder->isEnabled() && !m_mw->editingBorder(),
+          QStringLiteral("scena vuota (NEW): il radio Border e' spento (nessuna superficie)"));
+    // Stessa regola per Record e Suono: avviso, non il dialogo di salvataggio.
+    {
+        const QString emptyRec = m_outDir + QStringLiteral("/empty-record.json");
+        QFile::remove(emptyRec);
+        m_lastPopup.clear();
+        m_mw->m_presetSerializer->saveMotion(emptyRec);
+        wait(300);
+        check(!QFile::exists(emptyRec) && m_lastPopup.contains(QLatin1String("nothing to save")),
+              QStringLiteral("scena vuota -> Save Record rifiutato (%1)").arg(m_lastPopup));
+        m_lastPopup.clear();
+        m_mw->m_presetSerializer->saveSoundAs(m_outDir, QString());
+        wait(300);
+        check(m_lastPopup.contains(QLatin1String("no sound to save")),
+              QStringLiteral("senza suono -> Save Sound rifiutato (%1)").arg(m_lastPopup));
+    }
+    click(ui->radioBackground);
+    if (!ui->chkBoxTexture->isChecked()) click(ui->chkBoxTexture);   // lo sfondo di default
+    const QString defaultBg = m_outDir + QStringLiteral("/default-background.json");
+    QFile::remove(defaultBg);
+    m_lastPopup.clear();
+    m_mw->m_presetSerializer->saveTexture(defaultBg);
+    wait(300);
+    check(!QFile::exists(defaultBg) && m_lastPopup.contains(QLatin1String("no background texture")),
+          QStringLiteral("sfondo di default -> Save Texture rifiutato (%1)").arg(m_lastPopup));
+    if (selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json"))) {
+        const QColor c1(QStringLiteral("#aa3311")), c2(QStringLiteral("#113355"));
+        m_mw->m_scene.bgTexColor1 = c1;
+        m_mw->m_scene.bgTexColor2 = c2;
+        gl->setBackgroundTexColors(c1, c2);
+        const QString bgPath = m_outDir + QStringLiteral("/background-mandelbrot.json");
+        QFile::remove(bgPath);
+        m_acceptNextDialog = true;   // il messaggio della texture
+        m_mw->m_presetSerializer->saveTexture(bgPath);
+        m_acceptNextDialog = false;
+        wait(300);
+        QFile f(bgPath);
+        const QJsonObject json = f.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(f.readAll()).object() : QJsonObject();
+        f.close();
+        check(json.value(QStringLiteral("color1")).toString() == c1.name()
+                  && json.value(QStringLiteral("color2")).toString() == c2.name(),
+              QStringLiteral("texture di sfondo salvata coi colori dello sfondo (%1, %2)")
+                  .arg(json.value(QStringLiteral("color1")).toString(), json.value(QStringLiteral("color2")).toString()));
+        // Riaperta sullo sfondo: gli stessi colori.
+        m_mw->m_scene.bgTexColor1 = Qt::white;
+        LibraryManager lm;
+        const LibraryItem item = lm.parseJson(bgPath, LibraryType::Texture);
+        if (!item.name.isEmpty()) m_mw->applyLibraryTextureToBackground(item);
+        wait(300);
+        check(m_mw->m_scene.bgTexColor1.name() == c1.name() && m_mw->m_scene.bgTexColor2.name() == c2.name(),
+              QStringLiteral("riaperta sullo sfondo: gli stessi colori (%1, %2)")
+                  .arg(m_mw->m_scene.bgTexColor1.name(), m_mw->m_scene.bgTexColor2.name()));
+    }
+    click(ui->radioSurface);
+
+    // Il clic su un suono GIA' in scena lo toglie; un altro clic lo ricarica.
+    {
+        const QString kAlps = QStringLiteral("sounds/procedural/Alps.json");
+        m_discardOnPrompt = true;
+        const bool first = selectSound(kAlps);
+        const bool loaded = !m_mw->m_scene.soundScriptText.trimmed().isEmpty();
+        selectSound(kAlps);   // secondo clic: lo toglie
+        const bool removed = m_mw->m_scene.soundScriptText.trimmed().isEmpty()
+                             && m_mw->m_scene.soundLibName.isEmpty()
+                             && !(m_mw->m_audioController && m_mw->m_audioController->isPlaying());
+        selectSound(kAlps);   // terzo clic: lo ricarica
+        const bool again = !m_mw->m_scene.soundScriptText.trimmed().isEmpty();
+        m_discardOnPrompt = false;
+        if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+        if (first)
+            check(loaded && removed && again,
+                  QStringLiteral("suono dalla Library: il secondo clic lo toglie, il terzo lo ricarica "
+                                 "(caricato %1, tolto %2, ricaricato %3)").arg(loaded).arg(removed).arg(again));
+    }
+
+    // RECORD SENZA SUPERFICIE (salvato da NEW col solo sfondo o il solo suono):
+    // si apre come la scena vuota di NEW, da qualunque scena. Il Run del load
+    // validava equazioni vuote: popup "exactly 2 or 3 valid spatial variables",
+    // controlli accesi e, in parametrico, una griglia collassata nell'origine.
+    {
+        m_lines.append(QString());
+        m_lines.append(QStringLiteral("== Record senza superficie: si apre come la scena vuota di NEW =="));
+        const QString kBitorus = QStringLiteral("surfaces/Implicit/3D/Bitorus.json");
+        auto modeTab = [this, ui](int index) {
+            m_discardOnPrompt = true;
+            ui->tabModeSelector->setCurrentIndex(index);
+            wait(1200);
+            m_discardOnPrompt = false;
+        };
+        auto background = [&]() {
+            click(ui->radioBackground);
+            if (!ui->chkBoxTexture->isChecked()) click(ui->chkBoxTexture);
+            selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json"));
+            wait(300);
+            click(ui->radioSurface);
+        };
+        auto saveRecord = [this](const QString &name) {
+            const QString path = m_outDir + QLatin1Char('/') + name;
+            QFile::remove(path);
+            m_acceptNextDialog = true;   // il dialogo dell'hint
+            m_mw->m_presetSerializer->saveMotion(path);
+            m_acceptNextDialog = false;
+            wait(300);
+            check(QFile::exists(path), QStringLiteral("scena vuota -> Save Record: ") + name);
+            return path;
+        };
+        auto reopen = [&](const QString &path, const QString &what, const QString &before,
+                          const std::function<bool()> &kept) {
+            m_discardOnPrompt = true;
+            const bool ready = loadSurface(before);
+            m_discardOnPrompt = false;
+            if (!ready || !QFile::exists(path)) return;
+            LibraryManager lm;
+            const LibraryItem item = lm.parseJson(path, LibraryType::Motion);
+            const int popups = m_popupsClosed;
+            m_lastPopup.clear();
+            m_mw->applyMotionExample(item);
+            wait(1000);
+            const bool noMesh = m_mw->implicitMode() || gl->getEngine()->getIndices().empty();
+            check(m_popupsClosed == popups && m_mw->isSceneEmpty() && noMesh && m_mw->m_emptySceneGated && kept(),
+                  QStringLiteral("%1, aperto dopo %2 -> scena vuota senza popup (popup %3 [%4], vuota %5, "
+                                 "griglia vuota %6, controlli spenti %7, contenuto %8)")
+                      .arg(what, before).arg(m_popupsClosed - popups).arg(m_lastPopup)
+                      .arg(onOff(m_mw->isSceneEmpty()), onOff(noMesh), onOff(m_mw->m_emptySceneGated), onOff(kept())));
+            if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+        };
+        auto bgKept = [gl]() { return gl->isBackgroundTextureEnabled(); };
+        auto soundKept = [this]() { return !m_mw->m_scene.soundScriptText.trimmed().isEmpty(); };
+
+        modeTab(0);
+        pressNew();
+        background();
+        const QString bgRecord = saveRecord(QStringLiteral("no-surface-background.json"));
+        reopen(bgRecord, QStringLiteral("record col solo sfondo"), kTorus, bgKept);
+        reopen(bgRecord, QStringLiteral("record col solo sfondo"), kBitorus, bgKept);
+
+        modeTab(0);
+        pressNew();
+        selectSound(QStringLiteral("sounds/procedural/Alps.json"));
+        if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+        m_popupAnswer = QStringLiteral("Keep the sound");   // selectSound lo lascia fermo
+        const QString soundRecord = saveRecord(QStringLiteral("no-surface-sound.json"));
+        m_popupAnswer.clear();
+        reopen(soundRecord, QStringLiteral("record col solo suono"), kTorus, soundKept);
+
+        modeTab(1);
+        pressNew();
+        background();
+        const QString bgRecordRM = saveRecord(QStringLiteral("no-surface-background-rm.json"));
+        reopen(bgRecordRM, QStringLiteral("record col solo sfondo, Ray Marching"), kTorus, bgKept);
+
+        modeTab(0);
+        pressNew();
     }
 }
 
@@ -5517,7 +6133,22 @@ void ScenarioTest::runResetButtonScenarios()
     }
 
     if (loadRecord(kAnim)) {
-        // Annulla: niente cambia, l'animazione prosegue.
+        // Camera all'apertura: View non farebbe nulla, quindi niente domanda e
+        // i moti ripartono (t dall'origine).
+        {
+            const int popups = m_popupsClosed;
+            wait(400);
+            const float gBefore = gl->clockTimes().geom;
+            m_mw->onResetClicked();
+            const float gAfter = gl->clockTimes().geom;
+            check(m_popupsClosed == popups && gBefore > 0.2f && gAfter < 0.2f,
+                  QStringLiteral("record animato, camera all'apertura -> Motions senza popup (t %1 -> %2)")
+                      .arg(gBefore).arg(gAfter));
+        }
+        // Annulla: niente cambia, l'animazione prosegue. Con la camera mossa,
+        // perche' View abbia qualcosa da fare e il popup compaia.
+        gl->zoomCamera(0.5f);
+        wait(300);   // l'animazione va avanti: anche i moti hanno da rimettere
         const int popups = m_popupsClosed;
         const float g0 = gl->clockTimes().geom;
         m_mw->onResetClicked();  wait(300);
@@ -5540,8 +6171,10 @@ void ScenarioTest::runResetButtonScenarios()
         checkDirty(QStringLiteral("View dopo zoom e FOV"), false, false, false);
 
         // Moti in corso: t riparte dall'origine e prosegue.
+        // (Camera all'apertura dopo View: nessun popup, i moti direttamente.)
         m_popupAnswer = QStringLiteral("Motions");
         m_mw->onResetClicked();
+        m_popupAnswer.clear();
         const float g2 = gl->clockTimes().geom;
         wait(500);
         const float g3 = gl->clockTimes().geom;
@@ -5556,24 +6189,37 @@ void ScenarioTest::runResetButtonScenarios()
         m_mw->m_btnStart->click();  wait(300);
         m_popupAnswer = QStringLiteral("Both");
         m_mw->onResetClicked();  wait(500);
+        m_popupAnswer.clear();
         const GLWidget::ClockTimes c = gl->clockTimes();
         check(c.geom == o && c.tex == o && c.bg == o && !gl->isSurfaceAnimating()
                   && m_mw->m_btnStart->text() == QLatin1String("START"),
               QStringLiteral("Both, master fermo -> orologi all'origine e fermi (%1, %2, %3; master %4)")
                   .arg(c.geom).arg(c.tex).arg(c.bg).arg(m_mw->m_btnStart->text()));
+        // Moti gia' all'inizio (fermi), resta solo la vista: niente popup, View.
+        {
+            gl->zoomCamera(1.0f);
+            const int popups = m_popupsClosed;
+            m_mw->onResetClicked();  wait(300);
+            const GLWidget::ClockTimes c2 = gl->clockTimes();
+            check(m_popupsClosed == popups && sameCamera() && c2.geom == o,
+                  QStringLiteral("moti gia' all'inizio, camera mossa -> View senza popup (popup %1, t %2)")
+                      .arg(m_popupsClosed - popups).arg(c2.geom));
+        }
         m_mw->m_btnStart->click();  wait(300);
     }
 
     // Rotazioni: Motions le rimette alla posa d'apertura e il GO prosegue da li'.
     if (loadRecord(kRot)) {
+        // La camera e' all'apertura (gira la superficie): View non farebbe
+        // nulla, il RESET rimette i moti senza chiedere.
         const bool turned = !sameOrientation();
-        m_popupAnswer = QStringLiteral("Motions");
+        const int popups = m_popupsClosed;
         m_mw->onResetClicked();
         const bool back = sameOrientation();
         wait(500);
-        check(turned && back && gl->isAnimating() && !sameOrientation(),
-              QStringLiteral("rotazioni -> Motions le rimette alla posa d'apertura, il GO prosegue "
-                             "(girato %1, rimesso %2, gira %3)")
+        check(m_popupsClosed == popups && turned && back && gl->isAnimating() && !sameOrientation(),
+              QStringLiteral("rotazioni, camera all'apertura -> Motions senza popup: posa d'apertura, il GO "
+                             "prosegue (girato %1, rimesso %2, gira %3)")
                   .arg(turned).arg(back).arg(gl->isAnimating()));
     }
 
@@ -5591,51 +6237,37 @@ void ScenarioTest::runResetButtonScenarios()
         check(running && kept, QStringLiteral("path in corsa, View -> la camera resta al path (in corsa %1, ferma %2)")
                                    .arg(running).arg(kept));
 
-        // In corsa, il popup: View e Both spenti (la vista segue il path).
-        m_popupAnswer = QStringLiteral("View");
-        m_mw->onResetClicked();  wait(200);
-        QStringList disabled = m_lastPopupDisabled;
-        disabled.sort();
-        check(disabled == QStringList({ QStringLiteral("Both"), QStringLiteral("View") })
-                  && m_mw->pathRunning(CameraPaths::Path3D),
-              QStringLiteral("path in corsa, popup del RESET -> View e Both spenti (spenti: %1)")
-                  .arg(disabled.join(QStringLiteral(", "))));
-
-        // In corsa, Motions: riparte da capo e prosegue.
+        // La camera e' del path, in corsa come da fermo: il RESET fa i moti
+        // senza popup (decisione dell'utente, 2026-10-21). In corsa: riparte
+        // da capo e prosegue.
         wait(300);
-        m_popupAnswer = QStringLiteral("Motions");
+        int popups = m_popupsClosed;
+        m_lastPopup.clear();
         m_mw->onResetClicked();
         const bool runStart = atStart() && m_mw->m_paths->time(CameraPaths::Path3D) == 0.0f;
         wait(300);
-        check(runStart && m_mw->pathRunning(CameraPaths::Path3D) && !atStart(),
-              QStringLiteral("path in corsa, Motions -> camera al punto di partenza, poi prosegue (%1)")
+        check(m_lastPopup.isEmpty() && m_popupsClosed == popups && runStart
+                  && m_mw->pathRunning(CameraPaths::Path3D) && !atStart(),
+              QStringLiteral("path in corsa, RESET -> nessun popup, camera al punto di partenza, poi prosegue (%1)")
                   .arg(runStart));
 
-        // Fermo, Motions: camera al punto di partenza, t = 0, resta fermo; al
-        // Departure riparte dall'inizio.
+        // Fermo: camera al punto di partenza, t = 0, resta fermo; al Departure
+        // riparte dall'inizio, senza salti.
         wait(300);
         ui->btnDeparture3D->click();  wait(200);
         const float t0 = m_mw->m_paths->time(CameraPaths::Path3D);
         const bool movedAway = !atStart();
-        m_popupAnswer = QStringLiteral("Motions");
+        m_lastPopup.clear();
         m_mw->onResetClicked();  wait(200);
         const float t1 = m_mw->m_paths->time(CameraPaths::Path3D);
         const bool still = !m_mw->pathRunning(CameraPaths::Path3D);
-        const bool back = atStart();
+        const bool back = atStart() && gl->isPathFollowing();
         ui->btnDeparture3D->click();  wait(300);
         const float t2 = m_mw->m_paths->time(CameraPaths::Path3D);
-        check(t0 > 0.0f && movedAway && t1 == 0.0f && still && back && t2 < t0,
-              QStringLiteral("path fermo, Motions -> t %1 -> %2, camera al punto di partenza (%3), resta fermo; "
-                             "al Departure riparte dall'inizio (%4)")
+        check(m_lastPopup.isEmpty() && t0 > 0.0f && movedAway && t1 == 0.0f && still && back && t2 < t0,
+              QStringLiteral("path fermo, RESET -> nessun popup, t %1 -> %2, camera al punto di partenza (%3), "
+                             "resta fermo; al Departure riparte dall'inizio (%4)")
                   .arg(t0).arg(t1).arg(back).arg(t2));
-
-        // Fermo, Both: anche qui la camera e' del path, al punto di partenza.
-        wait(300);
-        ui->btnDeparture3D->click();  wait(200);
-        m_popupAnswer = QStringLiteral("Both");
-        m_mw->onResetClicked();  wait(200);
-        check(atStart() && gl->isPathFollowing() && !m_mw->pathRunning(CameraPaths::Path3D),
-              QStringLiteral("path fermo, Both -> camera al punto di partenza del path, fermo"));
     }
 
     // Fasce: anche gli orologi per-mesh tornano all'origine.
@@ -5661,6 +6293,62 @@ void ScenarioTest::runResetButtonScenarios()
               QStringLiteral("flusso geodetico -> geoTime %1 -> %2, poi %3 (%4)")
                   .arg(before).arg(after).arg(m_mw->m_geoTime)
                   .arg(flowing ? QStringLiteral("in moto") : QStringLiteral("fermo")));
+    }
+
+    // SCENA VUOTA DI NEW, nei due modi: START, RESET e Projection lo dicono con
+    // lo stesso popup. La proiezione non cambia e la scena resta pulita (prima
+    // cambiava, e al preset successivo usciva "vuoi salvare?"); in Ray Marching
+    // START diceva che la superficie a schermo era la precedente.
+    for (int mode = 0; mode < 2; ++mode) {
+        m_discardOnPrompt = true;
+        ui->tabModeSelector->setCurrentIndex(mode);
+        wait(1500);
+        m_discardOnPrompt = false;
+        pressNew();
+        auto notice = [this](QAbstractButton *b, const char *what) {
+            m_lastPopup.clear();
+            b->click();
+            wait(400);
+            return m_lastPopup.contains(QLatin1String(what));
+        };
+        const int projection = int(gl->projectionMode);
+        const bool start = notice(m_mw->m_btnStart, "Nothing to start");
+        const bool reset = notice(m_mw->m_btnResetView, "Nothing to reset");
+        const bool project = notice(m_mw->m_btnProjection, "Nothing to project");
+        const QStringList unsaved = m_mw->unsavedKeys();
+        check(start && reset && project && int(gl->projectionMode) == projection && unsaved.isEmpty()
+                  && m_mw->m_btnStart->text() == QLatin1String("START"),
+              QStringLiteral("%1, scena vuota di NEW -> START %2, RESET %3, Projection %4 col popup; "
+                             "proiezione invariata, niente da salvare%5")
+                  .arg(mode == 0 ? QStringLiteral("Parametric") : QStringLiteral("Ray Marching"))
+                  .arg(start).arg(reset).arg(project)
+                  .arg(unsaved.isEmpty() ? QString() : QStringLiteral(" (") + unsaved.join(QStringLiteral(", ")) + QLatin1Char(')')));
+    }
+    m_discardOnPrompt = true;
+    ui->tabModeSelector->setCurrentIndex(0);
+    wait(1500);
+    m_discardOnPrompt = false;
+    m_popupAnswer.clear();   // una risposta senza popup non deve restare in sospeso
+    m_popupAnswer.clear();   // una risposta senza popup non deve restare in sospeso
+
+    // RECORD COL PATH, le rotazioni al suo posto, RESET View: la direzione
+    // d'apertura, cioe' quella del path al tempo 0. La posa fotografata aveva la
+    // posizione del path con la direzione salvata nel file (Gyroid Race: yaw
+    // 121,6 invece di -90).
+    if (loadRecord(QStringLiteral("records/Paths/Implicit/3D/Gyroid Race.json"))) {
+        if (m_mw->pathRunning(CameraPaths::Path3D)) m_mw->onDeparture3DClicked();
+        m_mw->m_paths->applyCameraAt(CameraPaths::Path3D, 0.0f);
+        const float yaw = gl->getEffectiveCameraYaw(), pitch = gl->getEffectiveCameraPitch();
+        gl->setSpinSpeed(0.2f);
+        m_mw->onStopClicked();   // GO: le rotazioni subentrano al path
+        wait(400);
+        m_mw->onStopClicked();
+        m_mw->resetView();
+        wait(400);
+        const float gotYaw = gl->getEffectiveCameraYaw(), gotPitch = gl->getEffectiveCameraPitch();
+        check(std::abs(gotYaw - yaw) < 2.0f && std::abs(gotPitch - pitch) < 2.0f,
+              QStringLiteral("record col path, GO, RESET View -> direzione d'apertura (yaw %1 contro %2, pitch %3 contro %4)")
+                  .arg(gotYaw).arg(yaw).arg(gotPitch).arg(pitch));
     }
 }
 
@@ -5745,6 +6433,18 @@ void ScenarioTest::runResetSceneScenarios()
     check(m_mw->m_scene.steps == paramSteps,
           QStringLiteral("riclic e NEW in Ray Marching, poi Parametric -> Steps %1 (attesi %2)")
               .arg(m_mw->m_scene.steps).arg(paramSteps));
+
+    // USCITA DALLA SCENA VUOTA con una Shape parametrica, poi la linguetta Ray
+    // Marching: i radio del marcher accesi. Li accende e spegne solo il blocco
+    // della scena vuota, che all'uscita guardava la modalita' di quel momento.
+    pressNew();
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) {
+        modeTab(1);
+        check(ui->radioMarcherFast->isEnabled() && ui->radioMarcherPrecise->isEnabled(),
+              QStringLiteral("NEW, Shape parametrica, linguetta Ray Marching -> radio del marcher accesi (Fast %1, Precise %2)")
+                  .arg(onOff(ui->radioMarcherFast->isEnabled()), onOff(ui->radioMarcherPrecise->isEnabled())));
+        modeTab(0);
+    }
 }
 
 void ScenarioTest::runMasterRecordsScenarios()
@@ -5922,6 +6622,51 @@ void ScenarioTest::runLibraryPasteScenarios()
     m_mw->m_currentRecordPath = savedRecordPath;
 
     m_mw->m_cutFilePaths.clear();
+
+    // L'INCOLLA DA TASTIERA, senza cartella esplicita: accanto alla voce
+    // selezionata, o nella radice del ramo del file per POSIZIONE. Si guarda
+    // solo la destinazione: i percorsi non devono esistere e la libreria non si
+    // tocca. Prima il ramo si indovinava cercando "record", "motion", "sound"
+    // nel percorso, e accanto a un suono non si incollava.
+    Ui::MainWindow *ui = m_mw->ui;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Library: dove va l'Incolla da tastiera =="));
+    const QString shapes = LibraryFolders::branchDir(LibraryFolders::Branch::Surfaces);
+    const QString records = LibraryFolders::branchDir(LibraryFolders::Branch::Records);
+    const QString textures = LibraryFolders::branchDir(LibraryFolders::Branch::Textures);
+    ui->tabWidget->setCurrentWidget(ui->Surface);
+    ui->treeSurfaces->clearSelection();
+    wait(100);
+    auto destOf = [this](const QString &copied) {
+        m_mw->m_cutFilePaths = { copied };
+        const QString dest = m_mw->m_fileOps->pasteDestination();
+        m_mw->m_cutFilePaths.clear();
+        return dest;
+    };
+    QString dest = destOf(shapes + QStringLiteral("/Sound Records/a.json"));
+    check(dest == shapes, QStringLiteral("Shape in una cartella col nome di un altro ramo -> radice delle Shapes (%1)").arg(dest));
+    dest = destOf(records + QStringLiteral("/Sounds/a.json"));
+    check(dest == records, QStringLiteral("Record in una cartella Sounds -> radice dei Record (%1)").arg(dest));
+    dest = destOf(textures + QStringLiteral("/Images"));
+    check(dest == textures, QStringLiteral("cartella delle Texture -> radice delle Texture (%1)").arg(dest));
+
+    QTreeWidgetItem *sound = nullptr;
+    for (QTreeWidgetItemIterator it(ui->treeSounds); *it && !sound; ++it)
+        if ((*it)->parent() && (*it)->data(0, Qt::UserRole + 3).isValid()) sound = *it;
+    check(sound != nullptr, QStringLiteral("un suono dentro una cartella della Library"));
+    if (sound) {
+        const QString soundDir = QFileInfo(m_mw->m_libraryManager.getSound(sound->data(0, Qt::UserRole + 3).toInt()).filePath).absolutePath();
+        QWidget *soundsTab = nullptr;
+        for (int i = 0; i < ui->tabWidget->count() && !soundsTab; ++i)
+            if (ui->tabWidget->widget(i)->isAncestorOf(ui->treeSounds)) soundsTab = ui->tabWidget->widget(i);
+        ui->tabWidget->setCurrentWidget(soundsTab);
+        ui->treeSounds->setCurrentItem(sound);
+        wait(100);
+        dest = destOf(shapes + QStringLiteral("/a.json"));
+        check(dest == soundDir, QStringLiteral("con un suono selezionato -> accanto al suono (%1)").arg(dest));
+        ui->treeSounds->clearSelection();
+        ui->tabWidget->setCurrentWidget(ui->Surface);
+    }
 }
 
 void ScenarioTest::runLibraryFolderScenarios()
