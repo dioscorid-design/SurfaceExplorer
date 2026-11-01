@@ -225,7 +225,7 @@ bool MainWindow::confirmLibraryClick(QTreeWidget *src, QTreeWidgetItem *item)
         // sempre l'item giusto.)
         QTreeWidgetItem *previous = m_lastLoadedLibraryItem;
 
-        if (!confirmDiscardUnsaved(ScopeScene)) {
+        if (refuseEnvironmentForScene(item) || !confirmDiscardUnsaved(ScopeScene)) {
             bool b = src->blockSignals(true);
             src->clearSelection();
             // Il preset in vigore puo' stare in un ALTRO albero (una
@@ -597,7 +597,10 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // La conferma "vuoi salvare?" e' gia' stata chiesta in cima alla
             // funzione, prima di toccare qualunque stato.
             lastSurfacePath = data.filePath;
+            // A scena avviata cambia l'ambiente: la scena resta 3D o 4D.
+            const SceneSpace space = m_sceneSpace;
             applySurfaceExample(data);
+            setSceneSpace(space);
         }
         return;
     }
@@ -675,7 +678,9 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // (pauseMotion, stopAll, path fermati, tempo dei path azzerato).
             // La conferma "vuoi salvare?" e' gia' stata chiesta in cima alla
             // funzione, prima di toccare qualunque stato.
+            const SceneSpace space = m_sceneSpace;   // come per le Shape
             applyMotionExample(data);
+            setSceneSpace(space);
         }
         return;
     }

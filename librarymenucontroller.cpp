@@ -188,7 +188,8 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                 const QString path = m_mainWindow->m_libraryManager.itemFilePath(refItem);
 
                 // 2.0: la Shape come OGGETTO della scena a schermo, che resta.
-                if (branch == LibraryFolders::Branch::Surfaces) {
+                // Solo a scena avviata: si comincia dal tasto Scene.
+                if (branch == LibraryFolders::Branch::Surfaces && m_mainWindow->sceneStarted()) {
                     contextMenu->addAction("Add to Scene", m_mainWindow, [this, path, executeAction](){
                         executeAction([this, path](){ m_mainWindow->addShapeToScene(path); });
                     });

@@ -278,6 +278,8 @@ private:
     void runSceneResetScenarios();
     // 2.0: la timeline, primo passo (finestre di comparsa).
     void runSceneTimelineScenarios();
+    // 2.0: il tasto Scene, la scelta 3D/4D e quando la scena resta o finisce.
+    void runSceneSpaceScenarios();
     void runScenePathScenarios();
     void runSceneSeekScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run

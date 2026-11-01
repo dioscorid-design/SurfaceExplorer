@@ -493,10 +493,89 @@ void MainWindow::updateRotation4DControls()
     updateViewButtonsEnabled();
 }
 
-bool MainWindow::sceneIs4D() const
+bool MainWindow::environmentHasP() const
 {
     const ObjectState &env = environmentState();
     return !env.implicitMode && SurfaceEngine::isFourthCoordinate(env.tubesTab ? env.tube.p : env.eq.p);
+}
+
+bool MainWindow::sceneIs4D() const
+{
+    return m_sceneSpace == SceneSpace::None ? environmentHasP() : m_sceneSpace == SceneSpace::Space4D;
+}
+
+bool MainWindow::sceneStarted() const
+{
+    return m_sceneSpace != SceneSpace::None || (ui->glWidget && ui->glWidget->objectCount() > 1);
+}
+
+void MainWindow::setSceneSpace(SceneSpace space)
+{
+    m_sceneSpace = space;
+    refreshSceneSlot();
+}
+
+// La P di una Shape o di un record: come environmentHasP, dal file.
+static bool itemHasP(const LibraryItem &d)
+{
+    return !d.isImplicitMode && SurfaceEngine::isFourthCoordinate(d.isTube ? d.tubeP : d.w);
+}
+
+// Perche' un ambiente non puo' stare in una scena; vuoto se puo'.
+static QString environmentRefusal(bool implicit, bool hasP, bool scene4D)
+{
+    if (scene4D && implicit)
+        return QStringLiteral("Ray marching surfaces can only be the environment of a 3D scene.");
+    if (!scene4D && hasP)
+        return QStringLiteral("Surfaces with a P coordinate can only be the environment of a 4D scene.");
+    return QString();
+}
+
+void MainWindow::showSceneSpaceMenu()
+{
+    QMenu menu(this);
+    connect(menu.addAction(QStringLiteral("3D")), &QAction::triggered, this,
+            [this]() { startScene(SceneSpace::Space3D); });
+    connect(menu.addAction(QStringLiteral("4D")), &QAction::triggered, this,
+            [this]() { startScene(SceneSpace::Space4D); });
+    menu.exec(m_btnScene->mapToGlobal(QPoint(0, 0)) - QPoint(0, menu.sizeHint().height()));
+}
+
+void MainWindow::startScene(SceneSpace space)
+{
+    const bool scene4D = space == SceneSpace::Space4D;
+    if (!isSceneEmpty()) {
+        const QString refusal = environmentRefusal(implicitMode(), environmentHasP(), scene4D);
+        if (!refusal.isEmpty()) {
+            InputValidator::showSceneNotice(this, refusal,
+                QStringLiteral("To build this scene from scratch, press NEW first."));
+            return;
+        }
+    } else if (scene4D && implicitMode()) {
+        // Gli stessi due gesti a mano: la linguetta parametrica, poi NEW.
+        if (!confirmDiscardUnsaved(ScopeScene)) return;
+        ui->tabModeSelector->setCurrentIndex(0);
+        resetScene(0, /*loadDefaultSurface=*/false);
+        updateMeshScopeEnabled();
+    }
+    setSceneSpace(space);
+    // Il selettore ora si vede anche con il solo ambiente, e al primo avvio
+    // nessun load ha ancora scritto il suo testo e l'elenco che apre il suo menu.
+    refreshObjectsUi();
+}
+
+bool MainWindow::refuseEnvironmentForScene(QTreeWidgetItem *item)
+{
+    if (m_sceneSpace == SceneSpace::None) return false;
+    const QString path = item->toolTip(0);
+    const LibraryItem *d = m_libraryManager.getSurfaceByPath(path);
+    if (!d) d = m_libraryManager.getMotionByPath(path);
+    if (!d) return false;
+    const QString refusal = environmentRefusal(d->isImplicitMode, itemHasP(*d),
+                                               m_sceneSpace == SceneSpace::Space4D);
+    if (refusal.isEmpty()) return false;
+    InputValidator::showSceneNotice(this, refusal, QStringLiteral("Press NEW to leave this scene."));
+    return true;
 }
 
 // ADD TO SCENE (menu delle Shapes): la Shape come oggetto della scena a
@@ -506,7 +585,7 @@ void MainWindow::addShapeToScene(const QString &shapePath)
     const LibraryItem *d = m_libraryManager.getSurfaceByPath(shapePath);
     if (!d || d->name.isEmpty()) return;
     const bool crossSection = d->isImplicitMode && d->usesCrossSection;
-    const bool object4D = !d->isImplicitMode && SurfaceEngine::isFourthCoordinate(d->isTube ? d->tubeP : d->w);
+    const bool object4D = itemHasP(*d);
     if (sceneIs4D() && crossSection) {
         QMessageBox::information(this, QStringLiteral("Add to Scene"),
             QStringLiteral("This scene is 4D (its environment has a P coordinate): cross sections "
@@ -706,6 +785,11 @@ bool MainWindow::loadSceneFile(const QString &path)
     // dell'ambiente (SceneCleanGuard), prima che un suo path muova la camera:
     // rifotografarla qui, a path gia' partito, mescolava la posizione del path
     // con la direzione salvata e il RESET View guardava fuori dagli oggetti.
+    // Una scena aperta da file e' una scena avviata: 3D o 4D lo dice il file, e
+    // quelli di prima, senza la chiave, lo deducono dall'ambiente.
+    const QString space = root.value(QStringLiteral("space")).toString();
+    const bool scene4D = space.isEmpty() ? environmentHasP() : space == QLatin1String("4D");
+    setSceneSpace(scene4D ? SceneSpace::Space4D : SceneSpace::Space3D);
     refreshObjectsUi();
     // Il messaggio della scena: ambiente e oggetti, ciascuno col suo nome.
     showComposedObjectsHint();
@@ -732,7 +816,9 @@ void MainWindow::markWholeSceneClean()
 void MainWindow::resetToSingleObject()
 {
     GLWidget *gl = ui->glWidget;
-    if (gl->objectCount() <= 1 || m_loadingAsObject) return;
+    if (m_loadingAsObject) return;
+    setSceneSpace(SceneSpace::None);
+    if (gl->objectCount() <= 1) return;
     selectSceneObject(0);
     while (gl->objectCount() > 1) removeSceneObject(gl->objectCount() - 1);
     // Un oggetto solo: niente da ricordare degli altri.
@@ -863,8 +949,8 @@ void MainWindow::setupObjectsDock()
     auto *w = new QWidget(m_dockObjects);
     auto *lay = new QVBoxLayout(w);
 
-    auto *help = new QLabel(QStringLiteral("The environment is what you open from the Library "
-                                           "(a Shape or a Record), or nothing after NEW. "
+    auto *help = new QLabel(QStringLiteral("Press Scene in the status bar and choose 3D or 4D: what is on "
+                                           "screen becomes the environment. "
                                            "Add objects to it: right-click a Shape, then Add to Scene."), w);
     help->setWordWrap(true);
     lay->addWidget(help);
@@ -1073,7 +1159,6 @@ void MainWindow::refreshObjectsUi()
     m_btnObjectDuplicate->setEnabled(selected > 0);
     m_btnObjectRemove->setEnabled(selected > 0);
     if (m_btnObjectSelector) {
-        m_btnObjectSelector->setVisible(n > 1);
         const QString name = QFontMetrics(m_btnObjectSelector->font())
                                  .elidedText(nameOf(selected), Qt::ElideRight, 110);
         // Niente simboli fuori dal font (era "▾"): il glifo di ripiego e' piu'
@@ -1250,16 +1335,25 @@ bool MainWindow::sceneTimeCanRun() const
            || (ui->glWidget && ui->glWidget->objectHasRotationSpeed(0));
 }
 
-// T NELLA BARRA DI STATO (in una scena con la camera su un path o con le
-// rotazioni dell'ambiente) e il cursore del dock: aggiornati 5 volte al
-// secondo, sempre (path e rotazioni partono e si fermano da tanti punti).
+void MainWindow::refreshSceneSlot()
+{
+    if (!m_btnScene || !m_sceneTimeLabel || !m_btnObjectSelector) return;
+    const bool started = sceneStarted();
+    m_btnScene->setVisible(!started);
+    m_sceneSpaceLabel->setVisible(started);
+    if (started) m_sceneSpaceLabel->setText(sceneIs4D() ? QStringLiteral("4D") : QStringLiteral("3D"));
+    m_btnObjectSelector->setVisible(started);
+    m_sceneTimeLabel->setVisible(started);
+}
+
+// T NELLA BARRA DI STATO (a scena avviata) e il cursore del dock: aggiornati 5
+// volte al secondo, sempre (path e rotazioni partono e si fermano da tanti
+// punti).
 void MainWindow::refreshSceneTimeLabel()
 {
     if (!m_sceneTimeLabel || !ui->glWidget) return;
-    const bool show = ui->glWidget->objectCount() > 1
-                      && (cameraPath().has_value() || ui->glWidget->objectHasRotationSpeed(0));
-    m_sceneTimeLabel->setVisible(show);
-    if (show)
+    refreshSceneSlot();
+    if (sceneStarted())
         m_sceneTimeLabel->setText(QStringLiteral("T %1 s").arg(double(ui->glWidget->sceneTime()), 0, 'f', 1));
     refreshSceneTimeSlider();
     if (!m_sceneTimeLabelTimer) {

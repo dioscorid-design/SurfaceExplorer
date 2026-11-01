@@ -36,6 +36,8 @@ public:
     // agire e lo dicono (nothingTo = "Nothing to start", ...). Information:
     // non e' un errore, e non conta per l'esito del Run.
     static void showEmptySceneNotice(QWidget* parent, const QString& nothingTo);
+    // Un ambiente che non sta nella scena 3D o 4D: perche' e come uscirne.
+    static void showSceneNotice(QWidget* parent, const QString& reason, const QString& way);
     static bool validateImplicitScriptContext(QWidget* parent, const QString& texCode);
 
     // Controlli per la modalità Parametrica

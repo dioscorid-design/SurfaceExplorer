@@ -1497,14 +1497,25 @@ void MainWindow::setupStatusBar()
     ui->statusbar->addWidget(m_btnNew);
     ui->statusbar->addWidget(m_btnResetView);
     ui->statusbar->addWidget(m_btnProjection);
-    // 2.0: il selettore dell'oggetto, solo con piu' oggetti (refreshObjectsUi).
+    // 2.0: lo spazio della scena, sempre occupato: il tasto Scene o, a scena
+    // avviata, 3D/4D, selettore e T (refreshSceneSlot).
+    m_btnScene = new QPushButton("Scene", this);
+    m_btnScene->setFlat(true);
+    m_btnScene->setFont(fontBold);
+    connect(m_btnScene, &QPushButton::clicked, this, &MainWindow::showSceneSpaceMenu);
+    ui->statusbar->addWidget(m_btnScene);
+    m_sceneSpaceLabel = new QLabel(QString(), this);
+    m_sceneSpaceLabel->setFont(fontBold);
+    m_sceneSpaceLabel->setVisible(false);
+    ui->statusbar->addWidget(m_sceneSpaceLabel);
+    // 2.0: il selettore dell'oggetto.
     m_btnObjectSelector = new QPushButton(QString(), this);
     m_btnObjectSelector->setFlat(true);
     m_btnObjectSelector->setFont(fontBold);
     m_btnObjectSelector->setVisible(false);
     connect(m_btnObjectSelector, &QPushButton::clicked, this, &MainWindow::showObjectSelectorMenu);
     ui->statusbar->addWidget(m_btnObjectSelector);
-    // 2.0: l'orologio di scena della timeline, solo se c'e' una timeline.
+    // 2.0: l'orologio di scena della timeline.
     m_sceneTimeLabel = new QLabel(QString(), this);
     m_sceneTimeLabel->setVisible(false);
     ui->statusbar->addWidget(m_sceneTimeLabel);

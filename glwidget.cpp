@@ -1946,7 +1946,10 @@ void GLWidget::initObjectResources(SurfaceObject &o)
         o.engine->setEquations(o.eqX, o.eqY, o.eqZ, o.eqW);
     }
 
-    buildPipeline(o);
+    // Un oggetto aggiunto alla scena arriva qui al primo frame, gia' caricato: in
+    // Ray Marching lo script e' una SDF su 'p', che nel vertex a mesh non compila.
+    // Se poi diventa parametrico la costruisce prepareObjectGeometry.
+    if (o.engineMode != ModeImplicit) buildPipeline(o);
 }
 
 void GLWidget::render(QRhiCommandBuffer *cb)

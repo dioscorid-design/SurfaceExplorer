@@ -1919,10 +1919,35 @@ private:
     void refreshSceneTimeLabel();
     QPushButton *m_btnObjectDuplicate = nullptr;
     QPushButton *m_btnObjectRemove = nullptr;
-    // IL SELETTORE COMPATTO nella barra di stato ("2/3 Sphere"): visibile solo
-    // con piu' oggetti, il clic apre l'elenco. Serve a cambiare oggetto mentre
-    // e' aperto un altro dock (su iPhone uno solo alla volta).
+    // IL SELETTORE COMPATTO nella barra di stato ("2/3 Sphere"): visibile a
+    // scena avviata, il clic apre l'elenco. Serve a cambiare oggetto mentre e'
+    // aperto un altro dock (su iPhone uno solo alla volta).
     QPushButton *m_btnObjectSelector = nullptr;
+    // LA SCENA AVVIATA: la scelta 3D/4D del tasto Scene, o quella del file di
+    // scena ("space"; i file di prima la deducono dall'ambiente). None =
+    // modalita' Superficie, come se il tasto non ci fosse. La azzera
+    // resetToSingleObject, cioe' tutto cio'
+    // che riscrive la scena da capo; il clic su una Shape o su un record
+    // compatibile, e la superficie di default per una texture, la conservano.
+    enum class SceneSpace { None, Space3D, Space4D };
+    SceneSpace m_sceneSpace = SceneSpace::None;
+    QPushButton *m_btnScene = nullptr;
+    QLabel *m_sceneSpaceLabel = nullptr;
+    // Con piu' oggetti la scena c'e' anche senza scelta: gli scenari li
+    // aggiungono direttamente, e l'ambiente decide come prima.
+    bool sceneStarted() const;
+    void setSceneSpace(SceneSpace space);
+    // Il menu 3D/4D del tasto Scene: nessuna scelta = annullato.
+    void showSceneSpaceMenu();
+    // L'ambiente e' cio' che e' a schermo, se ci sta; altrimenti un avviso e
+    // tutto resta com'e'. Una scena 4D con l'ambiente vuoto sta in parametrico:
+    // in ray marching gli oggetti sarebbero rigidi (GLWidget::rigidObject).
+    void startScene(SceneSpace space);
+    // Il tasto Scene o 3D/4D, selettore e T, secondo sceneStarted.
+    void refreshSceneSlot();
+    // Il clic su una Shape o su un record che non puo' fare da ambiente alla
+    // scena avviata: avvisa e ritorna true, e la scena non cambia.
+    bool refuseEnvironmentForScene(QTreeWidgetItem *item);
     bool m_refreshingObjects = false;   // refreshObjectsUi scrive i widget
     void setupObjectsDock();
     // Allinea elenco, posizione, tasti e selettore agli oggetti della scena.
@@ -1938,8 +1963,10 @@ private:
     // dell'oggetto selezionato. La Shape non li porta (sono del record), quindi
     // la scena li scrive accanto alla posizione ("motion").
     QJsonObject objectMotionJson() const;
-    // La scena e' 4D se l'ambiente parametrico ha la P 4D (vedi addShapeToScene).
+    // La scena e' 4D per la scelta del tasto Scene; senza scelta, se l'ambiente
+    // parametrico ha la P 4D (environmentHasP, vedi addShapeToScene).
     bool sceneIs4D() const;
+    bool environmentHasP() const;
     // Le rotazioni 4D del selezionato hanno effetto: in ray marching nel solo
     // Cross Section; in parametrico sempre, tranne un oggetto con l'ambiente in
     // ray marching, che e' rigido (GLWidget::rigidObject).

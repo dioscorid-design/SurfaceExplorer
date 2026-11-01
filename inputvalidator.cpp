@@ -25,6 +25,11 @@ void InputValidator::showEmptySceneNotice(QWidget* parent, const QString& nothin
            "Load a preset from the Library, or type an equation and press Run.");
 }
 
+void InputValidator::showSceneNotice(QWidget* parent, const QString& reason, const QString& way)
+{
+    notify(parent, QMessageBox::Information, "Scene", reason + "\n\n" + way);
+}
+
 bool InputValidator::validateImplicitEquation(QWidget* parent, const QString& rawEq, bool allowP)
 {
     if (rawEq.count("=") > 1) {

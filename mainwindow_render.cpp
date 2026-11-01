@@ -2425,7 +2425,10 @@ bool MainWindow::ensureSurfaceForTexture()
     // proprio il caso che a scena vuota resta componibile.
     if (editingBackground()) return false;
 
+    // La superficie di default riempie l'ambiente: la scena avviata resta.
+    const SceneSpace space = m_sceneSpace;
     resetScene(implicitMode() ? 1 : 0, /*loadDefaultSurface=*/true);
+    setSceneSpace(space);
     return true;
 }
 

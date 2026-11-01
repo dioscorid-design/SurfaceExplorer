@@ -965,6 +965,10 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
     scene["type"] = "scene";
     scene["formatVersion"] = 1;
     scene["name"] = name;
+    // 3D o 4D: la scelta del tasto Scene, che l'ambiente da solo non sempre dice
+    // (uno vuoto, o a script, non ha la P). I file di prima non hanno la chiave:
+    // li deduce MainWindow::loadSceneFile.
+    scene["space"] = m_mainWindow->sceneIs4D() ? "4D" : "3D";
     scene["environment"] = buildMotionJson(name, run, includeSound && !silent.contains(0));
     // I preset della Library da cui vengono ambiente e oggetti, per ritrovarli
     // nelle linguette (la scena porta comunque la copia completa). L'ambiente

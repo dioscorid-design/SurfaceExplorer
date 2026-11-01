@@ -1995,6 +1995,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-space")) {
+        runSceneSpaceScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-path")) {
         runScenePathScenarios();
         finish();
@@ -3862,8 +3867,10 @@ void ScenarioTest::run()
     runSceneSaveLoadScenarios();
     runSceneResetScenarios();
     runSceneTimelineScenarios();
+    runSceneSpaceScenarios();
     runScenePathScenarios();
     runSceneSeekScenarios();
+    runImageCaptureScenarios();
     runAnimatedLoadScenarios();
     runLoadOrderScenarios();
 
@@ -8128,8 +8135,8 @@ void ScenarioTest::runSceneTimelineScenarios()
     wait(400);
     m_mw->refreshSceneTimeLabel();
     check(!m_mw->m_objectWindowIn->isEnabled() && !m_mw->m_sceneTimeSlider->isEnabled()
-              && !m_mw->m_sceneTimeLabel->isVisibleTo(m_mw),
-          QStringLiteral("ambiente senza path: In/Out e cursore spenti, T nascosto"));
+              && m_mw->m_sceneTimeLabel->isVisibleTo(m_mw),
+          QStringLiteral("ambiente senza path: In/Out e cursore spenti, T visibile (a scena avviata c'e' sempre)"));
     // Le rotazioni dell'ambiente sono l'altro moto della camera: con le sue
     // velocita' T puo' correre (In/Out, T e cursore accesi).
     m_mw->selectSceneObject(0);
@@ -8275,6 +8282,210 @@ void ScenarioTest::runSceneTimelineScenarios()
                   && gl->sceneTime() < 1.0f,
               QStringLiteral("Save/Load: finestra 1-2 s, T da capo (%1)").arg(gl->sceneTime()));
     }
+}
+
+void ScenarioTest::runSceneSpaceScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    using Space = MainWindow::SceneSpace;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Scena avviata: tasto Scene, scelta 3D o 4D, quando la scena resta e quando finisce =="));
+    const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
+    const QString kSphere = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
+    const QString kKlein = QStringLiteral("surfaces/Parametric/Surfaces/Equations/Non-orientables/Klein Bottle.json");
+    const QString kRM = QStringLiteral("surfaces/Implicit/3D/Sphere.json");
+    QTreeWidget *shapes = m_mw->ui->treeSurfaces;
+    const QString kBitorus = QStringLiteral("surfaces/Implicit/3D/Bitorus.json");
+    const QString kPierced = QStringLiteral("surfaces/Implicit/3D/Pierced Torus.json");
+    QString spherePath, kleinPath, piercedPath;
+    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces) {
+        if (it.filePath.endsWith(kSphere)) spherePath = it.filePath;
+        if (it.filePath.endsWith(kKlein)) kleinPath = it.filePath;
+        if (it.filePath.endsWith(kPierced)) piercedPath = it.filePath;
+    }
+    check(!spherePath.isEmpty() && !kleinPath.isEmpty() && !piercedPath.isEmpty(),
+          QStringLiteral("sfera, Klein Bottle e Pierced Torus nella libreria"));
+    if (spherePath.isEmpty() || kleinPath.isEmpty() || piercedPath.isEmpty()) return;
+
+    // Lo spazio nella barra: il tasto (space vuoto) oppure 3D/4D, selettore e T.
+    const auto slotShows = [this](const QString &space) {
+        m_mw->refreshSceneTimeLabel();
+        const bool started = !space.isEmpty();
+        return m_mw->m_btnScene->isVisibleTo(m_mw) != started
+               && m_mw->m_sceneSpaceLabel->isVisibleTo(m_mw) == started
+               && m_mw->m_btnObjectSelector->isVisibleTo(m_mw) == started
+               && m_mw->m_sceneTimeLabel->isVisibleTo(m_mw) == started
+               && (!started || m_mw->m_sceneSpaceLabel->text() == space);
+    };
+    const auto newScene = [this]() {
+        m_discardOnPrompt = true;
+        m_mw->onNewSceneClicked();
+        wait(300);
+        m_discardOnPrompt = false;
+    };
+    // Il clic vero sulla voce: onExampleItemClicked guarda sender().
+    const auto click = [this, shapes](const QString &rel) {
+        for (QTreeWidgetItemIterator it(shapes); *it; ++it) {
+            if ((*it)->childCount() > 0 || !(*it)->toolTip(0).endsWith(rel)) continue;
+            m_discardOnPrompt = true;
+            shapes->setCurrentItem(*it);
+            emit shapes->itemClicked(*it, 0);
+            wait(1200);
+            m_discardOnPrompt = false;
+            return true;
+        }
+        check(false, QStringLiteral("voce non trovata nella Library: ") + rel);
+        return false;
+    };
+
+    // Senza scena tutto come prima.
+    if (!loadSurface(kTorus)) return;
+    check(slotShows(QString()) && !m_mw->sceneStarted(), QStringLiteral("superficie sola: nella barra il tasto Scene"));
+
+    // Cio' che e' a schermo diventa l'ambiente. Selettore ed elenco come al primo
+    // avvio, mai scritti da un load: il menu del selettore legge l'elenco.
+    const QString torusX = m_mw->m_scene.eq.x;
+    m_mw->m_objectList->clear();
+    m_mw->m_btnObjectSelector->setText(QString());
+    m_mw->startScene(Space::Space3D);
+    check(slotShows(QStringLiteral("3D")) && m_mw->m_scene.eq.x == torusX
+              && m_mw->m_btnObjectSelector->text().startsWith(QStringLiteral("1/1"))
+              && m_mw->m_objectList->count() == 1,
+          QStringLiteral("Scene 3D sul toro: il toro e' l'ambiente, 3D + selettore + T (%1)")
+              .arg(m_mw->m_btnObjectSelector->text()));
+    newScene();
+    check(slotShows(QString()), QStringLiteral("NEW chiude la scena: torna il tasto"));
+
+    // Una scena 4D con l'ambiente vuoto: dedotta dall'ambiente sarebbe 3D.
+    m_mw->startScene(Space::Space4D);
+    m_mw->addShapeToScene(kleinPath);
+    wait(500);
+    check(gl->objectCount() == 2 && slotShows(QStringLiteral("4D")),
+          QStringLiteral("scena 4D con l'ambiente vuoto: un oggetto con la P entra"));
+    m_mw->removeSceneObject(1);
+    wait(200);
+    check(gl->objectCount() == 1 && slotShows(QStringLiteral("4D")),
+          QStringLiteral("tolto l'ultimo oggetto la scena resta avviata"));
+    newScene();
+
+    // Un oggetto RM a script: la sua SDF su p non va nel vertex a mesh.
+    if (!loadSurface(kBitorus)) return;
+    m_mw->startScene(Space::Space3D);
+    {
+        const int before = m_popupsClosed;
+        m_mw->addShapeToScene(piercedPath);
+        wait(1500);
+        check(gl->objectCount() == 2 && m_popupsClosed == before,
+              QStringLiteral("Add to Scene di un RM a script su un ambiente RM: nessun errore di shader"));
+    }
+    newScene();
+
+    // Ambiente a schermo che non ci sta: avviso, nessuna scena.
+    if (!loadSurface(kRM)) return;
+    int popups = m_popupsClosed;
+    m_mw->startScene(Space::Space4D);
+    check(m_popupsClosed > popups && slotShows(QString()) && m_mw->implicitMode(),
+          QStringLiteral("ray marching a schermo: 4D rifiutato con un avviso"));
+    m_mw->startScene(Space::Space3D);
+    check(slotShows(QStringLiteral("3D")), QStringLiteral("ray marching a schermo: 3D accettato"));
+    if (!loadSurface(kKlein)) return;
+    check(slotShows(QString()), QStringLiteral("un load che non viene dalla Library chiude la scena"));
+    popups = m_popupsClosed;
+    m_mw->startScene(Space::Space3D);
+    check(m_popupsClosed > popups && slotShows(QString()),
+          QStringLiteral("superficie con la P a schermo: 3D rifiutato con un avviso"));
+    m_mw->startScene(Space::Space4D);
+    check(slotShows(QStringLiteral("4D")), QStringLiteral("superficie con la P a schermo: 4D accettato"));
+
+    // Ambiente vuoto in ray marching: il 4D lo porta in parametrico.
+    if (!loadSurface(kRM)) return;
+    newScene();
+    check(m_mw->implicitMode() && m_mw->isSceneEmpty(), QStringLiteral("NEW in ray marching resta nella sua linguetta"));
+    m_discardOnPrompt = true;
+    m_mw->startScene(Space::Space4D);
+    wait(500);
+    m_discardOnPrompt = false;
+    check(!m_mw->implicitMode() && m_mw->ui->tabModeSelector->currentIndex() == 0 && m_mw->isSceneEmpty()
+              && gl->getEngineMode() == GLWidget::ModeParametric && slotShows(QStringLiteral("4D")),
+          QStringLiteral("scena 4D da ambiente vuoto in ray marching: linguetta parametrica, ambiente vuoto"));
+    // Stesso gesto del tasto: la superficie di default per una texture.
+    m_mw->ensureSurfaceForTexture();
+    wait(300);
+    check(!m_mw->isSceneEmpty() && slotShows(QStringLiteral("4D")),
+          QStringLiteral("superficie di default per una texture: la scena resta avviata"));
+    newScene();
+
+    // Il clic nella Library a scena avviata.
+    if (!loadSurface(kTorus)) return;
+    m_mw->startScene(Space::Space3D);
+    popups = m_popupsClosed;
+    if (!click(kKlein)) return;
+    check(m_popupsClosed > popups && m_mw->m_scene.eq.x == torusX && slotShows(QStringLiteral("3D")),
+          QStringLiteral("scena 3D, clic su una Shape con la P: avviso e niente cambia"));
+    if (!click(kRM)) return;
+    check(m_mw->implicitMode() && slotShows(QStringLiteral("3D")),
+          QStringLiteral("scena 3D, clic su una Shape in ray marching: cambia l'ambiente, la scena resta 3D"));
+    m_mw->addShapeToScene(spherePath);
+    wait(500);
+    if (!click(kTorus)) return;
+    check(gl->objectCount() == 1 && !m_mw->implicitMode() && slotShows(QStringLiteral("3D")),
+          QStringLiteral("clic a oggetti presenti: la scena e' sostituita, resta 3D"));
+    newScene();
+    m_mw->startScene(Space::Space4D);
+    popups = m_popupsClosed;
+    if (!click(kRM)) return;
+    check(m_popupsClosed > popups && !m_mw->implicitMode() && m_mw->isSceneEmpty() && slotShows(QStringLiteral("4D")),
+          QStringLiteral("scena 4D, clic su una Shape in ray marching: avviso e niente cambia"));
+    m_discardOnPrompt = true;
+    m_mw->ui->tabModeSelector->setCurrentIndex(1);
+    wait(500);
+    m_discardOnPrompt = false;
+    check(slotShows(QString()), QStringLiteral("cambio di linguetta: la scena finisce"));
+
+    // Un file di scena avvia la scena, senza chiedere: 3D o 4D lo dice il file,
+    // anche dove l'ambiente non basterebbe; i file di prima lo deducono.
+    PresetSerializer::MotionRunState run;
+    const auto sceneJson = [this, &run]() {
+        return m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Space"), run, false);
+    };
+    const auto reopen = [&](const QJsonObject &json, const QString &space, const QString &what) {
+        const QString path = m_outDir + QStringLiteral("/scene-space.json");
+        QFile f(path);
+        const bool written = f.open(QIODevice::WriteOnly) && f.write(QJsonDocument(json).toJson()) > 0;
+        f.close();
+        m_mw->markWholeSceneClean();
+        const bool closed = written && loadSurface(kTorus) && slotShows(QString());
+        const bool loaded = closed && m_mw->loadSceneFile(path);
+        wait(600);
+        check(loaded && slotShows(space), what);
+    };
+    if (!loadSurface(kTorus)) return;
+    newScene();
+    m_mw->startScene(Space::Space4D);
+    m_mw->addShapeToScene(kleinPath);
+    wait(500);
+    QJsonObject json = sceneJson();
+    check(json.value(QStringLiteral("space")).toString() == QLatin1String("4D"), QStringLiteral("il file dice 4D"));
+    reopen(json, QStringLiteral("4D"), QStringLiteral("ambiente vuoto, scena 4D: riaperta 4D"));
+    check(gl->objectCount() == 2, QStringLiteral("riaperta con il suo oggetto"));
+    json.remove(QStringLiteral("space"));
+    reopen(json, QStringLiteral("3D"), QStringLiteral("file di prima, ambiente vuoto: dedotta 3D"));
+    if (!loadSurface(kTorus)) return;
+    m_mw->startScene(Space::Space4D);
+    reopen(sceneJson(), QStringLiteral("4D"), QStringLiteral("toro in una scena 4D: riaperta 4D, il file vince sulla deduzione"));
+    if (!loadSurface(kKlein)) return;
+    m_mw->startScene(Space::Space4D);
+    m_mw->addShapeToScene(spherePath);
+    wait(500);
+    json = sceneJson();
+    json.remove(QStringLiteral("space"));
+    reopen(json, QStringLiteral("4D"), QStringLiteral("file di prima, ambiente con la P: dedotta 4D"));
+    if (!loadSurface(kTorus)) return;
+    m_mw->startScene(Space::Space3D);
+    json = sceneJson();
+    check(json.value(QStringLiteral("space")).toString() == QLatin1String("3D"), QStringLiteral("il file dice 3D"));
+    reopen(json, QStringLiteral("3D"), QStringLiteral("scena 3D: riaperta 3D"));
+    newScene();
 }
 
 void ScenarioTest::runScenePathScenarios()
