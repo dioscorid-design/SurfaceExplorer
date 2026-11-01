@@ -10248,8 +10248,8 @@ void ScenarioTest::runLibraryFolderScenarios()
 
     // IL MENU DI UNA VOCE, ramo per ramo: una sola costruzione per tutti
     // (LibraryMenuController::showMenu). I comandi comuni col nome del ramo, e
-    // le voci proprie: Add to Scene sulle Shape, Sync sui record, niente Save
-    // As su un suono che non e' un preset.
+    // le voci proprie: Add to Scene sulle Shape a scena avviata, Sync sui record,
+    // niente Save As su un suono che non e' un preset.
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Library: il menu di una voce, ramo per ramo =="));
     for (const MainWindow::LibraryBranch &b : m_mw->libraryBranches()) {
@@ -10265,29 +10265,40 @@ void ScenarioTest::runLibraryFolderScenarios()
         b.tree->clearSelection();
         b.tree->scrollToItem(leaf);
         wait(200);
-        auto entries = std::make_shared<QStringList>();
-        QTimer::singleShot(300, this, [entries] {
-            auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
-            if (!menu) return;
-            for (QAction *a : menu->actions())
-                if (!a->isSeparator()) *entries << a->text();
-            menu->close();
-        });
-        emit b.tree->customContextMenuRequested(b.tree->visualItemRect(leaf).center());   // torna a menu chiuso
-        wait(300);
+        const auto menuEntries = [&]() {
+            auto entries = std::make_shared<QStringList>();
+            QTimer::singleShot(300, this, [entries] {
+                auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+                if (!menu) return;
+                for (QAction *a : menu->actions())
+                    if (!a->isSeparator()) *entries << a->text();
+                menu->close();
+            });
+            emit b.tree->customContextMenuRequested(b.tree->visualItemRect(leaf).center());   // torna a menu chiuso
+            wait(300);
+            return *entries;
+        };
+        const QStringList entries = menuEntries();
         const QString item = QLatin1String(b.info.item);
         const QString path = m_mw->m_libraryManager.itemFilePath(leaf);
         QStringList want;
-        if (b.type == LibraryType::Surface) want << QStringLiteral("Add to Scene");
+        if (b.type == LibraryType::Surface && m_mw->sceneStarted()) want << QStringLiteral("Add to Scene");
         if (b.type != LibraryType::Sound || path.endsWith(QLatin1String(".json"), Qt::CaseInsensitive))
             want << QStringLiteral("Save %1 As...").arg(item);
         if (b.type == LibraryType::Motion) want << QStringLiteral("Sync Focused Texture");
         want << QStringLiteral("Rename %1...").arg(item) << QStringLiteral("Copy %1").arg(item)
              << QStringLiteral("Cut %1").arg(item) << QStringLiteral("Delete %1").arg(item);
-        const QStringList got = entries->mid(0, want.size());
+        const QStringList got = entries.mid(0, want.size());
         check(got == want, QStringLiteral("menu di una voce di %1 (%2): [%3]%4").arg(QLatin1String(b.info.label), leaf->text(0),
-                  entries->isEmpty() ? QStringLiteral("menu non aperto (app non in primo piano?)") : got.join(QStringLiteral(", ")),
+                  entries.isEmpty() ? QStringLiteral("menu non aperto (app non in primo piano?)") : got.join(QStringLiteral(", ")),
                   got == want ? QString() : QStringLiteral(", atteso [%1]").arg(want.join(QStringLiteral(", ")))));
+        if (b.type == LibraryType::Surface) {
+            m_mw->setSceneSpace(MainWindow::SceneSpace::Space3D);
+            const QStringList started = menuEntries();
+            m_mw->setSceneSpace(MainWindow::SceneSpace::None);
+            check(started.value(0) == QLatin1String("Add to Scene"),
+                  QStringLiteral("a scena avviata la Shape ha Add to Scene: [%1]").arg(started.join(QStringLiteral(", "))));
+        }
     }
     ui->tabWidget->setCurrentWidget(ui->Surface);
     // Le linguette: una per ramo, nell'ordine e coi nomi della tabella.
