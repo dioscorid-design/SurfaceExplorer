@@ -243,15 +243,8 @@ void MainWindow::syncGeodesicObjectsTimer()
 
 int MainWindow::addSceneObject(const QString &name)
 {
-    // Il primo oggetto fa dell'ambiente l'ambiente di una scena: le sue
-    // rotazioni si fermano, e non sono piu' il moto da riavviare. La scena si
-    // compone ferma; GO sull'ambiente, a path fermo, la fa poi girare tutta
-    // (GLWidget::sceneRotation).
-    if (ui->glWidget->objectCount() == 1) {
-        ui->glWidget->setObjectRotating(0, false);
-        if (m_scene.lastCameraMotion == QLatin1String("rotation")) m_scene.lastCameraMotion.clear();
-        if (ui->btnStart_2) ui->btnStart_2->setText("GO");
-    }
+    // Nulla si ferma: se l'ambiente ruota, da qui in poi gira con lui tutta la
+    // scena (GLWidget::sceneRotation).
     const int index = ui->glWidget->addObject();
     m_objectSessions.resize(index + 1);
     m_objectSessions[index].name = name;
@@ -578,6 +571,25 @@ bool MainWindow::refuseEnvironmentForScene(QTreeWidgetItem *item)
     return true;
 }
 
+// LA GRANDEZZA D'INGRESSO: una Shape e' salvata con la camera che la inquadra, e
+// da quella della scena, magari molto piu' lontana, sarebbe minuscola (Calabi-Yau
+// si guarda da 7.1, il Gyroid da 36.4). Distanza e FOV dicono quanto spazio entra
+// nell'altezza della finestra, in prospettiva e in ortogonale: il rapporto da'
+// la stessa inquadratura in ogni ambiente.
+float MainWindow::sceneFitScale(const LibraryItem &shape) const
+{
+    // Su un path la distanza dal centro non e' un'inquadratura. Non pathRunning:
+    // il menu della Library tiene fermi i path mentre Add to Scene gira.
+    if (m_scene.lastCameraMotion.startsWith(QLatin1String("path"))) return 1.0f;
+    const auto visibleHeight = [](float distance, float fov) {
+        return distance * std::tan(qDegreesToRadians(fov) * 0.5f);
+    };
+    const float own = visibleHeight(QVector3D(shape.camX, shape.camY, shape.camZ).length(),
+                                    resolveSavedFov(shape.cameraFov, shape.fov3D, shape.fov4D));
+    const float scene = visibleHeight(ui->glWidget->getCameraPos().length(), ui->glWidget->cameraFov());
+    return own > 1e-4f && scene > 1e-4f ? scene / own : 1.0f;
+}
+
 // ADD TO SCENE (menu delle Shapes): la Shape come oggetto della scena a
 // schermo, accanto agli altri lungo x. La posizione si regola dal dock Objects.
 void MainWindow::addShapeToScene(const QString &shapePath)
@@ -598,15 +610,19 @@ void MainWindow::addShapeToScene(const QString &shapePath)
                            "scenes (an environment with a P coordinate)."));
         return;
     }
-    const int index = addShapeObject(*d, uniqueObjectName(d->name));
+    const int index = addShapeObject(*d, uniqueObjectName(d->name), sceneFitScale(*d));
     m_objectSessions[index].libraryPath = shapePath;
     focusLibraryPath(m_objectSessions[index].libraryPath);
 }
 
-int MainWindow::addShapeObject(const LibraryItem &shape, const QString &name)
+int MainWindow::addShapeObject(const LibraryItem &shape, const QString &name, float scale)
 {
     const int index = addPresetAsObject(shape, name);
-    ui->glWidget->setObjectPosition(QVector3D(2.5f * float(index), 0.0f, 0.0f));
+    m_objectSessions[index].openingScale = scale;
+    // Il passo lungo x scala con l'oggetto: la stessa inquadratura, non solo la
+    // stessa grandezza.
+    ui->glWidget->setObjectPosition(QVector3D(2.5f * scale * float(index), 0.0f, 0.0f));
+    ui->glWidget->setObjectScale(scale);
     captureObjectStartPose();   // la posa a cui lo riporta il RESET
     m_sceneObjectsChanged = true;
     refreshObjectsUi();
@@ -1394,9 +1410,10 @@ void MainWindow::duplicateSceneObject(int index)
     const ObjectSession source = m_objectSessions[index];
     // LA SUA SHAPE COM'E' ORA (lo stesso buildSurfaceJson del Save Shape: le
     // equazioni, le costanti e i colori modificati restano), aperta come dal
-    // ramo Shapes: niente texture, moti, path, scala, finestra e posizione
-    // della sorgente (decisione dell'utente, 2026-10-24: prima la copia era il
-    // record intero, con tutti i suoi parametri). Il messaggio e' nella Shape.
+    // ramo Shapes: niente texture, moti, path, finestra e posizione della
+    // sorgente, e la scala con cui la sorgente e' entrata, non quella data dopo
+    // (decisione dell'utente, 2026-10-24: prima la copia era il record intero,
+    // con tutti i suoi parametri). Il messaggio e' nella Shape.
     LibraryManager lm;
     const LibraryItem copy = lm.parseJsonObject(m_presetSerializer->buildSurfaceJson(source.name),
                                                 LibraryType::Surface, QString());
@@ -1406,7 +1423,10 @@ void MainWindow::duplicateSceneObject(int index)
     static const QRegularExpression counter(QStringLiteral(" \\(\\d+\\)$"));
     QString stem = source.name;
     stem.remove(counter);
-    addShapeObject(copy, uniqueObjectName(stem));
+    const int added = addShapeObject(copy, uniqueObjectName(stem), source.openingScale);
+    // La copia viene dalla stessa voce della Library.
+    m_objectSessions[added].libraryPath = source.libraryPath;
+    focusLibraryPath(source.libraryPath);
     // La Shape scrive l'orientamento di ADESSO, dove il GO ha portato la
     // sorgente: la copia parte da quello d'apertura (la posa del RESET).
     gl->resetOrientation(source.startOrientation);

@@ -188,8 +188,7 @@ void MainWindow::applyStartSideEffects()
     // moto camera (m_userStoppedCameraMotion), un commit di equazione che
     // arriva qui via onStartClicked NON deve farlo ripartire.
     // Ne' un oggetto caricato in una scena (addPresetAsObject): la camera e'
-    // dell'ambiente. Con le rotazioni dell'ambiente avviate da qui, Add to
-    // Scene riavviava quella che addSceneObject aveva appena fermato.
+    // dell'ambiente: da qui Add to Scene avviava il moto di un ambiente fermo.
     if (!m_userStoppedCameraMotion && !m_loadingAsObject) {
         // Le rotazioni camera sono quelle dell'AMBIENTE: in una scena puo'
         // essere selezionato un altro oggetto, e GO e velocita' (onStopClicked,

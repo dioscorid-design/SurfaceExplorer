@@ -1759,6 +1759,8 @@ private:
     // selezionato, e si riscrive quando si cambia oggetto.
     struct ObjectSession {
         QString name;   // il nome nell'elenco degli oggetti (dal preset)
+        // La scala con cui e' entrato (sceneFitScale): la danno anche le sue copie.
+        float openingScale = 1.0f;
         // La voce della Library (percorso) da evidenziare quando l'oggetto e'
         // selezionato: la scena dell'ambiente, la Shape/il record dell'oggetto.
         QString libraryPath;
@@ -1868,10 +1870,13 @@ private:
     static QString librarySourceToPath(const QString &key);
     // Add to Scene (menu delle Shapes): la Shape come oggetto, accanto agli altri.
     void addShapeToScene(const QString &shapePath);
+    // La scala a cui la Shape, dalla camera della scena, si vede grande come
+    // nel suo preset. 1 con la camera su un path.
+    float sceneFitScale(const LibraryItem &shape) const;
     // Una Shape come oggetto nuovo, coi valori del load dal ramo Shapes:
-    // accanto agli altri lungo x, scala 1, niente path ne' finestra. La usano
-    // Add to Scene e Duplicate. Ritorna l'indice dell'oggetto.
-    int addShapeObject(const LibraryItem &shape, const QString &name);
+    // accanto agli altri lungo x, alla scala data, niente path ne' finestra. La
+    // usano Add to Scene e Duplicate. Ritorna l'indice dell'oggetto.
+    int addShapeObject(const LibraryItem &shape, const QString &name, float scale);
 
     // DOCK OBJECTS (2.0): l'elenco degli oggetti della scena, la posizione del
     // selezionato, Duplicate e Remove. Creato in codice (setupObjectsDock) e

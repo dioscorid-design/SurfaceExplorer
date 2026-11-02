@@ -490,6 +490,15 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
         heldMotion = m_mainWindow->ui->glWidget->holdObjectMotion();
     }
 
+    // Add to Scene porta lui l'evidenziazione sulla voce dell'oggetto nuovo:
+    // quella di prima non torna. Se la Shape e' stata rifiutata, si'.
+    MainWindow *mw = m_mainWindow;
+    const int objectsBefore = mw->ui->glWidget->objectCount();
+    const auto restoreHighlight = [mw, objectsBefore, keepHighlight, before](QTreeWidget *tree) {
+        if (keepHighlight && mw->ui->glWidget->objectCount() <= objectsBefore)
+            LibraryTreeFocus::restoreHighlight(tree, before);
+    };
+
 // --- ESECUZIONE MENU ---
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
     // Esecuzione specifica Mobile
@@ -497,13 +506,13 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     contextMenu->deleteLater();
 
     if (pendingAction) {
-        QTimer::singleShot(350, m_mainWindow, [safeTree, safeRefItem, pendingAction, keepHighlight, before]() {
+        QTimer::singleShot(350, m_mainWindow, [safeTree, safeRefItem, pendingAction, restoreHighlight]() {
             if (safeTree && safeRefItem) {
                 safeTree->setCurrentItem(safeRefItem);
                 safeRefItem->setSelected(true);
             }
             pendingAction();
-            if (keepHighlight) LibraryTreeFocus::restoreHighlight(safeTree, before);
+            restoreHighlight(safeTree);
         });
     } else if (keepHighlight) {
         LibraryTreeFocus::restoreHighlight(senderTree, before);
@@ -513,7 +522,7 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     contextMenu->exec(senderTree->mapToGlobal(pos));
     delete contextMenu;
     // Il comando e' gia' stato eseguito (dentro exec).
-    if (keepHighlight) LibraryTreeFocus::restoreHighlight(senderTree, before);
+    restoreHighlight(senderTree);
 #endif
 
     if (wasTimeAnimating) m_mainWindow->ui->glWidget->startAnimationTimer();

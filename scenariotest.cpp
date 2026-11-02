@@ -6474,23 +6474,26 @@ void ScenarioTest::runSceneMotionScenarios()
         m_mw->onStopClicked();
     }
 
-    // UN RECORD CHE RUOTA, POI UN OGGETTO: l'ambiente si ferma; tolto l'oggetto
-    // (modalita' Superficie) le sue rotazioni tornano disponibili.
+    // UN RECORD CHE RUOTA, POI UN OGGETTO: nulla si ferma, e l'ambiente continua
+    // a ruotare anche tolto l'oggetto (modalita' Superficie).
     if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Wireframes/Pseudo-Iwasawa Torus.json"))) {
         check(gl->isObjectRotating(0), QStringLiteral("record con rotazioni: l'ambiente ruota"));
         m_mw->addShapeToScene(torusPath);
         wait(500);
-        check(!gl->isObjectRotating(0) && m_mw->m_scene.lastCameraMotion != QLatin1String("rotation"),
-              QStringLiteral("aggiunto un oggetto: le rotazioni dell'ambiente si fermano"));
+        const float t0 = gl->sceneTime();
+        wait(300);
+        check(gl->isObjectRotating(0) && m_mw->m_scene.lastCameraMotion == QLatin1String("rotation")
+                  && gl->sceneTime() > t0,
+              QStringLiteral("aggiunto un oggetto: le rotazioni dell'ambiente continuano, e T con loro"));
         m_mw->removeSceneObject(1);
         wait(200);
-        check(gl->objectCount() == 1 && m_mw->ui->btnStart_2->isEnabled()
+        check(gl->objectCount() == 1 && gl->isObjectRotating(0) && m_mw->ui->btnStart_2->isEnabled()
+                  && m_mw->ui->btnStart_2->text() == QLatin1String("STOP")
                   && m_mw->ui->btnPrecessionPlus->isEnabled() && m_mw->ui->btnOmegaAhead->isEnabled(),
-              QStringLiteral("tolto l'oggetto: i tasti delle rotazioni tornano accesi"));
+              QStringLiteral("tolto l'oggetto: ruota ancora, tasti delle rotazioni accesi"));
         m_mw->onStopClicked();
         wait(200);
-        check(gl->isObjectRotating(0), QStringLiteral("e il GO dell'ambiente lo fa ruotare di nuovo"));
-        m_mw->onStopClicked();
+        check(!gl->isObjectRotating(0), QStringLiteral("e il GO dell'ambiente lo ferma"));
     }
 }
 
@@ -8379,6 +8382,74 @@ void ScenarioTest::runSceneSpaceScenarios()
               QStringLiteral("Add to Scene di un RM a script su un ambiente RM: nessun errore di shader"));
     }
     newScene();
+
+    // La grandezza d'ingresso segue la camera della scena: la stessa Shape si
+    // vede uguale da ambienti a distanze diverse (qui 7.8 e 39.4).
+    {
+        const auto enter = [&](const QString &environment) {
+            if (!loadSurface(environment)) return 0.0f;
+            m_mw->startScene(Space::Space3D);
+            m_mw->addShapeToScene(piercedPath);
+            wait(500);
+            return gl->objectScale() / gl->getCameraPos().length();
+        };
+        const float nearEnvironment = enter(kBitorus);
+        newScene();
+        const float farEnvironment = enter(QStringLiteral("surfaces/Implicit/3D/Gyroid.json"));
+        check(nearEnvironment > 0.0f && std::abs(farEnvironment / nearEnvironment - 1.0f) < 1e-3f
+                  && std::abs(gl->objectPosition().x() - 2.5f * gl->objectScale()) < 1e-3f,
+              QStringLiteral("Add to Scene: stessa inquadratura da due distanze (%1, %2), posizione compresa")
+                  .arg(nearEnvironment).arg(farEnvironment));
+        // Le copie entrano alla scala d'ingresso, non a quella data con la rotella.
+        const float opening = gl->objectScale();
+        gl->setObjectScale(opening * 2.0f);
+        m_mw->duplicateSceneObject(1);
+        wait(300);
+        check(std::abs(gl->objectScale() / opening - 1.0f) < 1e-3f,
+              QStringLiteral("Duplicate: la scala d'ingresso della sorgente (%1)").arg(gl->objectScale()));
+        newScene();
+    }
+    // Su un path la distanza dal centro non e' un'inquadratura.
+    if (loadRecord(QStringLiteral("records/Paths/Implicit/3D/Gyroid Race.json"))) {
+        m_mw->startScene(Space::Space3D);
+        m_mw->addShapeToScene(piercedPath);
+        wait(500);
+        check(gl->objectScale() == 1.0f, QStringLiteral("Add to Scene con la camera su un path: scala 1"));
+        newScene();
+    }
+
+    // Dal menu vero: alla chiusura rimette l'evidenziazione di prima, non dopo
+    // un Add to Scene. Stessa voce per la copia di Duplicate, riselezionata.
+    if (loadSurface(kTorus)) {
+        m_mw->startScene(Space::Space3D);
+        m_mw->ui->tabWidget->setCurrentWidget(m_mw->ui->Surface);
+        QTreeWidgetItem *leaf = LibraryTreeFocus::itemAt(shapes, spherePath);
+        check(leaf, QStringLiteral("la sfera e' nell'albero delle Shapes"));
+        if (!leaf) return;
+        for (QTreeWidgetItem *p = leaf->parent(); p; p = p->parent()) p->setExpanded(true);
+        shapes->clearSelection();
+        shapes->scrollToItem(leaf);
+        wait(200);
+        QTimer::singleShot(300, this, [] {
+            auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+            if (!menu) return;
+            for (QAction *a : menu->actions())
+                if (a->text() == QLatin1String("Add to Scene")) { menu->close(); a->trigger(); break; }
+        });
+        emit shapes->customContextMenuRequested(shapes->visualItemRect(leaf).center());   // torna a menu chiuso
+        wait(300);
+        check(gl->objectCount() == 2 && shapes->selectedItems() == QList<QTreeWidgetItem *>{ leaf },
+              QStringLiteral("Add to Scene dal menu: la voce dell'oggetto resta evidenziata (%1 oggetti, %2 voci)")
+                  .arg(gl->objectCount()).arg(shapes->selectedItems().size()));
+        m_mw->duplicateSceneObject(1);
+        wait(300);
+        shapes->clearSelection();
+        m_mw->selectSceneObject(1);
+        m_mw->selectSceneObject(2);
+        check(shapes->selectedItems() == QList<QTreeWidgetItem *>{ leaf },
+              QStringLiteral("Duplicate: anche la copia evidenzia la sua voce"));
+        newScene();
+    }
 
     // Ambiente a schermo che non ci sta: avviso, nessuna scena.
     if (!loadSurface(kRM)) return;
