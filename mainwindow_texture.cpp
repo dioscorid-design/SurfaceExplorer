@@ -2330,12 +2330,13 @@ void MainWindow::applyDefaultCheckerShader()
     if (ui->glWidget) ui->glWidget->loadCustomShader(TextureCode::defaultMeshCode());
 }
 
-// I quattro radio della forma dello sfondo, NELL'ORDINE di GLWidget::BgSkyMode:
+// I radio della forma dello sfondo, NELL'ORDINE di GLWidget::BgSkyMode:
 // l'indice nella lista E' la modalita'. Unica tabella per clic, load, reset e
 // tooltip -- aggiungere un radio altrove farebbe divergere le quattro sedi.
 QList<QRadioButton*> MainWindow::bgSkyRadios() const
 {
-    return { ui->radioBgFixed, ui->radioBgSphere, ui->radioBgCylinder, ui->radioBgCube };
+    return { ui->radioBgFixed, ui->radioBgSphere, ui->radioBgCylinder, ui->radioBgCube,
+             ui->radioBgPoincare };
 }
 
 // Forma dello sfondo: DISPLAY dei radio e stato del motore insieme, cosi' non
@@ -2360,7 +2361,7 @@ void MainWindow::applyBackgroundSkyMode(int mode)
 // Forma dello sfondo (panelBgLock) attiva SOLO col bersaglio Background e la
 // texture di sfondo accesa (come il resto dei controlli che agiscono sullo
 // sfondo; la forma avvolge la texture, una tinta unita non ne ha bisogno). Si spegne il contenitore dei
-// quattro radio e non il riquadro: in testa al riquadro c'e' il radio
+// radio e non il riquadro: in testa al riquadro c'e' il radio
 // Background stesso, che deve restare cliccabile.
 // Spento non vuol dire azzerato: la scelta resta in vigore sullo sfondo a
 // schermo, semplicemente non la si cambia editando la superficie.
@@ -2393,7 +2394,8 @@ void MainWindow::updateBackgroundControlsGate()
         tr("The background stays still on the screen."),
         tr("The background is a sky around the scene."),
         tr("The background is a cylinder around the scene."),
-        tr("The background is a cube around the scene.")
+        tr("The background is a cube around the scene."),
+        tr("The background is the sky of hyperbolic space, seen from inside the Poincaré ball.")
     };
     const QString why = !onBackground ? tr("Select Background to change it.")
                                       : tr("Turn on the Background Texture to choose its shape.");

@@ -408,6 +408,13 @@ QFrame#panelBackgroundTarget QRadioButton { background: transparent; }</string>
                 </property>
                </widget>
               </item>
+              <item row="2" column="0" colspan="2">
+               <widget class="QRadioButton" name="radioBgPoincare">
+                <property name="text">
+                 <string>Poincaré Ball</string>
+                </property>
+               </widget>
+              </item>
              </layout>
             </widget>
            </item>

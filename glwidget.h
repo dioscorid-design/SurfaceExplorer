@@ -933,7 +933,7 @@ public:
     bool isBackgroundTextureEnabled() const { return m_useBackgroundTexture; }
     // FORMA DELLO SFONDO (radio del gruppo "Background Controls" del Renderer).
     // Fixed (default): lo sfondo e' un poster incollato allo schermo. Le altre
-    // tre lo rendono SOLIDALE con la scena: e' un cielo all'infinito, campionato
+    // lo rendono SOLIDALE con la scena: e' un cielo all'infinito, campionato
     // per DIREZIONE di vista -- ruotando la camera (path 3D/4D, camera libera)
     // scorre; traslandola no, come le stelle viste da un'auto in corsa. La forma
     // decide solo come l'immagine si distribuisce sulle direzioni:
@@ -942,18 +942,25 @@ public:
     //               dell'immagine rispettate; aperta sopra e sotto (si ripete).
     //   Cube     -- la stessa immagine sulle sei facce, ognuna piatta: un'immagine
     //               qualsiasi non si deforma.
+    //   Poincare' Ball -- il cielo dello spazio iperbolico: l'immagine, come in
+    //               Sphere, sta sul bordo all'infinito della palla di Poincare'
+    //               (raggio 1 attorno all'origine dell'ambiente, quella dei
+    //               preset H3), vista dalla camera come da un punto DENTRO la
+    //               palla, lungo le geodetiche. Al centro e' Sphere; verso il
+    //               bordo il cielo si deforma e la zona di bordo piu' vicina
+    //               riempie la vista. Qui anche la traslazione della camera conta.
     // I valori sono quelli che lo shader legge (vedi bgBaseUV): non riordinare.
     // Nessun rebuild: la scelta viaggia nell'UBO dello sfondo (vedi render()).
-    enum BgSkyMode { BgFixed = 0, BgSphere = 1, BgCylinder = 2, BgCube = 3 };
+    enum BgSkyMode { BgFixed = 0, BgSphere = 1, BgCylinder = 2, BgCube = 3, BgPoincare = 4 };
     // Nome nel JSON dei record ("background"/"skyMode"). Parole e non numeri: il
     // file resta leggibile e sopravvive a un riordino dell'enum. Una sola tabella
     // per salvataggio e caricamento; un nome sconosciuto o assente = Fixed.
     static QString bgSkyModeName(int mode) {
-        static const char *names[] = { "fixed", "sphere", "cylinder", "cube" };
-        return (mode >= BgFixed && mode <= BgCube) ? QString(names[mode]) : QString("fixed");
+        static const char *names[] = { "fixed", "sphere", "cylinder", "cube", "poincare" };
+        return (mode >= BgFixed && mode <= BgPoincare) ? QString(names[mode]) : QString("fixed");
     }
     static int bgSkyModeFromName(const QString &name) {
-        for (int m = BgFixed; m <= BgCube; ++m)
+        for (int m = BgFixed; m <= BgPoincare; ++m)
             if (name.compare(bgSkyModeName(m), Qt::CaseInsensitive) == 0) return m;
         return BgFixed;
     }

@@ -2558,7 +2558,7 @@ private:
     // indicato, a segnali bloccati. Unica via per load e reset -- il clic
     // dell'utente passa dal toggled dei radio.
     void applyBackgroundSkyMode(int mode);
-    // I quattro radio della forma, nell'ordine di GLWidget::BgSkyMode.
+    // I radio della forma, nell'ordine di GLWidget::BgSkyMode.
     QList<QRadioButton*> bgSkyRadios() const;
     // Gruppo Background Controls acceso solo col bersaglio Background, e tooltip
     // che dicono perche' quando e' spento. Chiamata da updateRenderState e da

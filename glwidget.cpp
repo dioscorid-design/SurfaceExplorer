@@ -2271,7 +2271,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // Oltre al 3x3 della direzione, due celle della colonna 3 (fuori dal
             // mat3 che lo shader estrae):
             //   (3,3) = la MODALITA' (BgSkyMode: 0 fisso, 1 sfera, 2 cilindro,
-            //           3 cubo) -- in GLSL u_mvpMatrix[3][3];
+            //           3 cubo, 4 palla di Poincare') -- in GLSL u_mvpMatrix[3][3];
             //   (1,3) = le proporzioni dell'immagine, larghezza/altezza, che il
             //           cilindro usa per non deformarla -- in GLSL [3][1]. 1 per
             //           gli script: non hanno proporzioni proprie.
@@ -2305,6 +2305,31 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                              ? float(m_backgroundTexture->pixelSize().width())
                                / float(m_backgroundTexture->pixelSize().height())
                              : 1.0f;
+            }
+            // PALLA DI POINCARE': stesse direzioni della sfera, piu' la posizione
+            // dell'OSSERVATORE nella palla (raggio 1), nella riga 3 (celle
+            // libere, fuori dal mat3 e da [3][1]): in GLSL u_mvpMatrix[0..2][3].
+            // La palla e' il mondo dell'ambiente: centro nella sua posizione,
+            // raggio la sua scala, e NON gira col suo modello (l'oggetto ruota
+            // dentro la palla, il cielo resta, come in Sphere). env.model e'
+            // gia' quello del frame: prepareObjectUniforms e' girata qui sopra.
+            // Camera FUORI dalla palla: si usa il punto speculare dentro
+            // (inversione nella sfera, p / |p|^2), continuo attraversando il
+            // bordo; da lontano tende al centro, cioe' alla sfera. Il raggio si
+            // ferma a kMaxBallRadius: sul bordo la mappa degenera (tutto il cielo
+            // in un punto) e lo shader dividerebbe 0 per 0.
+            if (m_bgSkyMode == BgPoincare && !m_isFlatView) {
+                constexpr float kMaxBallRadius = 0.999f;
+                const QVector3D eye = m_view.inverted().map(QVector3D());
+                const float ballRadius = env.scale > 0.0f ? env.scale : 1.0f;
+                QVector3D observer = (eye - env.model.map(QVector3D())) / ballRadius;
+                const float r = observer.length();
+                if (r > 1.0f) observer /= r * r;
+                if (observer.length() > kMaxBallRadius)
+                    observer *= kMaxBallRadius / observer.length();
+                skyRay(3, 0) = observer.x();
+                skyRay(3, 1) = observer.y();
+                skyRay(3, 2) = observer.z();
             }
             memcpy(bgUboData.mvpMatrix, skyRay.constData(), 64);
 
@@ -7210,16 +7235,36 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
     //               l'alto dello schermo punta alzando/abbassando lo sguardo dal
     //               fronte: attraversato lo spigolo l'immagine continua come una
     //               piastrella, invece di ribaltarsi.
+    //   PALLA DI POINCARE' -- il cielo di H3 visto da un osservatore p dentro
+    //               la palla (u_mvpMatrix[0..2][3], vedi render()). Il bordo
+    //               della palla e' l'infinito: guardando nella direzione d si
+    //               vede il punto in cui la GEODETICA da p in direzione d tocca
+    //               il bordo (bgBallUV). E' la traslazione di Moebius che porta
+    //               0 in p applicata a d, p (+) d = (2(1+p.d) p + (1-|p|^2) d) /
+    //               (1 + 2 p.d + |p|^2): il suo differenziale in 0 e' un multiplo
+    //               dell'identita' (la palla e' conforme), quindi la retta da 0 in
+    //               direzione d va nella geodetica da p nella STESSA direzione. Il
+    //               denominatore e' positivo e il risultato sta sulla sfera
+    //               unitaria: basta normalizzare il numeratore, che vicino al
+    //               bordo evita il rapporto fra due numeri minuscoli. Sul punto
+    //               la stessa equirettangolare della sfera; con p = 0 e' Sphere.
     // VERSO: il quad ha v_texCoord.y = 1 in ALTO (e' li' che l'immagine fissa
     // appare dritta), quindi l'alto dello schermo e l'alto del cielo (+Y del
     // mondo) si mappano entrambi su v = 1. Ricavato da cio' che si vede, non dal
     // backend: se lo sfondo fisso e' dritto, lo e' anche il cielo.
     const QString bgBaseUVFunc =
+        "vec2 bgBallUV(vec3 _d) {\n"
+        "    vec3 _p = vec3(ubuf.u_mvpMatrix[0][3], ubuf.u_mvpMatrix[1][3], ubuf.u_mvpMatrix[2][3]);\n"
+        "    float _pd = dot(_p, _d);\n"
+        "    vec3 _x = normalize(2.0 * (1.0 + _pd) * _p + (1.0 - dot(_p, _p)) * _d);\n"
+        "    return vec2(atan(_x.x, -_x.z) * 0.15915494 + 0.5, asin(clamp(_x.y, -1.0, 1.0)) * 0.31830989 + 0.5);\n"
+        "}\n"
         "vec2 bgBaseUV() {\n"
         "    float _mode = ubuf.u_mvpMatrix[3][3];\n"
         "    if (_mode < 0.5) return v_texCoord;\n"
         "    vec2 _ndc = v_texCoord * 2.0 - 1.0;\n"
         "    vec3 _d = normalize(mat3(ubuf.u_mvpMatrix) * vec3(_ndc, 1.0));\n"
+        "    if (_mode > 3.5) return bgBallUV(_d);\n"
         "    if (_mode > 2.5) {\n"
         "        vec3 _a = abs(_d);\n"
         "        vec2 _f;\n"

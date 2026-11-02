@@ -306,7 +306,7 @@ struct LibraryItem {
     QString bgLibName;
     QString bgHintText;
     float   bgHintSeconds = 6.0f;
-    QString bgSkyMode = QStringLiteral("fixed");   // "fixed" / "sphere" / "cylinder" / "cube"
+    QString bgSkyMode = QStringLiteral("fixed");   // "fixed" / "sphere" / "cylinder" / "cube" / "poincare"
     float bgZoom = 1.0f, bgPanX = 0.0f, bgPanY = 0.0f, bgRotation = 0.0f;
 };
 

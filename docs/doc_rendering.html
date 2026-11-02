@@ -56,15 +56,16 @@
                 <li><strong>Background:</strong> the 2D environment drawn behind the objects, where images and procedural effects can be panned, zoomed and rotated with the mouse, like the 3D camera. With Background selected, the controls that only concern the shape are greyed out.</li>
             </ul>
 
-            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Background Shape (Fixed / Sphere / Cylinder / Cube)</b></p></td></tr></table>
-            <p>With <strong>Background</strong> selected and a background texture on, four choices decide how the texture sits in the scene:</p>
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Background Shape (Fixed / Sphere / Cylinder / Cube / Poincar&eacute; Ball)</b></p></td></tr></table>
+            <p>With <strong>Background</strong> selected and a background texture on, five choices decide how the texture sits in the scene:</p>
             <ul>
                 <li><strong>Fixed:</strong> the background is glued to the screen.</li>
                 <li><strong>Sphere:</strong> the background becomes a sky at infinity around the scene, mapped as an equirectangular panorama &mdash; the format of 360&deg; photos, twice as wide as it is tall.</li>
                 <li><strong>Cylinder:</strong> the image is wrapped horizontally around the scene, keeping its proportions.</li>
                 <li><strong>Cube:</strong> the same image on the six flat faces of a cube, so nothing is stretched.</li>
+                <li><strong>Poincar&eacute; Ball:</strong> the sky of hyperbolic space, for the H3 surfaces. The image, mapped as in Sphere, lies on the boundary at infinity of the Poincar&eacute; ball (radius 1 around the origin), and the camera sees it from wherever it is inside the ball, along the geodesics. At the center it is the same as Sphere; moving toward the boundary the sky distorts, and the nearest part of the boundary spreads over most of the view. A camera outside the ball sees the sky from its mirror point inside.</li>
             </ul>
-            <p>In the last three the background turns with the view &mdash; when the camera rotates, by hand or along a 3D or 4D path &mdash; but not with the object or its 4D rotations, as a distant sky would.</p>
+            <p>Sphere, Cylinder and Cube turn with the view &mdash; when the camera rotates, by hand or along a 3D or 4D path &mdash; but not with the object or its 4D rotations, as a distant sky would. The Poincar&eacute; Ball does the same, and changes also when the camera moves.</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Procedural Textures (GLSL)</b></p></td></tr></table>
             <p>Besides loading images (PNG/JPG), you can write custom GLSL scripts to generate mathematical textures in real-time.</p>

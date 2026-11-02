@@ -740,8 +740,8 @@ void MainWindow::setupEquationsDock()
     if (ui->radioMarcherPrecise)
         connect(ui->radioMarcherPrecise, &QRadioButton::toggled, this, updateMarcherMode);
 
-    // --- SFONDO: Fixed / Sphere / Cylinder / Cube (gruppo "Background Controls") ---
-    // I quattro radio hanno un contenitore proprio (panelBgLock), quindi si
+    // --- SFONDO: Fixed / Sphere / Cylinder / Cube / Poincare' Ball (gruppo "Background Controls") ---
+    // I radio hanno un contenitore proprio (panelBgLock), quindi si
     // escludono a vicenda senza toccare Base/Phong/WireFrame. Vale per entrambi i
     // modi: anche in Ray Marching lo sfondo e' lo stesso pass.
     // L'indice in bgSkyRadios() E' la modalita' (GLWidget::BgSkyMode): una sola
