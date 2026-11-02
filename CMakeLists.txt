@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.16)
 # mainwindow.cpp e restava indietro a ogni bump (bump-version.sh non poteva
 # raggiungerlo e si limitava a stampare un promemoria).
 # Info.plist resta un file a parte, aggiornato da ExC/Mac/bump-version.sh.
-project(SurfaceExplorer VERSION 2.0 LANGUAGES CXX)
+project(SurfaceExplorer VERSION 2.1 LANGUAGES CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -122,6 +122,9 @@ qt_add_executable(SurfaceExplorer
     surfaceobject.h
     geometrybuilder.cpp
     geometrybuilder.h
+    # 2.1: lo spazio iperbolico H3 (punti, isometrie, carte).
+    hyperbolicspace.cpp
+    hyperbolicspace.h
 
 
 
@@ -510,6 +513,9 @@ if((CMAKE_BUILD_TYPE STREQUAL "Debug" OR SE_SELF_TESTS) AND NOT ANDROID AND NOT 
         set_source_files_properties(testactivity.mm PROPERTIES LANGUAGE CXX)
     endif()
     target_compile_definitions(SurfaceExplorer PRIVATE SE_SELF_TESTS)
+    # Il nucleo di H3 si prova da solo, senza finestra ne' Qt: hyperbolic-test.sh.
+    add_executable(hyperbolic-test hyperbolictest.cpp hyperbolicspace.cpp hyperbolicspace.h)
+    set_target_properties(hyperbolic-test PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 endif()
 
 # --- SECURITY-SCOPED BOOKMARK (solo canale App Store, ma compilato ovunque) ---
