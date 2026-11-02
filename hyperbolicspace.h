@@ -70,6 +70,11 @@ Matrix inverse(const Matrix &m);
 Matrix renormalized(const Matrix &m);
 // Quanto m e' lontana dal gruppo: max |(M^T J M - J)_ij|. Zero per un'isometria esatta.
 double isometryError(const Matrix &m);
+// m = k * translation(0, 0, distance) * kp, con k e kp rotazioni e distance >= 0
+// (= distanza dall'origine di m * origine). Serve allo shader: la spinta lungo z
+// si scrive con sinh(R - r) e cosh(R - r), dove la cancellazione e' esatta,
+// invece di sottrarre numeri grandi come e^r in float.
+void splitAlongZ(const Matrix &m, Matrix &k, double &distance, Matrix &kp);
 
 // CARTE
 Vec3 toKlein(const Vec4 &p);

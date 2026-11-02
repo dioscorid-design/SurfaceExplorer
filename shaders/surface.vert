@@ -145,6 +145,80 @@ layout(std140, binding = 0) uniform SceneUBO {
     float u_wireViewH;
 } ubuf;
 
+// POSA NELLA SCENA: dal punto dell'oggetto (sue coordinate, dopo rotazioni 4D e
+// proiezione) alla camera. sceneViewPosition e sceneViewNormal danno posizione e
+// normale per la luce (v_pos, v_normal), sceneClip la posizione sullo schermo.
+// Tutti i rami (superficie, tubi, bordo, wireframe) passano da qui: una sola posa.
+#ifdef HYPERBOLIC
+// SCENA IN H3 (2.1, GLWidget::hyperbolicObjectMatrices). L'isometria che porta il
+// centro dell'oggetto nel riferimento della camera e' k * spinta lungo z di R * kp
+// (H3::splitAlongZ): u_mMatrix = kp * rotazione e scala dell'oggetto, in raggi di
+// curvatura; u_mvMatrix = k nel 3x3 e R in [3][3]; u_mvpMatrix = la sola
+// proiezione. Il punto: mappa esponenziale nel centro dell'oggetto (distanza r,
+// direzione w), la spinta, k.
+// La spinta e' scritta con sinh(R - r) e cosh(R - r): un punto lontano dal centro
+// ma vicino alla camera nasce dalla differenza di numeri grandi come e^r, che il
+// prodotto diretto della matrice in float perde gia' a 5 raggi; cosi' la
+// differenza e' esatta, e resta l'errore della direzione w, 1e-7 * sinh(r)
+// (visibile da vicino oltre 8 raggi, hyperbolic-test).
+// Sullo schermo la carta di Klein, in cui le geodetiche sono rette: i triangoli
+// della mesh sono triangoli geodetici. LA LUCE NON PASSA DA UNA CARTA: v_pos e'
+// la parte spaziale del punto sull'iperboloide e v_normal la normale (vettore
+// tangente unitario, 4 componenti), nel riferimento della camera; il fragment
+// ne ricava il coseno col raggio che arriva all'occhio. La carta di Poincare'
+// vicino al bordo schiaccia tutto, e in float la normale perdeva ogni cifra
+// oltre ~10 raggi (luce a caso: 90 gradi di errore a 12 raggi).
+void hyperbolicLocal(vec3 p, out vec3 w, out float r) {
+    vec3 v = mat3(ubuf.u_mMatrix) * p;
+    r = length(v);
+    w = (r > 1.0e-6) ? v / r : vec3(0.0, 0.0, 1.0);
+}
+// 1 + w.z senza cancellazione quando w punta verso la camera (w.z vicino a -1).
+float hyperbolicOnePlusZ(vec3 w) {
+    return (w.z < 0.0) ? (w.x * w.x + w.y * w.y) / (1.0 - w.z) : 1.0 + w.z;
+}
+vec4 hyperbolicPoint(vec3 p) {
+    vec3 w;
+    float r;
+    hyperbolicLocal(p, w, r);
+    float R = ubuf.u_mvMatrix[3][3];
+    float e = hyperbolicOnePlusZ(w);
+    float sr = sinh(r);
+    vec4 z = vec4(sr * w.x, sr * w.y, sinh(R - r) + e * cosh(R) * sr, cosh(R - r) + e * sinh(R) * sr);
+    return vec4(mat3(ubuf.u_mvMatrix) * z.xyz, z.w);
+}
+vec3 sceneViewPosition(vec3 p) { return hyperbolicPoint(p).xyz; }
+// La normale e' un covettore: la mappa esponenziale allunga di sinh(r)/r le
+// direzioni perpendicolari al raggio e lascia quella radiale, quindi la parte
+// perpendicolare della normale si accorcia dello stesso fattore. La parte
+// radiale (cosh r w, sinh r) passa dalla spinta con la stessa riscrittura del
+// punto. La lunghezza viene dalla base ortonormale, senza sottrazioni:
+// nr^2 + k^2 |nt|^2. Verificata in float contro le differenze finite.
+vec4 sceneViewNormal(vec3 p, vec3 n) {
+    vec3 w;
+    float r;
+    hyperbolicLocal(p, w, r);
+    // kp * rotazione * scala uniforme: n trasformata cosi' ha la direzione giusta.
+    vec3 nl = mat3(ubuf.u_mMatrix) * n;
+    float R = ubuf.u_mvMatrix[3][3];
+    float e = hyperbolicOnePlusZ(w);
+    float nr = dot(nl, w);
+    vec3 nt = nl - nr * w;
+    float cr = cosh(r);
+    float k = (r > 1.0e-6) ? r / sinh(r) : 1.0;
+    vec4 t = nr * vec4(cr * w.x, cr * w.y, e * cosh(R) * cr - cosh(R - r), e * sinh(R) * cr - sinh(R - r))
+           + k * vec4(nt.x, nt.y, cosh(R) * nt.z, sinh(R) * nt.z);
+    float len = sqrt(max(nr * nr + k * k * dot(nt, nt), 1.0e-24));
+    return vec4(mat3(ubuf.u_mvMatrix) * t.xyz, t.w) / len;
+}
+// Klein: la divisione prospettica per w fa (x, y, z) / w.
+vec4 sceneClip(vec3 p) { return ubuf.u_mvpMatrix * hyperbolicPoint(p); }
+#else
+vec3 sceneViewPosition(vec3 p) { return vec3(ubuf.u_mvMatrix * vec4(p, 1.0)); }
+vec4 sceneViewNormal(vec3 p, vec3 n) { return ubuf.u_mvMatrix * vec4(n, 0.0); }
+vec4 sceneClip(vec3 p) { return ubuf.u_mvpMatrix * vec4(p, 1.0); }
+#endif
+
 float sq(float x) { return x*x; }
 
 // NB: safePow(base, expo) — pow() sicura per basi negative — è definita e iniettata
@@ -672,8 +746,8 @@ void emitTubeVertex() {
     vec3 n = cos(v) * E1 + sin(v) * E2;
     vec3 pos = C + ubuf.u_tubeRadius * n;
 
-    v_pos = vec3(ubuf.u_mvMatrix * vec4(pos, 1.0));
-    v_normal = ubuf.u_mvMatrix * vec4(n, 0.0);
+    v_pos = sceneViewPosition(pos);
+    v_normal = sceneViewNormal(pos, n);
     v_objPos = pos;
     v_objNormal = n;
     // Texture (e taglio, che rilegge u da qui) sul parametro dove l'anello sta.
@@ -682,7 +756,7 @@ void emitTubeVertex() {
     v_texCoord = vec2(s, 1.0 - texCoord.y);
     tubeLight4D(C4, T4, -sin(v) * E1 + cos(v) * E2);
 
-    vec4 clip = ubuf.u_mvpMatrix * vec4(pos, 1.0);
+    vec4 clip = sceneClip(pos);
     // Stesso spareggio di profondita' 4D di main().
     clip.z -= clamp(C4.w, -1.0, 1.0) * 0.0005 * clip.w;
     clip += ubuf.u_dummyZero * 0.000001;
@@ -913,7 +987,7 @@ void emitBorderHidden() {
 // il foglio, che dentro il tubo arriva fino all'asse, ne usciva attraverso la
 // parete e lo tagliava a tratti.
 vec4 borderClip(vec3 pos, vec2 uv) {
-    vec4 clip = ubuf.u_mvpMatrix * vec4(pos, 1.0);
+    vec4 clip = sceneClip(pos);
     clip.z -= clamp(borderFigureW(uv.x, uv.y), -1.0, 1.0) * 0.0005 * clip.w;
     clip += ubuf.u_dummyZero * 0.000001;
     return clip;
@@ -989,8 +1063,8 @@ void emitBorderCorner() {
     float lat = normal.x;
     vec3 n = vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat));
     vec3 pos = pts[0] + BORDER_JOINT_SCALE * ubuf.u_borderRadius * n;
-    v_pos = vec3(ubuf.u_mvMatrix * vec4(pos, 1.0));
-    v_normal = ubuf.u_mvMatrix * vec4(n, 0.0);
+    v_pos = sceneViewPosition(pos);
+    v_normal = sceneViewNormal(pos, n);
     v_texCoord = vec2(lon / 6.28318531, 0.5 - lat / 3.14159265);
     v_light4D = 1.0;
     v_spec4D = 0.0;
@@ -1085,8 +1159,8 @@ void emitBorderVertex() {
     vec3 n = cos(ang) * E1 + sin(ang) * E2;
     vec3 pos = P + r * n;
 
-    v_pos = vec3(ubuf.u_mvMatrix * vec4(pos, 1.0));
-    v_normal = ubuf.u_mvMatrix * vec4(n, 0.0);
+    v_pos = sceneViewPosition(pos);
+    v_normal = sceneViewNormal(pos, n);
     // Coordinate della texture del bordo: lungo il lato (0..1 su ciascun
     // lato della parte) e attorno al tubo (0..1), nella stessa forma della
     // superficie (seconda coordinata rovesciata, come v_texCoord di main).
@@ -1109,7 +1183,7 @@ vec4 wireClipPosition() {
     float v = vertex.y;
     vec4 pRot = getRotatedPoint4D(u, v);
     vec3 finalPos3D = projectToScene(pRot);
-    vec4 pos = ubuf.u_mvpMatrix * vec4(finalPos3D, 1.0);
+    vec4 pos = sceneClip(finalPos3D);
     pos.z -= clamp(pRot.w, -1.0, 1.0) * 0.0005 * pos.w;
     pos += ubuf.u_dummyZero * 0.000001;
     return pos;
@@ -1265,13 +1339,13 @@ void main() {
         v_spec4D = 0.0;
     }
 
-    v_pos = vec3(ubuf.u_mvMatrix * vec4(finalPos3D, 1.0));
-    v_normal = ubuf.u_mvMatrix * vec4(finalNormal3D, 0.0);
+    v_pos = sceneViewPosition(finalPos3D);
+    v_normal = sceneViewNormal(finalPos3D, finalNormal3D);
     v_texCoord = vec2(texCoord.x, 1.0 - texCoord.y);
     v_objPos = finalPos3D;
     v_objNormal = finalNormal3D;
 
-    vec4 pos = ubuf.u_mvpMatrix * vec4(finalPos3D, 1.0);
+    vec4 pos = sceneClip(finalPos3D);
 
     // >>> FIX SFARFALLIO (Z-Fighting 4D Tie-Breaker) <<<
     pos.z -= clamp(pRot.w, -1.0, 1.0) * 0.0005 * pos.w;

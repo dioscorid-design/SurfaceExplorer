@@ -8572,11 +8572,14 @@ void ScenarioTest::runSceneH3Scenarios()
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Scena H3 (2.1): avvio a scena vuota, camera come isometria, rifiuti, RESET View, NEW =="));
     const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
-    QString torusPath;
-    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+    const QString kRM = QStringLiteral("surfaces/Implicit/3D/Sphere.json");
+    QString torusPath, rmPath;
+    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces) {
         if (it.filePath.endsWith(kTorus)) torusPath = it.filePath;
-    check(!torusPath.isEmpty(), QStringLiteral("toro nella libreria"));
-    if (torusPath.isEmpty()) return;
+        if (it.filePath.endsWith(kRM)) rmPath = it.filePath;
+    }
+    check(!torusPath.isEmpty() && !rmPath.isEmpty(), QStringLiteral("toro e sfera in ray marching nella libreria"));
+    if (torusPath.isEmpty() || rmPath.isEmpty()) return;
     const auto newScene = [this]() {
         m_discardOnPrompt = true;
         m_mw->onNewSceneClicked();
@@ -8603,6 +8606,75 @@ void ScenarioTest::runSceneH3Scenarios()
           QStringLiteral("H3 dopo NEW: scena avviata e vuota, nella barra H3"));
     check(std::abs(distance() - 0.8) < 1e-9,
           QStringLiteral("camera d'avvio a 0.8 raggi dal centro (%1)").arg(distance()));
+
+    // La Library non cambia l'ambiente; Add to Scene: il ray marching no.
+    {
+        const int before = m_popupsClosed;
+        QTreeWidget *shapes = m_mw->ui->treeSurfaces;
+        for (QTreeWidgetItemIterator it(shapes); *it; ++it) {
+            if ((*it)->childCount() > 0 || !(*it)->toolTip(0).endsWith(kTorus)) continue;
+            m_discardOnPrompt = true;
+            shapes->setCurrentItem(*it);
+            emit shapes->itemClicked(*it, 0);
+            wait(800);
+            m_discardOnPrompt = false;
+            break;
+        }
+        m_mw->addShapeToScene(rmPath);
+        wait(300);
+        check(gl->hyperbolicSpace() && m_mw->isSceneEmpty() && gl->objectCount() == 1
+                  && m_popupsClosed == before + 2,
+              QStringLiteral("clic sul toro e Add to Scene di una sfera in ray marching: due avvisi, la scena H3 resta vuota"));
+    }
+
+    // Add to Scene di una Shape parametrica: entra, col vertex shader iperbolico.
+    {
+        const int before = m_popupsClosed;
+        m_mw->addShapeToScene(torusPath);
+        wait(800);
+        m_mw->selectSceneObject(1);
+        const SurfaceObject &o = *gl->m_obj;
+        const QString vs = gl->createVertexShaderSource(o.eqX, o.eqY, o.eqZ, o.eqW);
+        check(gl->objectCount() == 2 && m_popupsClosed == before && vs.contains(QLatin1String("#define HYPERBOLIC")),
+              QStringLiteral("Add to Scene del toro: entra, shader con HYPERBOLIC"));
+        // Qualcosa e' disegnato: l'immagine non e' di un colore solo.
+        const QImage img = gl->grabFramebuffer();
+        img.save(m_outDir + QStringLiteral("/scene-h3-torus.png"));
+        int different = 0;
+        const QRgb corner = img.pixel(0, 0);
+        for (int y = 0; y < img.height(); y += 4)
+            for (int x = 0; x < img.width(); x += 4)
+                if (img.pixel(x, y) != corner) ++different;
+        check(different > 100, QStringLiteral("il toro si vede (%1 punti diversi dallo sfondo, scene-h3-torus.png)").arg(different));
+        // Lo zoom dell'oggetto si ferma a 30 volte la grandezza d'ingresso
+        // (oltre, una mesh in float non lo rappresenta piu'). Da guardare
+        // scene-h3-max-zoom.png: la luce dev'essere liscia anche li'.
+        {
+            const float opening = m_mw->m_objectSessions[1].openingScale;
+            for (int i = 0; i < 80; ++i) gl->zoomCamera(1.0f);
+            wait(300);
+            gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-max-zoom.png"));
+            check(std::abs(gl->objectScale() - 30.0f * opening) < 1e-3f * opening,
+                  QStringLiteral("zoom in H3: si ferma a 30 volte la grandezza d'ingresso (%1, ingresso %2)")
+                      .arg(gl->objectScale()).arg(opening));
+            gl->setObjectScale(opening);
+        }
+        // Da guardare accanto a scene-3d-torus-big.png (fine sezione): il toro
+        // nel centro, grande rispetto al raggio di curvatura (raggio esterno
+        // quasi 2), la camera a 3.5 raggi. Avanti e indietro lungo l'asse: la
+        // camera torna esattamente dov'era.
+        gl->setObjectPosition(QVector3D());
+        gl->setObjectScale(gl->objectScale() * 9.0f);
+        m_mw->selectSceneObject(0);
+        gl->zoomCamera(-13.5f);
+        wait(300);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-torus-big.png"));
+        gl->setProjectionMode(0);   // ortogonale
+        wait(300);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-torus-big-ortho.png"));
+        gl->setProjectionMode(1);
+        gl->zoomCamera(13.5f);
+    }
 
     // Rotella: avanti, verso il centro, di 0.2 raggi per unita'.
     gl->zoomCamera(1.0f);
@@ -8635,24 +8707,21 @@ void ScenarioTest::runSceneH3Scenarios()
     check(H3::isometryError(gl->hyperbolicCamera()) < 1e-12,
           QStringLiteral("la camera e' ancora un'isometria (errore %1)").arg(H3::isometryError(gl->hyperbolicCamera())));
 
-    // La Library non cambia l'ambiente, Add to Scene non aggiunge oggetti.
+    // PRECISIONE, da guardare (scene-h3-precision.png): il toro con l'anima a 8
+    // raggi dal centro e il tubo di 3, la camera a 0.05 dalla parete interna (a 5
+    // raggi), rivolta verso di lei. Col prodotto diretto della matrice in float
+    // era rumore (errore 2.6e-2 della distanza); con la spinta in sinh(R - r)
+    // dev'essere liscia (hyperbolic-test misura i due errori).
     {
-        const int before = m_popupsClosed;
-        QTreeWidget *shapes = m_mw->ui->treeSurfaces;
-        for (QTreeWidgetItemIterator it(shapes); *it; ++it) {
-            if ((*it)->childCount() > 0 || !(*it)->toolTip(0).endsWith(kTorus)) continue;
-            m_discardOnPrompt = true;
-            shapes->setCurrentItem(*it);
-            emit shapes->itemClicked(*it, 0);
-            wait(800);
-            m_discardOnPrompt = false;
-            break;
-        }
-        m_mw->addShapeToScene(torusPath);
+        m_mw->selectSceneObject(1);
+        gl->setRotationQuat(QQuaternion());
+        gl->setObjectPosition(QVector3D());
+        gl->setObjectScale(50.0f);
+        m_mw->selectSceneObject(0);
+        gl->m_h3Camera = H3::translation({4.95, 0.0, 0.0}) * H3::rotation({0.0, 1.0, 0.0}, -M_PI / 2.0);
+        gl->update();
         wait(300);
-        check(gl->hyperbolicSpace() && m_mw->isSceneEmpty() && gl->objectCount() == 1
-                  && m_popupsClosed == before + 2,
-              QStringLiteral("clic sul toro e Add to Scene: due avvisi, la scena H3 resta vuota"));
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-precision.png"));
     }
 
     // RESET View: diritta verso il centro, alla distanza di adesso.
@@ -8670,6 +8739,26 @@ void ScenarioTest::runSceneH3Scenarios()
 
     newScene();
     check(!m_mw->sceneStarted() && !gl->hyperbolicSpace(), QStringLiteral("NEW chiude la scena H3"));
+
+    // Lo stesso toro grande in una scena 3D, con la camera alla stessa distanza
+    // in unita' della scena (17.5 = 3.5 raggi): il confronto per l'occhio.
+    m_mw->startScene(Space::Space3D);
+    m_mw->addShapeToScene(torusPath);
+    wait(800);
+    m_mw->selectSceneObject(1);
+    gl->setObjectPosition(QVector3D());
+    gl->setObjectScale(gl->objectScale() * 9.0f);
+    m_mw->selectSceneObject(0);
+    gl->zoomCamera(-13.5f);
+    wait(300);
+    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-3d-torus-big.png"));
+    gl->setProjectionMode(0);
+    wait(300);
+    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-3d-torus-big-ortho.png"));
+    gl->setProjectionMode(1);
+    check(!gl->hyperbolicSpace() && gl->objectCount() == 2,
+          QStringLiteral("scena 3D dopo la H3: camera euclidea (immagine di confronto scene-3d-torus-big.png)"));
+    newScene();
 }
 
 void ScenarioTest::runScenePathScenarios()

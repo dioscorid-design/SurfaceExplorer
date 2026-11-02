@@ -1151,6 +1151,15 @@ public:
     void setHyperbolicSpace(bool on);
     bool hyperbolicSpace() const { return m_hyperbolic; }
     const H3::Matrix &hyperbolicCamera() const { return m_h3Camera; }
+    // Le lunghezze di H3 sono in raggi di curvatura: un'unita' della scena
+    // (passi della camera, posizioni e grandezze degli oggetti) ne vale tanti.
+    // Per ora fisso: diventera' il raggio di curvatura dell'ambiente.
+    static constexpr double kH3RadiiPerSceneUnit = 0.2;
+    // L'oggetto e' disegnato in H3 (vertex shader con HYPERBOLIC, posa di
+    // hyperbolicObjectMatrices). Solo le mesh: il ray marching resta fuori dal livello 1.
+    bool hyperbolicObject(const SurfaceObject &o) const {
+        return m_hyperbolic && o.engineMode == ModeParametric;
+    }
     // Il trascinamento col mouse o col dito gira il mondo (non un oggetto).
     bool dragOrbitsHyperbolicCamera() const { return m_hyperbolic && isEnvironment(*m_obj); }
     void orbitHyperbolicCamera(float dYawDeg, float dPitchDeg);
@@ -1232,10 +1241,17 @@ public:
     // (utente, 2026-10-24; dal 10-21 al 10-23 non ruotava mai, poi solo a
     // path fermo). Durante un path il trascinamento e gli scatti 4D restano
     // spenti come con una superficie sola (InputHandler, setNavControlsEnabled).
+    // In H3 gli assi dello schermo sono quelli della camera trasportati nel
+    // centro della scena: dopo un giro attorno al centro non sono piu' quelli
+    // del mondo, e il trascinamento girerebbe l'oggetto su assi che non si vedono.
     void addObjectRotation(float dPrecession, float dNutation, float dSpin) {
-        addObjectRotation(*m_obj, dPrecession, dNutation, dSpin);
+        addObjectRotation(*m_obj, dPrecession, dNutation, dSpin,
+                          m_hyperbolic ? hyperbolicCameraRotation() : QMatrix4x4());
     }
-    void addObjectRotation(SurfaceObject &o, float dPrecession, float dNutation, float dSpin);
+    // `screenAxes`: le colonne sono gli assi x, y, z dello schermo nel mondo
+    // (identita' = quelli del mondo, la scena euclidea e il timer delle rotazioni).
+    void addObjectRotation(SurfaceObject &o, float dPrecession, float dNutation, float dSpin,
+                           const QMatrix4x4 &screenAxes = QMatrix4x4());
     // Avanza rotazioni oggetto (prec/nut/spin) e 4D (omega/phi/psi) di
     // dtSeconds di tempo d'animazione, alle velocita' correnti, di OGNI
     // oggetto col GO acceso (SurfaceObject::rotating). Unica implementazione:
@@ -1901,6 +1917,13 @@ private:
     // resta togliendo la traslazione), e la sua posizione nella palla di Poincare'.
     QMatrix4x4 hyperbolicCameraRotation() const;
     QVector3D hyperbolicCameraInBall() const;
+    // La posa di un oggetto in H3 per l'UBO. L'isometria che porta il suo
+    // centro nel riferimento della camera (camera^-1 * rotazione della scena *
+    // traslazione nella sua posizione) e' m = k * spinta lungo z di R * kp.
+    // `local` = kp * rotazione e scala dell'oggetto in raggi di curvatura (va
+    // in u_mMatrix), `lorentz` = k nel 3x3 e R in (3,3) (va in u_mvMatrix).
+    // Il vertex shader (HYPERBOLIC, hyperbolicPoint) fa il resto.
+    void hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMatrix4x4 &lorentz);
     QVector4D m_cameraPos4D = QVector4D(0.0f, 0.0f, 4.0f, 4.0f);
     QVector4D m_observerPos = QVector4D(0.0f, 0.0f, 0.0f, 4.0f);
     // QUOTA DEL PIANO DI SEZIONE (sotto-tab Cross Section): il valore di p a cui

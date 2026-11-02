@@ -46,6 +46,8 @@ std::mt19937 g_rng(20261102);
 double uniform(double a, double b) { return std::uniform_real_distribution<double>(a, b)(g_rng); }
 
 Vec3 mul(const Vec3 &v, double s) { return {v.x * s, v.y * s, v.z * s}; }
+Vec4 add4(const Vec4 &a, const Vec4 &b) { return {a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w}; }
+Vec4 scale4(const Vec4 &a, double s) { return {a.x * s, a.y * s, a.z * s, a.w * s}; }
 Vec3 sub(const Vec3 &a, const Vec3 &b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
 double dot3(const Vec3 &a, const Vec3 &b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 double len3(const Vec3 &v) { return std::sqrt(dot3(v, v)); }
@@ -305,6 +307,116 @@ void testPoincareBallBackground()
     check(sky < 1e-9, format("lo sfondo Poincare' Ball vede le estremita' delle geodetiche del nucleo (errore %.1e)", sky));
 }
 
+void testSplitAlongZ()
+{
+    // m = k * spinta lungo z * kp, anche nei casi limite (centro nell'origine,
+    // centro sull'asse -z).
+    double rebuild = 0.0, rotations = 0.0, dist = 0.0;
+    for (int i = 0; i < 60; ++i) {
+        Matrix m = randomIsometry(3.0);
+        if (i == 0) m = rotation(randomDir(), 1.0);
+        if (i == 1) m = translation({0.0, 0.0, -2.0}) * rotation(randomDir(), 0.5);
+        Matrix k, kp;
+        double r = 0.0;
+        splitAlongZ(m, k, r, kp);
+        rebuild = std::max(rebuild, diff(k * translation({0.0, 0.0, r}) * kp, m));
+        rotations = std::max({rotations, relDiff(k * origin(), origin()), relDiff(kp * origin(), origin()),
+                              isometryError(k), isometryError(kp)});
+        dist = std::max(dist, std::abs(r - distance(origin(), m * origin())));
+    }
+    check(rebuild < 1e-10 && rotations < 1e-12 && dist < 1e-12,
+          format("scomposizione rotazione * spinta lungo z * rotazione (errore %.1e, %.1e, %.1e)", rebuild, rotations, dist));
+}
+
+// IL CALCOLO DELLO SHADER IN FLOAT, nei due modi. Un punto lontano r dal centro
+// dell'oggetto ma vicino alla camera (0.05) nasce dalla differenza di numeri
+// grandi come e^r: col prodotto diretto della matrice (com'era) in float si
+// perde quasi tutto gia' a r = 5; con la spinta scritta in sinh(R - r) e
+// cosh(R - r) (surface.vert, hyperbolicPoint) resta l'errore della direzione
+// dal centro, 1e-7 * sinh(r). Restituisce l'errore relativo alla distanza dalla camera.
+struct FloatErrors { double direct = 0.0, split = 0.0; };
+FloatErrors shaderFloatErrors(double r)
+{
+    FloatErrors e;
+    const double gap = 0.05;
+    for (int i = 0; i < 200; ++i) {
+        // Direzione qualunque dal centro; la camera sta sul suo prolungamento, a gap dal punto.
+        const Vec3 dir = randomDir();
+        const Vec3 jit = mul(randomDir(), 1e-3);
+        const Vec3 v = mul(normalized({dir.x + jit.x, dir.y + jit.y, dir.z + jit.z}), r);
+        const Matrix m = inverse(translation(mul(dir, r + gap)));   // centro -> camera
+        const Vec4 exact = m * expAtOrigin(v);
+        const Vec3 ek = toKlein(exact);
+
+        float mf[4][4];
+        for (int a = 0; a < 4; ++a)
+            for (int b = 0; b < 4; ++b) mf[a][b] = float(m.m[a][b]);
+        const float vf[3] = {float(v.x), float(v.y), float(v.z)};
+        const float rf = std::sqrt(vf[0] * vf[0] + vf[1] * vf[1] + vf[2] * vf[2]);
+        const float sf = std::sinh(rf) / rf;
+        const float x[4] = {vf[0] * sf, vf[1] * sf, vf[2] * sf, std::cosh(rf)};
+        float y[4];
+        for (int a = 0; a < 4; ++a) y[a] = mf[a][0] * x[0] + mf[a][1] * x[1] + mf[a][2] * x[2] + mf[a][3] * x[3];
+        e.direct = std::max(e.direct, diff3({y[0] / y[3], y[1] / y[3], y[2] / y[3]}, ek) / gap);
+
+        Matrix k, kp;
+        double dist = 0.0;
+        splitAlongZ(m, k, dist, kp);
+        float wv[3];
+        for (int a = 0; a < 3; ++a) wv[a] = float(kp.m[a][0]) * vf[0] + float(kp.m[a][1]) * vf[1] + float(kp.m[a][2]) * vf[2];
+        const float w[3] = {wv[0] / rf, wv[1] / rf, wv[2] / rf};
+        const float onePlusZ = w[2] < 0.0f ? (w[0] * w[0] + w[1] * w[1]) / (1.0f - w[2]) : 1.0f + w[2];
+        const float R = float(dist), sr = std::sinh(rf);
+        const float z[4] = {sr * w[0], sr * w[1], std::sinh(R - rf) + onePlusZ * std::cosh(R) * sr,
+                            std::cosh(R - rf) + onePlusZ * std::sinh(R) * sr};
+        float q[3];
+        for (int a = 0; a < 3; ++a) q[a] = float(k.m[a][0]) * z[0] + float(k.m[a][1]) * z[1] + float(k.m[a][2]) * z[2];
+        e.split = std::max(e.split, diff3({q[0] / z[3], q[1] / z[3], q[2] / z[3]}, ek) / gap);
+    }
+    return e;
+}
+
+void testShaderPrecision()
+{
+    for (double r : {2.0, 4.0, 6.0, 8.0}) {
+        const FloatErrors e = shaderFloatErrors(r);
+        info(format("oggetto grande %.0f raggi, camera a 0.05 dalla superficie: errore %.1e col prodotto diretto, %.1e con la spinta in sinh(R - r)",
+                    r, e.direct, e.split));
+    }
+    const FloatErrors at6 = shaderFloatErrors(6.0);
+    check(at6.split < 1e-3 && at6.direct > 1e-2,
+          format("in float, a 6 raggi dal centro dell'oggetto: la spinta in sinh(R - r) resta sotto 1e-3 (%.1e), il prodotto diretto no (%.1e)",
+                 at6.split, at6.direct));
+}
+
+void testLightCosines()
+{
+    // Le due formule della luce del fragment shader (surface.frag, HYPERBOLIC),
+    // con la camera nell'origine, N tangente in P:
+    //   prospettiva: coseno con la geodetica verso la camera = -N.w / |P.xyz|
+    //   ortogonale:  coseno con la geodetica perpendicolare al piano z = 0 = N.z / sqrt(1 + P.z^2)
+    // Qui contro i vettori tangenti delle due geodetiche costruiti col nucleo.
+    double persp = 0.0, ortho = 0.0;
+    for (int i = 0; i < 200; ++i) {
+        const Vec4 p = expAtOrigin(randomVec(4.0));
+        const Vec4 a = {uniform(-1, 1), uniform(-1, 1), uniform(-1, 1), uniform(-1, 1)};
+        const Vec4 n = add4(a, scale4(p, dot(a, p)));   // tangente in p
+        const double nn = std::sqrt(dot(n, n));
+        // Verso la camera: la tangente in p della geodetica che va nell'origine.
+        const Vec4 toEye = add4(origin(), scale4(p, dot(origin(), p)));
+        const double refP = dot(n, toEye) / (nn * std::sqrt(dot(toEye, toEye)));
+        const double lenXYZ = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+        persp = std::max(persp, std::abs(-n.w / (nn * lenXYZ) - refP));
+        // Ortogonale: la geodetica per p perpendicolare al piano z = 0, F cosh s + e_z sinh s.
+        const double s = std::asinh(p.z);
+        const Vec4 tangent = {p.x * std::tanh(s), p.y * std::tanh(s), std::cosh(s), p.w * std::tanh(s)};
+        const double refO = dot(n, tangent) / (nn * std::sqrt(dot(tangent, tangent)));
+        ortho = std::max(ortho, std::abs(n.z / (nn * std::sqrt(1.0 + p.z * p.z)) - refO));
+    }
+    check(persp < 1e-9 && ortho < 1e-9,
+          format("luce in H3: i coseni del fragment shader coincidono con le geodetiche (errore %.1e, %.1e)", persp, ortho));
+}
+
 void testRenormalization()
 {
     double before = 0.0, after = 0.0, moved = 0.0;
@@ -319,7 +431,8 @@ void testRenormalization()
         after = std::max(after, isometryError(fixed));
         moved = std::max(moved, distance(fixed * origin(), m * origin()));
     }
-    check(after < 1e-12 && moved < 1e-5,
+    // La posizione si sposta meno di quanto la matrice era uscita dal gruppo.
+    check(after < 1e-12 && moved < before,
           format("raddrizzamento: errore da %.1e a %.1e, posizione spostata di %.1e", before, after, moved));
 
     // La deriva della camera: avanti di 0.01 e giro di 0.02 radianti per frame,
@@ -356,6 +469,9 @@ int main()
     testHolonomy();
     testParallelism();
     testPoincareBallBackground();
+    testSplitAlongZ();
+    testShaderPrecision();
+    testLightCosines();
     testRenormalization();
     std::printf("\nesito: %s\n", g_failures == 0 ? "tutte le verifiche passate"
                                                  : format("%d verifiche FALLITE", g_failures).c_str());

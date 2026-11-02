@@ -2161,6 +2161,28 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         } else {
             m_projection.perspective(effectiveCameraFov(), aspect, nearPlane, farPlane);
         }
+        // In H3 gli oggetti arrivano nella carta di Klein attorno alla camera
+        // (vertex shader, HYPERBOLIC): tutto lo spazio sta nella palla di
+        // raggio 1. near a un millesimo (in raggi, ci si puo' avvicinare molto),
+        // far = 1, il bordo all'infinito.
+        // ORTOGONALE: i raggi sono le geodetiche perpendicolari al piano dello
+        // schermo, e il pixel e' il loro piede in coordinate di Klein (x/w, y/w).
+        // Come in euclideo la finestra e' cio' che la prospettiva vede alla
+        // distanza D del centro della scena: sul piano, a distanza h dal centro
+        // con tanh h = sinh D * tan(fov/2) (triangolo rettangolo iperbolico), e
+        // in Klein la coordinata e' proprio tanh h. Oltre 1 si vede tutto il piano.
+        if (m_hyperbolic) {
+            m_projection.setToIdentity();
+            if (projectionMode == Ortho4D) {
+                double d = H3::distance(H3::origin(), m_h3Camera * H3::origin());
+                if (d < 0.1 * kH3RadiiPerSceneUnit) d = 4.0 * kH3RadiiPerSceneUnit;   // come camDist sopra
+                const float tanHalf = std::tan(effectiveCameraFov() * 0.5f * float(M_PI) / 180.0f);
+                const float halfH = std::min(float(std::sinh(d)) * tanHalf, 1.0f);
+                m_projection.ortho(-halfH * aspect, halfH * aspect, -halfH, halfH, -1.0f, 1.0f);
+            } else {
+                m_projection.perspective(effectiveCameraFov(), aspect, 0.001f, 1.0f);
+            }
+        }
 
         m_view.setToIdentity();
         if (m_isPathFollowing) {
@@ -5559,10 +5581,7 @@ void GLWidget::setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &t
 }
 
 // --- SCENA IPERBOLICA (2.1) ---
-// Le lunghezze di H3 sono in raggi di curvatura: un'unita' della scena (passo
-// dei tasti, rotella, pinch, distanza d'avvio) ne vale kH3RadiiPerSceneUnit.
-// Per ora fisso: con gli oggetti diventera' il raggio di curvatura dell'ambiente.
-static constexpr double kH3RadiiPerSceneUnit = 0.2;
+// Lunghezze in raggi di curvatura: GLWidget::kH3RadiiPerSceneUnit (glwidget.h).
 // Oltre questa distanza dal centro la camera non va: le coordinate crescono
 // come e^d, e lo sfondo, in float, degenera sul bordo della palla (a 6 il
 // raggio nella palla e' tanh 3 = 0.995).
@@ -5572,7 +5591,7 @@ static constexpr double kH3MaxCameraDistance = 6.0;
 // rivolta verso di lui.
 static H3::Matrix hyperbolicStartCamera()
 {
-    return H3::translation({0.0, 0.0, 4.0 * kH3RadiiPerSceneUnit});
+    return H3::translation({0.0, 0.0, 4.0 * GLWidget::kH3RadiiPerSceneUnit});
 }
 
 void GLWidget::setHyperbolicSpace(bool on)
@@ -5622,6 +5641,44 @@ QVector3D GLWidget::hyperbolicCameraInBall() const
 {
     const H3::Vec3 b = H3::toPoincare(m_h3Camera * H3::origin());
     return QVector3D(float(b.x), float(b.y), float(b.z));
+}
+
+void GLWidget::hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMatrix4x4 &lorentz)
+{
+    // La parte locale, come il modello euclideo senza la posizione: le
+    // coordinate dell'oggetto sono un vettore dal suo centro, in raggi.
+    local.setToIdentity();
+    local.rotate(o.rotationQuat);
+    local.scale(float(double(o.scale) * kH3RadiiPerSceneUnit));
+    // Il centro: la posizione (path compreso) letta come vettore dal centro
+    // della scena, quindi la traslazione lungo quella geodetica; prima, come
+    // nel modello euclideo, la rotazione della scena data dall'ambiente.
+    const QVector3D c = effectivePosition(o) * float(kH3RadiiPerSceneUnit);
+    H3::Matrix place = H3::translation({c.x(), c.y(), c.z()});
+    if (!isEnvironment(o)) {
+        const QMatrix3x3 r = m_sceneRotation.rotation.toRotationMatrix();
+        H3::Matrix scene = H3::Matrix::identity();
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j) scene.m[i][j] = r(i, j);
+        place = scene * place;
+    }
+    const H3::Matrix m = H3::inverse(m_h3Camera) * place;
+    // Allo shader non va m ma la sua scomposizione k * spinta lungo z * kp
+    // (H3::splitAlongZ): in float il prodotto diretto perde tutte le cifre per
+    // i punti lontani dal centro dell'oggetto e vicini alla camera (gia' a 5
+    // raggi, hyperbolic-test). kp, una rotazione, entra nella parte locale; k
+    // nel 3x3 di `lorentz`, e la distanza del centro dalla camera in (3,3).
+    H3::Matrix k, kp;
+    double distance = 0.0;
+    H3::splitAlongZ(m, k, distance, kp);
+    QMatrix4x4 kpLocal;
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) kpLocal(i, j) = float(kp.m[i][j]);
+    local = kpLocal * local;
+    lorentz.fill(0.0f);
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) lorentz(i, j) = float(k.m[i][j]);
+    lorentz(3, 3) = float(distance);
 }
 
 void GLWidget::zoomCamera(float delta) {
@@ -5910,8 +5967,11 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
     // camera girata e sul path. Il nome del tasto e' il verso dell'oggetto a
     // schermo, opposto a quello in cui la camera faceva scorrere la scena.
     if (objectZoomActive()) {
-        const QVector3D screenRight = m_view.row(0).toVector3D();
-        const QVector3D screenUp = m_view.row(1).toVector3D();
+        // In H3 gli assi della camera trasportati nel centro della scena.
+        const QVector3D screenRight = m_hyperbolic ? hyperbolicCameraRotation().column(0).toVector3D()
+                                                   : m_view.row(0).toVector3D();
+        const QVector3D screenUp = m_hyperbolic ? hyperbolicCameraRotation().column(1).toVector3D()
+                                                : m_view.row(1).toVector3D();
         switch (dir) {
         case MoveForward: zoomCamera(speed); return;
         case MoveBack:    zoomCamera(-speed); return;
@@ -6037,7 +6097,9 @@ void GLWidget::moveObjectOnScreen(const QVector3D &delta)
 // scena come la posizione. Gira attorno al centro dell'oggetto.
 void GLWidget::rollObjectOnScreen(float angle)
 {
-    const QVector3D axis = m_sceneRotation.rotation.conjugated().rotatedVector(m_view.row(2).toVector3D());
+    const QVector3D view = m_hyperbolic ? hyperbolicCameraRotation().column(2).toVector3D()   // H3
+                                        : m_view.row(2).toVector3D();
+    const QVector3D axis = m_sceneRotation.rotation.conjugated().rotatedVector(view);
     m_obj->rotationQuat = (QQuaternion::fromAxisAndAngle(axis, angle) * m_obj->rotationQuat).normalized();
     markUserRotated();
     emit rotationChanged();
@@ -6049,18 +6111,24 @@ void GLWidget::rollObjectOnScreen(float angle)
 // ANIMATION & MOTION CONTROL
 // ==========================================================
 
-void GLWidget::addObjectRotation(SurfaceObject &o, float dPrecession, float dNutation, float dSpin)
+void GLWidget::addObjectRotation(SurfaceObject &o, float dPrecession, float dNutation, float dSpin,
+                                 const QMatrix4x4 &screenAxes)
 {
     // --- ROTAZIONE BASATA SUGLI ASSI DELLO SCHERMO (Trackball Style) ---
+    // Gli assi: quelli del mondo, o le colonne di screenAxes (H3, vedi glwidget.h).
+    const bool world = screenAxes.isIdentity();
+    const QVector3D ax = world ? QVector3D(1.0f, 0.0f, 0.0f) : screenAxes.column(0).toVector3D();
+    const QVector3D ay = world ? QVector3D(0.0f, 1.0f, 0.0f) : screenAxes.column(1).toVector3D();
+    const QVector3D az = world ? QVector3D(0.0f, 0.0f, 1.0f) : screenAxes.column(2).toVector3D();
 
     // 1. Mouse Destra/Sinistra (dPrecession) -> Ruota attorno all'asse Y verticale
-    QQuaternion yRot = QQuaternion::fromAxisAndAngle(0.0f, 1.0f, 0.0f, dPrecession);
+    QQuaternion yRot = QQuaternion::fromAxisAndAngle(ay.x(), ay.y(), ay.z(), dPrecession);
 
     // 2. Mouse Su/Giù (dNutation) -> Ruota attorno all'asse X orizzontale
-    QQuaternion xRot = QQuaternion::fromAxisAndAngle(1.0f, 0.0f, 0.0f, dNutation);
+    QQuaternion xRot = QQuaternion::fromAxisAndAngle(ax.x(), ax.y(), ax.z(), dNutation);
 
     // 3. Spin (dSpin) -> Ruota attorno all'asse Z (profondità/vista)
-    QQuaternion zRot = QQuaternion::fromAxisAndAngle(0.0f, 0.0f, 1.0f, dSpin);
+    QQuaternion zRot = QQuaternion::fromAxisAndAngle(az.x(), az.y(), az.z(), dSpin);
 
     // 4. Applica le rotazioni: Ordine: Y * X * Z * VecchiaRotazione
     // Questo garantisce che la rotazione avvenga rispetto al punto di vista dell'osservatore
@@ -7863,6 +7931,10 @@ QString GLWidget::createVertexShaderSource(SurfaceObject &o, const QString &xEq,
     if (objectHasP(o)) {
         source.replace("#version 450", "#version 450\n#define HAS_OBJECT_P\n");
     }
+    // Scena in H3 (2.1): la posa iperbolica (sceneClip e compagne nel template).
+    if (hyperbolicObject(o)) {
+        source.replace("#version 450", "#version 450\n#define HYPERBOLIC\n");
+    }
 
     return source;
 }
@@ -8369,6 +8441,10 @@ QString GLWidget::createFragmentShaderSource(SurfaceObject &o, const QString &cu
 
     if (o.isCustomMesh) {
         fullSource.replace("#version 450", "#version 450\n#define CUSTOM_MESH\n");
+    }
+    // Scena in H3 (2.1): la luce sta sulla camera e arriva lungo la geodetica.
+    if (hyperbolicObject(o)) {
+        fullSource.replace("#version 450", "#version 450\n#define HYPERBOLIC\n");
     }
 
     return fullSource;

@@ -54,11 +54,22 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
         mvp = rhi()->clipSpaceCorrMatrix() * m_projection * m_view * o.model;
         mv = m_view * o.model;
     }
+    // IN H3 (2.1) le tre matrici cambiano significato, il blocco UBO no (un
+    // campo nuovo andrebbe dichiarato nei due shader, vedi CLAUDE.md):
+    // u_mMatrix = la parte locale dell'oggetto, u_mvMatrix = l'isometria di
+    // Lorentz verso la camera, u_mvpMatrix = la sola proiezione. Le legge il
+    // vertex shader compilato con HYPERBOLIC (stessa condizione, hyperbolicObject);
+    // o.model resta quello euclideo per chi lo usa sulla CPU.
+    QMatrix4x4 m = o.model;
+    if (!m_isFlatView && hyperbolicObject(o)) {
+        hyperbolicObjectMatrices(o, m, mv);
+        mvp = rhi()->clipSpaceCorrMatrix() * m_projection;
+    }
 
     // --- 3. COMPILAZIONE UNIFORM BUFFER (UBO) ---
     memcpy(m_uboData.mvpMatrix, mvp.constData(), 64);
     memcpy(m_uboData.mvMatrix, mv.constData(), 64);
-    memcpy(m_uboData.mMatrix, o.model.constData(), 64);
+    memcpy(m_uboData.mMatrix, m.constData(), 64);
 
     m_uboData.dummyZero = QVector4D(0.0f, 0.0f, 0.0f, 0.0f);
     m_uboData.observerPos = m_observerPos;

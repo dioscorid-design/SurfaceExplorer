@@ -179,6 +179,26 @@ double isometryError(const Matrix &m)
     return worst;
 }
 
+void splitAlongZ(const Matrix &m, Matrix &k, double &distance, Matrix &kp)
+{
+    // k porta l'asse z sulla direzione di m * origine (rotazione minima;
+    // mezzo giro attorno a x se la direzione e' -z), poi kp e' quello che resta:
+    // fissa l'origine, quindi e' una rotazione.
+    const Vec4 c = m * origin();
+    const Vec3 d = spatial(c);
+    const double s = len3(d);
+    distance = std::asinh(s);
+    k = Matrix::identity();
+    if (s > 1e-12) {
+        const Vec3 u = {d.x / s, d.y / s, d.z / s};
+        const Vec3 axis = {-u.y, u.x, 0.0};   // z x u
+        const double sa = len3(axis);
+        if (sa > 1e-12) k = rotation(axis, std::atan2(sa, u.z));
+        else if (u.z < 0.0) k = rotation({1.0, 0.0, 0.0}, std::acos(-1.0));
+    }
+    kp = inverse(translation({0.0, 0.0, distance})) * inverse(k) * m;
+}
+
 Vec3 toKlein(const Vec4 &p) { return {p.x / p.w, p.y / p.w, p.z / p.w}; }
 
 Vec4 fromKlein(const Vec3 &k)

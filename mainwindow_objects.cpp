@@ -617,10 +617,11 @@ void MainWindow::addShapeToScene(const QString &shapePath)
 {
     const LibraryItem *d = m_libraryManager.getSurfaceByPath(shapePath);
     if (!d || d->name.isEmpty()) return;
-    // 2.1: gli oggetti in H3 arrivano con la tappa 3 (vertex shader iperbolico).
-    if (m_sceneSpace == SceneSpace::SpaceH3) {
+    // 2.1: in H3 solo le mesh (GLWidget::hyperbolicObject); il ray marching
+    // resta fuori dal livello 1.
+    if (m_sceneSpace == SceneSpace::SpaceH3 && d->isImplicitMode) {
         QMessageBox::information(this, QStringLiteral("Add to Scene"),
-            QStringLiteral("Objects in hyperbolic scenes are not available yet."));
+            QStringLiteral("Ray marching shapes cannot be added to a hyperbolic scene yet."));
         return;
     }
     const bool crossSection = d->isImplicitMode && d->usesCrossSection;
@@ -1105,8 +1106,21 @@ void MainWindow::setupObjectsDock()
     }
     // La scala dell'oggetto la cambiano rotella, pinch e Back/Forward
     // (GLWidget::zoomCamera).
+    // IN H3 (2.1) lo zoom si ferma a kH3MaxZoom volte la grandezza d'ingresso:
+    // un oggetto entra grande al piu' ~0.35 raggi di curvatura, quindi resta
+    // sotto i ~10 raggi, oltre i quali una mesh in float non lo rappresenta piu'
+    // (in H3 le circonferenze crescono come sinh del raggio: con la scala 100 il
+    // toro aveva segmenti di 140000 raggi e vertici sbagliati di mezzo raggio).
+    // Il segnale arriva prima del disegno: niente fotogramma oltre il limite.
     connect(ui->glWidget, &GLWidget::objectScaleChangedByUser, this, [this]() {
         m_sceneObjectsChanged = true;
+        constexpr float kH3MaxZoom = 30.0f;
+        GLWidget *gl = ui->glWidget;
+        const int selected = gl->selectedObject();
+        if (m_sceneSpace == SceneSpace::SpaceH3 && selected > 0 && selected < int(m_objectSessions.size())) {
+            const float limit = kH3MaxZoom * m_objectSessions[selected].openingScale;
+            if (gl->objectScale() > limit) gl->setObjectScale(limit);
+        }
     });
     // La posizione spostata dai tasti del dock 3D (GLWidget::virtualMove).
     connect(ui->glWidget, &GLWidget::objectPositionChangedByUser, this, [this](const QVector3D &p) {

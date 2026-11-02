@@ -285,15 +285,33 @@ void main() {
 
     vec3 L = vec3(0.0, 0.0, 1.0);   // Luce frontale
     vec3 H = normalize(L + V);      // Vettore mediano
+    float nDotL = dot(N, L);
+    float nDotH = dot(N, H);
+#ifdef HYPERBOLIC
+    // H3 (2.1): in H3 non ci sono direzioni parallele. La luce arriva lungo il
+    // raggio che forma l'immagine, come la vista, quindi luce e vista sono la
+    // stessa direzione e conta solo il coseno fra quel raggio e la normale.
+    // v_pos e v_normal sono punto e normale (unitaria) sull'iperboloide, nel
+    // riferimento della camera (surface.vert): il coseno si calcola li', senza
+    // carte, preciso anche lontano dal centro degli oggetti.
+    // Prospettiva: il raggio e' la geodetica verso la camera, coseno
+    // -N.w / |P.xyz|. Ortogonale: i raggi sono le geodetiche PERPENDICOLARI al
+    // piano dello schermo (z = 0), e il pixel e' il loro piede (Klein x/w, y/w,
+    // costante lungo ciascuna); coseno N.z / sqrt(1 + P.z^2). Verificati contro
+    // la geodetica (hyperbolic-test e differenze finite).
+    nDotL = (ubuf.u_projMode == 0) ? v_normal.z / sqrt(1.0 + v_pos.z * v_pos.z)
+                                   : -v_normal.w / max(length(v_pos), 1.0e-6);
+    nDotH = nDotL;
+#endif
 
     // --- 2. ILLUMINAZIONE DIFFUSA ---
-    float diff = abs(dot(N, L));
+    float diff = abs(nDotL);
     diff = 0.3 + 0.7 * diff;
 
     // --- 3. ILLUMINAZIONE SPECULARE (PHONG) CALIBRATA ---
     float spec = 0.0;
     if (ubuf.useSpecular != 0) {
-        float specAngle = abs(dot(N, H));
+        float specAngle = abs(nDotH);
         specAngle = clamp(specAngle, 0.0, 1.0);
         spec = pow(specAngle, 64.0);
         spec *= 0.3;
