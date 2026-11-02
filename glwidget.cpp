@@ -23,6 +23,7 @@
 #include <QCoreApplication>
 #include <QPainter>
 #include <QLinearGradient>
+#include <QColorSpace>
 #include <QDebug>
 #include <cstddef>
 #include <cstring>
@@ -1800,9 +1801,9 @@ void GLWidget::syncPartImages(SurfaceObject &o, QRhiResourceUpdateBatch *resourc
             if (QFileInfo::exists(path)) emit textureImageLoadFailed(path);
             continue;
         }
-        // Stesso formato e stesso verso dell'immagine di superficie
+        // Stesso formato, colori e verso dell'immagine di superficie
         // (loadTextureFromImage).
-        img = img.convertToFormat(QImage::Format_RGBA8888).flipped(Qt::Orientations(Qt::Vertical));
+        img = textureImage(img).flipped(Qt::Orientations(Qt::Vertical));
         entry.tex = rhi()->newTexture(QRhiTexture::RGBA8, img.size(), 1);
         entry.tex->create();
         QRhiTextureSubresourceUploadDescription subresDesc(img.constBits(), img.sizeInBytes());
@@ -4757,6 +4758,116 @@ void GLWidget::setRecordingActive(bool on)
 // TEXTURES, SCRIPTS & BACKGROUND
 // ==========================================================
 
+// IMMAGINE -> TEXTURE. Gli shader e lo schermo assumono colori sRGB, e prima
+// i valori dei pixel si caricavano cosi' com'erano, ignorando il profilo colore
+// del file: le foto dei telefoni recenti uscivano spente o sbiadite.
+//  - Senza profilo o gia' sRGB (tutte le immagini di fabbrica): la stessa
+//    conversione di sempre, pixel per pixel.
+//  - Profilo SDR diverso (Display P3, Adobe RGB...): conversione colorimetrica
+//    di Qt in sRGB.
+//  - HDR (curva PQ o HLG, es. BT.2020 PQ dei telefoni): i codici coprono fino a
+//    10000 nit e il bianco normale sta a meta' scala, quindi letti come sRGB
+//    erano grigi e piatti. La conversione diretta di Qt taglia invece tutto
+//    cio' che supera il bianco (nuvole bruciate: nelle foto di prova le luci
+//    arrivavano a 3.9 volte il bianco). Qui: sRGB LINEARE in float (Qt tiene i
+//    valori oltre 1); se il PICCO supera il bianco, la luminanza fra kKnee e il
+//    picco si comprime in [kKnee, 1] con una spalla di Reinhard estesa
+//    (pendenza 1 al ginocchio, 1 esatto sul picco), il colore scalato con lei;
+//    poi la codifica sRGB. Un'immagine HDR che resta sotto il bianco non si
+//    tocca. Il picco si misura su un campione (un pixel ogni 8 per lato, senza
+//    medie): un riflesso piu' piccolo puo' sfuggire e satura, come prima.
+//    A strisce, per non tenere in memoria l'intera immagine in float (16 byte
+//    a pixel: 150 MB per una foto 4096x2304).
+QImage GLWidget::textureImage(const QImage &img)
+{
+    const QColorSpace cs = img.colorSpace();
+    if (!cs.isValid() || cs == QColorSpace(QColorSpace::SRgb))
+        return img.convertToFormat(QImage::Format_RGBA8888);
+
+    const QColorSpace::TransferFunction tf = cs.transferFunction();
+    if (tf != QColorSpace::TransferFunction::St2084 && tf != QColorSpace::TransferFunction::Hlg) {
+        const QImage out = img.convertedToColorSpace(QColorSpace(QColorSpace::SRgb), QImage::Format_RGBA8888);
+        return out.isNull() ? img.convertToFormat(QImage::Format_RGBA8888) : out;
+    }
+
+    constexpr float kKnee = 0.7f;
+    constexpr int kStripRows = 256;
+    static const std::vector<uchar> srgbEncode = [] {
+        std::vector<uchar> t(65536);
+        for (int i = 0; i < 65536; ++i) {
+            const float v = float(i) / 65535.0f;
+            const float e = v <= 0.0031308f ? 12.92f * v : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
+            t[i] = uchar(std::lround(e * 255.0f));
+        }
+        return t;
+    }();
+    auto encode = [](float v) { return srgbEncode[int(std::clamp(v, 0.0f, 1.0f) * 65535.0f + 0.5f)]; };
+
+    const QColorSpace linear(QColorSpace::Primaries::SRgb, QColorSpace::TransferFunction::Linear);
+    // Il profilo si rimette esplicitamente sui pezzi (campione, strisce): la
+    // conversione parte da li'.
+    auto toLinear = [&](QImage part) {
+        part.setColorSpace(cs);
+        return part.convertedToColorSpace(linear, QImage::Format_RGBA32FPx4);
+    };
+    auto luminance = [](const float *p) {
+        return 0.2126f * std::max(p[0], 0.0f) + 0.7152f * std::max(p[1], 0.0f) + 0.0722f * std::max(p[2], 0.0f);
+    };
+
+    float peak = 1.0f;
+    {
+        const QImage sample = toLinear(img.scaled(std::max(1, img.width() / 8), std::max(1, img.height() / 8),
+                                                  Qt::IgnoreAspectRatio, Qt::FastTransformation));
+        if (sample.isNull()) return img.convertToFormat(QImage::Format_RGBA8888);
+        for (int y = 0; y < sample.height(); ++y) {
+            const float *p = reinterpret_cast<const float *>(sample.constScanLine(y));
+            for (int x = 0; x < sample.width(); ++x, p += 4) peak = std::max(peak, luminance(p));
+        }
+    }
+    // Spalla in t = (lum - kKnee) / (1 - kKnee): t (1 + t / T^2) / (1 + t), che
+    // vale 1 in T (il picco) e cresce sempre; con il picco al bianco T = 1 e la
+    // spalla e' l'identita'.
+    const float peakT = (peak - kKnee) / (1.0f - kKnee);
+    const float invPeakT2 = 1.0f / (peakT * peakT);
+
+    QImage out(img.size(), QImage::Format_RGBA8888);
+    for (int y0 = 0; y0 < img.height(); y0 += kStripRows) {
+        const int rows = std::min(kStripRows, img.height() - y0);
+        const QImage strip = toLinear(img.copy(0, y0, img.width(), rows));
+        if (strip.isNull()) return img.convertToFormat(QImage::Format_RGBA8888);
+        for (int y = 0; y < rows; ++y) {
+            const float *p = reinterpret_cast<const float *>(strip.constScanLine(y));
+            uchar *o = out.scanLine(y0 + y);
+            for (int x = 0; x < strip.width(); ++x, p += 4, o += 4) {
+                const float r = std::max(p[0], 0.0f), g = std::max(p[1], 0.0f), b = std::max(p[2], 0.0f);
+                const float lum = luminance(p);
+                float s = 1.0f;
+                if (lum > kKnee && peak > 1.0f) {
+                    const float t = (lum - kKnee) / (1.0f - kKnee);
+                    s = (kKnee + (1.0f - kKnee) * t * (1.0f + t * invPeakT2) / (1.0f + t)) / lum;
+                }
+                float rgb[3] = { r * s, g * s, b * s };
+                // Un canale oltre 1 (colore saturo e luminoso, o fuori dalla
+                // gamma sRGB) si taglierebbe da solo e la tinta girerebbe (cielo
+                // azzurro -> ciano): il colore si avvicina al grigio della sua
+                // luminanza quanto basta per rientrare, tinta e luminosita'
+                // restano.
+                const float shownLum = lum * s;
+                const float top = std::max({ rgb[0], rgb[1], rgb[2] });
+                if (top > 1.0f) {
+                    const float k = shownLum < 1.0f ? (1.0f - shownLum) / (top - shownLum) : 0.0f;
+                    for (float &c : rgb) c = shownLum + (c - shownLum) * k;
+                }
+                o[0] = encode(rgb[0]);
+                o[1] = encode(rgb[1]);
+                o[2] = encode(rgb[2]);
+                o[3] = uchar(std::lround(std::clamp(p[3], 0.0f, 1.0f) * 255.0f));
+            }
+        }
+    }
+    return out;
+}
+
 void GLWidget::loadTextureFromFile(const QString &f) {
     QImage img(f);
     if (!img.isNull()) {
@@ -4787,8 +4898,8 @@ void GLWidget::loadTextureFromImage(const QImage &img) {
     // un'immagine continui a spacciarsi per quella.
     m_obj->surfaceImagePath.clear();
 
-    // 1. RHI richiede formati precisi (RGBA8888)
-    m_obj->pendingSurfaceImage = img.convertToFormat(QImage::Format_RGBA8888).flipped(Qt::Orientations(Qt::Vertical));
+    // 1. RHI richiede formati precisi (RGBA8888), in colori sRGB
+    m_obj->pendingSurfaceImage = textureImage(img).flipped(Qt::Orientations(Qt::Vertical));
 
     // 2. Alziamo la bandierina per il Render Loop
     m_obj->surfaceTextureNeedsUpload = true;
@@ -4909,7 +5020,7 @@ void GLWidget::setBackgroundImage(const QString &path) {
     }
 
     // A questo punto 'img' ha SEMPRE dei pixel validi da mostrare a Vulkan
-    m_pendingBackgroundImage = img.convertToFormat(QImage::Format_RGBA8888).flipped(Qt::Orientations(Qt::Vertical));
+    m_pendingBackgroundImage = textureImage(img).flipped(Qt::Orientations(Qt::Vertical));
 
     m_backgroundTextureNeedsUpload = true;
     m_bgImagePath = path;

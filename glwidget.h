@@ -900,6 +900,10 @@ public:
     // ==========================================================
     void loadTextureFromFile(const QString &filename);
     void loadTextureFromImage(const QImage &img);
+    // Un'immagine qualsiasi come texture: RGBA8 nei colori sRGB, convertita dal
+    // suo profilo colore (foto Display P3, HDR PQ/HLG...). Unica via per le
+    // immagini della superficie, delle fasce e dello sfondo.
+    static QImage textureImage(const QImage &img);
     void setGlobalTextureEnabled(bool enable);
     void setGlobalTextureColors(const QColor& c1, const QColor& c2);
     void clearTexture();
