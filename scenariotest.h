@@ -280,6 +280,8 @@ private:
     void runSceneTimelineScenarios();
     // 2.0: il tasto Scene, la scelta 3D/4D e quando la scena resta o finisce.
     void runSceneSpaceScenarios();
+    // 2.1: la scena in H3 (avvio, camera come isometria, rifiuti, RESET, NEW).
+    void runSceneH3Scenarios();
     void runScenePathScenarios();
     void runSceneSeekScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run

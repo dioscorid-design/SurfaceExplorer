@@ -103,6 +103,10 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
 
             if (isCameraMode) {
                 m_glWidget->addCameraRotation(dx * sensitivity, dy * sensitivity);
+            } else if (m_glWidget->dragOrbitsHyperbolicCamera()) {
+                // Scena in H3: gira il mondo attorno al centro, cielo compreso.
+                m_glWidget->orbitHyperbolicCamera(dx * sensitivity, dy * sensitivity);
+                if (m_mouseGestureActive && !m_isClickCandidate) m_mouseMovedView = true;
             } else {
                 // Passiamo 0.0f come terzo argomento (Spin)
                 m_glWidget->markUserRotated();
@@ -187,8 +191,13 @@ bool InputHandler::handleTouch(QEvent* e)
         } else if (!m_glWidget->isPathAnimating()) {
             // Modalità 3D/4D: Rotazione standard dell'oggetto (bloccata durante un path)
             float rotSens = 0.3f;
-            m_glWidget->markUserRotated();
-            m_glWidget->addObjectRotation(dx * rotSens, dy * rotSens, 0.0f);
+            if (m_glWidget->dragOrbitsHyperbolicCamera()) {
+                // Scena in H3: gira il mondo attorno al centro, cielo compreso.
+                m_glWidget->orbitHyperbolicCamera(dx * rotSens, dy * rotSens);
+            } else {
+                m_glWidget->markUserRotated();
+                m_glWidget->addObjectRotation(dx * rotSens, dy * rotSens, 0.0f);
+            }
             // Oltre la deadzone e' un trascinamento vero, non un tap: la vista
             // e' stata mossa dall'utente.
             if (!m_isClickCandidate) m_touchMovedView = true;

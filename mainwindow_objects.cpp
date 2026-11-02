@@ -505,6 +505,7 @@ bool MainWindow::sceneStarted() const
 void MainWindow::setSceneSpace(SceneSpace space)
 {
     m_sceneSpace = space;
+    if (ui->glWidget) ui->glWidget->setHyperbolicSpace(space == SceneSpace::SpaceH3);
     refreshSceneSlot();
 }
 
@@ -531,11 +532,25 @@ void MainWindow::showSceneSpaceMenu()
             [this]() { startScene(SceneSpace::Space3D); });
     connect(menu.addAction(QStringLiteral("4D")), &QAction::triggered, this,
             [this]() { startScene(SceneSpace::Space4D); });
+    connect(menu.addAction(QStringLiteral("H³")), &QAction::triggered, this,
+            [this]() { startScene(SceneSpace::SpaceH3); });
     menu.exec(m_btnScene->mapToGlobal(QPoint(0, 0)) - QPoint(0, menu.sizeHint().height()));
 }
 
 void MainWindow::startScene(SceneSpace space)
 {
+    // H3: l'ambiente e' lo spazio, quindi si parte da una scena vuota.
+    if (space == SceneSpace::SpaceH3) {
+        if (!isSceneEmpty()) {
+            InputValidator::showSceneNotice(this,
+                QStringLiteral("In a hyperbolic scene the environment is the space itself, so the scene starts empty."),
+                QStringLiteral("Press NEW first, then Scene."));
+            return;
+        }
+        setSceneSpace(space);
+        refreshObjectsUi();
+        return;
+    }
     const bool scene4D = space == SceneSpace::Space4D;
     if (!isSceneEmpty()) {
         const QString refusal = environmentRefusal(implicitMode(), environmentHasP(), scene4D);
@@ -564,6 +579,12 @@ bool MainWindow::refuseEnvironmentForScene(QTreeWidgetItem *item)
     const LibraryItem *d = m_libraryManager.getSurfaceByPath(path);
     if (!d) d = m_libraryManager.getMotionByPath(path);
     if (!d) return false;
+    if (m_sceneSpace == SceneSpace::SpaceH3) {
+        InputValidator::showSceneNotice(this,
+            QStringLiteral("In a hyperbolic scene the environment is the space itself."),
+            QStringLiteral("Press NEW to leave this scene."));
+        return true;
+    }
     const QString refusal = environmentRefusal(d->isImplicitMode, itemHasP(*d),
                                                m_sceneSpace == SceneSpace::Space4D);
     if (refusal.isEmpty()) return false;
@@ -596,6 +617,12 @@ void MainWindow::addShapeToScene(const QString &shapePath)
 {
     const LibraryItem *d = m_libraryManager.getSurfaceByPath(shapePath);
     if (!d || d->name.isEmpty()) return;
+    // 2.1: gli oggetti in H3 arrivano con la tappa 3 (vertex shader iperbolico).
+    if (m_sceneSpace == SceneSpace::SpaceH3) {
+        QMessageBox::information(this, QStringLiteral("Add to Scene"),
+            QStringLiteral("Objects in hyperbolic scenes are not available yet."));
+        return;
+    }
     const bool crossSection = d->isImplicitMode && d->usesCrossSection;
     const bool object4D = itemHasP(*d);
     if (sceneIs4D() && crossSection) {
@@ -1357,7 +1384,10 @@ void MainWindow::refreshSceneSlot()
     const bool started = sceneStarted();
     m_btnScene->setVisible(!started);
     m_sceneSpaceLabel->setVisible(started);
-    if (started) m_sceneSpaceLabel->setText(sceneIs4D() ? QStringLiteral("4D") : QStringLiteral("3D"));
+    if (started)
+        m_sceneSpaceLabel->setText(m_sceneSpace == SceneSpace::SpaceH3 ? QStringLiteral("H³")
+                                   : sceneIs4D()                         ? QStringLiteral("4D")
+                                                                         : QStringLiteral("3D"));
     m_btnObjectSelector->setVisible(started);
     m_sceneTimeLabel->setVisible(started);
 }

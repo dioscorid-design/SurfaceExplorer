@@ -2000,6 +2000,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-h3")) {
+        runSceneH3Scenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-path")) {
         runScenePathScenarios();
         finish();
@@ -3868,6 +3873,7 @@ void ScenarioTest::run()
     runSceneResetScenarios();
     runSceneTimelineScenarios();
     runSceneSpaceScenarios();
+    runSceneH3Scenarios();
     runScenePathScenarios();
     runSceneSeekScenarios();
     runImageCaptureScenarios();
@@ -8557,6 +8563,113 @@ void ScenarioTest::runSceneSpaceScenarios()
     check(json.value(QStringLiteral("space")).toString() == QLatin1String("3D"), QStringLiteral("il file dice 3D"));
     reopen(json, QStringLiteral("3D"), QStringLiteral("scena 3D: riaperta 3D"));
     newScene();
+}
+
+void ScenarioTest::runSceneH3Scenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    using Space = MainWindow::SceneSpace;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Scena H3 (2.1): avvio a scena vuota, camera come isometria, rifiuti, RESET View, NEW =="));
+    const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
+    QString torusPath;
+    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+        if (it.filePath.endsWith(kTorus)) torusPath = it.filePath;
+    check(!torusPath.isEmpty(), QStringLiteral("toro nella libreria"));
+    if (torusPath.isEmpty()) return;
+    const auto newScene = [this]() {
+        m_discardOnPrompt = true;
+        m_mw->onNewSceneClicked();
+        wait(300);
+        m_discardOnPrompt = false;
+    };
+    const auto camera = [gl]() { return gl->hyperbolicCamera() * H3::origin(); };
+    const auto distance = [&]() { return H3::distance(H3::origin(), camera()); };
+
+    // Con qualcosa a schermo non parte: l'ambiente e' lo spazio stesso.
+    if (!loadSurface(kTorus)) return;
+    {
+        const int before = m_popupsClosed;
+        m_mw->startScene(Space::SpaceH3);
+        wait(200);
+        check(!m_mw->sceneStarted() && !gl->hyperbolicSpace() && m_popupsClosed == before + 1,
+              QStringLiteral("H3 col toro a schermo: un avviso, la scena non parte"));
+    }
+    newScene();
+    m_mw->startScene(Space::SpaceH3);
+    m_mw->refreshSceneTimeLabel();
+    check(m_mw->sceneStarted() && gl->hyperbolicSpace() && m_mw->isSceneEmpty()
+              && m_mw->m_sceneSpaceLabel->text() == QStringLiteral("H³"),
+          QStringLiteral("H3 dopo NEW: scena avviata e vuota, nella barra H3"));
+    check(std::abs(distance() - 0.8) < 1e-9,
+          QStringLiteral("camera d'avvio a 0.8 raggi dal centro (%1)").arg(distance()));
+
+    // Rotella: avanti, verso il centro, di 0.2 raggi per unita'.
+    gl->zoomCamera(1.0f);
+    check(std::abs(distance() - 0.6) < 1e-9, QStringLiteral("rotella: 0.2 raggi verso il centro (%1)").arg(distance()));
+
+    // Il trascinamento gira il mondo attorno al centro: distanza uguale, posizione nuova.
+    {
+        const H3::Vec4 before = camera();
+        const double d0 = distance();
+        gl->orbitHyperbolicCamera(30.0f, 20.0f);
+        check(std::abs(distance() - d0) < 1e-9 && H3::distance(before, camera()) > 0.1,
+              QStringLiteral("trascinamento: la camera gira attorno al centro (spostata di %1)")
+                  .arg(H3::distance(before, camera())));
+    }
+
+    // Tasti del dock 3D: Left trasla di lato, Roll gira senza spostare.
+    {
+        const double d0 = distance();
+        gl->virtualMove(GLWidget::MoveLeft, 0.1f, 0.1f);
+        const H3::Vec4 moved = camera();
+        gl->virtualMove(GLWidget::RollLeft, 0.1f, 0.1f);
+        check(distance() > d0 && H3::distance(moved, camera()) < 1e-9,
+              QStringLiteral("dock 3D: Left sposta (da %1 a %2), Roll no").arg(d0).arg(distance()));
+    }
+
+    // Indietro senza fine: la camera si ferma entro 6 raggi, e resta un'isometria.
+    for (int i = 0; i < 20; ++i) gl->zoomCamera(-10.0f);
+    check(distance() <= 6.0 + 1e-9 && distance() > 4.0,
+          QStringLiteral("indietro: la camera si ferma entro 6 raggi (%1)").arg(distance()));
+    check(H3::isometryError(gl->hyperbolicCamera()) < 1e-12,
+          QStringLiteral("la camera e' ancora un'isometria (errore %1)").arg(H3::isometryError(gl->hyperbolicCamera())));
+
+    // La Library non cambia l'ambiente, Add to Scene non aggiunge oggetti.
+    {
+        const int before = m_popupsClosed;
+        QTreeWidget *shapes = m_mw->ui->treeSurfaces;
+        for (QTreeWidgetItemIterator it(shapes); *it; ++it) {
+            if ((*it)->childCount() > 0 || !(*it)->toolTip(0).endsWith(kTorus)) continue;
+            m_discardOnPrompt = true;
+            shapes->setCurrentItem(*it);
+            emit shapes->itemClicked(*it, 0);
+            wait(800);
+            m_discardOnPrompt = false;
+            break;
+        }
+        m_mw->addShapeToScene(torusPath);
+        wait(300);
+        check(gl->hyperbolicSpace() && m_mw->isSceneEmpty() && gl->objectCount() == 1
+                  && m_popupsClosed == before + 2,
+              QStringLiteral("clic sul toro e Add to Scene: due avvisi, la scena H3 resta vuota"));
+    }
+
+    // RESET View: diritta verso il centro, alla distanza di adesso.
+    {
+        const double d0 = distance();
+        m_mw->resetView();
+        const H3::Matrix expected = H3::translation({0.0, 0.0, d0});
+        double worst = 0.0;
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j)
+                worst = std::max(worst, std::abs(gl->hyperbolicCamera().m[i][j] - expected.m[i][j]));
+        check(gl->hyperbolicSpace() && worst < 1e-9,
+              QStringLiteral("RESET View: verso il centro alla stessa distanza (scarto %1)").arg(worst));
+    }
+
+    newScene();
+    check(!m_mw->sceneStarted() && !gl->hyperbolicSpace(), QStringLiteral("NEW chiude la scena H3"));
 }
 
 void ScenarioTest::runScenePathScenarios()

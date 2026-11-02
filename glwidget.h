@@ -4,6 +4,7 @@
 #include "surfaceengine.h"
 #include "geometrybuilder.h"   // WireframeRange (intervalli per parte di mesh)
 #include "surfaceobject.h"     // i dati di un oggetto della scena
+#include "hyperbolicspace.h"   // la camera delle scene in H3 (2.1)
 
 #include <QWidget>
 #include <QRhiWidget>
@@ -1140,6 +1141,20 @@ public:
     bool anyClockAdvanced() const;
     void virtualMove(MoveDir dir, float speed3D, float speed4D);
 
+    // SCENA IPERBOLICA (2.1): lo spazio della scena e' H3 e la camera e' una
+    // sua isometria (hyperbolicspace.h), composta in double passo dopo passo.
+    // La accende e la spegne MainWindow col tasto Scene; accenderla porta la
+    // camera nell'origine, il centro della scena. In H3 rotella, pinch e tasti
+    // del dock 3D muovono la camera nel SUO riferimento (avanti = lungo la
+    // geodetica di vista), il trascinamento gira il mondo attorno al centro
+    // della scena, cielo compreso: il cielo e' il bordo all'infinito di H3.
+    void setHyperbolicSpace(bool on);
+    bool hyperbolicSpace() const { return m_hyperbolic; }
+    const H3::Matrix &hyperbolicCamera() const { return m_h3Camera; }
+    // Il trascinamento col mouse o col dito gira il mondo (non un oggetto).
+    bool dragOrbitsHyperbolicCamera() const { return m_hyperbolic && isEnvironment(*m_obj); }
+    void orbitHyperbolicCamera(float dYawDeg, float dPitchDeg);
+
     QVector3D getCameraPos() const { return m_cameraPos; }
     float getCameraYaw() const { return m_cameraYaw; }
     float getCameraPitch() const { return m_cameraPitch; }
@@ -1874,6 +1889,18 @@ private:
     QMatrix4x4 m_view;
 
     QVector3D m_cameraPos;
+    // La camera in H3 (vedi setHyperbolicSpace): dal riferimento della camera
+    // al mondo, posizione = m_h3Camera * origine; guarda lungo -z come quella
+    // euclidea. m_cameraPos e gli angoli restano quelli della scena euclidea.
+    bool m_hyperbolic = false;
+    H3::Matrix m_h3Camera = H3::Matrix::identity();
+    // Un passo nel riferimento della camera (traslazione o rotazione), a
+    // destra della matrice; rifiutato se la porterebbe oltre la distanza massima.
+    void moveHyperbolicCamera(const H3::Matrix &localStep);
+    // L'orientamento della camera trasportato nell'origine (la matrice che
+    // resta togliendo la traslazione), e la sua posizione nella palla di Poincare'.
+    QMatrix4x4 hyperbolicCameraRotation() const;
+    QVector3D hyperbolicCameraInBall() const;
     QVector4D m_cameraPos4D = QVector4D(0.0f, 0.0f, 4.0f, 4.0f);
     QVector4D m_observerPos = QVector4D(0.0f, 0.0f, 0.0f, 4.0f);
     // QUOTA DEL PIANO DI SEZIONE (sotto-tab Cross Section): il valore di p a cui

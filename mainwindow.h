@@ -1934,7 +1934,10 @@ private:
     // resetToSingleObject, cioe' tutto cio'
     // che riscrive la scena da capo; il clic su una Shape o su un record
     // compatibile, e la superficie di default per una texture, la conservano.
-    enum class SceneSpace { None, Space3D, Space4D };
+    // SpaceH3 (2.1): lo spazio iperbolico, visto da dentro. L'ambiente e' lo
+    // spazio stesso, quindi la scena parte vuota; la camera e' di GLWidget
+    // (setHyperbolicSpace). Per il resto vale come una scena 3D.
+    enum class SceneSpace { None, Space3D, Space4D, SpaceH3 };
     SceneSpace m_sceneSpace = SceneSpace::None;
     QPushButton *m_btnScene = nullptr;
     QLabel *m_sceneSpaceLabel = nullptr;

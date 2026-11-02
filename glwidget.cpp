@@ -2289,9 +2289,12 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             QMatrix4x4 skyRay;
             skyRay.fill(0.0f);
             if (m_bgSkyMode != BgFixed && !m_isFlatView) {
+                // In H3 la camera e' m_h3Camera, e il cielo e' il bordo all'infinito
+                // del mondo: l'orientamento trasportato nel centro della scena.
                 QMatrix4x4 viewRotInv = m_view;
                 viewRotInv.setColumn(3, QVector4D(0.0f, 0.0f, 0.0f, 1.0f));
                 viewRotInv = viewRotInv.transposed();   // rotazione: inversa = trasposta
+                if (m_hyperbolic) viewRotInv = hyperbolicCameraRotation();
                 const float tanHalf = std::tan(effectiveCameraFov() * 0.5f * float(M_PI) / 180.0f);
                 QMatrix4x4 eyeFromNdc;                  // pixel (ndc.x, ndc.y, 1) -> raggio in camera
                 eyeFromNdc.setToIdentity();
@@ -2319,11 +2322,15 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // bordo; da lontano tende al centro, cioe' alla sfera. Il raggio si
             // ferma a kMaxBallRadius: sul bordo la mappa degenera (tutto il cielo
             // in un punto) e lo shader dividerebbe 0 per 0.
+            // In H3 la palla e' lo spazio stesso e l'osservatore e' la camera
+            // iperbolica: le stesse traslazioni (Moebius) che il test del nucleo
+            // confronta con questo shader (hyperbolic-test).
             if (m_bgSkyMode == BgPoincare && !m_isFlatView) {
                 constexpr float kMaxBallRadius = 0.999f;
                 const QVector3D eye = m_view.inverted().map(QVector3D());
                 const float ballRadius = env.scale > 0.0f ? env.scale : 1.0f;
-                QVector3D observer = (eye - env.model.map(QVector3D())) / ballRadius;
+                QVector3D observer = m_hyperbolic ? hyperbolicCameraInBall()
+                                                  : (eye - env.model.map(QVector3D())) / ballRadius;
                 const float r = observer.length();
                 if (r > 1.0f) observer /= r * r;
                 if (observer.length() > kMaxBallRadius)
@@ -5551,6 +5558,72 @@ void GLWidget::setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &t
     update();
 }
 
+// --- SCENA IPERBOLICA (2.1) ---
+// Le lunghezze di H3 sono in raggi di curvatura: un'unita' della scena (passo
+// dei tasti, rotella, pinch, distanza d'avvio) ne vale kH3RadiiPerSceneUnit.
+// Per ora fisso: con gli oggetti diventera' il raggio di curvatura dell'ambiente.
+static constexpr double kH3RadiiPerSceneUnit = 0.2;
+// Oltre questa distanza dal centro la camera non va: le coordinate crescono
+// come e^d, e lo sfondo, in float, degenera sul bordo della palla (a 6 il
+// raggio nella palla e' tanh 3 = 0.995).
+static constexpr double kH3MaxCameraDistance = 6.0;
+
+// La camera d'avvio, come quella euclidea: a 4 unita' dal centro lungo +z,
+// rivolta verso di lui.
+static H3::Matrix hyperbolicStartCamera()
+{
+    return H3::translation({0.0, 0.0, 4.0 * kH3RadiiPerSceneUnit});
+}
+
+void GLWidget::setHyperbolicSpace(bool on)
+{
+    if (m_hyperbolic == on) return;
+    m_hyperbolic = on;
+    m_h3Camera = hyperbolicStartCamera();
+    update();
+}
+
+void GLWidget::moveHyperbolicCamera(const H3::Matrix &localStep)
+{
+    // Raddrizzata a ogni passo: in double la deriva e' gia' trascurabile
+    // (hyperbolic-test), cosi' resta tale per qualunque durata.
+    const H3::Matrix moved = H3::renormalized(m_h3Camera * localStep);
+    const double before = H3::distance(H3::origin(), m_h3Camera * H3::origin());
+    const double after = H3::distance(H3::origin(), moved * H3::origin());
+    if (after > kH3MaxCameraDistance && after > before) return;
+    m_h3Camera = moved;
+    update();
+}
+
+void GLWidget::orbitHyperbolicCamera(float dYawDeg, float dPitchDeg)
+{
+    // Il mondo gira attorno al centro della scena sugli assi dello SCHERMO, nel
+    // verso della scena euclidea (addObjectRotation): la parte fra la camera e
+    // il centro segue il mouse. Gli assi della camera trasportati nel centro
+    // sono quelli di rc; girare il mondo di W e' muovere la camera di W^-1.
+    const H3::Matrix rc = H3::inverse(H3::translationTo(m_h3Camera * H3::origin())) * m_h3Camera;
+    const H3::Matrix r = H3::rotation({0.0, 1.0, 0.0}, qDegreesToRadians(double(dYawDeg)))
+                       * H3::rotation({1.0, 0.0, 0.0}, qDegreesToRadians(double(dPitchDeg)));
+    const H3::Matrix world = rc * r * H3::inverse(rc);
+    m_h3Camera = H3::renormalized(H3::inverse(world) * m_h3Camera);
+    update();
+}
+
+QMatrix4x4 GLWidget::hyperbolicCameraRotation() const
+{
+    const H3::Matrix rc = H3::inverse(H3::translationTo(m_h3Camera * H3::origin())) * m_h3Camera;
+    QMatrix4x4 r;
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) r(i, j) = float(rc.m[i][j]);
+    return r;
+}
+
+QVector3D GLWidget::hyperbolicCameraInBall() const
+{
+    const H3::Vec3 b = H3::toPoincare(m_h3Camera * H3::origin());
+    return QVector3D(float(b.x), float(b.y), float(b.z));
+}
+
 void GLWidget::zoomCamera(float delta) {
     // Con un oggetto della scena selezionato lo zoom e' il SUO: la scala, in
     // proporzione (avvicinare di 1 = +10%), cosi' rotella e pinch hanno lo
@@ -5558,6 +5631,11 @@ void GLWidget::zoomCamera(float delta) {
     if (objectZoomActive()) {
         setObjectScale(m_obj->scale * std::exp(delta * 0.1f));
         emit objectScaleChangedByUser();
+        return;
+    }
+    // In H3: avanti lungo la geodetica di vista (virtualMove, MoveForward).
+    if (m_hyperbolic) {
+        moveHyperbolicCamera(H3::translation({0.0, 0.0, -double(delta) * kH3RadiiPerSceneUnit}));
         return;
     }
     // Calcoliamo il vettore "Avanti" completo
@@ -5721,6 +5799,12 @@ void GLWidget::resetFraming(const Framing &f)
     m_flatPan = QVector2D(0.0f, 0.0f);
     m_bgPan = QVector2D(0.0f, 0.0f);
 
+    // In H3 (sempre una scena) come nelle scene euclidee, MainWindow::resetView:
+    // la direzione d'avvio, diritta e verso il centro, alla distanza di adesso.
+    // La Framing e' della camera euclidea e qui non conta.
+    if (m_hyperbolic)
+        m_h3Camera = H3::translation({0.0, 0.0, H3::distance(H3::origin(), m_h3Camera * H3::origin())});
+
     // Azzera le memorie di backup
     m_viewStates[0] = ViewState();
     m_viewStates[1] = ViewState();
@@ -5837,6 +5921,24 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
         case MoveDown:    moveObjectOnScreen(-screenUp * speed); return;
         case RollLeft:    rollObjectOnScreen(rollSpeed); return;
         case RollRight:   rollObjectOnScreen(-rollSpeed); return;
+        default: break;   // il dock 4D: sotto
+        }
+    }
+
+    // In H3 la camera si muove nel SUO riferimento: avanti e' -z, lungo la
+    // geodetica di vista; il rollio gira attorno all'asse di vista.
+    if (m_hyperbolic) {
+        const double step = speed * kH3RadiiPerSceneUnit;
+        const double roll = qDegreesToRadians(double(rollSpeed));
+        switch (dir) {
+        case MoveForward: moveHyperbolicCamera(H3::translation({0.0, 0.0, -step})); return;
+        case MoveBack:    moveHyperbolicCamera(H3::translation({0.0, 0.0, step})); return;
+        case MoveLeft:    moveHyperbolicCamera(H3::translation({-step, 0.0, 0.0})); return;
+        case MoveRight:   moveHyperbolicCamera(H3::translation({step, 0.0, 0.0})); return;
+        case MoveUp:      moveHyperbolicCamera(H3::translation({0.0, step, 0.0})); return;
+        case MoveDown:    moveHyperbolicCamera(H3::translation({0.0, -step, 0.0})); return;
+        case RollLeft:    moveHyperbolicCamera(H3::rotation({0.0, 0.0, 1.0}, roll)); return;
+        case RollRight:   moveHyperbolicCamera(H3::rotation({0.0, 0.0, 1.0}, -roll)); return;
         default: break;   // il dock 4D: sotto
         }
     }
