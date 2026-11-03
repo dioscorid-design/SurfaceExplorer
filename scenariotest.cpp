@@ -8915,6 +8915,112 @@ void ScenarioTest::runSceneH3Scenarios()
                   .arg(gl->hyperbolicLatticeEdgeCount()).arg(face).arg(edge).arg(start));
     }
 
+    // LE ROTAZIONI DELL'AMBIENTE girano il mondo attorno al centro: in H3 anche
+    // il reticolo (e il cielo), non solo gli oggetti. La camera resta ferma.
+    {
+        const auto changedPixels = [](const QImage &x, const QImage &y) {
+            int n = 0;
+            for (int j = 0; j < x.height(); j += 4)
+                for (int i = 0; i < x.width(); i += 4)
+                    if (x.pixel(i, j) != y.pixel(i, j)) ++n;
+            return n;
+        };
+        m_mw->selectSceneObject(0);
+        gl->m_h3Camera = H3::translation({0.0, 0.0, 2.0});
+        const H3::Matrix camera = gl->hyperbolicCamera();
+        gl->update();
+        wait(300);
+        const QImage before = gl->grabFramebuffer();
+        gl->setPrecessionSpeed(1.0f);
+        m_mw->refreshRotationSpeedLabels();
+        m_mw->onStopClicked();   // GO dell'ambiente
+        wait(800);
+        const bool rotating = gl->isObjectRotating(0);
+        const QImage after = gl->grabFramebuffer();
+        m_mw->onStopClicked();   // e di nuovo fermo
+        wait(200);
+        gl->setPrecessionSpeed(0.0f);
+        m_mw->refreshRotationSpeedLabels();
+        double moved = 0.0;
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j) moved = std::max(moved, std::abs(gl->hyperbolicCamera().m[i][j] - camera.m[i][j]));
+        const int changed = changedPixels(before, after);
+        check(rotating && changed > 100 && moved < 1e-12,
+              QStringLiteral("rotazioni dell'ambiente in H3: il reticolo gira (%1 punti), la camera resta").arg(changed));
+    }
+
+    // I PATH DELLA CAMERA in H3: la posa del path muove la camera iperbolica,
+    // con la posizione letta come vettore dal centro della scena. Finito il
+    // passaggio morbido (~1.2 s) la camera e' nel punto del path.
+    {
+        typeInField(m_mw->ui->lineX_P3D, QStringLiteral("3*cos(t)"));
+        typeInField(m_mw->ui->lineY_P3D, QStringLiteral("1"));
+        typeInField(m_mw->ui->lineZ_P3D, QStringLiteral("3*sin(t)"));
+        m_mw->ui->btnDeparture3D->click();
+        wait(1800);
+        const bool running = m_mw->pathRunning(CameraPaths::Path3D);
+        const QVector3D pathPos = gl->getCameraPos();   // il punto del path, in unita'
+        const H3::Vec3 v = H3::logAtOrigin(gl->hyperbolicCamera() * H3::origin());
+        const double k = 1.0 / gl->hyperbolicCurvatureRadius();
+        const double error = std::sqrt(std::pow(v.x / k - pathPos.x(), 2) + std::pow(v.y / k - pathPos.y(), 2)
+                                       + std::pow(v.z / k - pathPos.z(), 2));
+        const QImage moving1 = gl->grabFramebuffer();
+        wait(400);
+        const QImage moving2 = gl->grabFramebuffer();
+        int changed = 0;
+        for (int j = 0; j < moving1.height(); j += 4)
+            for (int i = 0; i < moving1.width(); i += 4)
+                if (moving1.pixel(i, j) != moving2.pixel(i, j)) ++changed;
+        m_mw->ui->btnDeparture3D->click();
+        wait(300);
+        check(running && pathPos.length() > 2.5f && error < 1e-3 && changed > 100,
+              QStringLiteral("path 3D in H3: la camera iperbolica segue il path (scarto %1, punto %2 %3 %4; %5 punti cambiano)")
+                  .arg(error).arg(pathPos.x()).arg(pathPos.y()).arg(pathPos.z()).arg(changed));
+    }
+    // Il path 4D consegna la camera dalla sua proiezione in 3D (l'altra sede,
+    // setCameraFrom4DVectors): la stessa regola.
+    {
+        typeInField(m_mw->ui->lineX_P, QStringLiteral("2*cos(t)"));
+        typeInField(m_mw->ui->lineZ_P, QStringLiteral("3 + sin(t)"));
+        m_mw->ui->btnDeparture->click();
+        wait(1800);
+        const bool running = m_mw->pathRunning(CameraPaths::Path4D);
+        const QVector3D pathPos = gl->getCameraPos();
+        const H3::Vec3 v = H3::logAtOrigin(gl->hyperbolicCamera() * H3::origin());
+        const double k = 1.0 / gl->hyperbolicCurvatureRadius();
+        const double error = std::sqrt(std::pow(v.x / k - pathPos.x(), 2) + std::pow(v.y / k - pathPos.y(), 2)
+                                       + std::pow(v.z / k - pathPos.z(), 2));
+        m_mw->ui->btnDeparture->click();
+        wait(300);
+        check(running && pathPos.length() > 0.5f && error < 1e-3,
+              QStringLiteral("path 4D in H3: la camera iperbolica segue la sua proiezione (scarto %1)").arg(error));
+    }
+
+    // IL CIELO IN ORTOGONALE coincide col disco del piano dello schermo: dentro
+    // l'emisfero dove finiscono le geodetiche perpendicolari, fuori il colore di
+    // fondo (gli angoli dello schermo, con la camera a 2 raggi la finestra e'
+    // tutto il disco). Da guardare: scene-h3-ortho-sky.png.
+    {
+        gl->loadBackgroundScript(QStringLiteral("return vec3(uv.x, uv.y, 0.5);"));
+        gl->setBackgroundTextureEnabled(true);
+        gl->setProjectionMode(0);
+        gl->m_h3Camera = H3::translation({0.0, 0.0, 2.0});
+        gl->update();
+        wait(600);
+        const QImage img = gl->grabFramebuffer();
+        img.save(m_outDir + QStringLiteral("/scene-h3-ortho-sky.png"));
+        const QColor bg = QColor::fromRgbF(gl->m_bgColor.x(), gl->m_bgColor.y(), gl->m_bgColor.z());
+        const auto near = [](QColor a, QColor b) {
+            return std::abs(a.red() - b.red()) <= 2 && std::abs(a.green() - b.green()) <= 2 && std::abs(a.blue() - b.blue()) <= 2;
+        };
+        const bool cornerEmpty = near(img.pixelColor(2, 2), bg) && near(img.pixelColor(2, img.height() / 2), bg);
+        const bool centerSky = !near(img.pixelColor(img.width() / 2, img.height() / 2), bg);
+        gl->setProjectionMode(1);
+        gl->setBackgroundTextureEnabled(false);
+        check(cornerEmpty && centerSky,
+              QStringLiteral("cielo in ortogonale: fuori dal disco il colore di fondo, dentro il cielo (scene-h3-ortho-sky.png)"));
+    }
+
     newScene();
     check(!m_mw->sceneStarted() && !gl->hyperbolicSpace() && m_mw->m_h3CurvatureRow->isHidden()
               && !gl->hyperbolicLattice() && m_mw->m_h3Lattice->isHidden()

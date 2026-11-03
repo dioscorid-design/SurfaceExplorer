@@ -2179,8 +2179,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             double d = H3::distance(H3::origin(), m_h3Camera * H3::origin());
             if (d < 0.1 * m_h3RadiiPerSceneUnit) d = 4.0 * m_h3RadiiPerSceneUnit;   // come camDist sopra
             if (projectionMode == Ortho4D) {
-                const float tanHalf = std::tan(effectiveCameraFov() * 0.5f * float(M_PI) / 180.0f);
-                const float halfH = std::min(float(std::sinh(d)) * tanHalf, 1.0f);
+                const float halfH = hyperbolicOrthoHalfHeight();
                 m_projection.ortho(-halfH * aspect, halfH * aspect, -halfH, halfH, -1.0f, 1.0f);
             } else {
                 m_projection.perspective(effectiveCameraFov(), aspect, float(std::min(0.0025 * d, 0.01)), 1.0f);
@@ -2319,7 +2318,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 QMatrix4x4 viewRotInv = m_view;
                 viewRotInv.setColumn(3, QVector4D(0.0f, 0.0f, 0.0f, 1.0f));
                 viewRotInv = viewRotInv.transposed();   // rotazione: inversa = trasposta
-                if (m_hyperbolic) viewRotInv = hyperbolicCameraRotation();
+                if (m_hyperbolic) viewRotInv = hyperbolicSkyRotation();
                 const float tanHalf = std::tan(effectiveCameraFov() * 0.5f * float(M_PI) / 180.0f);
                 QMatrix4x4 eyeFromNdc;                  // pixel (ndc.x, ndc.y, 1) -> raggio in camera
                 eyeFromNdc.setToIdentity();
@@ -2327,6 +2326,19 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 eyeFromNdc(1, 1) = tanHalf;
                 eyeFromNdc(2, 2) = -1.0f;               // la camera guarda verso -Z
                 skyRay = viewRotInv * eyeFromNdc;
+                // ORTOGONALE IN H3: il pixel e' il piede della geodetica
+                // perpendicolare al piano dello schermo (Klein del piano, la
+                // finestra della proiezione), e il cielo e' dove quella geodetica
+                // finisce: (kx, ky, -sqrt(1 - k^2)) nel riferimento della camera.
+                // Non e' lineare nel pixel: lo calcola lo shader (bgBaseUV,
+                // HYPERBOLIC_SKY), che qui riceve la sola rotazione, la mezza
+                // altezza in (0,3) e le proporzioni della finestra in (2,3).
+                // Fuori dal disco del piano non c'e' niente: colore di fondo.
+                if (m_hyperbolic && projectionMode == Ortho4D) {
+                    skyRay = viewRotInv;
+                    skyRay(0, 3) = hyperbolicOrthoHalfHeight();
+                    skyRay(2, 3) = aspect;
+                }
                 skyRay(3, 3) = float(effectiveBackgroundSkyMode());
                 const bool isImage = !m_bgIsScript && m_backgroundTexture
                                      && m_backgroundTexture->pixelSize().height() > 0;
@@ -5457,7 +5469,19 @@ void GLWidget::setShownAngles4D(SurfaceObject &o, float omega, float phi, float 
 void GLWidget::beginPathHandoff()
 {
     m_handoffPos = m_cameraPos;
-    if (m_isPathFollowing) {
+    if (m_hyperbolic) {
+        // In H3 si parte dalla camera iperbolica, scritta come la consegna un
+        // path (setHyperbolicCameraLookAt): posizione come vettore dal centro,
+        // bersaglio un punto sulla geodetica di vista (la direzione e' esatta),
+        // alto nel riferimento portato dall'origine.
+        const double k = m_h3RadiiPerSceneUnit;
+        const H3::Vec3 p = H3::logAtOrigin(m_h3Camera * H3::origin());
+        const H3::Vec3 q = H3::logAtOrigin(m_h3Camera * H3::expAtOrigin({0.0, 0.0, -0.05}));
+        m_handoffPos = QVector3D(float(p.x / k), float(p.y / k), float(p.z / k));
+        m_handoffTarget = QVector3D(float(q.x / k), float(q.y / k), float(q.z / k));
+        m_handoffUp = hyperbolicCameraRotation().mapVector(QVector3D(0.0f, 1.0f, 0.0f));
+        m_handoffRoll = 0.0f;
+    } else if (m_isPathFollowing) {
         m_handoffTarget = m_pathTarget;
         m_handoffUp     = m_pathUp;
         m_handoffRoll   = m_pathRoll;
@@ -5517,6 +5541,8 @@ void GLWidget::setCameraPosAndDirection3D(const QVector3D& pos, const QVector3D&
     m_isPathFollowing = true;
     m_pathUp = finalUp;
     m_pathRoll = rollDeg;
+    // In H3 la stessa posa muove la camera iperbolica.
+    if (m_hyperbolic) setHyperbolicCameraLookAt(finalPos, finalTarget, finalUp, rollDeg);
 
     update();
 }
@@ -5590,6 +5616,8 @@ void GLWidget::setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &t
 
     m_view.setToIdentity();
     m_view.lookAt(pos3D, target3D, dispUp);
+    // In H3 la stessa posa muove la camera iperbolica.
+    if (m_hyperbolic) setHyperbolicCameraLookAt(pos3D, target3D, dispUp, rollDeg);
 
     update();
 }
@@ -5606,6 +5634,11 @@ void GLWidget::setHyperbolicSpace(bool on)
 {
     if (m_hyperbolic == on) return;
     m_hyperbolic = on;
+    // Lo sfondo si ricompone (HYPERBOLIC_SKY entra o esce): render() lo rifa'.
+    if (m_bgPipeline) {
+        delete m_bgPipeline;
+        m_bgPipeline = nullptr;
+    }
     // Ogni scena H3 parte senza reticolo (la camera e' nella cella centrale o vicino).
     m_h3Lattice = false;
     m_h3LatticeCell = H3::Matrix::identity();
@@ -5661,19 +5694,104 @@ void GLWidget::orbitHyperbolicCamera(float dYawDeg, float dPitchDeg)
     update();
 }
 
-QMatrix4x4 GLWidget::hyperbolicCameraRotation() const
+// L'orientamento di una camera trasportato nel centro: la matrice che resta
+// togliendo la traslazione.
+static QMatrix4x4 hyperbolicRotationPart(const H3::Matrix &camera)
 {
-    const H3::Matrix rc = H3::inverse(H3::translationTo(m_h3Camera * H3::origin())) * m_h3Camera;
+    const H3::Matrix rc = H3::inverse(H3::translationTo(camera * H3::origin())) * camera;
     QMatrix4x4 r;
     for (int i = 0; i < 3; ++i)
         for (int j = 0; j < 3; ++j) r(i, j) = float(rc.m[i][j]);
     return r;
 }
 
+QMatrix4x4 GLWidget::hyperbolicCameraRotation() const
+{
+    return hyperbolicRotationPart(m_h3Camera);
+}
+
+float GLWidget::hyperbolicOrthoHalfHeight() const
+{
+    // Come in euclideo, cio' che la prospettiva vede alla distanza D del centro:
+    // tanh h = sinh D * tan(fov/2) (triangolo rettangolo iperbolico), e in Klein
+    // la coordinata e' tanh h. Oltre 1 si vede tutto il piano.
+    double d = H3::distance(H3::origin(), m_h3Camera * H3::origin());
+    if (d < 0.1 * m_h3RadiiPerSceneUnit) d = 4.0 * m_h3RadiiPerSceneUnit;   // come camDist in render()
+    const float tanHalf = std::tan(effectiveCameraFov() * 0.5f * float(M_PI) / 180.0f);
+    return std::min(float(std::sinh(d)) * tanHalf, 1.0f);
+}
+
+QMatrix4x4 GLWidget::hyperbolicSkyRotation() const
+{
+    return hyperbolicRotationPart(hyperbolicWorldCamera());
+}
+
+// La posizione della camera nella palla di Poincare' per il cielo: nel mondo
+// girato dall'ambiente, come il suo orientamento (hyperbolicSkyRotation).
 QVector3D GLWidget::hyperbolicCameraInBall() const
 {
-    const H3::Vec3 b = H3::toPoincare(m_h3Camera * H3::origin());
+    const H3::Vec3 b = H3::toPoincare(hyperbolicWorldCamera() * H3::origin());
     return QVector3D(float(b.x), float(b.y), float(b.z));
+}
+
+H3::Matrix GLWidget::hyperbolicSceneRotation() const
+{
+    const QMatrix3x3 r = m_sceneRotation.rotation.toRotationMatrix();
+    H3::Matrix scene = H3::Matrix::identity();
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) scene.m[i][j] = r(i, j);
+    return scene;
+}
+
+H3::Matrix GLWidget::hyperbolicWorldCamera() const
+{
+    return H3::inverse(hyperbolicSceneRotation()) * m_h3Camera;
+}
+
+void GLWidget::setHyperbolicCameraLookAt(const QVector3D &pos, const QVector3D &target, const QVector3D &up,
+                                         float rollDeg)
+{
+    const double k = m_h3RadiiPerSceneUnit;
+    H3::Vec3 v = {pos.x() * k, pos.y() * k, pos.z() * k};
+    const double len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+    if (len > kH3MaxCameraDistance) {
+        const double s = kH3MaxCameraDistance / len;
+        v = {v.x * s, v.y * s, v.z * s};
+    }
+    const H3::Matrix tp = H3::translationTo(H3::expAtOrigin(v));
+    // La direzione verso il bersaglio nel riferimento portato dall'origine (il
+    // logaritmo dopo la traslazione inversa); bersaglio coincidente: il centro.
+    H3::Vec3 d = H3::logAtOrigin(H3::inverse(tp) * H3::expAtOrigin({target.x() * k, target.y() * k, target.z() * k}));
+    double dl = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+    if (dl < 1e-9) {
+        d = H3::logAtOrigin(H3::inverse(tp) * H3::origin());
+        dl = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+    }
+    if (dl < 1e-9) { d = {0.0, 0.0, -1.0}; dl = 1.0; }
+    d = {d.x / dl, d.y / dl, d.z / dl};
+    // L'alto perpendicolare alla vista (come QMatrix4x4::lookAt), poi il lato.
+    H3::Vec3 u = {up.x(), up.y(), up.z()};
+    double du = u.x * d.x + u.y * d.y + u.z * d.z;
+    u = {u.x - du * d.x, u.y - du * d.y, u.z - du * d.z};
+    double ul = std::sqrt(u.x * u.x + u.y * u.y + u.z * u.z);
+    if (ul < 1e-9) {
+        u = std::abs(d.y) < 0.9 ? H3::Vec3{0.0, 1.0, 0.0} : H3::Vec3{1.0, 0.0, 0.0};
+        du = u.x * d.x + u.y * d.y + u.z * d.z;
+        u = {u.x - du * d.x, u.y - du * d.y, u.z - du * d.z};
+        ul = std::sqrt(u.x * u.x + u.y * u.y + u.z * u.z);
+    }
+    u = {u.x / ul, u.y / ul, u.z / ul};
+    const H3::Vec3 side = {d.y * u.z - d.z * u.y, d.z * u.x - d.x * u.z, d.x * u.y - d.y * u.x};
+    // Colonne del riferimento della camera: lato, alto, indietro (guarda lungo -z).
+    H3::Matrix r = H3::Matrix::identity();
+    const H3::Vec3 cols[3] = {side, u, {-d.x, -d.y, -d.z}};
+    for (int c = 0; c < 3; ++c) {
+        r.m[0][c] = cols[c].x; r.m[1][c] = cols[c].y; r.m[2][c] = cols[c].z;
+    }
+    // Il rollio come nel render euclideo (rollMat * vista): attorno all'asse
+    // di vista, di -roll nel riferimento della camera.
+    if (rollDeg != 0.0f) r = r * H3::rotation({0.0, 0.0, 1.0}, -qDegreesToRadians(double(rollDeg)));
+    m_h3Camera = H3::renormalized(tp * r);
 }
 
 void GLWidget::hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMatrix4x4 &lorentz)
@@ -5688,13 +5806,7 @@ void GLWidget::hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMa
     // nel modello euclideo, la rotazione della scena data dall'ambiente.
     const QVector3D c = effectivePosition(o) * float(m_h3RadiiPerSceneUnit);
     H3::Matrix place = H3::translation({c.x(), c.y(), c.z()});
-    if (!isEnvironment(o)) {
-        const QMatrix3x3 r = m_sceneRotation.rotation.toRotationMatrix();
-        H3::Matrix scene = H3::Matrix::identity();
-        for (int i = 0; i < 3; ++i)
-            for (int j = 0; j < 3; ++j) scene.m[i][j] = r(i, j);
-        place = scene * place;
-    }
+    if (!isEnvironment(o)) place = hyperbolicSceneRotation() * place;
     const H3::Matrix m = H3::inverse(m_h3Camera) * place;
     // Allo shader non va m ma la sua scomposizione k * spinta lungo z * kp
     // (H3::splitAlongZ): in float il prodotto diretto perde tutte le cifre per
@@ -5861,8 +5973,10 @@ void GLWidget::prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates)
         m_latticeVboUploaded = true;
     }
     // La cella della camera, poi ogni spigolo nel riferimento della camera.
-    m_h3LatticeCell = H3::honeycomb435CellOf(m_h3LatticeCell, m_h3Camera * H3::origin());
-    const H3::Matrix toCamera = H3::inverse(m_h3Camera) * m_h3LatticeCell;
+    // Nel mondo girato dalle rotazioni dell'ambiente (hyperbolicWorldCamera).
+    const H3::Matrix worldCamera = hyperbolicWorldCamera();
+    m_h3LatticeCell = H3::honeycomb435CellOf(m_h3LatticeCell, worldCamera * H3::origin());
+    const H3::Matrix toCamera = H3::inverse(worldCamera) * m_h3LatticeCell;
     std::vector<float> instances(m_h3LatticeEdges.size() * 16);
     for (size_t e = 0; e < m_h3LatticeEdges.size(); ++e) {
         const H3::Matrix m = toCamera * m_h3LatticeEdges[e];
@@ -7760,6 +7874,9 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
     // appare dritta), quindi l'alto dello schermo e l'alto del cielo (+Y del
     // mondo) si mappano entrambi su v = 1. Ricavato da cio' che si vede, non dal
     // backend: se lo sfondo fisso e' dritto, lo e' anche il cielo.
+    // HYPERBOLIC_SKY (solo nelle scene H3, 2.1): in ortogonale il cielo e'
+    // l'emisfero dove finiscono le geodetiche perpendicolari allo schermo, nel
+    // disco del piano; fuori si scarta (colore di fondo). Vedi render().
     const QString bgBaseUVFunc =
         "vec2 bgBallUV(vec3 _d) {\n"
         "    vec3 _p = vec3(ubuf.u_mvpMatrix[0][3], ubuf.u_mvpMatrix[1][3], ubuf.u_mvpMatrix[2][3]);\n"
@@ -7771,6 +7888,14 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
         "    float _mode = ubuf.u_mvpMatrix[3][3];\n"
         "    if (_mode < 0.5) return v_texCoord;\n"
         "    vec2 _ndc = v_texCoord * 2.0 - 1.0;\n"
+        "#ifdef HYPERBOLIC_SKY\n"
+        "    if (ubuf.u_mvpMatrix[3][0] > 0.0) {\n"
+        "        vec2 _k = vec2(_ndc.x * ubuf.u_mvpMatrix[3][2], _ndc.y) * ubuf.u_mvpMatrix[3][0];\n"
+        "        float _r2 = dot(_k, _k);\n"
+        "        if (_r2 >= 1.0) discard;\n"
+        "        return bgBallUV(normalize(mat3(ubuf.u_mvpMatrix) * vec3(_k, -sqrt(1.0 - _r2))));\n"
+        "    }\n"
+        "#endif\n"
         "    vec3 _d = normalize(mat3(ubuf.u_mvpMatrix) * vec3(_ndc, 1.0));\n"
         "    if (_mode > 3.5) return bgBallUV(_d);\n"
         "    if (_mode > 2.5) {\n"
@@ -7979,6 +8104,9 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
                    "layout(binding=1) uniform sampler2D tex;\n"
                    + uboBlock + "\n" + bgBaseUVFunc + "\n" + commonCode + "\n" + dynamicBody;
     }
+    // Scena H3 (2.1): il cielo dell'ortogonale (bgBaseUV). Fuori da H3 lo
+    // sfondo compila esattamente come prima.
+    if (m_hyperbolic) fsSource.replace(QStringLiteral("#version 450"), QStringLiteral("#version 450\n#define HYPERBOLIC_SKY"));
 
     return fsSource;
 }

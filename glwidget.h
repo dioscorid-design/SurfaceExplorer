@@ -1990,7 +1990,29 @@ private:
     // L'orientamento della camera trasportato nell'origine (la matrice che
     // resta togliendo la traslazione), e la sua posizione nella palla di Poincare'.
     QMatrix4x4 hyperbolicCameraRotation() const;
+    // IL MONDO GIRATO DALL'AMBIENTE (2.1): le rotazioni dell'ambiente (GO)
+    // girano tutta la scena attorno al centro (m_sceneRotation): in H3 anche il
+    // reticolo e il cielo, che e' il bordo del mondo. Per loro la camera e' quella
+    // vista dal mondo girato: rotazione della scena^-1 * camera. Gli oggetti la
+    // ricevono gia' nella loro posa (hyperbolicObjectMatrices).
+    H3::Matrix hyperbolicSceneRotation() const;
+    H3::Matrix hyperbolicWorldCamera() const;
+    // Per il cielo: l'orientamento della camera del mondo girato, trasportato
+    // nel centro, e la sua posizione nella palla di Poincare'.
+    QMatrix4x4 hyperbolicSkyRotation() const;
     QVector3D hyperbolicCameraInBall() const;
+    // ORTOGONALE IN H3: la mezza altezza della finestra in coordinate di Klein
+    // del piano dello schermo (al piu' 1, tutto il piano). Una sede sola per la
+    // proiezione e per il cielo, che in ortogonale deve coincidere col disco.
+    float hyperbolicOrthoHalfHeight() const;
+    // I PATH DELLA CAMERA in H3: la posa che il path consegna (posizione,
+    // bersaglio, alto e rollio, in unita' della scena, come per la camera
+    // euclidea) diventa la camera iperbolica. La posizione e il bersaglio sono
+    // vettori dal centro della scena, come le posizioni degli oggetti (mappa
+    // esponenziale nell'origine); la camera guarda verso il bersaglio lungo la
+    // geodetica, l'alto e' nel riferimento portato dall'origine. Entro la
+    // distanza massima dal centro.
+    void setHyperbolicCameraLookAt(const QVector3D &pos, const QVector3D &target, const QVector3D &up, float rollDeg);
     // La posa di un oggetto in H3 per l'UBO. L'isometria che porta il suo
     // centro nel riferimento della camera (camera^-1 * rotazione della scena *
     // traslazione nella sua posizione) e' m = k * spinta lungo z di R * kp.
@@ -2054,8 +2076,10 @@ private:
     // e il rollio come si vedono a schermo.
     void moveObjectOnScreen(const QVector3D &delta);
     void rollObjectOnScreen(float angle);
+    // In H3 (2.1) la scena segue l'ambiente anche senza oggetti: la scena e' il
+    // mondo, col reticolo e il cielo (hyperbolicWorldCamera).
     bool sceneFollowsEnvironment(const SurfaceObject &o) const {
-        return m_objects.size() > 1 && isEnvironment(o);
+        return (m_objects.size() > 1 || m_hyperbolic) && isEnvironment(o);
     }
     bool isObjectRotating(const SurfaceObject &o) const {
         return o.rotating && rotationTimer && rotationTimer->isActive();
