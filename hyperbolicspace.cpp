@@ -210,24 +210,70 @@ double honeycomb435HalfSide()
     return std::sqrt(c / (1.0 + c));
 }
 
+double honeycomb435EdgeLength()
+{
+    const double a = honeycomb435HalfSide();
+    return distance(fromKlein({a, a, a}), fromKlein({a, a, -a}));
+}
+
+Matrix honeycomb435Reflection(int face)
+{
+    // X - 2 <X, n> n, con n la normale unitaria (spaziale) della faccia: il
+    // piano x_i / w = +-a ha n = (+-e_i, a) / sqrt(1 - a^2).
+    const double a = honeycomb435HalfSide();
+    const double s = std::sqrt(1.0 - a * a);
+    const int axis = face / 2;
+    const double sign = (face % 2 == 0) ? 1.0 : -1.0;
+    double n[4] = {0.0, 0.0, 0.0, a / s};
+    n[axis] = sign / s;
+    const double j[4] = {1.0, 1.0, 1.0, -1.0};   // <n, X> = sum j_k n_k X_k
+    Matrix r = Matrix::identity();
+    for (int i = 0; i < 4; ++i)
+        for (int k = 0; k < 4; ++k) r.m[i][k] -= 2.0 * n[i] * j[k] * n[k];
+    return r;
+}
+
+Matrix honeycomb435CellOf(const Matrix &start, const Vec4 &p, int maxSteps)
+{
+    // Nel riferimento della cella p ha coordinate di Klein k: dentro se ogni
+    // |k_i| <= a. Altrimenti si passa oltre la faccia piu' violata (g * r_f).
+    const double a = honeycomb435HalfSide();
+    Matrix g = start;
+    for (int step = 0; step < maxSteps; ++step) {
+        const Vec3 k = toKlein(inverse(g) * p);
+        const double c[3] = {k.x, k.y, k.z};
+        int axis = 0;
+        for (int i = 1; i < 3; ++i)
+            if (std::abs(c[i]) > std::abs(c[axis])) axis = i;
+        if (std::abs(c[axis]) <= a) break;
+        g = renormalized(g * honeycomb435Reflection(2 * axis + (c[axis] > 0.0 ? 0 : 1)));
+    }
+    return g;
+}
+
+Matrix frameTowards(const Vec4 &a, const Vec4 &b)
+{
+    // Nell'origine (dopo la traslazione inversa) la direzione verso b e' log(b'):
+    // una rotazione porta +z li', poi la traslazione in a.
+    const Matrix ta = translationTo(a);
+    const Vec3 d = logAtOrigin(inverse(ta) * b);
+    const double len = len3(d);
+    Matrix rot = Matrix::identity();
+    if (len > 1e-12) {
+        const Vec3 u = {d.x / len, d.y / len, d.z / len};
+        const Vec3 axis = {-u.y, u.x, 0.0};   // z x u
+        const double sa = len3(axis);
+        if (sa > 1e-12) rot = rotation(axis, std::atan2(sa, u.z));
+        else if (u.z < 0.0) rot = rotation({1.0, 0.0, 0.0}, std::acos(-1.0));
+    }
+    return ta * rot;
+}
+
 Honeycomb honeycomb435(double maxDistance)
 {
     const double a = honeycomb435HalfSide();
-    const double s = std::sqrt(1.0 - a * a);
-    // Le sei riflessioni nelle facce del cubo centrale: X - 2 <X, n> n, con n
-    // la normale unitaria (spaziale) della faccia: il piano x_i / w = +-a.
     Matrix reflections[6];
-    for (int f = 0; f < 6; ++f) {
-        const int axis = f / 2;
-        const double sign = (f % 2 == 0) ? 1.0 : -1.0;
-        double n[4] = {0.0, 0.0, 0.0, a / s};
-        n[axis] = sign / s;
-        const double j[4] = {1.0, 1.0, 1.0, -1.0};   // <n, X> = sum j_k n_k X_k
-        Matrix r = Matrix::identity();
-        for (int i = 0; i < 4; ++i)
-            for (int k = 0; k < 4; ++k) r.m[i][k] -= 2.0 * n[i] * j[k] * n[k];
-        reflections[f] = r;
-    }
+    for (int f = 0; f < 6; ++f) reflections[f] = honeycomb435Reflection(f);
     // I vertici del cubo centrale, nella carta di Klein (+-a, +-a, +-a), e i
     // suoi dodici spigoli (vertici che differiscono in una coordinata sola).
     Vec4 cubeVertices[8];

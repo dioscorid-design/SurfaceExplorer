@@ -1915,9 +1915,12 @@ private:
     // Tubi e bordo dell'oggetto selezionato a spessore costante in H3 o dalla
     // carta (GLWidget::setObjectConstantTubeThickness). Solo in H3, con un oggetto.
     QCheckBox *m_h3ConstantTubes = nullptr;
-    // La casella: visibile in H3, attiva solo se l'oggetto selezionato ha dei
-    // tubi (una curva a tubo, o il bordo acceso), col tooltip che dice perche'.
-    void refreshH3TubesControl();
+    // Il reticolo {4,3,5} della scena H3 (GLWidget::setHyperbolicLattice).
+    QCheckBox *m_h3Lattice = nullptr;
+    // Le caselle H3: visibili solo in H3. Quella dello spessore attiva solo se
+    // l'oggetto selezionato ha dei tubi (una curva a tubo, o il bordo acceso),
+    // col tooltip che dice perche'; quella del reticolo sempre.
+    void refreshHyperbolicControls();
     static double h3CurvatureRadiusFromSlider(int v);
     static int h3CurvatureSliderFromRadius(double radius);
     // In H3 nessun oggetto supera il limite di zoom (vedi objectScaleChangedByUser).

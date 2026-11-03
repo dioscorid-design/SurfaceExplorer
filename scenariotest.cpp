@@ -8871,8 +8871,53 @@ void ScenarioTest::runSceneH3Scenarios()
         m_mw->selectSceneObject(0);
     }
 
+    // IL RETICOLO {4,3,5}: la casella c'e' in H3, spenta; accesa, il pezzo
+    // attorno alla cella della camera ha migliaia di spigoli e si vede. Da
+    // guardare: scene-h3-lattice-face.png (dal centro del cubo centrale verso
+    // una faccia), scene-h3-lattice-edge.png (verso uno spigolo: CINQUE cubi
+    // attorno, in R3 sarebbero quattro), scene-h3-lattice-start.png (dalla
+    // camera d'avvio). Senza oggetti, per vedere solo il reticolo.
+    {
+        m_mw->removeSceneObject(1);
+        m_mw->refreshObjectsUi();
+        const bool shownOff = !m_mw->m_h3Lattice->isHidden() && !m_mw->m_h3Lattice->isChecked() && !gl->hyperbolicLattice();
+        m_mw->m_h3Lattice->setChecked(true);
+        m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(GLWidget::kH3DefaultCurvatureRadius));
+        const auto shot = [&](const H3::Matrix &camera, const QString &name) {
+            gl->m_h3Camera = camera;
+            gl->update();
+            wait(500);
+            const QImage img = gl->grabFramebuffer();
+            img.save(m_outDir + QStringLiteral("/") + name);
+            int different = 0;
+            const QRgb corner = img.pixel(img.width() / 2, img.height() / 2);
+            for (int y = 0; y < img.height(); y += 4)
+                for (int x = 0; x < img.width(); x += 4)
+                    if (img.pixel(x, y) != corner) ++different;
+            return different;
+        };
+        const int face = shot(H3::Matrix::identity(), QStringLiteral("scene-h3-lattice-face.png"));
+        // LUNGO uno spigolo: dal suo punto di mezzo (a, a, 0) nella carta di
+        // Klein, 0.1 raggi verso il centro del cubo (fuori dal tubo), guardando
+        // lungo +z (lo spigolo e' parallelo a z; la traslazione verso (1, 1, 0)
+        // non cambia la direzione z). Le facce che vi si incontrano sono raggi
+        // attorno al centro dello schermo: cinque, a 72 gradi.
+        const double a = H3::honeycomb435HalfSide();
+        const H3::Matrix alongEdge = H3::translationTo(H3::fromKlein({a, a, 0.0}))
+                                   * H3::translation({-0.1 / std::sqrt(2.0), -0.1 / std::sqrt(2.0), 0.0})
+                                   * H3::rotation({0.0, 1.0, 0.0}, M_PI);
+        const int edge = shot(alongEdge, QStringLiteral("scene-h3-lattice-edge.png"));
+        const int start = shot(H3::translation({0.0, 0.0, 4.0 / GLWidget::kH3DefaultCurvatureRadius}),
+                               QStringLiteral("scene-h3-lattice-start.png"));
+        check(shownOff && gl->hyperbolicLattice() && gl->hyperbolicLatticeEdgeCount() > 2000
+                  && face > 100 && edge > 100 && start > 100,
+              QStringLiteral("reticolo {4,3,5}: spento di default, acceso si vede (%1 spigoli; %2, %3, %4 punti)")
+                  .arg(gl->hyperbolicLatticeEdgeCount()).arg(face).arg(edge).arg(start));
+    }
+
     newScene();
     check(!m_mw->sceneStarted() && !gl->hyperbolicSpace() && m_mw->m_h3CurvatureRow->isHidden()
+              && !gl->hyperbolicLattice() && m_mw->m_h3Lattice->isHidden()
               && std::abs(gl->hyperbolicCurvatureRadius() - GLWidget::kH3DefaultCurvatureRadius) < 1e-9
               && gl->effectiveBackgroundSkyMode() == gl->backgroundSkyMode(),
           QStringLiteral("NEW chiude la scena H3 (senza la riga del raggio, che torna al default; lo sfondo torna alla sua forma)"));

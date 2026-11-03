@@ -89,8 +89,18 @@ struct Honeycomb {
     std::vector<std::pair<int, int>> edges;    // indici in vertices, senza ripetizioni
 };
 double honeycomb435HalfSide();                 // a: meta' lato del cubo centrale nella carta di Klein
+double honeycomb435EdgeLength();               // il lato di ogni cubo, in raggi di curvatura
+// La riflessione nella faccia `face` del cubo centrale: 0/1 = x = +a/-a, 2/3 = y, 4/5 = z.
+Matrix honeycomb435Reflection(int face);
 // Le celle col centro entro maxDistance dall'origine, coi loro vertici e spigoli.
 Honeycomb honeycomb435(double maxDistance);
+// La cella che contiene p, cercata camminando di faccia in faccia da `start`
+// (di solito quella del fotogramma prima: uno o due passi). Al piu' maxSteps.
+Matrix honeycomb435CellOf(const Matrix &start, const Vec4 &p, int maxSteps = 200);
+
+// Il riferimento di un segmento geodetico: l'isometria che porta l'origine in a
+// e la direzione +z dell'origine verso b (b = frame * expAtOrigin(0, 0, d(a,b))).
+Matrix frameTowards(const Vec4 &a, const Vec4 &b);
 
 // CARTE
 Vec3 toKlein(const Vec4 &p);

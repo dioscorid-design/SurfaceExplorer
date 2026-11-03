@@ -507,7 +507,7 @@ void MainWindow::setSceneSpace(SceneSpace space)
     m_sceneSpace = space;
     if (ui->glWidget) ui->glWidget->setHyperbolicSpace(space == SceneSpace::SpaceH3);
     if (m_h3CurvatureRow) m_h3CurvatureRow->setVisible(space == SceneSpace::SpaceH3);
-    refreshH3TubesControl();
+    refreshHyperbolicControls();
     // In H3 lo sfondo e' il cielo di H3: i radio della forma lo mostrano, spenti.
     updateBackgroundControlsGate();
     refreshSceneSlot();
@@ -1125,10 +1125,23 @@ void MainWindow::setupObjectsDock()
     // prima traduce lo spessore come spessore, la seconda trasforma l'oggetto
     // intero allo stesso modo.
     m_h3ConstantTubes = new QCheckBox(QStringLiteral("Constant tube thickness"), w);
-    m_h3ConstantTubes->setVisible(false);   // stato e tooltip: refreshH3TubesControl
+    m_h3ConstantTubes->setVisible(false);   // stato e tooltip: refreshHyperbolicControls
     lay->addWidget(m_h3ConstantTubes);
     // Il bordo acceso o spento fa comparire o sparire dei tubi.
-    connect(ui->glWidget, &GLWidget::borderAvailabilityChanged, this, [this]() { refreshH3TubesControl(); });
+    connect(ui->glWidget, &GLWidget::borderAvailabilityChanged, this, [this]() { refreshHyperbolicControls(); });
+    // IL RETICOLO {4,3,5}: le pareti di H3, della scena (non dell'oggetto).
+    m_h3Lattice = new QCheckBox(QStringLiteral("Lattice {4,3,5}"), w);
+    m_h3Lattice->setToolTip(QStringLiteral(
+        "The walls of hyperbolic space: the regular tiling of H³ by cubes whose dihedral angles are 72 degrees, "
+        "so that five of them meet around each edge (four in ordinary space). Its size belongs to H³, not to the "
+        "scene: each edge is 1.62 radii of curvature long."));
+    m_h3Lattice->setVisible(false);
+    lay->addWidget(m_h3Lattice);
+    connect(m_h3Lattice, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_refreshingObjects) return;
+        ui->glWidget->setHyperbolicLattice(on);
+        m_sceneObjectsChanged = true;
+    });
     connect(m_h3ConstantTubes, &QCheckBox::toggled, this, [this](bool on) {
         if (m_refreshingObjects) return;
         GLWidget *gl = ui->glWidget;
@@ -1238,10 +1251,15 @@ void MainWindow::clampHyperbolicObjectScales()
     }
 }
 
-void MainWindow::refreshH3TubesControl()
+void MainWindow::refreshHyperbolicControls()
 {
-    if (!m_h3ConstantTubes || !ui->glWidget) return;
+    if (!m_h3ConstantTubes || !m_h3Lattice || !ui->glWidget) return;
     GLWidget *gl = ui->glWidget;
+    {
+        const QSignalBlocker blocker(m_h3Lattice);
+        m_h3Lattice->setVisible(m_sceneSpace == SceneSpace::SpaceH3);
+        m_h3Lattice->setChecked(gl->hyperbolicLattice());
+    }
     const int selected = gl->selectedObject();
     const bool tubes = selected > 0 && gl->objectHasTubes(selected);
     const QSignalBlocker blocker(m_h3ConstantTubes);
@@ -1304,7 +1322,7 @@ void MainWindow::refreshObjectsUi()
     m_objectWindowOut->setValue(gl->objectWindowOut(selected));
     m_btnObjectDuplicate->setEnabled(selected > 0);
     m_btnObjectRemove->setEnabled(selected > 0);
-    refreshH3TubesControl();
+    refreshHyperbolicControls();
     if (m_h3CurvatureRow) {
         m_h3CurvatureRow->setVisible(m_sceneSpace == SceneSpace::SpaceH3);
         m_h3CurvatureSlider->setValue(h3CurvatureSliderFromRadius(gl->hyperbolicCurvatureRadius()));

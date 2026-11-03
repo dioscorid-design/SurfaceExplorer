@@ -1187,6 +1187,14 @@ public:
     static constexpr double kH3DefaultCurvatureRadius = 2.0;
     void setHyperbolicCurvatureRadius(double radius);
     double hyperbolicCurvatureRadius() const { return 1.0 / m_h3RadiiPerSceneUnit; }
+    // IL RETICOLO {4,3,5} (2.1): le pareti di H3, cubi con angoli diedri di 72
+    // gradi, cinque attorno a ogni spigolo (H3::honeycomb435). E' di H3, non
+    // della scena: il lato e' sempre 1.617 raggi di curvatura. Spento di default;
+    // ogni scena H3 riparte spenta. Spigoli come tubi geodetici, disegnati a
+    // istanze attorno alla cella che contiene la camera: sembra infinito.
+    void setHyperbolicLattice(bool on);
+    bool hyperbolicLattice() const { return m_h3Lattice; }
+    int hyperbolicLatticeEdgeCount() const { return int(m_h3LatticeEdges.size()); }
     // L'oggetto e' disegnato in H3 (vertex shader con HYPERBOLIC, posa di
     // hyperbolicObjectMatrices). Solo le mesh: il ray marching resta fuori dal livello 1.
     bool hyperbolicObject(const SurfaceObject &o) const {
@@ -1951,6 +1959,31 @@ private:
     H3::Matrix m_h3Camera = H3::Matrix::identity();
     // Raggi di curvatura per unita' della scena (1 / raggio di curvatura).
     double m_h3RadiiPerSceneUnit = 1.0 / kH3DefaultCurvatureRadius;
+    // Il reticolo (setHyperbolicLattice): gli spigoli del pezzo attorno
+    // all'origine come riferimenti (H3::frameTowards, generati alla prima
+    // accensione), la cella che contiene la camera (si cammina dal fotogramma
+    // prima), e la pipeline propria: un tubo canonico lungo z (VBO statico),
+    // una matrice di Lorentz per istanza (camera^-1 * cella * spigolo, in double
+    // sulla CPU: ogni spigolo e' ricentrato su se stesso, niente perdita di
+    // precisione lontano), il suo blocco uniform (LatticeUBO, uguale nei due stadi).
+    bool m_h3Lattice = false;
+    H3::Matrix m_h3LatticeCell = H3::Matrix::identity();
+    std::vector<H3::Matrix> m_h3LatticeEdges;
+    QRhiGraphicsPipeline *m_latticePipeline = nullptr;
+    QRhiShaderResourceBindings *m_latticeSrb = nullptr;
+    QRhiBuffer *m_latticeUbo = nullptr;
+    QRhiBuffer *m_latticeVbo = nullptr;
+    QRhiBuffer *m_latticeInstances = nullptr;
+    int m_latticeVertexCount = 0;
+    std::vector<float> m_latticeVertices;   // il tubo canonico, fino al caricamento nel VBO
+    bool m_latticeVboUploaded = false;
+    // Prima del render pass: cella della camera, istanze, uniform (e la
+    // pipeline, la prima volta). Nel render pass: il disegno, fra lo sfondo e
+    // gli oggetti opachi.
+    void prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates);
+    void drawHyperbolicLattice(QRhiCommandBuffer *cb, const QSize &outputSize);
+    bool createLatticePipeline();
+    void releaseHyperbolicLattice();
     // Un passo nel riferimento della camera (traslazione o rotazione), a
     // destra della matrice; rifiutato se la porterebbe oltre la distanza massima.
     void moveHyperbolicCamera(const H3::Matrix &localStep);

@@ -469,6 +469,31 @@ void testHoneycomb()
         sideError = std::max(sideError, std::abs(distance(h.vertices[e.first], h.vertices[e.second]) - coxeter));
     info(format("reticolo entro 2.5 raggi dal centro: %d cubi, %d vertici, %d spigoli",
                 int(h.cells.size()), int(h.vertices.size()), int(h.edges.size())));
+    // Il riferimento di uno spigolo (il disegno a istanze): l'origine in un
+    // estremo, l'asse z sull'altro, alla distanza del lato; un'isometria.
+    double frameError = 0.0;
+    for (const auto &e : h.edges) {
+        const Matrix f = frameTowards(h.vertices[e.first], h.vertices[e.second]);
+        frameError = std::max({frameError, relDiff(f * origin(), h.vertices[e.first]),
+                               relDiff(f * expAtOrigin({0.0, 0.0, honeycomb435EdgeLength()}), h.vertices[e.second]),
+                               isometryError(f)});
+    }
+    check(frameError < 1e-10, format("riferimento degli spigoli: un estremo nell'origine, l'altro sull'asse z (errore %.1e)",
+                                     frameError));
+    // La cella che contiene un punto, camminando di faccia in faccia: il punto
+    // sta nel cubo (Klein entro a) ed e' la cella col centro piu' vicino (le
+    // celle di un reticolo regolare sono le sue regioni di Voronoi).
+    int cellsOk = 0;
+    for (int i = 0; i < 200; ++i) {
+        const Vec4 p = expAtOrigin(randomVec(1.8));
+        const Matrix g = honeycomb435CellOf(Matrix::identity(), p);
+        const Vec3 k = toKlein(inverse(g) * p);
+        const bool inside = std::max({std::abs(k.x), std::abs(k.y), std::abs(k.z)}) <= av + 1e-12;
+        double nearest = 1e300;
+        for (const Matrix &c : h.cells) nearest = std::min(nearest, distance(c * origin(), p));
+        if (inside && std::abs(distance(g * origin(), p) - nearest) < 1e-9) ++cellsOk;
+    }
+    check(cellsOk == 200, format("cella che contiene un punto: trovata camminando, e' la piu' vicina (%d/200)", cellsOk));
     check(edgesOk == 12 && verticesOk == 8 && sideError < 1e-9,
           format("reticolo {4,3,5}: 5 cubi attorno a ogni spigolo del cubo centrale (%d/12), 12 spigoli e 20 cubi "
                  "attorno a ogni suo vertice (%d/8), spigoli tutti uguali (scarto %.1e)", edgesOk, verticesOk, sideError));
