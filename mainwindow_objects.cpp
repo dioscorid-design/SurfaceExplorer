@@ -456,8 +456,13 @@ const ObjectState &MainWindow::environmentState() const
     return m_objectSessions[0].state;
 }
 
+// In H3 (2.1) niente 4D: lo spazio e' 3D, e una rotazione 4D o un path 4D non
+// sono isometrie di H3, deformerebbero gli oggetti. Spenti qui i moti (GO e
+// scatti omega/phi/psi, path 4D della camera); il resto del dock 4D
+// (osservatore, luce 4D) lo spegne setSceneSpace.
 bool MainWindow::selectedRotates4D() const
 {
+    if (m_sceneSpace == SceneSpace::SpaceH3) return false;
     const bool environment = !ui->glWidget || ui->glWidget->selectedObject() == 0;
     if (implicitMode()) return crossSectionTab() || (environment && environment4DUsable());
     return !ui->glWidget || !ui->glWidget->selectedObjectRigid();
@@ -465,6 +470,7 @@ bool MainWindow::selectedRotates4D() const
 
 bool MainWindow::environment4DUsable() const
 {
+    if (m_sceneSpace == SceneSpace::SpaceH3) return false;   // vedi selectedRotates4D
     const ObjectState &env = environmentState();
     return !env.implicitMode || env.crossSectionTab
            || (ui->glWidget && ui->glWidget->anyCrossSectionObject());
@@ -504,12 +510,26 @@ bool MainWindow::sceneStarted() const
 
 void MainWindow::setSceneSpace(SceneSpace space)
 {
+    const bool h3Changed = (m_sceneSpace == SceneSpace::SpaceH3) != (space == SceneSpace::SpaceH3);
     m_sceneSpace = space;
     if (ui->glWidget) ui->glWidget->setHyperbolicSpace(space == SceneSpace::SpaceH3);
     if (m_h3CurvatureRow) m_h3CurvatureRow->setVisible(space == SceneSpace::SpaceH3);
     refreshHyperbolicControls();
     // In H3 lo sfondo e' il cielo di H3: i radio della forma lo mostrano, spenti.
     updateBackgroundControlsGate();
+    // In H3 il dock 4D e' spento tutto (path 4D, osservatore, scatti 4D, luce
+    // 4D): il contenuto, non le linguette, per poter tornare al 3D View. I
+    // singoli tasti tengono il loro stato e lo ritrovano uscendo da H3. Solo
+    // entrando e uscendo: setSceneSpace gira anche annidata nei load.
+    if (h3Changed) {
+        const bool h3 = space == SceneSpace::SpaceH3;
+        QWidget *content = dockContent(ui->dock4D);
+        content->setEnabled(!h3);
+        content->setToolTip(h3 ? QStringLiteral("A hyperbolic scene is a 3D space: 4D paths, 4D rotations "
+                                                "and observer moves don't apply.")
+                               : QString());
+        updateRotation4DControls();
+    }
     refreshSceneSlot();
 }
 
@@ -551,6 +571,18 @@ void MainWindow::startScene(SceneSpace space)
                 QStringLiteral("Press NEW first, then Scene."));
             return;
         }
+        // Sulla scena vuota si puo' avviare un path 4D o dare velocita' 4D al
+        // GO prima di Scene: in H3 il 4D non c'e' (selectedRotates4D), e i loro
+        // tasti stanno per spegnersi, quindi si fermano qui.
+        if (pathRunning(CameraPaths::Path4D)) {
+            m_paths->stop(CameraPaths::Path4D);
+            ui->btnDeparture->setText(QStringLiteral("DEPARTURE"));
+            if (!pathRunning(CameraPaths::Path3D)) ui->glWidget->setPathAnimating(false);
+        }
+        ui->glWidget->setOmegaSpeed(0.0f);
+        ui->glWidget->setPhiSpeed(0.0f);
+        ui->glWidget->setPsiSpeed(0.0f);
+        refreshRotationSpeedLabels();
         setSceneSpace(space);
         refreshObjectsUi();
         return;

@@ -109,7 +109,8 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
     m_uboData.dummyZero.setW(rigid ? 0.0f : pathOffset(o).w());
     m_uboData.projMode = projectionMode;
     m_uboData.renderMode = o.renderMode;
-    m_uboData.lightingMode = is4DActive(o) ? m_lightingMode4D : 0;
+    // In H3 niente luce 4D: la luce e' quella iperbolica (MainWindow::selectedRotates4D).
+    m_uboData.lightingMode = (is4DActive(o) && !hyperbolicObject(o)) ? m_lightingMode4D : 0;
     m_uboData.useSpecular = o.isSpecularEnabled ? 1 : 0;
 
     m_uboData.isFlat = m_isFlatView ? 1 : 0;

@@ -2163,7 +2163,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         }
         // In H3 gli oggetti arrivano nella carta di Klein attorno alla camera
         // (vertex shader, HYPERBOLIC): tutto lo spazio sta nella palla di
-        // raggio 1, quindi far = 1, il bordo all'infinito. near come in
+        // raggio 1, quindi il far e' il bordo all'infinito, un soffio oltre 1:
+        // lontano la profondita' di Klein tende a 1 piu' in fretta della
+        // precisione del float (1 - tanh d ~ 2e^-2d), e con far = 1 esatto i
+        // punti oltre ~9 raggi sparivano a caso per arrotondamento. near come in
         // euclideo, scalato con la distanza D della camera dal centro della
         // scena (in raggi; vicino al centro sono quasi le coordinate di Klein):
         // col raggio di curvatura grande la scena e' piccola in raggi, e un near
@@ -2178,11 +2181,12 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             m_projection.setToIdentity();
             double d = H3::distance(H3::origin(), m_h3Camera * H3::origin());
             if (d < 0.1 * m_h3RadiiPerSceneUnit) d = 4.0 * m_h3RadiiPerSceneUnit;   // come camDist sopra
+            const float far = 1.001f;
             if (projectionMode == Ortho4D) {
                 const float halfH = hyperbolicOrthoHalfHeight();
-                m_projection.ortho(-halfH * aspect, halfH * aspect, -halfH, halfH, -1.0f, 1.0f);
+                m_projection.ortho(-halfH * aspect, halfH * aspect, -halfH, halfH, -far, far);
             } else {
-                m_projection.perspective(effectiveCameraFov(), aspect, float(std::min(0.0025 * d, 0.01)), 1.0f);
+                m_projection.perspective(effectiveCameraFov(), aspect, float(std::min(0.0025 * d, 0.01)), far);
             }
         }
 

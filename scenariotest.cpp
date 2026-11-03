@@ -8977,23 +8977,30 @@ void ScenarioTest::runSceneH3Scenarios()
               QStringLiteral("path 3D in H3: la camera iperbolica segue il path (scarto %1, punto %2 %3 %4; %5 punti cambiano)")
                   .arg(error).arg(pathPos.x()).arg(pathPos.y()).arg(pathPos.z()).arg(changed));
     }
-    // Il path 4D consegna la camera dalla sua proiezione in 3D (l'altra sede,
-    // setCameraFrom4DVectors): la stessa regola.
+    // NIENTE 4D IN H3: lo spazio e' 3D, e un path 4D o una rotazione 4D
+    // deformerebbero gli oggetti. Il dock 4D (path 4D, osservatore, scatti,
+    // luce 4D) e' spento tutto, e nel dock 3D le velocita' omega/phi/psi del
+    // GO; il path 3D resta. Con l'ambiente e con un oggetto selezionato.
     {
-        typeInField(m_mw->ui->lineX_P, QStringLiteral("2*cos(t)"));
-        typeInField(m_mw->ui->lineZ_P, QStringLiteral("3 + sin(t)"));
-        m_mw->ui->btnDeparture->click();
-        wait(1800);
-        const bool running = m_mw->pathRunning(CameraPaths::Path4D);
-        const QVector3D pathPos = gl->getCameraPos();
-        const H3::Vec3 v = H3::logAtOrigin(gl->hyperbolicCamera() * H3::origin());
-        const double k = 1.0 / gl->hyperbolicCurvatureRadius();
-        const double error = std::sqrt(std::pow(v.x / k - pathPos.x(), 2) + std::pow(v.y / k - pathPos.y(), 2)
-                                       + std::pow(v.z / k - pathPos.z(), 2));
-        m_mw->ui->btnDeparture->click();
-        wait(300);
-        check(running && pathPos.length() > 0.5f && error < 1e-3,
-              QStringLiteral("path 4D in H3: la camera iperbolica segue la sua proiezione (scarto %1)").arg(error));
+        const auto off4D = [this]() {
+            Ui::MainWindow *ui = m_mw->ui;
+            bool off = !m_mw->dockContent(ui->dock4D)->isEnabled() && !ui->lineX_P->isEnabled()
+                       && !ui->btnDeparture->isEnabled() && !ui->btnPPlus->isEnabled()
+                       && !ui->btnXPlus->isEnabled() && !ui->btnOmegaAhead->isEnabled()
+                       && !ui->btnLightMode->isEnabled();
+            for (QPushButton *b : { ui->btnOmegaMinus, ui->btnOmegaPlus, ui->btnPhiMinus,
+                                    ui->btnPhiPlus, ui->btnPsiMinus, ui->btnPsiPlus })
+                off = off && !b->isEnabled();
+            return off && ui->lineX_P3D->isEnabled() && ui->btnSpinPlus->isEnabled();
+        };
+        m_mw->selectSceneObject(0);
+        const bool environment = off4D();
+        m_mw->selectSceneObject(1);
+        const bool object = off4D();
+        m_mw->selectSceneObject(0);
+        check(environment && object,
+              QStringLiteral("H3: dock 4D spento, velocita' 4D del GO spente, path 3D e rotazioni 3D accesi "
+                             "(ambiente %1, oggetto %2)").arg(environment).arg(object));
     }
 
     // IL CIELO IN ORTOGONALE coincide col disco del piano dello schermo: dentro
@@ -9027,6 +9034,90 @@ void ScenarioTest::runSceneH3Scenarios()
               && std::abs(gl->hyperbolicCurvatureRadius() - GLWidget::kH3DefaultCurvatureRadius) < 1e-9
               && gl->effectiveBackgroundSkyMode() == gl->backgroundSkyMode(),
           QStringLiteral("NEW chiude la scena H3 (senza la riga del raggio, che torna al default; lo sfondo torna alla sua forma)"));
+    check(m_mw->dockContent(m_mw->ui->dock4D)->isEnabled() && m_mw->ui->btnOmegaPlus->isEnabled(),
+          QStringLiteral("fuori da H3 il dock 4D e le velocita' 4D del GO tornano accesi"));
+
+    // Sulla scena vuota un path 4D e una velocita' 4D avviati PRIMA di Scene:
+    // entrando in H3 si fermano (i loro tasti si spengono).
+    {
+        typeInField(m_mw->ui->lineX_P, QStringLiteral("2*cos(t)"));
+        m_mw->ui->btnDeparture->click();
+        gl->setOmegaSpeed(0.5f);
+        wait(500);
+        const bool runningBefore = m_mw->pathRunning(CameraPaths::Path4D);
+        m_mw->startScene(Space::SpaceH3);
+        wait(300);
+        check(runningBefore && gl->hyperbolicSpace() && !m_mw->pathRunning(CameraPaths::Path4D)
+                  && gl->getOmegaSpeed() == 0.0f,
+              QStringLiteral("H3 dopo un path 4D e un GO 4D sulla scena vuota: entrambi fermi (prima in corsa: %1)")
+                  .arg(runningBefore));
+        newScene();
+        typeInField(m_mw->ui->lineX_P, QString());
+    }
+
+    // CURVE 4D IN PROSPETTIVA: lo spareggio di profondita' 4D non taglia piu'.
+    // In H3 il far plane e' il cielo, e la quota fissa dello spareggio
+    // mandava oltre il fondo le parti con w < 0 gia' a 1.86 raggi dalla camera:
+    // i bordi di Brieskorn-Pham troncati. Lo spareggio cambia solo la
+    // profondita', quindi la sagoma non deve dipendere dal segno di w: con la
+    // costante C (w = C * Im z2) a +1 e a -1, angoli 4D neutri e l'osservatore
+    // 4D lontanissimo (la prospettiva 4D non cambia la forma), le due sagome
+    // coincidono. Da guardare: scene-h3-brieskorn-{perspective,stereographic,ortho}.png,
+    // con gli angoli della Shape.
+    {
+        const QString kBrieskorn = QStringLiteral("surfaces/Parametric/Solid Curves/Borders/Brieskorn-Pham.json");
+        QString brieskornPath;
+        for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+            if (it.filePath.endsWith(kBrieskorn)) brieskornPath = it.filePath;
+        m_mw->startScene(Space::SpaceH3);
+        if (!brieskornPath.isEmpty()) m_mw->addShapeToScene(brieskornPath);
+        wait(1500);
+        const bool entered = !brieskornPath.isEmpty() && gl->objectCount() == 2;
+        if (entered) {
+            m_mw->selectSceneObject(1);
+            gl->setObjectPosition(QVector3D());
+            gl->setObjectScale(2.0f * m_mw->m_objectSessions[1].openingScale);
+            m_mw->selectSceneObject(0);
+            for (const auto &[mode, name] : { std::pair<int, const char *>{1, "perspective"}, {2, "stereographic"}, {0, "ortho"} }) {
+                gl->setProjectionMode(mode);
+                gl->update();
+                wait(500);
+                gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-brieskorn-%1.png").arg(QLatin1String(name)));
+            }
+            gl->setProjectionMode(1);
+            m_mw->selectSceneObject(1);
+            gl->setRotation4D(0.0001f, 0.0001f, 0.0001f);
+            const float observerW = gl->getObserverPos4D();
+            gl->setObserverPos4D(1.0e4f);
+            const auto silhouette = [&](float c) {
+                gl->m_obj->mathParams.setZ(c);
+                gl->update();
+                wait(500);
+                const QImage img = gl->grabFramebuffer();
+                const QRgb corner = img.pixel(0, 0);
+                QVector<bool> mask;
+                for (int y = 0; y < img.height(); y += 2)
+                    for (int x = 0; x < img.width(); x += 2) mask.append(img.pixel(x, y) != corner);
+                return mask;
+            };
+            const QVector<bool> plus = silhouette(1.0f);
+            const QVector<bool> minus = silhouette(-1.0f);
+            gl->m_obj->mathParams.setZ(1.0f);
+            gl->setObserverPos4D(observerW);
+            m_mw->selectSceneObject(0);
+            int either = 0, onlyOne = 0;
+            for (int i = 0; i < plus.size(); ++i) {
+                if (plus[i] || minus[i]) ++either;
+                if (plus[i] != minus[i]) ++onlyOne;
+            }
+            check(either > 500 && onlyOne < either / 100,
+                  QStringLiteral("curva 4D in H3, prospettiva: la sagoma non dipende dal segno di w, niente "
+                                 "tagliato dal fondo (%1 punti su %2 in una sola delle due)").arg(onlyOne).arg(either));
+        } else {
+            check(false, QStringLiteral("Brieskorn-Pham (Solid Curves/Borders) entra nella scena H3"));
+        }
+        newScene();
+    }
 
     // Lo stesso toro grande in una scena 3D, con la camera alla stessa distanza
     // in unita' della scena (17.5 = 3.5 raggi): il confronto per l'occhio.

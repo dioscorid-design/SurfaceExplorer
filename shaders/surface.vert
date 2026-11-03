@@ -268,6 +268,21 @@ void sceneTubeVertex(vec3 axis, vec3 tangent, vec3 dir, float radius,
     viewNormal = sinh(rho) * y + cosh(rho) * d;
     clip = ubuf.u_mvpMatrix * p;
 }
+// SPAREGGIO DI PROFONDITA' 4D IN H3 (main, wireframe, tubi, bordo: lo stesso
+// ovunque, come in euclideo). In euclideo sposta la profondita' di una quota
+// fissa, 0.0005 * w4. In H3 il far plane e' il cielo (Klein): andando lontano la
+// profondita' si schiaccia verso il fondo, e quella quota fissa valeva 0.65
+// raggi a 2 raggi dalla camera, 37 a 4. Le parti con w4 < 0 finivano dietro a
+// cio' che stava in mezzo e, gia' prima del centro di un oggetto alla distanza
+// d'avvio, oltre il far plane: le curve 4D (Brieskorn-Pham, Calabi-Yau)
+// troncate in prospettiva. Qui la quota e' una frazione dello spazio che resta
+// fino al fondo (w - z, uguale per le due convenzioni dello spazio di clip):
+// non lo puo' superare, e in distanza iperbolica vale ~1/4000 di raggio a ogni
+// distanza.
+vec4 hyperbolicDepthTieBreak(vec4 clip, float w4) {
+    clip.z -= clamp(w4, -1.0, 1.0) * 0.0005 * (clip.w - clip.z);
+    return clip;
+}
 #else
 vec3 sceneViewPosition(vec3 p) { return vec3(ubuf.u_mvMatrix * vec4(p, 1.0)); }
 vec4 sceneViewNormal(vec3 p, vec3 n) { return ubuf.u_mvMatrix * vec4(n, 0.0); }
@@ -828,7 +843,11 @@ void emitTubeVertex() {
     vec4 clip = sceneClip(pos);
 #endif
     // Stesso spareggio di profondita' 4D di main().
+#ifdef HYPERBOLIC
+    clip = hyperbolicDepthTieBreak(clip, C4.w);
+#else
     clip.z -= clamp(C4.w, -1.0, 1.0) * 0.0005 * clip.w;
+#endif
     clip += ubuf.u_dummyZero * 0.000001;
     gl_Position = clip;
 }
@@ -1058,11 +1077,12 @@ void emitBorderHidden() {
 // parete e lo tagliava a tratti.
 #ifdef HYPERBOLIC
 vec4 borderClip(vec4 clip, vec2 uv) {
+    clip = hyperbolicDepthTieBreak(clip, borderFigureW(uv.x, uv.y));
 #else
 vec4 borderClip(vec3 pos, vec2 uv) {
     vec4 clip = sceneClip(pos);
-#endif
     clip.z -= clamp(borderFigureW(uv.x, uv.y), -1.0, 1.0) * 0.0005 * clip.w;
+#endif
     clip += ubuf.u_dummyZero * 0.000001;
     return clip;
 }
@@ -1276,7 +1296,11 @@ vec4 wireClipPosition() {
     vec4 pRot = getRotatedPoint4D(u, v);
     vec3 finalPos3D = projectToScene(pRot);
     vec4 pos = sceneClip(finalPos3D);
+#ifdef HYPERBOLIC
+    pos = hyperbolicDepthTieBreak(pos, pRot.w);
+#else
     pos.z -= clamp(pRot.w, -1.0, 1.0) * 0.0005 * pos.w;
+#endif
     pos += ubuf.u_dummyZero * 0.000001;
     return pos;
 }
@@ -1440,7 +1464,11 @@ void main() {
     vec4 pos = sceneClip(finalPos3D);
 
     // >>> FIX SFARFALLIO (Z-Fighting 4D Tie-Breaker) <<<
+#ifdef HYPERBOLIC
+    pos = hyperbolicDepthTieBreak(pos, pRot.w);
+#else
     pos.z -= clamp(pRot.w, -1.0, 1.0) * 0.0005 * pos.w;
+#endif
 
     pos += ubuf.u_dummyZero * 0.000001;
 #ifdef HAS_WIRE_QUAD
