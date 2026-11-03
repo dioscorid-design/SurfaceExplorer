@@ -1906,6 +1906,16 @@ private:
     // Il cursore della timeline (decimi di secondo) e il T che mostra.
     QSlider *m_sceneTimeSlider = nullptr;
     QLabel *m_sceneTimeValue = nullptr;
+    // IL RAGGIO DI CURVATURA della scena H3 (2.1, GLWidget::setHyperbolicCurvatureRadius):
+    // la riga del dock Objects, visibile solo in H3. Cursore logaritmico da 0.5 a
+    // 50 unita' della scena, il default (5) a meta'.
+    QWidget *m_h3CurvatureRow = nullptr;
+    QSlider *m_h3CurvatureSlider = nullptr;
+    QLabel *m_h3CurvatureValue = nullptr;
+    static double h3CurvatureRadiusFromSlider(int v);
+    static int h3CurvatureSliderFromRadius(double radius);
+    // In H3 nessun oggetto supera il limite di zoom (vedi objectScaleChangedByUser).
+    void clampHyperbolicObjectScales();
     bool m_applyingObjectPath = false;
     // Come i path dell'ambiente, ma il path FERMO aspetta il suo Departure:
     // l'Invio su un campo applica la modifica solo a path in corsa (svuotati

@@ -12,6 +12,7 @@
 #include <rhi/qshader.h>
 #include <rhi/qshaderbaker.h>
 #include <QTimer>
+#include <algorithm>
 #include <memory>
 #include <limits>
 #include <functional>
@@ -262,6 +263,12 @@ public:
     }
     void setObjectScale(float s);
     float objectScale() const { return m_obj->scale; }
+    // Di un oggetto qualunque, senza selezionarlo (il limite di zoom in H3).
+    float objectScaleAt(int index) const { return m_objects[index]->scale; }
+    void setObjectScaleAt(int index, float s) {
+        m_objects[index]->scale = std::clamp(s, 0.01f, 100.0f);
+        update();
+    }
 
     // IL TEMPO T DELLA SCENA, in secondi: e' il tempo del MOTO DELLA CAMERA
     // DELL'AMBIENTE (decisioni dell'utente, 2026-10-21 e 10-24): il suo path
@@ -1151,10 +1158,16 @@ public:
     void setHyperbolicSpace(bool on);
     bool hyperbolicSpace() const { return m_hyperbolic; }
     const H3::Matrix &hyperbolicCamera() const { return m_h3Camera; }
-    // Le lunghezze di H3 sono in raggi di curvatura: un'unita' della scena
-    // (passi della camera, posizioni e grandezze degli oggetti) ne vale tanti.
-    // Per ora fisso: diventera' il raggio di curvatura dell'ambiente.
-    static constexpr double kH3RadiiPerSceneUnit = 0.2;
+    // IL RAGGIO DI CURVATURA della scena H3, in unita' della scena: le
+    // lunghezze di H3 sono in raggi di curvatura, e un'unita' della scena
+    // (passi della camera, posizioni e grandezze degli oggetti) ne vale
+    // 1 / raggio. Cambiandolo, oggetti e camera restano dove sono in unita'
+    // della scena (la camera entro la distanza massima dal centro): cambia solo
+    // quanto e' curvo lo spazio. Verso l'infinito si torna a R3. Ogni scena H3
+    // parte dal default (setHyperbolicSpace).
+    static constexpr double kH3DefaultCurvatureRadius = 5.0;
+    void setHyperbolicCurvatureRadius(double radius);
+    double hyperbolicCurvatureRadius() const { return 1.0 / m_h3RadiiPerSceneUnit; }
     // L'oggetto e' disegnato in H3 (vertex shader con HYPERBOLIC, posa di
     // hyperbolicObjectMatrices). Solo le mesh: il ray marching resta fuori dal livello 1.
     bool hyperbolicObject(const SurfaceObject &o) const {
@@ -1910,6 +1923,8 @@ private:
     // euclidea. m_cameraPos e gli angoli restano quelli della scena euclidea.
     bool m_hyperbolic = false;
     H3::Matrix m_h3Camera = H3::Matrix::identity();
+    // Raggi di curvatura per unita' della scena (1 / raggio di curvatura).
+    double m_h3RadiiPerSceneUnit = 1.0 / kH3DefaultCurvatureRadius;
     // Un passo nel riferimento della camera (traslazione o rotazione), a
     // destra della matrice; rifiutato se la porterebbe oltre la distanza massima.
     void moveHyperbolicCamera(const H3::Matrix &localStep);

@@ -506,6 +506,7 @@ void MainWindow::setSceneSpace(SceneSpace space)
 {
     m_sceneSpace = space;
     if (ui->glWidget) ui->glWidget->setHyperbolicSpace(space == SceneSpace::SpaceH3);
+    if (m_h3CurvatureRow) m_h3CurvatureRow->setVisible(space == SceneSpace::SpaceH3);
     refreshSceneSlot();
 }
 
@@ -994,7 +995,8 @@ void MainWindow::setupObjectsDock()
     auto *lay = new QVBoxLayout(w);
 
     auto *help = new QLabel(QStringLiteral("Press Scene in the status bar and choose 3D or 4D: what is on "
-                                           "screen becomes the environment. "
+                                           "screen becomes the environment (in H³ the environment is the "
+                                           "hyperbolic space itself). "
                                            "Add objects to it: right-click a Shape, then Add to Scene."), w);
     help->setWordWrap(true);
     lay->addWidget(help);
@@ -1093,6 +1095,37 @@ void MainWindow::setupObjectsDock()
         if (!m_refreshingObjects) seekSceneTime(float(v) / 10.0f);
     });
 
+    // IL RAGGIO DI CURVATURA (solo nelle scene H3): quanto e' curvo lo spazio
+    // rispetto a cio' che contiene. Oggetti e camera restano dove sono in unita'
+    // della scena.
+    m_h3CurvatureRow = new QWidget(w);
+    auto *curvatureRow = new QHBoxLayout(m_h3CurvatureRow);
+    curvatureRow->setContentsMargins(0, 0, 0, 0);
+    curvatureRow->addWidget(rowLabel(QStringLiteral("Curvature radius")));
+    m_h3CurvatureSlider = new QSlider(Qt::Horizontal, m_h3CurvatureRow);
+    m_h3CurvatureSlider->setRange(0, 200);
+    m_h3CurvatureSlider->setPageStep(10);
+    m_h3CurvatureSlider->setMinimumHeight(UiStyleManager::kSliderMinHeight);
+    curvatureRow->addWidget(m_h3CurvatureSlider, 1);
+    m_h3CurvatureValue = new QLabel(m_h3CurvatureRow);
+    m_h3CurvatureValue->setMinimumWidth(m_h3CurvatureValue->fontMetrics().horizontalAdvance(QStringLiteral("00.00")));
+    m_h3CurvatureValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    curvatureRow->addWidget(m_h3CurvatureValue);
+    m_h3CurvatureRow->setToolTip(QStringLiteral(
+        "Radius of curvature of the hyperbolic space, in scene units. The smaller it is, the more the "
+        "geometry shows; very large, the space is almost Euclidean. Objects and camera keep their "
+        "positions and sizes in scene units."));
+    m_h3CurvatureRow->setVisible(false);
+    lay->addWidget(m_h3CurvatureRow);
+    connect(m_h3CurvatureSlider, &QSlider::valueChanged, this, [this](int v) {
+        const double radius = h3CurvatureRadiusFromSlider(v);
+        m_h3CurvatureValue->setText(QString::number(radius, 'f', radius < 10.0 ? 2 : 1));
+        if (m_refreshingObjects) return;
+        ui->glWidget->setHyperbolicCurvatureRadius(radius);
+        clampHyperbolicObjectScales();
+        m_sceneObjectsChanged = true;
+    });
+
     for (QDoubleSpinBox *box : { m_objectWindowIn, m_objectWindowOut }) {
         connect(box, &QDoubleSpinBox::valueChanged, this, [this](double) {
             if (m_refreshingObjects) return;
@@ -1106,21 +1139,10 @@ void MainWindow::setupObjectsDock()
     }
     // La scala dell'oggetto la cambiano rotella, pinch e Back/Forward
     // (GLWidget::zoomCamera).
-    // IN H3 (2.1) lo zoom si ferma a kH3MaxZoom volte la grandezza d'ingresso:
-    // un oggetto entra grande al piu' ~0.35 raggi di curvatura, quindi resta
-    // sotto i ~10 raggi, oltre i quali una mesh in float non lo rappresenta piu'
-    // (in H3 le circonferenze crescono come sinh del raggio: con la scala 100 il
-    // toro aveva segmenti di 140000 raggi e vertici sbagliati di mezzo raggio).
     // Il segnale arriva prima del disegno: niente fotogramma oltre il limite.
     connect(ui->glWidget, &GLWidget::objectScaleChangedByUser, this, [this]() {
         m_sceneObjectsChanged = true;
-        constexpr float kH3MaxZoom = 30.0f;
-        GLWidget *gl = ui->glWidget;
-        const int selected = gl->selectedObject();
-        if (m_sceneSpace == SceneSpace::SpaceH3 && selected > 0 && selected < int(m_objectSessions.size())) {
-            const float limit = kH3MaxZoom * m_objectSessions[selected].openingScale;
-            if (gl->objectScale() > limit) gl->setObjectScale(limit);
-        }
+        clampHyperbolicObjectScales();
     });
     // La posizione spostata dai tasti del dock 3D (GLWidget::virtualMove).
     connect(ui->glWidget, &GLWidget::objectPositionChangedByUser, this, [this](const QVector3D &p) {
@@ -1178,6 +1200,35 @@ void MainWindow::setupObjectsDock()
     });
 }
 
+// IL LIMITE DI ZOOM IN H3 (2.1): un oggetto entra grande al piu' ~1.75 unita'
+// (l'inquadratura della sua Shape, sceneFitScale), e lo zoom si ferma quando
+// sarebbe grande kH3MaxZoomRadii raggi di curvatura, ~10 raggi. Oltre, una mesh
+// in float non lo rappresenta piu': in H3 le circonferenze crescono come sinh
+// del raggio (con la scala 100 e il raggio 5 il toro aveva segmenti di 140000
+// raggi e vertici sbagliati di mezzo raggio). Col raggio di default (5) e' 30
+// volte la grandezza d'ingresso; vale anche quando il raggio cambia.
+void MainWindow::clampHyperbolicObjectScales()
+{
+    if (m_sceneSpace != SceneSpace::SpaceH3) return;
+    constexpr double kH3MaxZoomRadii = 6.0;   // volte la grandezza d'ingresso, in raggi per unita'
+    GLWidget *gl = ui->glWidget;
+    const float maxZoom = float(kH3MaxZoomRadii * gl->hyperbolicCurvatureRadius());
+    for (int k = 1; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k) {
+        const float limit = maxZoom * m_objectSessions[k].openingScale;
+        if (gl->objectScaleAt(k) > limit) gl->setObjectScaleAt(k, limit);
+    }
+}
+
+double MainWindow::h3CurvatureRadiusFromSlider(int v)
+{
+    return 0.5 * std::pow(10.0, double(v) / 100.0);   // 0 -> 0.5, 100 -> 5, 200 -> 50
+}
+
+int MainWindow::h3CurvatureSliderFromRadius(double radius)
+{
+    return qBound(0, int(std::lround(100.0 * std::log10(radius / 0.5))), 200);
+}
+
 void MainWindow::refreshObjectsUi()
 {
     if (!m_objectList || !ui->glWidget) return;
@@ -1215,6 +1266,12 @@ void MainWindow::refreshObjectsUi()
     m_objectWindowOut->setValue(gl->objectWindowOut(selected));
     m_btnObjectDuplicate->setEnabled(selected > 0);
     m_btnObjectRemove->setEnabled(selected > 0);
+    if (m_h3CurvatureRow) {
+        m_h3CurvatureRow->setVisible(m_sceneSpace == SceneSpace::SpaceH3);
+        m_h3CurvatureSlider->setValue(h3CurvatureSliderFromRadius(gl->hyperbolicCurvatureRadius()));
+        const double radius = gl->hyperbolicCurvatureRadius();
+        m_h3CurvatureValue->setText(QString::number(radius, 'f', radius < 10.0 ? 2 : 1));
+    }
     if (m_btnObjectSelector) {
         const QString name = QFontMetrics(m_btnObjectSelector->font())
                                  .elidedText(nameOf(selected), Qt::ElideRight, 110);

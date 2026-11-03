@@ -8659,6 +8659,29 @@ void ScenarioTest::runSceneH3Scenarios()
                       .arg(gl->objectScale()).arg(opening));
             gl->setObjectScale(opening);
         }
+        // Da guardare: lo stesso toro, grande come all'ingresso e nel centro,
+        // la camera a 4 unita' (quella d'avvio) e a 2. Cambia solo il raggio di
+        // curvatura: 50 e' quasi R3. Prima il raggio 5, poi la camera (in raggi
+        // col raggio 5), poi il raggio della foto: la camera resta alle stesse
+        // unita' (col raggio 0.5 e 4 unita' il limite dei 6 raggi la porta a 3).
+        {
+            gl->setObjectPosition(QVector3D());
+            m_mw->selectSceneObject(0);
+            const int slider5 = MainWindow::h3CurvatureSliderFromRadius(5.0);
+            for (double units : {4.0, 2.0}) {
+                for (double radius : {50.0, 5.0, 1.0, 0.5}) {
+                    m_mw->m_h3CurvatureSlider->setValue(slider5);
+                    gl->m_h3Camera = H3::translation({0.0, 0.0, units / 5.0});
+                    m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(radius));
+                    wait(300);
+                    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-curvature-%1-camera-%2.png")
+                                                              .arg(radius).arg(units));
+                }
+            }
+            m_mw->m_h3CurvatureSlider->setValue(slider5);
+            gl->m_h3Camera = H3::translation({0.0, 0.0, 0.8});
+            m_mw->selectSceneObject(1);
+        }
         // Da guardare accanto a scene-3d-torus-big.png (fine sezione): il toro
         // nel centro, grande rispetto al raggio di curvatura (raggio esterno
         // quasi 2), la camera a 3.5 raggi. Avanti e indietro lungo l'asse: la
@@ -8737,8 +8760,31 @@ void ScenarioTest::runSceneH3Scenarios()
               QStringLiteral("RESET View: verso il centro alla stessa distanza (scarto %1)").arg(worst));
     }
 
+    // IL RAGGIO DI CURVATURA: la riga del dock Objects c'e' solo in H3, 5 di
+    // default. Cambiandolo la camera resta dov'e' in unita' della scena, e il
+    // limite di zoom segue il raggio (6 raggi per unita' di grandezza d'ingresso).
+    {
+        check(!m_mw->m_h3CurvatureRow->isHidden() && std::abs(gl->hyperbolicCurvatureRadius() - 5.0) < 1e-9,
+              QStringLiteral("raggio di curvatura: la riga c'e', 5 di default"));
+        gl->m_h3Camera = H3::translation({0.0, 0.0, 0.8});   // 4 unita' dal centro
+        m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(2.0));
+        const double radius = gl->hyperbolicCurvatureRadius();
+        check(std::abs(radius - 2.0) < 0.02 && std::abs(distance() - 4.0 / radius) < 1e-9,
+              QStringLiteral("raggio %1: la camera resta a 4 unita' dal centro (%2 raggi)").arg(radius).arg(distance()));
+        m_mw->selectSceneObject(1);
+        for (int i = 0; i < 80; ++i) gl->zoomCamera(1.0f);
+        const float opening = m_mw->m_objectSessions[1].openingScale;
+        const float limit = float(6.0 * radius) * opening;
+        check(std::abs(gl->objectScale() - limit) < 1e-3f * limit,
+              QStringLiteral("raggio %1: lo zoom si ferma a %2 (6 raggi per unita' di grandezza d'ingresso)")
+                  .arg(radius).arg(gl->objectScale()));
+        m_mw->selectSceneObject(0);
+    }
+
     newScene();
-    check(!m_mw->sceneStarted() && !gl->hyperbolicSpace(), QStringLiteral("NEW chiude la scena H3"));
+    check(!m_mw->sceneStarted() && !gl->hyperbolicSpace() && m_mw->m_h3CurvatureRow->isHidden()
+              && std::abs(gl->hyperbolicCurvatureRadius() - 5.0) < 1e-9,
+          QStringLiteral("NEW chiude la scena H3 (senza la riga del raggio, che torna a 5)"));
 
     // Lo stesso toro grande in una scena 3D, con la camera alla stessa distanza
     // in unita' della scena (17.5 = 3.5 raggi): il confronto per l'occhio.

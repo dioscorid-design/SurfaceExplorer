@@ -2163,8 +2163,11 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         }
         // In H3 gli oggetti arrivano nella carta di Klein attorno alla camera
         // (vertex shader, HYPERBOLIC): tutto lo spazio sta nella palla di
-        // raggio 1. near a un millesimo (in raggi, ci si puo' avvicinare molto),
-        // far = 1, il bordo all'infinito.
+        // raggio 1, quindi far = 1, il bordo all'infinito. near come in
+        // euclideo, scalato con la distanza D della camera dal centro della
+        // scena (in raggi; vicino al centro sono quasi le coordinate di Klein):
+        // col raggio di curvatura grande la scena e' piccola in raggi, e un near
+        // fisso tagliava gli oggetti vicini.
         // ORTOGONALE: i raggi sono le geodetiche perpendicolari al piano dello
         // schermo, e il pixel e' il loro piede in coordinate di Klein (x/w, y/w).
         // Come in euclideo la finestra e' cio' che la prospettiva vede alla
@@ -2173,14 +2176,14 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         // in Klein la coordinata e' proprio tanh h. Oltre 1 si vede tutto il piano.
         if (m_hyperbolic) {
             m_projection.setToIdentity();
+            double d = H3::distance(H3::origin(), m_h3Camera * H3::origin());
+            if (d < 0.1 * m_h3RadiiPerSceneUnit) d = 4.0 * m_h3RadiiPerSceneUnit;   // come camDist sopra
             if (projectionMode == Ortho4D) {
-                double d = H3::distance(H3::origin(), m_h3Camera * H3::origin());
-                if (d < 0.1 * kH3RadiiPerSceneUnit) d = 4.0 * kH3RadiiPerSceneUnit;   // come camDist sopra
                 const float tanHalf = std::tan(effectiveCameraFov() * 0.5f * float(M_PI) / 180.0f);
                 const float halfH = std::min(float(std::sinh(d)) * tanHalf, 1.0f);
                 m_projection.ortho(-halfH * aspect, halfH * aspect, -halfH, halfH, -1.0f, 1.0f);
             } else {
-                m_projection.perspective(effectiveCameraFov(), aspect, 0.001f, 1.0f);
+                m_projection.perspective(effectiveCameraFov(), aspect, float(std::min(0.0025 * d, 0.01)), 1.0f);
             }
         }
 
@@ -5581,24 +5584,40 @@ void GLWidget::setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &t
 }
 
 // --- SCENA IPERBOLICA (2.1) ---
-// Lunghezze in raggi di curvatura: GLWidget::kH3RadiiPerSceneUnit (glwidget.h).
-// Oltre questa distanza dal centro la camera non va: le coordinate crescono
-// come e^d, e lo sfondo, in float, degenera sul bordo della palla (a 6 il
-// raggio nella palla e' tanh 3 = 0.995).
+// Lunghezze in raggi di curvatura: m_h3RadiiPerSceneUnit per unita' della scena
+// (setHyperbolicCurvatureRadius).
+// Oltre questa distanza dal centro (in raggi) la camera non va: le coordinate
+// crescono come e^d, e lo sfondo, in float, degenera sul bordo della palla (a 6
+// il raggio nella palla e' tanh 3 = 0.995).
 static constexpr double kH3MaxCameraDistance = 6.0;
-
-// La camera d'avvio, come quella euclidea: a 4 unita' dal centro lungo +z,
-// rivolta verso di lui.
-static H3::Matrix hyperbolicStartCamera()
-{
-    return H3::translation({0.0, 0.0, 4.0 * GLWidget::kH3RadiiPerSceneUnit});
-}
 
 void GLWidget::setHyperbolicSpace(bool on)
 {
     if (m_hyperbolic == on) return;
     m_hyperbolic = on;
-    m_h3Camera = hyperbolicStartCamera();
+    // Ogni scena H3 parte dal raggio di default, con la camera d'avvio come
+    // quella euclidea: a 4 unita' dal centro lungo +z, rivolta verso di lui.
+    m_h3RadiiPerSceneUnit = 1.0 / kH3DefaultCurvatureRadius;
+    m_h3Camera = H3::translation({0.0, 0.0, 4.0 * m_h3RadiiPerSceneUnit});
+    update();
+}
+
+void GLWidget::setHyperbolicCurvatureRadius(double radius)
+{
+    const double k = 1.0 / radius;
+    if (k == m_h3RadiiPerSceneUnit) return;
+    // La camera resta dov'e' in unita' della scena, come gli oggetti: la sua
+    // posizione e' un vettore dal centro (logaritmo nell'origine, in raggi), che
+    // si riscala; l'orientamento resta. Entro la distanza massima.
+    const H3::Vec4 p = m_h3Camera * H3::origin();
+    const H3::Matrix rotation = H3::inverse(H3::translationTo(p)) * m_h3Camera;
+    H3::Vec3 v = H3::logAtOrigin(p);
+    double s = k / m_h3RadiiPerSceneUnit;
+    const double len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z) * s;
+    if (len > kH3MaxCameraDistance) s *= kH3MaxCameraDistance / len;
+    v = {v.x * s, v.y * s, v.z * s};
+    m_h3Camera = H3::renormalized(H3::translation(v) * rotation);
+    m_h3RadiiPerSceneUnit = k;
     update();
 }
 
@@ -5649,11 +5668,11 @@ void GLWidget::hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMa
     // coordinate dell'oggetto sono un vettore dal suo centro, in raggi.
     local.setToIdentity();
     local.rotate(o.rotationQuat);
-    local.scale(float(double(o.scale) * kH3RadiiPerSceneUnit));
+    local.scale(float(double(o.scale) * m_h3RadiiPerSceneUnit));
     // Il centro: la posizione (path compreso) letta come vettore dal centro
     // della scena, quindi la traslazione lungo quella geodetica; prima, come
     // nel modello euclideo, la rotazione della scena data dall'ambiente.
-    const QVector3D c = effectivePosition(o) * float(kH3RadiiPerSceneUnit);
+    const QVector3D c = effectivePosition(o) * float(m_h3RadiiPerSceneUnit);
     H3::Matrix place = H3::translation({c.x(), c.y(), c.z()});
     if (!isEnvironment(o)) {
         const QMatrix3x3 r = m_sceneRotation.rotation.toRotationMatrix();
@@ -5692,7 +5711,7 @@ void GLWidget::zoomCamera(float delta) {
     }
     // In H3: avanti lungo la geodetica di vista (virtualMove, MoveForward).
     if (m_hyperbolic) {
-        moveHyperbolicCamera(H3::translation({0.0, 0.0, -double(delta) * kH3RadiiPerSceneUnit}));
+        moveHyperbolicCamera(H3::translation({0.0, 0.0, -double(delta) * m_h3RadiiPerSceneUnit}));
         return;
     }
     // Calcoliamo il vettore "Avanti" completo
@@ -5988,7 +6007,7 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
     // In H3 la camera si muove nel SUO riferimento: avanti e' -z, lungo la
     // geodetica di vista; il rollio gira attorno all'asse di vista.
     if (m_hyperbolic) {
-        const double step = speed * kH3RadiiPerSceneUnit;
+        const double step = speed * m_h3RadiiPerSceneUnit;
         const double roll = qDegreesToRadians(double(rollSpeed));
         switch (dir) {
         case MoveForward: moveHyperbolicCamera(H3::translation({0.0, 0.0, -step})); return;
