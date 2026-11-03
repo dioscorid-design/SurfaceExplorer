@@ -8659,15 +8659,6 @@ void ScenarioTest::runSceneH3Scenarios()
         const QString vs = gl->createVertexShaderSource(o.eqX, o.eqY, o.eqZ, o.eqW);
         check(gl->objectCount() == 2 && m_popupsClosed == before && vs.contains(QLatin1String("#define HYPERBOLIC")),
               QStringLiteral("Add to Scene del toro: entra, shader con HYPERBOLIC"));
-        // Il toro non ha tubi ne' bordo: la scelta dello spessore c'e' ma e'
-        // spenta. Il bordo acceso la accende, spento la rispegne.
-        m_mw->refreshObjectsUi();
-        const bool offWithoutTubes = !m_mw->m_h3ConstantTubes->isHidden() && !m_mw->m_h3ConstantTubes->isEnabled();
-        gl->setBorderRadius(0.02f);
-        const bool onWithBorder = m_mw->m_h3ConstantTubes->isEnabled();
-        gl->setBorderRadius(0.0f);
-        check(offWithoutTubes && onWithBorder && !m_mw->m_h3ConstantTubes->isEnabled(),
-              QStringLiteral("spessore dei tubi: spento sul toro, acceso col suo bordo, di nuovo spento senza"));
         // Qualcosa e' disegnato: l'immagine non e' di un colore solo.
         const QImage img = gl->grabFramebuffer();
         img.save(m_outDir + QStringLiteral("/scene-h3-torus.png"));
@@ -8816,27 +8807,6 @@ void ScenarioTest::runSceneH3Scenarios()
         check(!trefoilPath.isEmpty() && tube && gl->objectCount() == 2 && m_popupsClosed == popups && different > 100,
               QStringLiteral("tubo in H3: il trifoglio entra (tubo, HYPERBOLIC) e si vede (%1 punti, scene-h3-tube.png)")
                   .arg(different));
-        // La scelta per oggetto (dock Objects): accesa di default; spenta, il
-        // tubo passa dalla carta e lontano dal centro si gonfia
-        // (scene-h3-tube-chart.png accanto a scene-h3-tube.png).
-        m_mw->selectSceneObject(1);
-        m_mw->refreshObjectsUi();
-        const bool defaultOn = !m_mw->m_h3ConstantTubes->isHidden() && m_mw->m_h3ConstantTubes->isEnabled()
-                               && m_mw->m_h3ConstantTubes->isChecked();
-        m_mw->m_h3ConstantTubes->setChecked(false);
-        m_mw->selectSceneObject(0);
-        gl->update();
-        wait(500);
-        const QImage chart = gl->grabFramebuffer();
-        chart.save(m_outDir + QStringLiteral("/scene-h3-tube-chart.png"));
-        int changed = 0;
-        for (int y = 0; y < img.height(); y += 4)
-            for (int x = 0; x < img.width(); x += 4)
-                if (img.pixel(x, y) != chart.pixel(x, y)) ++changed;
-        check(defaultOn && !gl->objectConstantTubeThickness(1) && changed > 100,
-              QStringLiteral("spessore dei tubi in H3: costante di default; dalla carta il tubo cambia (%1 punti, "
-                             "scene-h3-tube-chart.png)").arg(changed));
-        gl->setObjectConstantTubeThickness(1, true);
     }
 
     // RESET View: diritta verso il centro, alla distanza di adesso.
@@ -9116,6 +9086,164 @@ void ScenarioTest::runSceneH3Scenarios()
         } else {
             check(false, QStringLiteral("Brieskorn-Pham (Solid Curves/Borders) entra nella scena H3"));
         }
+        newScene();
+    }
+
+    // IL MASTER CON L'AMBIENTE VUOTO SELEZIONATO (segnalazione del 3 novembre):
+    // un oggetto nella scena, l'ambiente selezionato col suo GO in corsa;
+    // fermato (dal master o dal GO) e ripartito dal master, nessun avviso
+    // "Incomplete Equations": l'ambiente vuoto non ha niente da costruire.
+    // Nella scena H3 e, per confronto, nella 3D.
+    QString brieskornPath;
+    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+        if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Solid Curves/Borders/Brieskorn-Pham.json")))
+            brieskornPath = it.filePath;
+    for (const auto &[space, shape, shapeName, rmTab] :
+         { std::tuple{Space::SpaceH3, torusPath, QStringLiteral("toro"), false},
+           std::tuple{Space::Space3D, torusPath, QStringLiteral("toro"), false},
+           std::tuple{Space::SpaceH3, trefoilPath, QStringLiteral("trifoglio"), false},
+           std::tuple{Space::Space3D, trefoilPath, QStringLiteral("trifoglio"), false},
+           std::tuple{Space::SpaceH3, brieskornPath, QStringLiteral("Brieskorn-Pham"), false},
+           std::tuple{Space::SpaceH3, torusPath, QStringLiteral("toro, ambiente in Ray Marching"), true},
+           std::tuple{Space::Space3D, torusPath, QStringLiteral("toro, ambiente in Ray Marching"), true} }) {
+        if (rmTab) {
+            m_mw->ui->tabModeSelector->setCurrentIndex(1);
+            wait(1500);
+            newScene();
+        }
+        m_mw->startScene(space);
+        m_mw->addShapeToScene(shape);
+        wait(1200);
+        m_mw->selectSceneObject(1);
+        wait(200);
+        m_mw->selectSceneObject(0);
+        gl->setPrecessionSpeed(1.0f);
+        m_mw->refreshRotationSpeedLabels();
+        m_mw->onStopClicked();   // GO dell'ambiente
+        wait(300);
+        const auto conditions = [&]() {
+            return QStringLiteral("eq '%1' '%2' '%3' '%4', script '%5', scriptMode %6, sceneEmpty %7, implicit %8, "
+                                  "tubes %9, master '%10'")
+                .arg(m_mw->m_scene.eq.x, m_mw->m_scene.eq.y, m_mw->m_scene.eq.z, m_mw->m_scene.eq.p,
+                     m_mw->m_scene.surfaceScriptApplied.left(20))
+                .arg(gl->getEngine()->isScriptModeActive()).arg(m_mw->isSceneEmpty()).arg(m_mw->implicitMode())
+                .arg(m_mw->tubesShown()).arg(m_mw->m_btnStart->text());
+        };
+        const int before = m_popupsClosed;
+        m_mw->m_btnStart->click();   // master STOP
+        wait(300);
+        const QString atStart = conditions();
+        m_mw->m_btnStart->click();   // master START
+        wait(500);
+        const int fromMaster = m_popupsClosed - before;
+        const bool rotatingAfterMaster = gl->isObjectRotating(0);
+        m_mw->onStopClicked();       // GO: fermo
+        wait(300);
+        m_mw->m_btnStart->click();   // master START
+        wait(500);
+        const int fromGo = m_popupsClosed - before - fromMaster;
+        const bool rotatingAfterGo = gl->isObjectRotating(0);
+        gl->setPrecessionSpeed(0.0f);
+        m_mw->refreshRotationSpeedLabels();
+        check(fromMaster == 0 && fromGo == 0 && rotatingAfterMaster && rotatingAfterGo,
+              QStringLiteral("%1 col %7, ambiente vuoto selezionato: fermato dal master o dal GO, il master START "
+                             "riparte senza avvisi (avvisi %2 e %3; gira %4 e %5; %6)")
+                  .arg(space == Space::SpaceH3 ? QStringLiteral("H3") : QStringLiteral("3D"))
+                  .arg(fromMaster).arg(fromGo).arg(rotatingAfterMaster).arg(rotatingAfterGo).arg(atStart, shapeName));
+        newScene();
+        if (rmTab) {
+            m_mw->ui->tabModeSelector->setCurrentIndex(0);
+            wait(1500);
+            newScene();
+        }
+    }
+
+    // LA VISTA DA FUORI (Orthogonal in H3): la palla di Poincare' centrata nel
+    // centro della scena, vista in parallelo dalla parte della camera. Il toro
+    // nel centro (A + B = 1.1 dal suo centro, il massimo sull'equatore
+    // esterno), a scala s: nella palla il bordo della sagoma sta a tanh(rho/2),
+    // rho = 1.1 s / raggio di curvatura (un cerchio proiettato ha sempre il
+    // semiasse maggiore intero). La finestra: dalla camera d'avvio (2 raggi)
+    // la prospettiva vede tutto il piano per il centro, quindi la mezza altezza
+    // e' la palla col 5% di margine.
+    // Il reticolo li' ha il suo pezzo, piu' grande (fino al 97.8% del raggio
+    // della palla, i lontani col tubo semplice); la densita' come in
+    // prospettiva. Da guardare: scene-h3-outside-{plain,lattice,lattice-0,lattice-50}.png.
+    {
+        m_mw->startScene(Space::SpaceH3);
+        m_mw->addShapeToScene(torusPath);
+        wait(800);
+        constexpr float scale = 2.0f;
+        m_mw->selectSceneObject(1);
+        gl->setObjectPosition(QVector3D());
+        gl->setObjectScale(scale);
+        m_mw->selectSceneObject(0);
+        m_mw->refreshObjectsUi();
+        m_mw->toggleProjection();   // Stereographic
+        m_mw->toggleProjection();   // Orthogonal
+        const QColor bg = QColor::fromRgbF(gl->m_bgColor.x(), gl->m_bgColor.y(), gl->m_bgColor.z());
+        const auto near = [](QColor a, QColor b) {
+            return std::abs(a.red() - b.red()) <= 2 && std::abs(a.green() - b.green()) <= 2 && std::abs(a.blue() - b.blue()) <= 2;
+        };
+        gl->update();
+        wait(500);
+        const QImage plain = gl->grabFramebuffer();
+        plain.save(m_outDir + QStringLiteral("/scene-h3-outside-plain.png"));
+        const double cx = plain.width() / 2.0, cy = plain.height() / 2.0;
+        double edge = 0.0;
+        for (int y = 0; y < plain.height(); ++y)
+            for (int x = 0; x < plain.width(); ++x)
+                if (!near(plain.pixelColor(x, y), bg)) edge = std::max(edge, std::hypot(x + 0.5 - cx, y + 0.5 - cy));
+        const double d = distance();
+        const double xp = std::sinh(d) * std::tan(double(gl->effectiveCameraFov()) * 0.5 * M_PI / 180.0);
+        const double halfH = 1.05 * (xp < 1.0 ? xp / (1.0 + std::sqrt(1.0 - xp * xp)) : 1.0);
+        const double rho = 1.1 * scale / gl->hyperbolicCurvatureRadius();
+        const double expected = std::tanh(rho / 2.0) / halfH * cy;
+        check(gl->projectionMode == GLWidget::Ortho4D && std::abs(edge - expected) < 2.5,
+              QStringLiteral("vista da fuori: la sagoma del toro nella palla di Poincare' finisce a tanh(rho/2) "
+                             "(%1 pixel, attesi %2; scene-h3-outside-plain.png)").arg(edge, 0, 'f', 1).arg(expected, 0, 'f', 1));
+        // IL RETICOLO: la densita' spenta col reticolo spento; acceso, tutta a
+        // destra (il default) tutti gli spigoli del pezzo grande, i lontani
+        // col tubo semplice; tutta a sinistra i 12 del cubo centrale. Il bordo
+        // del reticolo: sull'asse orizzontale, al 97% del raggio della palla
+        // c'e' ancora qualcosa (col pezzo della prospettiva era vuoto oltre il 94%).
+        QSlider *latticeDensity = m_mw->m_h3LatticeDensity;
+        const bool latticeSliderOff = !latticeDensity->isEnabled() && m_mw->m_h3LatticeDensityValue->text().isEmpty();
+        m_mw->m_h3Lattice->setChecked(true);
+        gl->update();
+        wait(1200);
+        const QImage lattice = gl->grabFramebuffer();
+        lattice.save(m_outDir + QStringLiteral("/scene-h3-outside-lattice.png"));
+        const int wholeEdges = gl->hyperbolicLatticeEdgeCount();
+        const bool latticeFull = latticeDensity->isEnabled() && latticeDensity->value() == 100
+                                 && gl->hyperbolicLatticeDrawnEdges() == wholeEdges
+                                 && gl->m_h3LatticeFine > 0 && gl->m_h3LatticeFine < gl->m_h3LatticeDrawn;
+        int farRing = 0;
+        for (int x = int(cx + 0.95 * cy / halfH); x < int(cx + 0.985 * cy / halfH); ++x)
+            for (int y = int(cy) - 40; y <= int(cy) + 40; ++y)
+                if (!near(lattice.pixelColor(x, y), bg)) ++farRing;
+        latticeDensity->setValue(0);
+        gl->update();
+        wait(500);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-outside-lattice-0.png"));
+        const int cubeEdges = gl->hyperbolicLatticeDrawnEdges();
+        latticeDensity->setValue(50);
+        gl->update();
+        wait(500);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-outside-lattice-50.png"));
+        const int halfEdges = gl->hyperbolicLatticeDrawnEdges();
+        latticeDensity->setValue(100);
+        m_mw->m_h3Lattice->setChecked(false);
+        m_mw->toggleProjection();   // Perspective
+        m_mw->m_h3Lattice->setChecked(true);
+        const int aroundEdges = gl->hyperbolicLatticeEdgeCount();
+        m_mw->m_h3Lattice->setChecked(false);
+        check(latticeSliderOff && latticeFull && cubeEdges == 12 && halfEdges > 12 && halfEdges < wholeEdges
+                  && wholeEdges > 4 * aroundEdges && farRing > 20,
+              QStringLiteral("vista da fuori: il reticolo ha il suo pezzo (%1 spigoli, in prospettiva %2), arriva "
+                             "oltre il 95% della palla (%3 punti fra 95 e 98.5%); densita' spenta col reticolo "
+                             "spento, 0 il solo cubo centrale (%4 spigoli), 50 %5 (scene-h3-outside-lattice-*.png)")
+                  .arg(wholeEdges).arg(aroundEdges).arg(farRing).arg(cubeEdges).arg(halfEdges));
         newScene();
     }
 

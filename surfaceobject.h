@@ -261,11 +261,6 @@ struct SurfaceObject
     // scala. 1 = come fino alla 1.4. La cambiano rotella, pinch, Back/Forward
     // con l'oggetto selezionato (GLWidget::zoomCamera) e il dock Objects.
     float scale = 1.0f;
-    // IN H3 (2.1): tubi e bordo con lo spessore costante in H3 (una distanza
-    // vera dall'asse, true) o portati dalla carta esponenziale come il resto
-    // dell'oggetto (false: lo spessore cresce di sinh(r)/r lontano dal centro).
-    // Lo sceglie l'utente per oggetto (dock Objects); fuori da H3 non conta.
-    bool h3ConstantTubeThickness = true;
     QQuaternion rotationQuat;
     // true se l'utente ha ruotato la superficie a mano (mouse/touch) dopo l'ultima
     // rotazione "di default" (setRotationQuat). Governa neutralizeDefaultRotationForPath.

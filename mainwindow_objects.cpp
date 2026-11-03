@@ -1152,33 +1152,38 @@ void MainWindow::setupObjectsDock()
         "positions and sizes in scene units."));
     m_h3CurvatureRow->setVisible(false);
     lay->addWidget(m_h3CurvatureRow);
-    // LO SPESSORE DEI TUBI in H3, per oggetto: una distanza vera in H3, o dalla
-    // carta come il resto dell'oggetto. Nessuna delle due e' "la" geometria: la
-    // prima traduce lo spessore come spessore, la seconda trasforma l'oggetto
-    // intero allo stesso modo.
-    m_h3ConstantTubes = new QCheckBox(QStringLiteral("Constant tube thickness"), w);
-    m_h3ConstantTubes->setVisible(false);   // stato e tooltip: refreshHyperbolicControls
-    lay->addWidget(m_h3ConstantTubes);
-    // Il bordo acceso o spento fa comparire o sparire dei tubi.
-    connect(ui->glWidget, &GLWidget::borderAvailabilityChanged, this, [this]() { refreshHyperbolicControls(); });
-    // IL RETICOLO {4,3,5}: le pareti di H3, della scena (non dell'oggetto).
+    // IL RETICOLO {4,3,5}: le pareti di H3, della scena (non dell'oggetto), con
+    // la sua densita' accanto. Visibilita', stato e tooltip: refreshHyperbolicControls.
+    auto *latticeRow = new QHBoxLayout();
+    latticeRow->setContentsMargins(0, 0, 0, 0);
     m_h3Lattice = new QCheckBox(QStringLiteral("Lattice {4,3,5}"), w);
     m_h3Lattice->setToolTip(QStringLiteral(
         "The walls of hyperbolic space: the regular tiling of H³ by cubes whose dihedral angles are 72 degrees, "
         "so that five of them meet around each edge (four in ordinary space). Its size belongs to H³, not to the "
         "scene: each edge is 1.62 radii of curvature long."));
-    m_h3Lattice->setVisible(false);
-    lay->addWidget(m_h3Lattice);
+    m_h3LatticeDensity = new QSlider(Qt::Horizontal, w);
+    m_h3LatticeDensity->setRange(0, 100);
+    m_h3LatticeDensity->setPageStep(10);
+    m_h3LatticeDensity->setMinimumHeight(UiStyleManager::kSliderMinHeight);
+    m_h3LatticeDensityValue = new QLabel(w);
+    m_h3LatticeDensityValue->setMinimumWidth(m_h3LatticeDensityValue->fontMetrics().horizontalAdvance(QStringLiteral("00.00")));
+    m_h3LatticeDensityValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    for (QWidget *x : std::initializer_list<QWidget *>{ m_h3Lattice, m_h3LatticeDensity, m_h3LatticeDensityValue })
+        x->setVisible(false);
+    latticeRow->addWidget(m_h3Lattice);
+    latticeRow->addWidget(m_h3LatticeDensity, 1);
+    latticeRow->addWidget(m_h3LatticeDensityValue);
+    lay->addLayout(latticeRow);
     connect(m_h3Lattice, &QCheckBox::toggled, this, [this](bool on) {
         if (m_refreshingObjects) return;
         ui->glWidget->setHyperbolicLattice(on);
+        refreshHyperbolicControls();
         m_sceneObjectsChanged = true;
     });
-    connect(m_h3ConstantTubes, &QCheckBox::toggled, this, [this](bool on) {
+    connect(m_h3LatticeDensity, &QSlider::valueChanged, this, [this](int v) {
         if (m_refreshingObjects) return;
-        GLWidget *gl = ui->glWidget;
-        if (gl->selectedObject() <= 0) return;
-        gl->setObjectConstantTubeThickness(gl->selectedObject(), on);
+        ui->glWidget->setHyperbolicLatticeDensity(v / 100.0);
+        refreshHyperbolicControls();
         m_sceneObjectsChanged = true;
     });
     connect(m_h3CurvatureSlider, &QSlider::valueChanged, this, [this](int v) {
@@ -1285,26 +1290,27 @@ void MainWindow::clampHyperbolicObjectScales()
 
 void MainWindow::refreshHyperbolicControls()
 {
-    if (!m_h3ConstantTubes || !m_h3Lattice || !ui->glWidget) return;
+    if (!m_h3Lattice || !m_h3LatticeDensity || !ui->glWidget) return;
     GLWidget *gl = ui->glWidget;
-    {
-        const QSignalBlocker blocker(m_h3Lattice);
-        m_h3Lattice->setVisible(m_sceneSpace == SceneSpace::SpaceH3);
-        m_h3Lattice->setChecked(gl->hyperbolicLattice());
-    }
-    const int selected = gl->selectedObject();
-    const bool tubes = selected > 0 && gl->objectHasTubes(selected);
-    const QSignalBlocker blocker(m_h3ConstantTubes);
-    m_h3ConstantTubes->setVisible(m_sceneSpace == SceneSpace::SpaceH3);
-    m_h3ConstantTubes->setEnabled(tubes);
-    m_h3ConstantTubes->setChecked(selected > 0 ? gl->objectConstantTubeThickness(selected) : true);
-    m_h3ConstantTubes->setToolTip(
-        tubes ? QStringLiteral("Tubes and borders of the selected object in hyperbolic space. On: their thickness is "
-                               "a true distance in H³, the same everywhere. Off: they follow the object's chart like "
-                               "the rest of the shape, and swell far from its centre.")
-              : selected > 0 ? QStringLiteral("The selected object has no tubes: it applies to Solid Curves and to "
-                                              "borders (turn the Border on in the Renderer).")
-                             : QStringLiteral("Select an object with tubes: a Solid Curve, or a shape with its Border on."));
+    const bool h3 = m_sceneSpace == SceneSpace::SpaceH3;
+    for (QWidget *x : std::initializer_list<QWidget *>{ m_h3Lattice, m_h3LatticeDensity, m_h3LatticeDensityValue })
+        x->setVisible(h3);
+    if (!h3) return;
+    const bool on = gl->hyperbolicLattice();
+    const QSignalBlocker blocker(m_h3Lattice);
+    const QSignalBlocker sliderBlocker(m_h3LatticeDensity);
+    m_h3Lattice->setChecked(on);
+    m_h3LatticeDensity->setValue(int(std::lround(gl->hyperbolicLatticeDensity() * 100.0)));
+    m_h3LatticeDensity->setEnabled(on);
+    m_h3LatticeDensityValue->setEnabled(on);
+    // La distanza raggiunta, in raggi: solo col reticolo acceso (chiederla
+    // genera il pezzo, che a reticolo spento non serve). Dipende anche dalla
+    // proiezione: la vista da fuori ha il suo pezzo, piu' grande.
+    m_h3LatticeDensityValue->setText(on ? QString::number(gl->hyperbolicLatticeReach(), 'f', 1) : QString());
+    m_h3LatticeDensity->setToolTip(
+        on ? QStringLiteral("Lattice density: how far the lattice reaches, in radii of curvature from the centre of "
+                            "the cube around the camera (in Orthogonal, the central cube). Leftmost, that cube alone.")
+           : QStringLiteral("Turn the Lattice on to choose its density."));
 }
 
 double MainWindow::h3CurvatureRadiusFromSlider(int v)

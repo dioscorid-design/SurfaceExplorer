@@ -295,12 +295,21 @@ void main() {
     // riferimento della camera (surface.vert): il coseno si calcola li', senza
     // carte, preciso anche lontano dal centro degli oggetti.
     // Prospettiva: il raggio e' la geodetica verso la camera, coseno
-    // -N.w / |P.xyz|. Ortogonale: i raggi sono le geodetiche PERPENDICOLARI al
-    // piano dello schermo (z = 0), e il pixel e' il loro piede (Klein x/w, y/w,
-    // costante lungo ciascuna); coseno N.z / sqrt(1 + P.z^2). Verificati contro
-    // la geodetica (hyperbolic-test e differenze finite).
-    nDotL = (ubuf.u_projMode == 0) ? v_normal.z / sqrt(1.0 + v_pos.z * v_pos.z)
-                                   : -v_normal.w / max(length(v_pos), 1.0e-6);
+    // -N.w / |P.xyz|. Verificato contro la geodetica (hyperbolic-test).
+    // Ortogonale, la vista da fuori (surface.vert, hyperbolicChart): si guarda
+    // il modello, la palla di Poincare' in R3, e la luce e' euclidea, frontale,
+    // sulla sua superficie. Il riferimento e' quello della palla (guarda lungo
+    // -z). La normale del modello e' l'immagine di N col differenziale della
+    // carta x / (1 + w), conforme, quindi ancora perpendicolare alla
+    // superficie: a meno di un fattore N.xyz - P.xyz N.w / (1 + P.w), con
+    // P.w = sqrt(1 + |P.xyz|^2). Verificata con le differenze finite
+    // (hyperbolic-test).
+    if (ubuf.u_projMode == 0) {
+        vec3 nm = v_normal.xyz - v_pos * (v_normal.w / (1.0 + sqrt(1.0 + dot(v_pos, v_pos))));
+        nDotL = nm.z / max(length(nm), 1.0e-12);
+    } else {
+        nDotL = -v_normal.w / max(length(v_pos), 1.0e-6);
+    }
     nDotH = nDotL;
 #endif
 

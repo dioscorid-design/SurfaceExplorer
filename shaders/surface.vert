@@ -162,7 +162,9 @@ layout(std140, binding = 0) uniform SceneUBO {
 // differenza e' esatta, e resta l'errore della direzione w, 1e-7 * sinh(r)
 // (visibile da vicino oltre 8 raggi, hyperbolic-test).
 // Sullo schermo la carta di Klein, in cui le geodetiche sono rette: i triangoli
-// della mesh sono triangoli geodetici. LA LUCE NON PASSA DA UNA CARTA: v_pos e'
+// della mesh sono triangoli geodetici. Nella vista da fuori (ortogonale) il
+// riferimento e' quello della palla invece della camera, e la carta e' quella
+// di Poincare' (hyperbolicChart). LA LUCE NON PASSA DA UNA CARTA: v_pos e'
 // la parte spaziale del punto sull'iperboloide e v_normal la normale (vettore
 // tangente unitario, 4 componenti), nel riferimento della camera; il fragment
 // ne ricava il coseno col raggio che arriva all'occhio. La carta di Poincare'
@@ -211,14 +213,21 @@ vec4 sceneViewNormal(vec3 p, vec3 n) {
     float len = sqrt(max(nr * nr + k * k * dot(nt, nt), 1.0e-24));
     return vec4(mat3(ubuf.u_mvMatrix) * t.xyz, t.w) / len;
 }
-// Klein: la divisione prospettica per w fa (x, y, z) / w.
-vec4 sceneClip(vec3 p) { return ubuf.u_mvpMatrix * hyperbolicPoint(p); }
-// TUBO IN H3. Due regole, a scelta per oggetto (dock Objects,
-// SurfaceObject::h3ConstantTubeThickness, qui in u_mvMatrix[3][0]):
-// - DALLA CARTA (0): il tubo dell'oggetto passa dalla mappa esponenziale come
-//   il resto, e lontano dal centro si gonfia di sinh(r)/r;
-// - A SPESSORE COSTANTE (1, il default): lo spessore e' una distanza vera in
-//   H3. Il punto dell'asse va sull'iperboloide
+// Sullo schermo, dal punto dell'iperboloide (x, y, z, w) alla carta.
+// Prospettiva: Klein, la divisione prospettica per w fa (x, y, z) / w.
+// Ortogonale (u_projMode 0, la vista da fuori, GLWidget::hyperbolicOutsideView):
+// il punto e' gia' nel riferimento della palla, centrata nel centro della
+// scena (hyperbolicObjectMatrices), e la carta e' quella di Poincare',
+// (x, y, z) / (1 + w): la divisione la fa la proiezione ortogonale, che lascia
+// w com'e'.
+vec4 hyperbolicChart(vec4 P) {
+    return (ubuf.u_projMode == 0) ? vec4(P.xyz, 1.0 + P.w) : P;
+}
+vec4 sceneClip(vec3 p) { return ubuf.u_mvpMatrix * hyperbolicChart(hyperbolicPoint(p)); }
+// TUBO IN H3 (tubi, lati e giunti del bordo): lo spessore e' una distanza vera
+// in H3, la stessa ovunque (portato dalla carta come il resto dell'oggetto si
+// gonfiava di sinh(r)/r lontano dal centro: era una scelta per oggetto, tolta
+// dall'utente). Il punto dell'asse va sull'iperboloide
 // (Y); direzione e tangente dell'asse ci vanno col differenziale della mappa
 // esponenziale (la parte perpendicolare al raggio si allunga di sinh(r)/r),
 // nella base ortonormale del punto, dove si raddrizzano (perpendicolare
@@ -229,13 +238,6 @@ vec4 sceneClip(vec3 p) { return ubuf.u_mvpMatrix * hyperbolicPoint(p); }
 // dall'asse = rho, scarto 1e-8).
 void sceneTubeVertex(vec3 axis, vec3 tangent, vec3 dir, float radius,
                      out vec3 viewPos, out vec4 viewNormal, out vec4 clip) {
-    if (ubuf.u_mvMatrix[3][0] < 0.5) {
-        vec3 pos = axis + radius * dir;
-        viewPos = sceneViewPosition(pos);
-        viewNormal = sceneViewNormal(pos, dir);
-        clip = sceneClip(pos);
-        return;
-    }
     vec3 w;
     float r;
     hyperbolicLocal(axis, w, r);
@@ -266,7 +268,7 @@ void sceneTubeVertex(vec3 axis, vec3 tangent, vec3 dir, float radius,
     vec4 p = cosh(rho) * y + sinh(rho) * d;
     viewPos = p.xyz;
     viewNormal = sinh(rho) * y + cosh(rho) * d;
-    clip = ubuf.u_mvpMatrix * p;
+    clip = ubuf.u_mvpMatrix * hyperbolicChart(p);
 }
 // SPAREGGIO DI PROFONDITA' 4D IN H3 (main, wireframe, tubi, bordo: lo stesso
 // ovunque, come in euclideo). In euclideo sposta la profondita' di una quota

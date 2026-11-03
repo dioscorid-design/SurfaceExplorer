@@ -393,11 +393,18 @@ void testShaderPrecision()
 void testLightCosines()
 {
     // Le due formule della luce del fragment shader (surface.frag, HYPERBOLIC),
-    // con la camera nell'origine, N tangente in P:
-    //   prospettiva: coseno con la geodetica verso la camera = -N.w / |P.xyz|
-    //   ortogonale:  coseno con la geodetica perpendicolare al piano z = 0 = N.z / sqrt(1 + P.z^2)
-    // Qui contro i vettori tangenti delle due geodetiche costruiti col nucleo.
-    double persp = 0.0, ortho = 0.0;
+    // N tangente in P:
+    //   prospettiva, camera nell'origine: coseno con la geodetica verso la
+    //     camera = -N.w / |P.xyz|; qui contro la tangente di quella geodetica
+    //     costruita col nucleo;
+    //   ortogonale, la vista da fuori: luce euclidea sulla palla di Poincare'
+    //     (centrata nell'origine), con la normale del modello
+    //     N.xyz - P.xyz N.w / (1 + P.w). Dev'essere perpendicolare
+    //     all'immagine x / (1 + w) di ogni tangente della superficie (ogni
+    //     vettore tangente perpendicolare a N): qui con le differenze finite
+    //     lungo le geodetiche.
+    double persp = 0.0, outside = 0.0;
+    const auto poincare = [](const Vec4 &q) { return Vec3{q.x / (1.0 + q.w), q.y / (1.0 + q.w), q.z / (1.0 + q.w)}; };
     for (int i = 0; i < 200; ++i) {
         const Vec4 p = expAtOrigin(randomVec(4.0));
         const Vec4 a = {uniform(-1, 1), uniform(-1, 1), uniform(-1, 1), uniform(-1, 1)};
@@ -408,14 +415,24 @@ void testLightCosines()
         const double refP = dot(n, toEye) / (nn * std::sqrt(dot(toEye, toEye)));
         const double lenXYZ = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
         persp = std::max(persp, std::abs(-n.w / (nn * lenXYZ) - refP));
-        // Ortogonale: la geodetica per p perpendicolare al piano z = 0, F cosh s + e_z sinh s.
-        const double s = std::asinh(p.z);
-        const Vec4 tangent = {p.x * std::tanh(s), p.y * std::tanh(s), std::cosh(s), p.w * std::tanh(s)};
-        const double refO = dot(n, tangent) / (nn * std::sqrt(dot(tangent, tangent)));
-        ortho = std::max(ortho, std::abs(n.z / (nn * std::sqrt(1.0 + p.z * p.z)) - refO));
+        // Vista da fuori: due tangenti della superficie, a caso.
+        const Vec3 nm = sub({n.x, n.y, n.z}, mul({p.x, p.y, p.z}, n.w / (1.0 + p.w)));
+        for (int j = 0; j < 2; ++j) {
+            const Vec4 b = {uniform(-1, 1), uniform(-1, 1), uniform(-1, 1), uniform(-1, 1)};
+            Vec4 t = add4(b, scale4(p, dot(b, p)));
+            t = add4(t, scale4(n, -dot(t, n) / dot(n, n)));
+            const double tl = std::sqrt(dot(t, t));
+            constexpr double eps = 1e-5;
+            const Vec3 ahead = poincare(add4(scale4(p, std::cosh(eps)), scale4(t, std::sinh(eps) / tl)));
+            const Vec3 behind = poincare(add4(scale4(p, std::cosh(eps)), scale4(t, -std::sinh(eps) / tl)));
+            const Vec3 dt = sub(ahead, behind);
+            outside = std::max(outside, std::abs(dot3(nm, dt)) / (len3(nm) * len3(dt)));
+        }
     }
-    check(persp < 1e-9 && ortho < 1e-9,
-          format("luce in H3: i coseni del fragment shader coincidono con le geodetiche (errore %.1e, %.1e)", persp, ortho));
+    check(persp < 1e-9 && outside < 1e-6,
+          format("luce in H3: in prospettiva il coseno del fragment shader coincide con la geodetica (errore %.1e); "
+                 "nella vista da fuori la normale del modello e' perpendicolare alla superficie nella palla "
+                 "(coseno %.1e)", persp, outside));
 }
 
 void testHoneycomb()

@@ -1912,14 +1912,16 @@ private:
     QWidget *m_h3CurvatureRow = nullptr;
     QSlider *m_h3CurvatureSlider = nullptr;
     QLabel *m_h3CurvatureValue = nullptr;
-    // Tubi e bordo dell'oggetto selezionato a spessore costante in H3 o dalla
-    // carta (GLWidget::setObjectConstantTubeThickness). Solo in H3, con un oggetto.
-    QCheckBox *m_h3ConstantTubes = nullptr;
     // Il reticolo {4,3,5} della scena H3 (GLWidget::setHyperbolicLattice).
     QCheckBox *m_h3Lattice = nullptr;
-    // Le caselle H3: visibili solo in H3. Quella dello spessore attiva solo se
-    // l'oggetto selezionato ha dei tubi (una curva a tubo, o il bordo acceso),
-    // col tooltip che dice perche'; quella del reticolo sempre.
+    // La densita' del reticolo accanto alla casella (0..100 ->
+    // GLWidget::setHyperbolicLatticeDensity; accanto la distanza raggiunta in raggi).
+    QSlider *m_h3LatticeDensity = nullptr;
+    QLabel *m_h3LatticeDensityValue = nullptr;
+    // I controlli H3 del dock Objects: visibili solo in H3. Il reticolo sempre
+    // attivo, la sua densita' col reticolo acceso, col tooltip che dice perche'.
+    // La richiama anche updateProjectionButtonText: la distanza raggiunta
+    // dipende dalla proiezione (il pezzo della vista da fuori e' piu' grande).
     void refreshHyperbolicControls();
     static double h3CurvatureRadiusFromSlider(int v);
     static int h3CurvatureSliderFromRadius(double radius);

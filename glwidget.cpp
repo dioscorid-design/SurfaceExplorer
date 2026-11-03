@@ -2171,12 +2171,11 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         // scena (in raggi; vicino al centro sono quasi le coordinate di Klein):
         // col raggio di curvatura grande la scena e' piccola in raggi, e un near
         // fisso tagliava gli oggetti vicini.
-        // ORTOGONALE: i raggi sono le geodetiche perpendicolari al piano dello
-        // schermo, e il pixel e' il loro piede in coordinate di Klein (x/w, y/w).
-        // Come in euclideo la finestra e' cio' che la prospettiva vede alla
-        // distanza D del centro della scena: sul piano, a distanza h dal centro
-        // con tanh h = sinh D * tan(fov/2) (triangolo rettangolo iperbolico), e
-        // in Klein la coordinata e' proprio tanh h. Oltre 1 si vede tutto il piano.
+        // ORTOGONALE: la vista da fuori (hyperbolicOutsideView). Gli oggetti
+        // arrivano nella palla di Poincare' centrata nel centro della scena
+        // (x / (1 + w), vertex shader), e la camera euclidea la guarda in
+        // parallelo: finestra e spostamento laterale in hyperbolicOrthoHalfHeight
+        // e hyperbolicOutsideOffset; in profondita' tutta la palla, da -1 a 1.
         if (m_hyperbolic) {
             m_projection.setToIdentity();
             double d = H3::distance(H3::origin(), m_h3Camera * H3::origin());
@@ -2184,7 +2183,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             const float far = 1.001f;
             if (projectionMode == Ortho4D) {
                 const float halfH = hyperbolicOrthoHalfHeight();
-                m_projection.ortho(-halfH * aspect, halfH * aspect, -halfH, halfH, -far, far);
+                const QVector2D q = hyperbolicOutsideOffset();
+                m_projection.ortho(q.x() - halfH * aspect, q.x() + halfH * aspect, q.y() - halfH, q.y() + halfH,
+                                   -far, far);
             } else {
                 m_projection.perspective(effectiveCameraFov(), aspect, float(std::min(0.0025 * d, 0.01)), far);
             }
@@ -2330,15 +2331,18 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 eyeFromNdc(1, 1) = tanHalf;
                 eyeFromNdc(2, 2) = -1.0f;               // la camera guarda verso -Z
                 skyRay = viewRotInv * eyeFromNdc;
-                // ORTOGONALE IN H3: il pixel e' il piede della geodetica
-                // perpendicolare al piano dello schermo (Klein del piano, la
-                // finestra della proiezione), e il cielo e' dove quella geodetica
-                // finisce: (kx, ky, -sqrt(1 - k^2)) nel riferimento della camera.
-                // Non e' lineare nel pixel: lo calcola lo shader (bgBaseUV,
-                // HYPERBOLIC_SKY), che qui riceve la sola rotazione, la mezza
-                // altezza in (0,3) e le proporzioni della finestra in (2,3).
-                // Fuori dal disco del piano non c'e' niente: colore di fondo.
-                if (m_hyperbolic && projectionMode == Ortho4D) {
+                // ORTOGONALE IN H3 (vista da fuori): il pixel e' un punto (kx, ky)
+                // della palla di Poincare' vista in parallelo (la finestra della
+                // proiezione), e il cielo e' l'emisfero di fondo della palla,
+                // dietro gli oggetti: (kx, ky, -sqrt(1 - k^2)) nel riferimento
+                // della vista, il punto all'infinito che il centro vede in
+                // quella direzione. L'emisfero davanti non si dipinge: la palla
+                // e' trasparente. Non e' lineare nel pixel: lo calcola lo shader
+                // (bgBaseUV, HYPERBOLIC_SKY), che qui riceve la sola rotazione,
+                // la mezza altezza in (0,3), le proporzioni della finestra in
+                // (2,3) e lo spostamento laterale nella riga 3 (qui sotto).
+                // Fuori dalla palla non c'e' niente: colore di fondo.
+                if (hyperbolicOutsideView()) {
                     skyRay = viewRotInv;
                     skyRay(0, 3) = hyperbolicOrthoHalfHeight();
                     skyRay(2, 3) = aspect;
@@ -2366,7 +2370,14 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // In H3 la palla e' lo spazio stesso e l'osservatore e' la camera
             // iperbolica: le stesse traslazioni (Moebius) che il test del nucleo
             // confronta con questo shader (hyperbolic-test).
-            if (effectiveBackgroundSkyMode() == BgPoincare && !m_isFlatView) {
+            // Nella vista da fuori l'osservatore e' il centro, e la riga 3 porta
+            // invece lo spostamento laterale della camera euclidea.
+            if (hyperbolicOutsideView() && !m_isFlatView) {
+                const QVector2D q = hyperbolicOutsideOffset();
+                skyRay(3, 0) = q.x();
+                skyRay(3, 1) = q.y();
+                skyRay(3, 2) = 0.0f;
+            } else if (effectiveBackgroundSkyMode() == BgPoincare && !m_isFlatView) {
                 constexpr float kMaxBallRadius = 0.999f;
                 const QVector3D eye = m_view.inverted().map(QVector3D());
                 const float ballRadius = env.scale > 0.0f ? env.scale : 1.0f;
@@ -5646,6 +5657,7 @@ void GLWidget::setHyperbolicSpace(bool on)
     // Ogni scena H3 parte senza reticolo (la camera e' nella cella centrale o vicino).
     m_h3Lattice = false;
     m_h3LatticeCell = H3::Matrix::identity();
+    m_h3LatticeDensity = 1.0;
     // Ogni scena H3 parte dal raggio di default, con la camera d'avvio come
     // quella euclidea: a 4 unita' dal centro lungo +z, rivolta verso di lui.
     m_h3RadiiPerSceneUnit = 1.0 / kH3DefaultCurvatureRadius;
@@ -5700,9 +5712,14 @@ void GLWidget::orbitHyperbolicCamera(float dYawDeg, float dPitchDeg)
 
 // L'orientamento di una camera trasportato nel centro: la matrice che resta
 // togliendo la traslazione.
+static H3::Matrix hyperbolicTransportedToCentre(const H3::Matrix &camera)
+{
+    return H3::inverse(H3::translationTo(camera * H3::origin())) * camera;
+}
+
 static QMatrix4x4 hyperbolicRotationPart(const H3::Matrix &camera)
 {
-    const H3::Matrix rc = H3::inverse(H3::translationTo(camera * H3::origin())) * camera;
+    const H3::Matrix rc = hyperbolicTransportedToCentre(camera);
     QMatrix4x4 r;
     for (int i = 0; i < 3; ++i)
         for (int j = 0; j < 3; ++j) r(i, j) = float(rc.m[i][j]);
@@ -5717,12 +5734,38 @@ QMatrix4x4 GLWidget::hyperbolicCameraRotation() const
 float GLWidget::hyperbolicOrthoHalfHeight() const
 {
     // Come in euclideo, cio' che la prospettiva vede alla distanza D del centro:
-    // tanh h = sinh D * tan(fov/2) (triangolo rettangolo iperbolico), e in Klein
-    // la coordinata e' tanh h. Oltre 1 si vede tutto il piano.
+    // sul piano dello schermo per il centro, fino a distanza h con
+    // tanh h = sinh D * tan(fov/2) (triangolo rettangolo iperbolico); nella
+    // palla di Poincare' quel punto sta a tanh(h/2) = x / (1 + sqrt(1 - x^2)).
+    // Oltre x = 1 la prospettiva vede tutto il piano: tutta la palla, con un
+    // margine del 5% attorno (cambiando Projection l'oggetto nel centro si
+    // rimpicciolisce di tanto).
+    constexpr double kMargin = 1.05;
     double d = H3::distance(H3::origin(), m_h3Camera * H3::origin());
     if (d < 0.1 * m_h3RadiiPerSceneUnit) d = 4.0 * m_h3RadiiPerSceneUnit;   // come camDist in render()
-    const float tanHalf = std::tan(effectiveCameraFov() * 0.5f * float(M_PI) / 180.0f);
-    return std::min(float(std::sinh(d)) * tanHalf, 1.0f);
+    const double x = std::sinh(d) * std::tan(double(effectiveCameraFov()) * 0.5 * M_PI / 180.0);
+    const double ball = x < 1.0 ? x / (1.0 + std::sqrt(1.0 - x * x)) : 1.0;
+    return float(kMargin * ball);
+}
+
+QVector2D GLWidget::hyperbolicOutsideOffset() const
+{
+    // La camera iperbolica nella palla, nel riferimento della vista (il suo
+    // orientamento trasportato nel centro: inversa = trasposta). Guarda lungo
+    // -z: conta solo dove sta di lato. La palla di Poincare' e' conforme, e
+    // trasportando dal centro lungo la geodetica le direzioni restano quelle
+    // (il differenziale della traslazione di Moebius nell'origine e' un
+    // multiplo dell'identita'): la camera euclidea guarda dove guarda lei.
+    const H3::Matrix rc = hyperbolicTransportedToCentre(m_h3Camera);
+    const H3::Vec3 b = H3::toPoincare(m_h3Camera * H3::origin());
+    const double qx = rc.m[0][0] * b.x + rc.m[1][0] * b.y + rc.m[2][0] * b.z;
+    const double qy = rc.m[0][1] * b.x + rc.m[1][1] * b.y + rc.m[2][1] * b.z;
+    return QVector2D(float(qx), float(qy));
+}
+
+H3::Matrix GLWidget::hyperbolicViewer(const H3::Matrix &camera) const
+{
+    return hyperbolicOutsideView() ? hyperbolicTransportedToCentre(camera) : camera;
 }
 
 QMatrix4x4 GLWidget::hyperbolicSkyRotation() const
@@ -5811,7 +5854,9 @@ void GLWidget::hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMa
     const QVector3D c = effectivePosition(o) * float(m_h3RadiiPerSceneUnit);
     H3::Matrix place = H3::translation({c.x(), c.y(), c.z()});
     if (!isEnvironment(o)) place = hyperbolicSceneRotation() * place;
-    const H3::Matrix m = H3::inverse(m_h3Camera) * place;
+    // Verso la camera; nella vista da fuori verso il riferimento della palla,
+    // centrata nel centro della scena (hyperbolicViewer).
+    const H3::Matrix m = H3::inverse(hyperbolicViewer(m_h3Camera)) * place;
     // Allo shader non va m ma la sua scomposizione k * spinta lungo z * kp
     // (H3::splitAlongZ): in float il prodotto diretto perde tutte le cifre per
     // i punti lontani dal centro dell'oggetto e vicini alla camera (gia' a 5
@@ -5828,38 +5873,60 @@ void GLWidget::hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMa
     for (int i = 0; i < 3; ++i)
         for (int j = 0; j < 3; ++j) lorentz(i, j) = float(k.m[i][j]);
     lorentz(3, 3) = float(distance);
-    // Una cella libera (GLSL u_mvMatrix[3][0]): tubi e bordo a spessore costante
-    // in H3 (1) o dalla carta come il resto dell'oggetto (0), sceneTubeVertex.
-    lorentz(0, 3) = o.h3ConstantTubeThickness ? 1.0f : 0.0f;
 }
 
 // --- IL RETICOLO {4,3,5} (2.1) ---
-// Il pezzo disegnato: le celle col centro entro questa distanza (in raggi)
-// dalla cella della camera. Entro 3.5 ~6600 spigoli, entro 3 ~2300 (sui
-// dispositivi): oltre, un tubo e' sotto il pixel.
+// I pezzi disegnati: le celle col centro entro questa distanza (in raggi)
+// dalla cella centrale del pezzo.
+// - In prospettiva attorno alla cella della camera: entro 3.5 ~6600 spigoli,
+//   entro 3 ~2300 (sui dispositivi); oltre, un tubo e' sotto il pixel e il
+//   reticolo sembra gia' infinito.
+// - Nella vista da fuori attorno alla cella centrale, su tutte le piattaforme:
+//   li' tutto l'infinito si schiaccia nell'ultimo anello della palla. Entro 4.5
+//   ~46600 spigoli: pieno fino al 97.8% del raggio della palla, i piu' lontani
+//   al 99.3% (con 3.5, 94% e 98%: si vedeva l'anello vuoto). Ogni mezzo raggio
+//   in piu' moltiplica gli spigoli per ~2.7.
+// Gli spigoli oltre kLatticeFineReach (nella palla oltre il 90.5% del raggio,
+// tubi larghi meno di ~2 pixel) usano un tubo semplice (4 anelli, sezione
+// triangolare: 72 vertici invece di 384): ~3.4 milioni di vertici invece di 18.
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
 static constexpr double kLatticePatchRadius = 3.0;
 #else
 static constexpr double kLatticePatchRadius = 3.5;
 #endif
+static constexpr double kLatticeWholeRadius = 4.5;
+static constexpr double kLatticeFineReach = 3.0;
 static constexpr double kLatticeTubeRadius = 0.025;   // in raggi: ~1/65 del lato
 static constexpr int kLatticeAlong = 8;                // anelli lungo lo spigolo
 static constexpr int kLatticeAround = 8;               // lati del tubo
+static constexpr int kLatticeCoarseAlong = 4;          // il tubo semplice
+static constexpr int kLatticeCoarseAround = 3;
 
 // Il blocco uniform del reticolo: IDENTICO nei due stadi (la regola di Adreno
-// del CLAUDE.md vale per ogni pipeline). params = raggio del tubo, lato,
-// intensita' della luce, 1 se la proiezione e' ortogonale.
+// del CLAUDE.md vale per ogni pipeline). view = la rotazione della vista da
+// fuori (identita' in prospettiva, dove le istanze arrivano gia' nel
+// riferimento della camera); params = raggio del tubo, lato, intensita' della
+// luce, 1 se la proiezione e' ortogonale.
 struct LatticeUbo {
     float proj[16];
+    float view[16];
     float color[4];
     float params[4];
 };
 static const char *kLatticeUboBlock =
     "layout(std140, binding = 0) uniform LatticeUBO {\n"
     "    mat4 proj;\n"
+    "    mat4 view;\n"
     "    vec4 color;\n"
     "    vec4 params;\n"
     "} ub;\n";
+
+// Una matrice di Lorentz nei 16 float di un'istanza (per colonne, come mat4).
+static void latticeMatrixToFloats(const H3::Matrix &m, float *out)
+{
+    for (int col = 0; col < 4; ++col)
+        for (int row = 0; row < 4; ++row) out[col * 4 + row] = float(m.m[row][col]);
+}
 
 void GLWidget::setHyperbolicLattice(bool on)
 {
@@ -5868,25 +5935,85 @@ void GLWidget::setHyperbolicLattice(bool on)
     update();
 }
 
+GLWidget::LatticePiece &GLWidget::hyperbolicLatticePiece()
+{
+    const bool whole = hyperbolicOutsideView();
+    LatticePiece &piece = whole ? m_h3LatticeWhole : m_h3LatticeAround;
+    if (!piece.edges.empty()) return piece;
+    const H3::Honeycomb h = H3::honeycomb435(whole ? kLatticeWholeRadius : kLatticePatchRadius);
+    std::vector<std::pair<double, H3::Matrix>> edges;
+    edges.reserve(h.edges.size());
+    for (const auto &e : h.edges) {
+        const double reach = std::max(H3::distance(H3::origin(), h.vertices[e.first]),
+                                      H3::distance(H3::origin(), h.vertices[e.second]));
+        edges.emplace_back(reach, H3::frameTowards(h.vertices[e.first], h.vertices[e.second]));
+    }
+    std::stable_sort(edges.begin(), edges.end(),
+                     [](const auto &a, const auto &b) { return a.first < b.first; });
+    piece.edges.reserve(edges.size());
+    piece.reach.reserve(edges.size());
+    for (const auto &[reach, frame] : edges) {
+        piece.reach.push_back(reach);
+        piece.edges.push_back(frame);
+    }
+    piece.fine = whole ? int(std::upper_bound(piece.reach.begin(), piece.reach.end(), kLatticeFineReach)
+                             - piece.reach.begin())
+                       : int(piece.edges.size());
+    return piece;
+}
+
+int GLWidget::hyperbolicLatticeEdgeCount()
+{
+    return int(hyperbolicLatticePiece().edges.size());
+}
+
+void GLWidget::setHyperbolicLatticeDensity(double t)
+{
+    t = std::clamp(t, 0.0, 1.0);
+    if (t == m_h3LatticeDensity) return;
+    m_h3LatticeDensity = t;
+    update();
+}
+
+double GLWidget::hyperbolicLatticeReach()
+{
+    // Da quella dei 12 spigoli del cubo centrale (i vertici sul suo raggio
+    // circoscritto) a quella dell'ultimo spigolo del pezzo.
+    const LatticePiece &piece = hyperbolicLatticePiece();
+    if (piece.reach.empty()) return 0.0;
+    return piece.reach.front() + m_h3LatticeDensity * (piece.reach.back() - piece.reach.front());
+}
+
+int GLWidget::hyperbolicLatticeDrawnEdges()
+{
+    const double reach = hyperbolicLatticeReach();
+    const LatticePiece &piece = hyperbolicLatticePiece();
+    return int(std::upper_bound(piece.reach.begin(), piece.reach.end(), reach + 1e-9) - piece.reach.begin());
+}
+
 bool GLWidget::createLatticePipeline()
 {
     if (!rhi() || !rhi()->isFeatureSupported(QRhi::Instancing)) return false;
-    // Il tubo canonico: attorno all'asse z dall'origine per un lato, (frazione
-    // del lato, angolo) per vertice; il vertex shader lo costruisce in H3.
+    // I tubi canonici, l'intero e poi il semplice nello stesso VBO: attorno
+    // all'asse z dall'origine per un lato, (frazione del lato, angolo) per
+    // vertice; il vertex shader li costruisce in H3.
     std::vector<float> verts;
-    for (int i = 0; i < kLatticeAlong; ++i)
-        for (int j = 0; j < kLatticeAround; ++j) {
-            const float s0 = float(i) / kLatticeAlong, s1 = float(i + 1) / kLatticeAlong;
-            const float a0 = 6.2831853f * float(j) / kLatticeAround, a1 = 6.2831853f * float(j + 1) / kLatticeAround;
-            const float quad[12] = {s0, a0, s1, a0, s1, a1, s0, a0, s1, a1, s0, a1};
-            verts.insert(verts.end(), quad, quad + 12);
-        }
-    m_latticeVertexCount = int(verts.size() / 2);
+    const auto addTube = [&verts](int along, int around) {
+        for (int i = 0; i < along; ++i)
+            for (int j = 0; j < around; ++j) {
+                const float s0 = float(i) / along, s1 = float(i + 1) / along;
+                const float a0 = 6.2831853f * float(j) / around, a1 = 6.2831853f * float(j + 1) / around;
+                const float quad[12] = {s0, a0, s1, a0, s1, a1, s0, a0, s1, a1, s0, a1};
+                verts.insert(verts.end(), quad, quad + 12);
+            }
+    };
+    addTube(kLatticeAlong, kLatticeAround);
+    m_latticeFineVertexCount = int(verts.size() / 2);
+    addTube(kLatticeCoarseAlong, kLatticeCoarseAround);
+    m_latticeCoarseVertexCount = int(verts.size() / 2) - m_latticeFineVertexCount;
     m_latticeVbo = rhi()->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, quint32(verts.size() * sizeof(float)));
-    m_latticeInstances = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer,
-                                          quint32(std::max<size_t>(1, m_h3LatticeEdges.size()) * 16 * sizeof(float)));
     m_latticeUbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(LatticeUbo));
-    if (!m_latticeVbo->create() || !m_latticeInstances->create() || !m_latticeUbo->create()) return false;
+    if (!m_latticeVbo->create() || !m_latticeUbo->create()) return false;
     m_latticeVboUploaded = false;
     m_latticeVertices = verts;
 
@@ -5899,7 +6026,9 @@ bool GLWidget::createLatticePipeline()
     // la geodetica (0, 0, sinh s, cosh s) e la direzione perpendicolare
     // (cos a, sin a, 0, 0); la normale e' la tangente della geodetica che esce
     // dall'asse (sceneTubeVertex di surface.vert, qui in forma chiusa). Poi la
-    // matrice dell'istanza; sullo schermo la carta di Klein.
+    // matrice dell'istanza e la rotazione della vista; sullo schermo la carta
+    // di Klein, nella vista da fuori la palla di Poincare' (come
+    // hyperbolicChart di surface.vert).
     const QString vs = QStringLiteral("#version 450\n"
         "layout(location = 0) in vec2 tube;\n"
         "layout(location = 1) in vec4 m0;\n"
@@ -5914,22 +6043,28 @@ bool GLWidget::createLatticePipeline()
         "    float s = tube.x * ub.params.y;\n"
         "    vec4 axis = vec4(0.0, 0.0, sinh(s), cosh(s));\n"
         "    vec4 d = vec4(cos(tube.y), sin(tube.y), 0.0, 0.0);\n"
-        "    mat4 m = mat4(m0, m1, m2, m3);\n"
+        "    mat4 m = ub.view * mat4(m0, m1, m2, m3);\n"
         "    vec4 p = m * (cosh(rho) * axis + sinh(rho) * d);\n"
         "    v_pos = p.xyz;\n"
         "    v_normal = m * (sinh(rho) * axis + cosh(rho) * d);\n"
-        "    gl_Position = ub.proj * p;\n"
+        "    gl_Position = ub.proj * ((ub.params.w > 0.5) ? vec4(p.xyz, 1.0 + p.w) : p);\n"
         "}\n");
-    // La luce come gli oggetti in H3 (surface.frag, HYPERBOLIC): il coseno fra
-    // la normale e il raggio che forma l'immagine, sull'iperboloide.
+    // La luce come gli oggetti in H3 (surface.frag, HYPERBOLIC): in prospettiva
+    // il coseno fra la normale e il raggio che forma l'immagine,
+    // sull'iperboloide; nella vista da fuori euclidea, sulla normale del modello.
     const QString fs = QStringLiteral("#version 450\n"
         "layout(location = 0) in vec3 v_pos;\n"
         "layout(location = 1) in vec4 v_normal;\n"
         "layout(location = 0) out vec4 fragColor;\n")
         + QString::fromLatin1(kLatticeUboBlock) + QStringLiteral(
         "void main() {\n"
-        "    float c = (ub.params.w > 0.5) ? v_normal.z / sqrt(1.0 + v_pos.z * v_pos.z)\n"
-        "                                  : -v_normal.w / max(length(v_pos), 1.0e-6);\n"
+        "    float c;\n"
+        "    if (ub.params.w > 0.5) {\n"
+        "        vec3 nm = v_normal.xyz - v_pos * (v_normal.w / (1.0 + sqrt(1.0 + dot(v_pos, v_pos))));\n"
+        "        c = nm.z / max(length(nm), 1.0e-12);\n"
+        "    } else {\n"
+        "        c = -v_normal.w / max(length(v_pos), 1.0e-6);\n"
+        "    }\n"
         "    float diff = (0.3 + 0.7 * abs(c)) * ub.params.z;\n"
         "    fragColor = vec4(ub.color.rgb * diff, 1.0);\n"
         "}\n");
@@ -5961,12 +6096,8 @@ bool GLWidget::createLatticePipeline()
 void GLWidget::prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates)
 {
     if (!m_hyperbolic || !m_h3Lattice || m_isFlatView) return;
-    if (m_h3LatticeEdges.empty()) {
-        const H3::Honeycomb h = H3::honeycomb435(kLatticePatchRadius);
-        m_h3LatticeEdges.reserve(h.edges.size());
-        for (const auto &e : h.edges)
-            m_h3LatticeEdges.push_back(H3::frameTowards(h.vertices[e.first], h.vertices[e.second]));
-    }
+    const bool whole = hyperbolicOutsideView();
+    const LatticePiece &piece = hyperbolicLatticePiece();
     if (!m_latticePipeline && !createLatticePipeline()) {
         releaseHyperbolicLattice();
         m_h3Lattice = false;   // niente istanze su questo dispositivo: il reticolo resta spento
@@ -5976,22 +6107,60 @@ void GLWidget::prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates)
         updates->uploadStaticBuffer(m_latticeVbo, m_latticeVertices.data());
         m_latticeVboUploaded = true;
     }
-    // La cella della camera, poi ogni spigolo nel riferimento della camera.
-    // Nel mondo girato dalle rotazioni dell'ambiente (hyperbolicWorldCamera).
-    const H3::Matrix worldCamera = hyperbolicWorldCamera();
-    m_h3LatticeCell = H3::honeycomb435CellOf(m_h3LatticeCell, worldCamera * H3::origin());
-    const H3::Matrix toCamera = H3::inverse(worldCamera) * m_h3LatticeCell;
-    std::vector<float> instances(m_h3LatticeEdges.size() * 16);
-    for (size_t e = 0; e < m_h3LatticeEdges.size(); ++e) {
-        const H3::Matrix m = toCamera * m_h3LatticeEdges[e];
-        for (int col = 0; col < 4; ++col)
-            for (int row = 0; row < 4; ++row) instances[e * 16 + col * 4 + row] = float(m.m[row][col]);
+    // Solo gli spigoli entro la densita' scelta: i primi, sono in ordine di distanza.
+    m_h3LatticeDrawn = hyperbolicLatticeDrawnEdges();
+    m_h3LatticeFine = std::min(piece.fine, m_h3LatticeDrawn);
+    m_h3LatticeWholeDraw = whole;
+    QMatrix4x4 view;   // identita'
+    if (whole) {
+        // VISTA DA FUORI: la palla e' centrata nel centro della scena, quindi
+        // il pezzo sta attorno alla cella centrale e gli spigoli restano dove
+        // sono: le istanze si caricano una volta (in float bastano: si guarda
+        // da fuori, l'errore e' sotto il pixel), e a ogni fotogramma cambia
+        // solo la rotazione della vista (hyperbolicViewer, nel mondo girato
+        // dall'ambiente).
+        if (!m_latticeWholeInstances) {
+            std::vector<float> instances(piece.edges.size() * 16);
+            for (size_t e = 0; e < piece.edges.size(); ++e) latticeMatrixToFloats(piece.edges[e], &instances[e * 16]);
+            m_latticeWholeInstances = rhi()->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer,
+                                                       quint32(instances.size() * sizeof(float)));
+            if (!m_latticeWholeInstances->create()) {
+                releaseHyperbolicLattice();
+                m_h3Lattice = false;
+                return;
+            }
+            updates->uploadStaticBuffer(m_latticeWholeInstances, instances.data());
+        }
+        const H3::Matrix toView = H3::inverse(hyperbolicViewer(hyperbolicWorldCamera()));
+        latticeMatrixToFloats(toView, view.data());
+    } else {
+        // PROSPETTIVA: la cella della camera, poi ogni spigolo nel riferimento
+        // della camera, in double (ogni spigolo ricentrato su se stesso).
+        // Nel mondo girato dalle rotazioni dell'ambiente (hyperbolicWorldCamera).
+        const H3::Matrix camera = hyperbolicWorldCamera();
+        m_h3LatticeCell = H3::honeycomb435CellOf(m_h3LatticeCell, camera * H3::origin());
+        const H3::Matrix toCamera = H3::inverse(camera) * m_h3LatticeCell;
+        const quint32 bytes = quint32(std::max<size_t>(1, piece.edges.size()) * 16 * sizeof(float));
+        if (!m_latticeInstances || m_latticeInstances->size() < bytes) {
+            delete m_latticeInstances;
+            m_latticeInstances = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, bytes);
+            if (!m_latticeInstances->create()) {
+                releaseHyperbolicLattice();
+                m_h3Lattice = false;
+                return;
+            }
+        }
+        std::vector<float> instances(size_t(m_h3LatticeDrawn) * 16);
+        for (size_t e = 0; e < size_t(m_h3LatticeDrawn); ++e)
+            latticeMatrixToFloats(toCamera * piece.edges[e], &instances[e * 16]);
+        if (!instances.empty())
+            updates->updateDynamicBuffer(m_latticeInstances, 0, quint32(instances.size() * sizeof(float)), instances.data());
     }
-    updates->updateDynamicBuffer(m_latticeInstances, 0, quint32(instances.size() * sizeof(float)), instances.data());
 
     LatticeUbo u{};
     const QMatrix4x4 proj = rhi()->clipSpaceCorrMatrix() * m_projection;
     memcpy(u.proj, proj.constData(), sizeof(u.proj));
+    memcpy(u.view, view.constData(), sizeof(u.view));
     u.color[0] = 0.78f; u.color[1] = 0.80f; u.color[2] = 0.86f; u.color[3] = 1.0f;
     u.params[0] = float(kLatticeTubeRadius);
     u.params[1] = float(H3::honeycomb435EdgeLength());
@@ -6002,13 +6171,27 @@ void GLWidget::prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates)
 
 void GLWidget::drawHyperbolicLattice(QRhiCommandBuffer *cb, const QSize &outputSize)
 {
-    if (!m_hyperbolic || !m_h3Lattice || m_isFlatView || !m_latticePipeline || m_h3LatticeEdges.empty()) return;
+    if (!m_hyperbolic || !m_h3Lattice || m_isFlatView || !m_latticePipeline || m_h3LatticeDrawn <= 0) return;
+    QRhiBuffer *instances = m_h3LatticeWholeDraw ? m_latticeWholeInstances : m_latticeInstances;
+    if (!instances) return;
     cb->setGraphicsPipeline(m_latticePipeline);
     cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
     cb->setShaderResources(m_latticeSrb);
-    const QRhiCommandBuffer::VertexInput inputs[] = { { m_latticeVbo, 0 }, { m_latticeInstances, 0 } };
-    cb->setVertexInput(0, 2, inputs);
-    cb->draw(quint32(m_latticeVertexCount), quint32(m_h3LatticeEdges.size()));
+    // I vicini col tubo intero, i lontani (solo nella vista da fuori) col tubo
+    // semplice: il secondo tubo e le loro istanze cominciano piu' avanti nei
+    // due buffer.
+    if (m_h3LatticeFine > 0) {
+        const QRhiCommandBuffer::VertexInput inputs[] = { { m_latticeVbo, 0 }, { instances, 0 } };
+        cb->setVertexInput(0, 2, inputs);
+        cb->draw(quint32(m_latticeFineVertexCount), quint32(m_h3LatticeFine));
+    }
+    if (m_h3LatticeDrawn > m_h3LatticeFine) {
+        const QRhiCommandBuffer::VertexInput inputs[] = {
+            { m_latticeVbo, quint32(m_latticeFineVertexCount * 2 * sizeof(float)) },
+            { instances, quint32(m_h3LatticeFine * 16 * sizeof(float)) } };
+        cb->setVertexInput(0, 2, inputs);
+        cb->draw(quint32(m_latticeCoarseVertexCount), quint32(m_h3LatticeDrawn - m_h3LatticeFine));
+    }
 }
 
 void GLWidget::releaseHyperbolicLattice()
@@ -6023,8 +6206,11 @@ void GLWidget::releaseHyperbolicLattice()
     m_latticeVbo = nullptr;
     delete m_latticeInstances;
     m_latticeInstances = nullptr;
+    delete m_latticeWholeInstances;
+    m_latticeWholeInstances = nullptr;
     m_latticeVboUploaded = false;
 }
+
 
 void GLWidget::zoomCamera(float delta) {
     // Con un oggetto della scena selezionato lo zoom e' il SUO: la scala, in
@@ -7878,9 +8064,12 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
     // appare dritta), quindi l'alto dello schermo e l'alto del cielo (+Y del
     // mondo) si mappano entrambi su v = 1. Ricavato da cio' che si vede, non dal
     // backend: se lo sfondo fisso e' dritto, lo e' anche il cielo.
-    // HYPERBOLIC_SKY (solo nelle scene H3, 2.1): in ortogonale il cielo e'
-    // l'emisfero dove finiscono le geodetiche perpendicolari allo schermo, nel
-    // disco del piano; fuori si scarta (colore di fondo). Vedi render().
+    // HYPERBOLIC_SKY (solo nelle scene H3, 2.1): in ortogonale, la vista da
+    // fuori, il cielo e' l'emisfero di fondo della palla di Poincare' (punto
+    // della palla = pixel per la mezza altezza in [3][0], le proporzioni in
+    // [3][2], piu' lo spostamento laterale in [0][3], [1][3]); il punto
+    // all'infinito visto dal centro, quindi la sfera senza osservatore. Fuori
+    // dalla palla si scarta (colore di fondo). Vedi render().
     const QString bgBaseUVFunc =
         "vec2 bgBallUV(vec3 _d) {\n"
         "    vec3 _p = vec3(ubuf.u_mvpMatrix[0][3], ubuf.u_mvpMatrix[1][3], ubuf.u_mvpMatrix[2][3]);\n"
@@ -7894,10 +8083,12 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
         "    vec2 _ndc = v_texCoord * 2.0 - 1.0;\n"
         "#ifdef HYPERBOLIC_SKY\n"
         "    if (ubuf.u_mvpMatrix[3][0] > 0.0) {\n"
-        "        vec2 _k = vec2(_ndc.x * ubuf.u_mvpMatrix[3][2], _ndc.y) * ubuf.u_mvpMatrix[3][0];\n"
+        "        vec2 _k = vec2(_ndc.x * ubuf.u_mvpMatrix[3][2], _ndc.y) * ubuf.u_mvpMatrix[3][0]\n"
+        "                + vec2(ubuf.u_mvpMatrix[0][3], ubuf.u_mvpMatrix[1][3]);\n"
         "        float _r2 = dot(_k, _k);\n"
         "        if (_r2 >= 1.0) discard;\n"
-        "        return bgBallUV(normalize(mat3(ubuf.u_mvpMatrix) * vec3(_k, -sqrt(1.0 - _r2))));\n"
+        "        vec3 _x = normalize(mat3(ubuf.u_mvpMatrix) * vec3(_k, -sqrt(1.0 - _r2)));\n"
+        "        return vec2(atan(_x.x, -_x.z) * 0.15915494 + 0.5, asin(clamp(_x.y, -1.0, 1.0)) * 0.31830989 + 0.5);\n"
         "    }\n"
         "#endif\n"
         "    vec3 _d = normalize(mat3(ubuf.u_mvpMatrix) * vec3(_ndc, 1.0));\n"

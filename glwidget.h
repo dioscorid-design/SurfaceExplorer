@@ -263,19 +263,6 @@ public:
     }
     void setObjectScale(float s);
     float objectScale() const { return m_obj->scale; }
-    // In H3: tubi e bordo dell'oggetto a spessore costante in H3, o dalla carta
-    // (SurfaceObject::h3ConstantTubeThickness). Nessuna ricompilazione: lo shader
-    // lo legge da u_mvMatrix (hyperbolicObjectMatrices).
-    bool objectConstantTubeThickness(int index) const { return m_objects[index]->h3ConstantTubeThickness; }
-    // L'oggetto ha dei tubi: e' una curva a tubo o ha il bordo acceso. Solo li'
-    // la scelta dello spessore cambia qualcosa.
-    bool objectHasTubes(int index) const {
-        return drawsAsTube(*m_objects[index]) || drawsBorder(*m_objects[index]);
-    }
-    void setObjectConstantTubeThickness(int index, bool on) {
-        m_objects[index]->h3ConstantTubeThickness = on;
-        update();
-    }
     // Di un oggetto qualunque, senza selezionarlo (il limite di zoom in H3).
     float objectScaleAt(int index) const { return m_objects[index]->scale; }
     void setObjectScaleAt(int index, float s) {
@@ -1194,7 +1181,25 @@ public:
     // istanze attorno alla cella che contiene la camera: sembra infinito.
     void setHyperbolicLattice(bool on);
     bool hyperbolicLattice() const { return m_h3Lattice; }
-    int hyperbolicLatticeEdgeCount() const { return int(m_h3LatticeEdges.size()); }
+    // Gli spigoli del pezzo del modo attuale (prospettiva o vista da fuori).
+    int hyperbolicLatticeEdgeCount();
+    // LA DENSITA' DEL RETICOLO: quanta parte se ne disegna, da 0 (il solo cubo
+    // attorno alla camera; nella vista da fuori quello centrale) a 1 (tutto il
+    // pezzo, il default). Si disegnano gli spigoli che stanno entro una distanza
+    // dal centro della cella (hyperbolicLatticeReach, in raggi di curvatura).
+    // Ogni scena H3 riparte da 1. Conteggi e reach generano il pezzo del modo
+    // attuale se ancora non c'e'.
+    void setHyperbolicLatticeDensity(double t);
+    double hyperbolicLatticeDensity() const { return m_h3LatticeDensity; }
+    double hyperbolicLatticeReach();
+    int hyperbolicLatticeDrawnEdges();
+    // LA VISTA DA FUORI (2.1): in H3 la proiezione ortogonale porta fuori
+    // dallo spazio, e allora si guarda il modello: la palla di Poincare' in R3
+    // (geodetiche come archi di cerchio ortogonali al bordo), centrata nel
+    // centro della scena, con una camera euclidea ortogonale che guarda dalla
+    // parte della camera iperbolica (drag, zoom e path la muovono come in
+    // prospettiva). La luce e' euclidea, sul modello.
+    bool hyperbolicOutsideView() const { return m_hyperbolic && projectionMode == Ortho4D; }
     // L'oggetto e' disegnato in H3 (vertex shader con HYPERBOLIC, posa di
     // hyperbolicObjectMatrices). Solo le mesh: il ray marching resta fuori dal livello 1.
     bool hyperbolicObject(const SurfaceObject &o) const {
@@ -1968,14 +1973,34 @@ private:
     // precisione lontano), il suo blocco uniform (LatticeUBO, uguale nei due stadi).
     bool m_h3Lattice = false;
     H3::Matrix m_h3LatticeCell = H3::Matrix::identity();
-    std::vector<H3::Matrix> m_h3LatticeEdges;
+    // I PEZZI: gli spigoli in ordine di distanza dal centro della cella
+    // (reach: il piu' lontano dei due estremi), cosi' la densita' ne disegna i
+    // primi; fine = quanti col tubo intero (gli altri, lontani, col tubo
+    // semplice). Due pezzi, generati al primo uso: attorno alla cella della
+    // camera in prospettiva, piu' grande e attorno alla cella centrale nella
+    // vista da fuori (hyperbolicLatticePiece sceglie e genera).
+    struct LatticePiece {
+        std::vector<H3::Matrix> edges;
+        std::vector<double> reach;
+        int fine = 0;
+    };
+    LatticePiece m_h3LatticeAround;
+    LatticePiece m_h3LatticeWhole;
+    LatticePiece &hyperbolicLatticePiece();
+    double m_h3LatticeDensity = 1.0;
+    // Del fotogramma: spigoli disegnati, di cui col tubo intero, e da quale pezzo.
+    int m_h3LatticeDrawn = 0;
+    int m_h3LatticeFine = 0;
+    bool m_h3LatticeWholeDraw = false;
     QRhiGraphicsPipeline *m_latticePipeline = nullptr;
     QRhiShaderResourceBindings *m_latticeSrb = nullptr;
     QRhiBuffer *m_latticeUbo = nullptr;
     QRhiBuffer *m_latticeVbo = nullptr;
-    QRhiBuffer *m_latticeInstances = nullptr;
-    int m_latticeVertexCount = 0;
-    std::vector<float> m_latticeVertices;   // il tubo canonico, fino al caricamento nel VBO
+    QRhiBuffer *m_latticeInstances = nullptr;        // prospettiva: a ogni fotogramma
+    QRhiBuffer *m_latticeWholeInstances = nullptr;   // vista da fuori: caricate una volta
+    int m_latticeFineVertexCount = 0;                // il tubo intero, poi il semplice, nel VBO
+    int m_latticeCoarseVertexCount = 0;
+    std::vector<float> m_latticeVertices;   // i tubi canonici, fino al caricamento nel VBO
     bool m_latticeVboUploaded = false;
     // Prima del render pass: cella della camera, istanze, uniform (e la
     // pipeline, la prima volta). Nel render pass: il disegno, fra lo sfondo e
@@ -2001,10 +2026,18 @@ private:
     // nel centro, e la sua posizione nella palla di Poincare'.
     QMatrix4x4 hyperbolicSkyRotation() const;
     QVector3D hyperbolicCameraInBall() const;
-    // ORTOGONALE IN H3: la mezza altezza della finestra in coordinate di Klein
-    // del piano dello schermo (al piu' 1, tutto il piano). Una sede sola per la
-    // proiezione e per il cielo, che in ortogonale deve coincidere col disco.
+    // ORTOGONALE IN H3 (vista da fuori): la mezza altezza della finestra in
+    // coordinate della palla di Poincare' (poco piu' di 1: tutta la palla), e
+    // lo spostamento laterale della camera euclidea (x, y della camera
+    // iperbolica nella palla, nel riferimento della vista: zero se guarda il
+    // centro). Una sede sola per la proiezione e il cielo.
     float hyperbolicOrthoHalfHeight() const;
+    QVector2D hyperbolicOutsideOffset() const;
+    // Il riferimento da cui si guarda: in prospettiva la camera stessa; nella
+    // vista da fuori il suo orientamento trasportato nel centro della scena
+    // (la palla e' centrata li'). camera e' m_h3Camera per gli oggetti,
+    // hyperbolicWorldCamera() per reticolo e cielo.
+    H3::Matrix hyperbolicViewer(const H3::Matrix &camera) const;
     // I PATH DELLA CAMERA in H3: la posa che il path consegna (posizione,
     // bersaglio, alto e rollio, in unita' della scena, come per la camera
     // euclidea) diventa la camera iperbolica. La posizione e il bersaglio sono
