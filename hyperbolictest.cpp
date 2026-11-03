@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <random>
 #include <string>
+#include <vector>
 
 using namespace H3;
 
@@ -417,6 +418,62 @@ void testLightCosines()
           format("luce in H3: i coseni del fragment shader coincidono con le geodetiche (errore %.1e, %.1e)", persp, ortho));
 }
 
+void testHoneycomb()
+{
+    // Il cubo centrale: angolo diedro di 72 gradi (fra le facce x = a e y = a,
+    // nel punto (a, a, 0) dello spigolo: le direzioni verso (a, 0, 0) e (0, a, 0)
+    // stanno nelle facce e sono perpendicolari allo spigolo), lato dalla formula
+    // di Coxeter per {p,q,r} = {4,3,5}: cosh(lato/2) = cos(pi/4) sin(pi/5) / sin(pi/10).
+    const double a = honeycomb435HalfSide();
+    const double dihedral = angleAt(fromKlein({a, a, 0.0}), fromKlein({a, 0.0, 0.0}), fromKlein({0.0, a, 0.0}));
+    const double side = distance(fromKlein({a, a, a}), fromKlein({a, a, -a}));
+    const double coxeter = 2.0 * std::acosh(std::cos(kPi / 4) * std::sin(kPi / 5) / std::sin(kPi / 10));
+    check(std::abs(degrees(dihedral) - 72.0) < 1e-9 && std::abs(side - coxeter) < 1e-9,
+          format("cubo del reticolo {4,3,5}: angolo diedro %.6f gradi, lato %.6f (Coxeter %.6f)",
+                 degrees(dihedral), side, coxeter));
+
+    const Honeycomb h = honeycomb435(2.5);
+    const double av = honeycomb435HalfSide();
+    std::vector<std::vector<int>> cellVertices;   // per ogni cella i suoi 8 vertici
+    auto indexOf = [&](const Vec4 &p) {
+        for (size_t k = 0; k < h.vertices.size(); ++k)
+            if (distance(h.vertices[k], p) < 1e-6) return int(k);
+        return -1;
+    };
+    for (const Matrix &g : h.cells) {
+        std::vector<int> idx;
+        for (int v = 0; v < 8; ++v)
+            idx.push_back(indexOf(g * fromKlein({(v & 1) ? av : -av, (v & 2) ? av : -av, (v & 4) ? av : -av})));
+        cellVertices.push_back(idx);
+    }
+    // Attorno agli spigoli e ai vertici del cubo centrale (cella 0) il reticolo e' completo.
+    int edgesOk = 0, verticesOk = 0;
+    for (const auto &e : h.edges) {
+        const auto &c0 = cellVertices[0];
+        if (std::find(c0.begin(), c0.end(), e.first) == c0.end() || std::find(c0.begin(), c0.end(), e.second) == c0.end())
+            continue;
+        int around = 0;
+        for (const auto &cv : cellVertices)
+            if (std::find(cv.begin(), cv.end(), e.first) != cv.end() && std::find(cv.begin(), cv.end(), e.second) != cv.end())
+                ++around;
+        if (around == 5) ++edgesOk;
+    }
+    for (int v : cellVertices[0]) {
+        int degree = 0, cells = 0;
+        for (const auto &e : h.edges) degree += (e.first == v || e.second == v);
+        for (const auto &cv : cellVertices) cells += std::find(cv.begin(), cv.end(), v) != cv.end();
+        if (degree == 12 && cells == 20) ++verticesOk;
+    }
+    double sideError = 0.0;
+    for (const auto &e : h.edges)
+        sideError = std::max(sideError, std::abs(distance(h.vertices[e.first], h.vertices[e.second]) - coxeter));
+    info(format("reticolo entro 2.5 raggi dal centro: %d cubi, %d vertici, %d spigoli",
+                int(h.cells.size()), int(h.vertices.size()), int(h.edges.size())));
+    check(edgesOk == 12 && verticesOk == 8 && sideError < 1e-9,
+          format("reticolo {4,3,5}: 5 cubi attorno a ogni spigolo del cubo centrale (%d/12), 12 spigoli e 20 cubi "
+                 "attorno a ogni suo vertice (%d/8), spigoli tutti uguali (scarto %.1e)", edgesOk, verticesOk, sideError));
+}
+
 void testRenormalization()
 {
     double before = 0.0, after = 0.0, moved = 0.0;
@@ -472,6 +529,7 @@ int main()
     testSplitAlongZ();
     testShaderPrecision();
     testLightCosines();
+    testHoneycomb();
     testRenormalization();
     std::printf("\nesito: %s\n", g_failures == 0 ? "tutte le verifiche passate"
                                                  : format("%d verifiche FALLITE", g_failures).c_str());

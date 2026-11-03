@@ -4,6 +4,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
+#include <set>
+#include <tuple>
 
 namespace H3 {
 
@@ -197,6 +200,100 @@ void splitAlongZ(const Matrix &m, Matrix &k, double &distance, Matrix &kp)
         else if (u.z < 0.0) k = rotation({1.0, 0.0, 0.0}, std::acos(-1.0));
     }
     kp = inverse(translation({0.0, 0.0, distance})) * inverse(k) * m;
+}
+
+double honeycomb435HalfSide()
+{
+    // Facce x = a e y = a: normali (1,0,0,a) e (0,1,0,a) / sqrt(1 - a^2), angolo
+    // diedro interno alpha con cos(alpha) = a^2 / (1 - a^2).
+    const double c = std::cos(2.0 * std::acos(-1.0) / 5.0);   // cos 72
+    return std::sqrt(c / (1.0 + c));
+}
+
+Honeycomb honeycomb435(double maxDistance)
+{
+    const double a = honeycomb435HalfSide();
+    const double s = std::sqrt(1.0 - a * a);
+    // Le sei riflessioni nelle facce del cubo centrale: X - 2 <X, n> n, con n
+    // la normale unitaria (spaziale) della faccia: il piano x_i / w = +-a.
+    Matrix reflections[6];
+    for (int f = 0; f < 6; ++f) {
+        const int axis = f / 2;
+        const double sign = (f % 2 == 0) ? 1.0 : -1.0;
+        double n[4] = {0.0, 0.0, 0.0, a / s};
+        n[axis] = sign / s;
+        const double j[4] = {1.0, 1.0, 1.0, -1.0};   // <n, X> = sum j_k n_k X_k
+        Matrix r = Matrix::identity();
+        for (int i = 0; i < 4; ++i)
+            for (int k = 0; k < 4; ++k) r.m[i][k] -= 2.0 * n[i] * j[k] * n[k];
+        reflections[f] = r;
+    }
+    // I vertici del cubo centrale, nella carta di Klein (+-a, +-a, +-a), e i
+    // suoi dodici spigoli (vertici che differiscono in una coordinata sola).
+    Vec4 cubeVertices[8];
+    for (int v = 0; v < 8; ++v)
+        cubeVertices[v] = fromKlein({(v & 1) ? a : -a, (v & 2) ? a : -a, (v & 4) ? a : -a});
+
+    Honeycomb h;
+    // Punti gia' visti (centri delle celle, vertici): si riconoscono per
+    // distanza, cercando solo nelle caselle vicine di una griglia sulla carta di
+    // Poincare' (lati di 1e-3: i punti distinti distano almeno un lato o mezza
+    // diagonale del cubo, piu' di 0.5 raggi). Due liste, due griglie.
+    const double same = 1e-6;
+    using Key = std::tuple<long, long, long>;
+    auto keyOf = [](const Vec4 &p, int dx, int dy, int dz) {
+        const Vec3 b = toPoincare(p);
+        return Key(std::lround(b.x * 1e3) + dx, std::lround(b.y * 1e3) + dy, std::lround(b.z * 1e3) + dz);
+    };
+    auto lookup = [&](const std::map<Key, std::vector<int>> &grid, const std::vector<Vec4> &points,
+                      const Vec4 &p) {
+        for (int dx = -1; dx <= 1; ++dx)
+            for (int dy = -1; dy <= 1; ++dy)
+                for (int dz = -1; dz <= 1; ++dz) {
+                    const auto it = grid.find(keyOf(p, dx, dy, dz));
+                    if (it == grid.end()) continue;
+                    for (int k : it->second)
+                        if (distance(points[k], p) < same) return k;
+                }
+        return -1;
+    };
+    // Le celle in ampiezza: la vicina della cella g oltre la sua faccia f e'
+    // g * r_f. Si riconosce dal centro (g * origine); la matrice si raddrizza
+    // per non accumulare errori lungo le catene di riflessioni.
+    std::vector<Vec4> centers;
+    std::map<Key, std::vector<int>> centerGrid;
+    auto addCell = [&](const Matrix &g) {
+        h.cells.push_back(g);
+        centers.push_back(g * origin());
+        centerGrid[keyOf(centers.back(), 0, 0, 0)].push_back(int(centers.size()) - 1);
+    };
+    addCell(Matrix::identity());
+    for (size_t i = 0; i < h.cells.size(); ++i) {
+        for (const Matrix &r : reflections) {
+            const Matrix g = renormalized(h.cells[i] * r);
+            const Vec4 center = g * origin();
+            if (distance(origin(), center) > maxDistance || lookup(centerGrid, centers, center) >= 0) continue;
+            addCell(g);
+        }
+    }
+    std::map<Key, std::vector<int>> vertexGrid;
+    auto vertexIndex = [&](const Vec4 &p) {
+        const int k = lookup(vertexGrid, h.vertices, p);
+        if (k >= 0) return k;
+        h.vertices.push_back(p);
+        vertexGrid[keyOf(p, 0, 0, 0)].push_back(int(h.vertices.size()) - 1);
+        return int(h.vertices.size()) - 1;
+    };
+    std::set<std::pair<int, int>> edges;
+    for (const Matrix &g : h.cells) {
+        int idx[8];
+        for (int v = 0; v < 8; ++v) idx[v] = vertexIndex(g * cubeVertices[v]);
+        for (int v = 0; v < 8; ++v)
+            for (int bit = 1; bit < 8; bit <<= 1)
+                if (!(v & bit)) edges.insert({std::min(idx[v], idx[v | bit]), std::max(idx[v], idx[v | bit])});
+    }
+    h.edges.assign(edges.begin(), edges.end());
+    return h;
 }
 
 Vec3 toKlein(const Vec4 &p) { return {p.x / p.w, p.y / p.w, p.z / p.w}; }

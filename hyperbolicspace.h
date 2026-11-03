@@ -27,6 +27,9 @@
 // Test: hyperbolictest.cpp (ExC/Mac/Test/hyperbolic-test.sh).
 #pragma once
 
+#include <utility>
+#include <vector>
+
 namespace H3 {
 
 struct Vec3 { double x = 0, y = 0, z = 0; };
@@ -75,6 +78,19 @@ double isometryError(const Matrix &m);
 // si scrive con sinh(R - r) e cosh(R - r), dove la cancellazione e' esatta,
 // invece di sottrarre numeri grandi come e^r in float.
 void splitAlongZ(const Matrix &m, Matrix &k, double &distance, Matrix &kp);
+
+// IL RETICOLO {4,3,5} (2.1, le pareti della scena H3): cubi con angoli diedri di
+// 72 gradi, cinque attorno a ogni spigolo, venti attorno a ogni vertice. Il cubo
+// centrale, nella carta di Klein, e' [-a, a]^3 con cos(72) = a^2 / (1 - a^2); gli
+// altri sono le sue immagini per le riflessioni nelle facce (isometrie di Lorentz).
+struct Honeycomb {
+    std::vector<Matrix> cells;                 // l'isometria che porta il cubo centrale in ciascuna cella
+    std::vector<Vec4> vertices;                // senza ripetizioni
+    std::vector<std::pair<int, int>> edges;    // indici in vertices, senza ripetizioni
+};
+double honeycomb435HalfSide();                 // a: meta' lato del cubo centrale nella carta di Klein
+// Le celle col centro entro maxDistance dall'origine, coi loro vertici e spigoli.
+Honeycomb honeycomb435(double maxDistance);
 
 // CARTE
 Vec3 toKlein(const Vec4 &p);
