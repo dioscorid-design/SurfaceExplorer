@@ -507,7 +507,7 @@ void MainWindow::setSceneSpace(SceneSpace space)
     m_sceneSpace = space;
     if (ui->glWidget) ui->glWidget->setHyperbolicSpace(space == SceneSpace::SpaceH3);
     if (m_h3CurvatureRow) m_h3CurvatureRow->setVisible(space == SceneSpace::SpaceH3);
-    if (m_h3ConstantTubes) m_h3ConstantTubes->setVisible(space == SceneSpace::SpaceH3);
+    refreshH3TubesControl();
     // In H3 lo sfondo e' il cielo di H3: i radio della forma lo mostrano, spenti.
     updateBackgroundControlsGate();
     refreshSceneSlot();
@@ -1125,12 +1125,10 @@ void MainWindow::setupObjectsDock()
     // prima traduce lo spessore come spessore, la seconda trasforma l'oggetto
     // intero allo stesso modo.
     m_h3ConstantTubes = new QCheckBox(QStringLiteral("Constant tube thickness"), w);
-    m_h3ConstantTubes->setToolTip(QStringLiteral(
-        "Tubes and borders of the selected object in hyperbolic space. On: their thickness is a true "
-        "distance in H³, the same everywhere. Off: they follow the object's chart like the rest of the "
-        "shape, and swell far from its centre."));
-    m_h3ConstantTubes->setVisible(false);
+    m_h3ConstantTubes->setVisible(false);   // stato e tooltip: refreshH3TubesControl
     lay->addWidget(m_h3ConstantTubes);
+    // Il bordo acceso o spento fa comparire o sparire dei tubi.
+    connect(ui->glWidget, &GLWidget::borderAvailabilityChanged, this, [this]() { refreshH3TubesControl(); });
     connect(m_h3ConstantTubes, &QCheckBox::toggled, this, [this](bool on) {
         if (m_refreshingObjects) return;
         GLWidget *gl = ui->glWidget;
@@ -1240,6 +1238,25 @@ void MainWindow::clampHyperbolicObjectScales()
     }
 }
 
+void MainWindow::refreshH3TubesControl()
+{
+    if (!m_h3ConstantTubes || !ui->glWidget) return;
+    GLWidget *gl = ui->glWidget;
+    const int selected = gl->selectedObject();
+    const bool tubes = selected > 0 && gl->objectHasTubes(selected);
+    const QSignalBlocker blocker(m_h3ConstantTubes);
+    m_h3ConstantTubes->setVisible(m_sceneSpace == SceneSpace::SpaceH3);
+    m_h3ConstantTubes->setEnabled(tubes);
+    m_h3ConstantTubes->setChecked(selected > 0 ? gl->objectConstantTubeThickness(selected) : true);
+    m_h3ConstantTubes->setToolTip(
+        tubes ? QStringLiteral("Tubes and borders of the selected object in hyperbolic space. On: their thickness is "
+                               "a true distance in H³, the same everywhere. Off: they follow the object's chart like "
+                               "the rest of the shape, and swell far from its centre.")
+              : selected > 0 ? QStringLiteral("The selected object has no tubes: it applies to Solid Curves and to "
+                                              "borders (turn the Border on in the Renderer).")
+                             : QStringLiteral("Select an object with tubes: a Solid Curve, or a shape with its Border on."));
+}
+
 double MainWindow::h3CurvatureRadiusFromSlider(int v)
 {
     return 0.5 * std::pow(10.0, double(v) / 100.0);   // 0 -> 0.5, 100 -> 5, 200 -> 50
@@ -1287,11 +1304,7 @@ void MainWindow::refreshObjectsUi()
     m_objectWindowOut->setValue(gl->objectWindowOut(selected));
     m_btnObjectDuplicate->setEnabled(selected > 0);
     m_btnObjectRemove->setEnabled(selected > 0);
-    if (m_h3ConstantTubes) {
-        m_h3ConstantTubes->setVisible(m_sceneSpace == SceneSpace::SpaceH3);
-        m_h3ConstantTubes->setEnabled(selected > 0);
-        m_h3ConstantTubes->setChecked(selected > 0 ? gl->objectConstantTubeThickness(selected) : true);
-    }
+    refreshH3TubesControl();
     if (m_h3CurvatureRow) {
         m_h3CurvatureRow->setVisible(m_sceneSpace == SceneSpace::SpaceH3);
         m_h3CurvatureSlider->setValue(h3CurvatureSliderFromRadius(gl->hyperbolicCurvatureRadius()));

@@ -267,6 +267,11 @@ public:
     // (SurfaceObject::h3ConstantTubeThickness). Nessuna ricompilazione: lo shader
     // lo legge da u_mvMatrix (hyperbolicObjectMatrices).
     bool objectConstantTubeThickness(int index) const { return m_objects[index]->h3ConstantTubeThickness; }
+    // L'oggetto ha dei tubi: e' una curva a tubo o ha il bordo acceso. Solo li'
+    // la scelta dello spessore cambia qualcosa.
+    bool objectHasTubes(int index) const {
+        return drawsAsTube(*m_objects[index]) || drawsBorder(*m_objects[index]);
+    }
     void setObjectConstantTubeThickness(int index, bool on) {
         m_objects[index]->h3ConstantTubeThickness = on;
         update();
@@ -1775,6 +1780,13 @@ private:
     // Il bordo si puo' disegnare sulla mesh corrente: sempre sulle superfici,
     // sulla mesh custom solo se c'e' la texture dei lati.
     bool borderSupported(const SurfaceObject &o) const { return !o.isCustomMesh || o.borderEdgeTex; }
+    // Lo shader dell'oggetto costruisce un tubo attorno a una curva (IS_TUBE) o
+    // il bordo a tubi (HAS_BORDER): le condizioni con cui si compone (una sede
+    // sola, createVertexShaderSource e compagne le leggono da qui).
+    bool drawsAsTube(const SurfaceObject &o) const {
+        return o.engine && o.engine->isTubeModeActive() && !o.engine->isScriptModeActive() && !o.isCustomMesh;
+    }
+    bool drawsBorder(const SurfaceObject &o) const { return o.borderRadius > 0.0f && borderSupported(o); }
     // Lo slot 3 di ogni binding della superficie: i lati della mesh custom, o
     // la dummy.
     QRhiShaderResourceBinding borderEdgesBinding(const SurfaceObject &o) const;

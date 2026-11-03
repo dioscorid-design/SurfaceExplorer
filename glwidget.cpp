@@ -1432,7 +1432,7 @@ void main() {
 bool GLWidget::tubeFramesActive(const SurfaceObject &o) const
 {
     return o.tubeFramePipeline && o.tubeFrameSrb && o.tubeFrameWork && o.engine && o.engineMode == ModeParametric
-           && o.engine->isTubeModeActive() && !o.engine->isScriptModeActive() && !o.isCustomMesh;
+           && drawsAsTube(o);
 }
 
 void GLWidget::releaseTubeFramePipeline(SurfaceObject &o)
@@ -7841,7 +7841,7 @@ QString GLWidget::createVertexShaderSource(SurfaceObject &o, const QString &xEq,
     // Mai sulla mesh custom (stessa guardia di IS_TUBE piu' sotto): li'
     // getRawPosition restituisce il vertice del buffer, e sostituirla con la
     // curva faceva sparire la superficie.
-    if (o.engine->isTubeModeActive() && !o.engine->isScriptModeActive() && !o.isCustomMesh) {
+    if (drawsAsTube(o)) {
         // TUBO attorno alla curva C(u) = (X, Y, Z, P), sotto-tab Tubes: dalle
         // equazioni o da uno script (tubeCurveFunction). Qui getRawPosition
         // restituisce il solo punto della CURVA; il tubo lo costruisce il
@@ -7941,11 +7941,11 @@ QString GLWidget::createVertexShaderSource(SurfaceObject &o, const QString &xEq,
     // una superficie senza bordo compila lo shader di sempre. Sulla mesh
     // custom i vertici sono posizioni, non parametri: i punti dei lati li
     // legge dalla texture dei lati (borderSupported).
-    if (o.borderRadius > 0.0f && borderSupported(o)) {
+    if (drawsBorder(o)) {
         source.replace(QStringLiteral("#version 450"), QStringLiteral("#version 450") + kBorderDefineLine);
     }
     // Tubo: il template lo costruisce nella scena (emitTubeVertex).
-    if (o.engine->isTubeModeActive() && !o.engine->isScriptModeActive() && !o.isCustomMesh) {
+    if (drawsAsTube(o)) {
         source.replace("#version 450", "#version 450\n#define IS_TUBE\n");
     }
     // P(t) del path dell'oggetto (rotate4D): solo per chi ce l'ha, cosi' ogni
@@ -8457,7 +8457,7 @@ QString GLWidget::createFragmentShaderSource(SurfaceObject &o, const QString &cu
     // (borderFragmentCovered), con la stessa condizione del vertex. Solo il
     // suo: in quello della superficie il discard spegnerebbe lo scarto
     // anticipato dei frammenti nascosti (vedi borderPipelineOpaque).
-    if (forBorder && o.borderRadius > 0.0f && borderSupported(o)) {
+    if (forBorder && drawsBorder(o)) {
         fullSource.replace("#version 450", "#version 450\n#define HAS_BORDER\n");
     }
 
@@ -8628,7 +8628,7 @@ void GLWidget::buildPipeline(SurfaceObject &o) {
     // coperti; se non compilasse lo stesso, il bordo usa le pipeline della
     // superficie e resta intero.
     QShader fsBorder;
-    if (o.borderRadius > 0.0f && borderSupported(o))
+    if (drawsBorder(o))
         fsBorder = bakeShader(createFragmentShaderSource(o, o.customFragmentCode, true).toUtf8(), QShader::FragmentStage);
 
     // ORA si liberano le pipeline precedenti: il rimpiazzo e' garantito, perche'

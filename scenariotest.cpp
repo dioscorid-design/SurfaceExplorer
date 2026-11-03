@@ -8659,6 +8659,15 @@ void ScenarioTest::runSceneH3Scenarios()
         const QString vs = gl->createVertexShaderSource(o.eqX, o.eqY, o.eqZ, o.eqW);
         check(gl->objectCount() == 2 && m_popupsClosed == before && vs.contains(QLatin1String("#define HYPERBOLIC")),
               QStringLiteral("Add to Scene del toro: entra, shader con HYPERBOLIC"));
+        // Il toro non ha tubi ne' bordo: la scelta dello spessore c'e' ma e'
+        // spenta. Il bordo acceso la accende, spento la rispegne.
+        m_mw->refreshObjectsUi();
+        const bool offWithoutTubes = !m_mw->m_h3ConstantTubes->isHidden() && !m_mw->m_h3ConstantTubes->isEnabled();
+        gl->setBorderRadius(0.02f);
+        const bool onWithBorder = m_mw->m_h3ConstantTubes->isEnabled();
+        gl->setBorderRadius(0.0f);
+        check(offWithoutTubes && onWithBorder && !m_mw->m_h3ConstantTubes->isEnabled(),
+              QStringLiteral("spessore dei tubi: spento sul toro, acceso col suo bordo, di nuovo spento senza"));
         // Qualcosa e' disegnato: l'immagine non e' di un colore solo.
         const QImage img = gl->grabFramebuffer();
         img.save(m_outDir + QStringLiteral("/scene-h3-torus.png"));
