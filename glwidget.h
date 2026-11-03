@@ -263,6 +263,14 @@ public:
     }
     void setObjectScale(float s);
     float objectScale() const { return m_obj->scale; }
+    // In H3: tubi e bordo dell'oggetto a spessore costante in H3, o dalla carta
+    // (SurfaceObject::h3ConstantTubeThickness). Nessuna ricompilazione: lo shader
+    // lo legge da u_mvMatrix (hyperbolicObjectMatrices).
+    bool objectConstantTubeThickness(int index) const { return m_objects[index]->h3ConstantTubeThickness; }
+    void setObjectConstantTubeThickness(int index, bool on) {
+        m_objects[index]->h3ConstantTubeThickness = on;
+        update();
+    }
     // Di un oggetto qualunque, senza selezionarlo (il limite di zoom in H3).
     float objectScaleAt(int index) const { return m_objects[index]->scale; }
     void setObjectScaleAt(int index, float s) {
@@ -978,6 +986,10 @@ public:
     }
     void setBackgroundSkyMode(int mode) { if (m_bgSkyMode == mode) return; m_bgSkyMode = mode; update(); }
     int backgroundSkyMode() const { return m_bgSkyMode; }
+    // La forma con cui lo sfondo si disegna: in una scena H3 (2.1) sempre la
+    // palla di Poincare', il cielo vero di H3 (il bordo all'infinito visto dalla
+    // camera); la scelta dell'utente resta in m_bgSkyMode e torna fuori da H3.
+    int effectiveBackgroundSkyMode() const { return m_hyperbolic ? int(BgPoincare) : m_bgSkyMode; }
     // Stato GLOBALE della texture di superficie (quello che le parti senza
     // texture propria ereditano).
     bool isTextureEnabled() const { return m_obj->textureEnabled; }
@@ -1164,8 +1176,10 @@ public:
     // 1 / raggio. Cambiandolo, oggetti e camera restano dove sono in unita'
     // della scena (la camera entro la distanza massima dal centro): cambia solo
     // quanto e' curvo lo spazio. Verso l'infinito si torna a R3. Ogni scena H3
-    // parte dal default (setHyperbolicSpace).
-    static constexpr double kH3DefaultCurvatureRadius = 5.0;
+    // parte dal default (setHyperbolicSpace): 2, cosi' la camera d'avvio (4
+    // unita') sta a 2 raggi e la geometria si vede subito (a 5 l'utente non
+    // vedeva differenze con R3; a 1 gli oggetti d'ingresso erano puntini).
+    static constexpr double kH3DefaultCurvatureRadius = 2.0;
     void setHyperbolicCurvatureRadius(double radius);
     double hyperbolicCurvatureRadius() const { return 1.0 / m_h3RadiiPerSceneUnit; }
     // L'oggetto e' disegnato in H3 (vertex shader con HYPERBOLIC, posa di
@@ -1936,7 +1950,8 @@ private:
     // centro nel riferimento della camera (camera^-1 * rotazione della scena *
     // traslazione nella sua posizione) e' m = k * spinta lungo z di R * kp.
     // `local` = kp * rotazione e scala dell'oggetto in raggi di curvatura (va
-    // in u_mMatrix), `lorentz` = k nel 3x3 e R in (3,3) (va in u_mvMatrix).
+    // in u_mMatrix), `lorentz` = k nel 3x3, R in (3,3) e in (0,3) la scelta
+    // dello spessore dei tubi (va in u_mvMatrix).
     // Il vertex shader (HYPERBOLIC, hyperbolicPoint) fa il resto.
     void hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMatrix4x4 &lorentz);
     QVector4D m_cameraPos4D = QVector4D(0.0f, 0.0f, 4.0f, 4.0f);

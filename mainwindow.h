@@ -1908,10 +1908,13 @@ private:
     QLabel *m_sceneTimeValue = nullptr;
     // IL RAGGIO DI CURVATURA della scena H3 (2.1, GLWidget::setHyperbolicCurvatureRadius):
     // la riga del dock Objects, visibile solo in H3. Cursore logaritmico da 0.5 a
-    // 50 unita' della scena, il default (5) a meta'.
+    // 50 unita' della scena (il default, 2, a 60 su 200).
     QWidget *m_h3CurvatureRow = nullptr;
     QSlider *m_h3CurvatureSlider = nullptr;
     QLabel *m_h3CurvatureValue = nullptr;
+    // Tubi e bordo dell'oggetto selezionato a spessore costante in H3 o dalla
+    // carta (GLWidget::setObjectConstantTubeThickness). Solo in H3, con un oggetto.
+    QCheckBox *m_h3ConstantTubes = nullptr;
     static double h3CurvatureRadiusFromSlider(int v);
     static int h3CurvatureSliderFromRadius(double radius);
     // In H3 nessun oggetto supera il limite di zoom (vedi objectScaleChangedByUser).

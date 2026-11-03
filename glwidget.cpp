@@ -2313,7 +2313,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // Vista piatta 2D: si edita la texture a schermo, quindi fisso.
             QMatrix4x4 skyRay;
             skyRay.fill(0.0f);
-            if (m_bgSkyMode != BgFixed && !m_isFlatView) {
+            if (effectiveBackgroundSkyMode() != BgFixed && !m_isFlatView) {
                 // In H3 la camera e' m_h3Camera, e il cielo e' il bordo all'infinito
                 // del mondo: l'orientamento trasportato nel centro della scena.
                 QMatrix4x4 viewRotInv = m_view;
@@ -2327,7 +2327,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 eyeFromNdc(1, 1) = tanHalf;
                 eyeFromNdc(2, 2) = -1.0f;               // la camera guarda verso -Z
                 skyRay = viewRotInv * eyeFromNdc;
-                skyRay(3, 3) = float(m_bgSkyMode);
+                skyRay(3, 3) = float(effectiveBackgroundSkyMode());
                 const bool isImage = !m_bgIsScript && m_backgroundTexture
                                      && m_backgroundTexture->pixelSize().height() > 0;
                 skyRay(1, 3) = isImage
@@ -2350,7 +2350,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // In H3 la palla e' lo spazio stesso e l'osservatore e' la camera
             // iperbolica: le stesse traslazioni (Moebius) che il test del nucleo
             // confronta con questo shader (hyperbolic-test).
-            if (m_bgSkyMode == BgPoincare && !m_isFlatView) {
+            if (effectiveBackgroundSkyMode() == BgPoincare && !m_isFlatView) {
                 constexpr float kMaxBallRadius = 0.999f;
                 const QVector3D eye = m_view.inverted().map(QVector3D());
                 const float ballRadius = env.scale > 0.0f ? env.scale : 1.0f;
@@ -5698,6 +5698,9 @@ void GLWidget::hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMa
     for (int i = 0; i < 3; ++i)
         for (int j = 0; j < 3; ++j) lorentz(i, j) = float(k.m[i][j]);
     lorentz(3, 3) = float(distance);
+    // Una cella libera (GLSL u_mvMatrix[3][0]): tubi e bordo a spessore costante
+    // in H3 (1) o dalla carta come il resto dell'oggetto (0), sceneTubeVertex.
+    lorentz(0, 3) = o.h3ConstantTubeThickness ? 1.0f : 0.0f;
 }
 
 void GLWidget::zoomCamera(float delta) {

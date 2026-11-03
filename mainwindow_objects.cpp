@@ -507,6 +507,9 @@ void MainWindow::setSceneSpace(SceneSpace space)
     m_sceneSpace = space;
     if (ui->glWidget) ui->glWidget->setHyperbolicSpace(space == SceneSpace::SpaceH3);
     if (m_h3CurvatureRow) m_h3CurvatureRow->setVisible(space == SceneSpace::SpaceH3);
+    if (m_h3ConstantTubes) m_h3ConstantTubes->setVisible(space == SceneSpace::SpaceH3);
+    // In H3 lo sfondo e' il cielo di H3: i radio della forma lo mostrano, spenti.
+    updateBackgroundControlsGate();
     refreshSceneSlot();
 }
 
@@ -1117,6 +1120,24 @@ void MainWindow::setupObjectsDock()
         "positions and sizes in scene units."));
     m_h3CurvatureRow->setVisible(false);
     lay->addWidget(m_h3CurvatureRow);
+    // LO SPESSORE DEI TUBI in H3, per oggetto: una distanza vera in H3, o dalla
+    // carta come il resto dell'oggetto. Nessuna delle due e' "la" geometria: la
+    // prima traduce lo spessore come spessore, la seconda trasforma l'oggetto
+    // intero allo stesso modo.
+    m_h3ConstantTubes = new QCheckBox(QStringLiteral("Constant tube thickness"), w);
+    m_h3ConstantTubes->setToolTip(QStringLiteral(
+        "Tubes and borders of the selected object in hyperbolic space. On: their thickness is a true "
+        "distance in H³, the same everywhere. Off: they follow the object's chart like the rest of the "
+        "shape, and swell far from its centre."));
+    m_h3ConstantTubes->setVisible(false);
+    lay->addWidget(m_h3ConstantTubes);
+    connect(m_h3ConstantTubes, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_refreshingObjects) return;
+        GLWidget *gl = ui->glWidget;
+        if (gl->selectedObject() <= 0) return;
+        gl->setObjectConstantTubeThickness(gl->selectedObject(), on);
+        m_sceneObjectsChanged = true;
+    });
     connect(m_h3CurvatureSlider, &QSlider::valueChanged, this, [this](int v) {
         const double radius = h3CurvatureRadiusFromSlider(v);
         m_h3CurvatureValue->setText(QString::number(radius, 'f', radius < 10.0 ? 2 : 1));
@@ -1205,8 +1226,8 @@ void MainWindow::setupObjectsDock()
 // sarebbe grande kH3MaxZoomRadii raggi di curvatura, ~10 raggi. Oltre, una mesh
 // in float non lo rappresenta piu': in H3 le circonferenze crescono come sinh
 // del raggio (con la scala 100 e il raggio 5 il toro aveva segmenti di 140000
-// raggi e vertici sbagliati di mezzo raggio). Col raggio di default (5) e' 30
-// volte la grandezza d'ingresso; vale anche quando il raggio cambia.
+// raggi e vertici sbagliati di mezzo raggio). Col raggio 5 e' 30 volte la
+// grandezza d'ingresso, col default (2) 12; vale anche quando il raggio cambia.
 void MainWindow::clampHyperbolicObjectScales()
 {
     if (m_sceneSpace != SceneSpace::SpaceH3) return;
@@ -1266,6 +1287,11 @@ void MainWindow::refreshObjectsUi()
     m_objectWindowOut->setValue(gl->objectWindowOut(selected));
     m_btnObjectDuplicate->setEnabled(selected > 0);
     m_btnObjectRemove->setEnabled(selected > 0);
+    if (m_h3ConstantTubes) {
+        m_h3ConstantTubes->setVisible(m_sceneSpace == SceneSpace::SpaceH3);
+        m_h3ConstantTubes->setEnabled(selected > 0);
+        m_h3ConstantTubes->setChecked(selected > 0 ? gl->objectConstantTubeThickness(selected) : true);
+    }
     if (m_h3CurvatureRow) {
         m_h3CurvatureRow->setVisible(m_sceneSpace == SceneSpace::SpaceH3);
         m_h3CurvatureSlider->setValue(h3CurvatureSliderFromRadius(gl->hyperbolicCurvatureRadius()));

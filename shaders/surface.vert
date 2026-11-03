@@ -213,11 +213,74 @@ vec4 sceneViewNormal(vec3 p, vec3 n) {
 }
 // Klein: la divisione prospettica per w fa (x, y, z) / w.
 vec4 sceneClip(vec3 p) { return ubuf.u_mvpMatrix * hyperbolicPoint(p); }
+// TUBO IN H3. Due regole, a scelta per oggetto (dock Objects,
+// SurfaceObject::h3ConstantTubeThickness, qui in u_mvMatrix[3][0]):
+// - DALLA CARTA (0): il tubo dell'oggetto passa dalla mappa esponenziale come
+//   il resto, e lontano dal centro si gonfia di sinh(r)/r;
+// - A SPESSORE COSTANTE (1, il default): lo spessore e' una distanza vera in
+//   H3. Il punto dell'asse va sull'iperboloide
+// (Y); direzione e tangente dell'asse ci vanno col differenziale della mappa
+// esponenziale (la parte perpendicolare al raggio si allunga di sinh(r)/r),
+// nella base ortonormale del punto, dove si raddrizzano (perpendicolare
+// all'asse, unitaria) senza sottrazioni di numeri grandi; poi la spinta, come
+// la normale. Il punto del tubo e' a distanza rho sulla geodetica:
+// cosh(rho) Y + sinh(rho) D, e la normale e' la tangente di quella geodetica,
+// sinh(rho) Y + cosh(rho) D, unitaria. Verificata in double (distanza
+// dall'asse = rho, scarto 1e-8).
+void sceneTubeVertex(vec3 axis, vec3 tangent, vec3 dir, float radius,
+                     out vec3 viewPos, out vec4 viewNormal, out vec4 clip) {
+    if (ubuf.u_mvMatrix[3][0] < 0.5) {
+        vec3 pos = axis + radius * dir;
+        viewPos = sceneViewPosition(pos);
+        viewNormal = sceneViewNormal(pos, dir);
+        clip = sceneClip(pos);
+        return;
+    }
+    vec3 w;
+    float r;
+    hyperbolicLocal(axis, w, r);
+    float R = ubuf.u_mvMatrix[3][3];
+    float e = hyperbolicOnePlusZ(w);
+    float cr = cosh(r);
+    float s = (r > 1.0e-6) ? sinh(r) / r : 1.0;
+    vec3 ld = mat3(ubuf.u_mMatrix) * dir;
+    vec3 lt = mat3(ubuf.u_mMatrix) * tangent;
+    float ad = dot(ld, w);
+    vec3 ud = (ld - ad * w) * s;
+    float at = dot(lt, w);
+    vec3 ut = (lt - at * w) * s;
+    float tt = at * at + dot(ut, ut);
+    if (tt > 1.0e-24) {
+        float k = (ad * at + dot(ud, ut)) / tt;
+        ad -= k * at;
+        ud -= k * ut;
+    }
+    float len = sqrt(max(ad * ad + dot(ud, ud), 1.0e-24));
+    ad /= len;
+    ud /= len;
+    vec4 d = ad * vec4(cr * w.x, cr * w.y, e * cosh(R) * cr - cosh(R - r), e * sinh(R) * cr - sinh(R - r))
+           + vec4(ud.x, ud.y, cosh(R) * ud.z, sinh(R) * ud.z);
+    d = vec4(mat3(ubuf.u_mvMatrix) * d.xyz, d.w);
+    vec4 y = hyperbolicPoint(axis);
+    float rho = radius * length(mat3(ubuf.u_mMatrix)[0]);   // in raggi: la scala dell'oggetto
+    vec4 p = cosh(rho) * y + sinh(rho) * d;
+    viewPos = p.xyz;
+    viewNormal = sinh(rho) * y + cosh(rho) * d;
+    clip = ubuf.u_mvpMatrix * p;
+}
 #else
 vec3 sceneViewPosition(vec3 p) { return vec3(ubuf.u_mvMatrix * vec4(p, 1.0)); }
 vec4 sceneViewNormal(vec3 p, vec3 n) { return ubuf.u_mvMatrix * vec4(n, 0.0); }
 vec4 sceneClip(vec3 p) { return ubuf.u_mvpMatrix * vec4(p, 1.0); }
 #endif
+// sceneTubeVertex (solo H3): il punto del tubo (o della sfera, con la tangente
+// nulla) attorno al punto `axis` dell'asse, nella direzione `dir`
+// perpendicolare all'asse (tangente `tangent`), a distanza `radius` in unita'
+// dell'oggetto. Lo usano i tubi (emitTubeVertex), il bordo e i suoi giunti.
+// In 3D e 4D quei rami restano il codice di sempre (axis + radius * dir): anche
+// un'espressione equivalente spostata in una funzione cambiava qualche pixel
+// del bordo (rete del 2026-11-03: Dini's Spiral e quattro bordi), e la
+// modalita' Superficie deve restare identica.
 
 float sq(float x) { return x*x; }
 
@@ -746,8 +809,13 @@ void emitTubeVertex() {
     vec3 n = cos(v) * E1 + sin(v) * E2;
     vec3 pos = C + ubuf.u_tubeRadius * n;
 
+#ifdef HYPERBOLIC
+    vec4 clip;
+    sceneTubeVertex(C, cross(E1, E2), n, ubuf.u_tubeRadius, v_pos, v_normal, clip);
+#else
     v_pos = sceneViewPosition(pos);
     v_normal = sceneViewNormal(pos, n);
+#endif
     v_objPos = pos;
     v_objNormal = n;
     // Texture (e taglio, che rilegge u da qui) sul parametro dove l'anello sta.
@@ -756,7 +824,9 @@ void emitTubeVertex() {
     v_texCoord = vec2(s, 1.0 - texCoord.y);
     tubeLight4D(C4, T4, -sin(v) * E1 + cos(v) * E2);
 
+#ifndef HYPERBOLIC
     vec4 clip = sceneClip(pos);
+#endif
     // Stesso spareggio di profondita' 4D di main().
     clip.z -= clamp(C4.w, -1.0, 1.0) * 0.0005 * clip.w;
     clip += ubuf.u_dummyZero * 0.000001;
@@ -986,8 +1056,12 @@ void emitBorderHidden() {
 // in H3 ha w = 0.5) la superficie veniva spostata in profondita' e il bordo no:
 // il foglio, che dentro il tubo arriva fino all'asse, ne usciva attraverso la
 // parete e lo tagliava a tratti.
+#ifdef HYPERBOLIC
+vec4 borderClip(vec4 clip, vec2 uv) {
+#else
 vec4 borderClip(vec3 pos, vec2 uv) {
     vec4 clip = sceneClip(pos);
+#endif
     clip.z -= clamp(borderFigureW(uv.x, uv.y), -1.0, 1.0) * 0.0005 * clip.w;
     clip += ubuf.u_dummyZero * 0.000001;
     return clip;
@@ -1062,13 +1136,22 @@ void emitBorderCorner() {
     float lon = vertex.z;
     float lat = normal.x;
     vec3 n = vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat));
+#ifdef HYPERBOLIC
+    vec4 clip;
+    sceneTubeVertex(pts[0], vec3(0.0), n, BORDER_JOINT_SCALE * ubuf.u_borderRadius, v_pos, v_normal, clip);
+#else
     vec3 pos = pts[0] + BORDER_JOINT_SCALE * ubuf.u_borderRadius * n;
     v_pos = sceneViewPosition(pos);
     v_normal = sceneViewNormal(pos, n);
+#endif
     v_texCoord = vec2(lon / 6.28318531, 0.5 - lat / 3.14159265);
     v_light4D = 1.0;
     v_spec4D = 0.0;
+#ifdef HYPERBOLIC
+    gl_Position = borderClip(clip, uv);
+#else
     gl_Position = borderClip(pos, uv);
+#endif
 }
 
 void emitBorderVertex() {
@@ -1157,10 +1240,15 @@ void emitBorderVertex() {
     vec3 E1 = borderCarry(fRef, tRef, Tn);
     vec3 E2 = cross(Tn, E1);
     vec3 n = cos(ang) * E1 + sin(ang) * E2;
+#ifdef HYPERBOLIC
+    vec4 clip;
+    sceneTubeVertex(P, Tn, n, r, v_pos, v_normal, clip);
+#else
     vec3 pos = P + r * n;
 
     v_pos = sceneViewPosition(pos);
     v_normal = sceneViewNormal(pos, n);
+#endif
     // Coordinate della texture del bordo: lungo il lato (0..1 su ciascun
     // lato della parte) e attorno al tubo (0..1), nella stessa forma della
     // superficie (seconda coordinata rovesciata, come v_texCoord di main).
@@ -1171,7 +1259,11 @@ void emitBorderVertex() {
                   ? clamp(0.75 * r * 2.0 * e / (lenT * abs(a1 - a0)), 0.0, 0.25) : 0.0;
     v_light4D = 1.0;
     v_spec4D = 0.0;
+#ifdef HYPERBOLIC
+    gl_Position = borderClip(clip, uv);
+#else
     gl_Position = borderClip(pos, uv);
+#endif
 }
 #endif
 

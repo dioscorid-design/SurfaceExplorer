@@ -8573,13 +8573,16 @@ void ScenarioTest::runSceneH3Scenarios()
     m_lines.append(QStringLiteral("== Scena H3 (2.1): avvio a scena vuota, camera come isometria, rifiuti, RESET View, NEW =="));
     const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
     const QString kRM = QStringLiteral("surfaces/Implicit/3D/Sphere.json");
-    QString torusPath, rmPath;
+    const QString kTrefoil = QStringLiteral("surfaces/Parametric/Solid Curves/Single Curves/Trefoil Knot.json");
+    QString torusPath, rmPath, trefoilPath;
     for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces) {
         if (it.filePath.endsWith(kTorus)) torusPath = it.filePath;
         if (it.filePath.endsWith(kRM)) rmPath = it.filePath;
+        if (it.filePath.endsWith(kTrefoil)) trefoilPath = it.filePath;
     }
-    check(!torusPath.isEmpty() && !rmPath.isEmpty(), QStringLiteral("toro e sfera in ray marching nella libreria"));
-    if (torusPath.isEmpty() || rmPath.isEmpty()) return;
+    check(!torusPath.isEmpty() && !rmPath.isEmpty() && !trefoilPath.isEmpty(),
+          QStringLiteral("toro, sfera in ray marching e trifoglio nella libreria"));
+    if (torusPath.isEmpty() || rmPath.isEmpty() || trefoilPath.isEmpty()) return;
     const auto newScene = [this]() {
         m_discardOnPrompt = true;
         m_mw->onNewSceneClicked();
@@ -8604,8 +8607,27 @@ void ScenarioTest::runSceneH3Scenarios()
     check(m_mw->sceneStarted() && gl->hyperbolicSpace() && m_mw->isSceneEmpty()
               && m_mw->m_sceneSpaceLabel->text() == QStringLiteral("H³"),
           QStringLiteral("H3 dopo NEW: scena avviata e vuota, nella barra H3"));
-    check(std::abs(distance() - 0.8) < 1e-9,
-          QStringLiteral("camera d'avvio a 0.8 raggi dal centro (%1)").arg(distance()));
+    // IL DEFAULT: raggio di curvatura kH3DefaultCurvatureRadius, la riga del
+    // dock Objects c'e', la camera d'avvio a 4 unita' (4 / raggio raggi), la
+    // rotella avanza di un'unita'. Lo sfondo e' il cielo di H3, la forma non si
+    // sceglie (radio Poincare' Ball, spenti).
+    {
+        const double radius = GLWidget::kH3DefaultCurvatureRadius;
+        check(!m_mw->m_h3CurvatureRow->isHidden() && std::abs(gl->hyperbolicCurvatureRadius() - radius) < 1e-9,
+              QStringLiteral("raggio di curvatura: la riga c'e', %1 di default").arg(radius));
+        check(std::abs(distance() - 4.0 / radius) < 1e-9,
+              QStringLiteral("camera d'avvio a 4 unita' dal centro (%1 raggi)").arg(distance()));
+        gl->zoomCamera(1.0f);
+        check(std::abs(distance() - 3.0 / radius) < 1e-9,
+              QStringLiteral("rotella: un'unita' verso il centro (%1 raggi)").arg(distance()));
+        check(gl->effectiveBackgroundSkyMode() == GLWidget::BgPoincare && m_mw->ui->radioBgPoincare->isChecked()
+                  && !m_mw->ui->panelBgLock->isEnabled(),
+              QStringLiteral("sfondo in H3: Poincare' Ball, la forma non si sceglie"));
+    }
+    // Da qui il raggio 5, quello delle immagini e delle misure scritte prima
+    // del default 2: la camera d'avvio di allora (0.8 raggi = 4 unita').
+    m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(5.0));
+    gl->m_h3Camera = H3::translation({0.0, 0.0, 0.8});
 
     // La Library non cambia l'ambiente; Add to Scene: il ray marching no.
     {
@@ -8747,6 +8769,67 @@ void ScenarioTest::runSceneH3Scenarios()
         gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-precision.png"));
     }
 
+    // I TUBI hanno lo spessore costante in H3 (sceneTubeVertex): da guardare
+    // scene-h3-tube.png, il nodo trifoglio grande 10 volte l'ingresso nel
+    // centro, la camera a 3 raggi. Con lo spessore delle coordinate
+    // dell'oggetto il tubo si gonfiava lontano dal centro (di sinh(r)/r).
+    // Il trifoglio prende il posto del toro: e' l'oggetto 1 da qui in avanti.
+    {
+        m_mw->removeSceneObject(1);
+        const int popups = m_popupsClosed;
+        m_mw->addShapeToScene(trefoilPath);
+        wait(1200);
+        m_mw->selectSceneObject(1);
+        const SurfaceObject &o = *gl->m_obj;
+        const bool tube = o.engine && o.engine->isTubeModeActive()
+                          && gl->createVertexShaderSource(o.eqX, o.eqY, o.eqZ, o.eqW).contains(QLatin1String("#define HYPERBOLIC"));
+        gl->setObjectPosition(QVector3D());
+        m_mw->selectSceneObject(0);
+        // Grande come all'ingresso e con la camera d'avvio: dev'essere quasi
+        // uguale a scene-3d-tube-small.png (fine sezione).
+        gl->m_h3Camera = H3::translation({0.0, 0.0, 0.8});
+        gl->update();
+        wait(500);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-tube-small.png"));
+        m_mw->selectSceneObject(1);
+        gl->setObjectScale(10.0f * m_mw->m_objectSessions[1].openingScale);
+        m_mw->selectSceneObject(0);
+        gl->m_h3Camera = H3::translation({0.0, 0.0, 3.0});
+        gl->update();
+        wait(500);
+        const QImage img = gl->grabFramebuffer();
+        img.save(m_outDir + QStringLiteral("/scene-h3-tube.png"));
+        int different = 0;
+        const QRgb corner = img.pixel(0, 0);
+        for (int y = 0; y < img.height(); y += 4)
+            for (int x = 0; x < img.width(); x += 4)
+                if (img.pixel(x, y) != corner) ++different;
+        check(!trefoilPath.isEmpty() && tube && gl->objectCount() == 2 && m_popupsClosed == popups && different > 100,
+              QStringLiteral("tubo in H3: il trifoglio entra (tubo, HYPERBOLIC) e si vede (%1 punti, scene-h3-tube.png)")
+                  .arg(different));
+        // La scelta per oggetto (dock Objects): accesa di default; spenta, il
+        // tubo passa dalla carta e lontano dal centro si gonfia
+        // (scene-h3-tube-chart.png accanto a scene-h3-tube.png).
+        m_mw->selectSceneObject(1);
+        m_mw->refreshObjectsUi();
+        const bool defaultOn = !m_mw->m_h3ConstantTubes->isHidden() && m_mw->m_h3ConstantTubes->isEnabled()
+                               && m_mw->m_h3ConstantTubes->isChecked();
+        m_mw->m_h3ConstantTubes->setChecked(false);
+        m_mw->selectSceneObject(0);
+        gl->update();
+        wait(500);
+        const QImage chart = gl->grabFramebuffer();
+        chart.save(m_outDir + QStringLiteral("/scene-h3-tube-chart.png"));
+        int changed = 0;
+        for (int y = 0; y < img.height(); y += 4)
+            for (int x = 0; x < img.width(); x += 4)
+                if (img.pixel(x, y) != chart.pixel(x, y)) ++changed;
+        check(defaultOn && !gl->objectConstantTubeThickness(1) && changed > 100,
+              QStringLiteral("spessore dei tubi in H3: costante di default; dalla carta il tubo cambia (%1 punti, "
+                             "scene-h3-tube-chart.png)").arg(changed));
+        gl->setObjectConstantTubeThickness(1, true);
+    }
+
     // RESET View: diritta verso il centro, alla distanza di adesso.
     {
         const double d0 = distance();
@@ -8760,13 +8843,11 @@ void ScenarioTest::runSceneH3Scenarios()
               QStringLiteral("RESET View: verso il centro alla stessa distanza (scarto %1)").arg(worst));
     }
 
-    // IL RAGGIO DI CURVATURA: la riga del dock Objects c'e' solo in H3, 5 di
-    // default. Cambiandolo la camera resta dov'e' in unita' della scena, e il
-    // limite di zoom segue il raggio (6 raggi per unita' di grandezza d'ingresso).
+    // IL RAGGIO DI CURVATURA cambiato: la camera resta dov'e' in unita' della
+    // scena, e il limite di zoom segue il raggio (6 raggi per unita' di
+    // grandezza d'ingresso). Si parte dal raggio 5.
     {
-        check(!m_mw->m_h3CurvatureRow->isHidden() && std::abs(gl->hyperbolicCurvatureRadius() - 5.0) < 1e-9,
-              QStringLiteral("raggio di curvatura: la riga c'e', 5 di default"));
-        gl->m_h3Camera = H3::translation({0.0, 0.0, 0.8});   // 4 unita' dal centro
+        gl->m_h3Camera = H3::translation({0.0, 0.0, 0.8});   // 4 unita' dal centro col raggio 5
         m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(2.0));
         const double radius = gl->hyperbolicCurvatureRadius();
         check(std::abs(radius - 2.0) < 0.02 && std::abs(distance() - 4.0 / radius) < 1e-9,
@@ -8783,8 +8864,9 @@ void ScenarioTest::runSceneH3Scenarios()
 
     newScene();
     check(!m_mw->sceneStarted() && !gl->hyperbolicSpace() && m_mw->m_h3CurvatureRow->isHidden()
-              && std::abs(gl->hyperbolicCurvatureRadius() - 5.0) < 1e-9,
-          QStringLiteral("NEW chiude la scena H3 (senza la riga del raggio, che torna a 5)"));
+              && std::abs(gl->hyperbolicCurvatureRadius() - GLWidget::kH3DefaultCurvatureRadius) < 1e-9
+              && gl->effectiveBackgroundSkyMode() == gl->backgroundSkyMode(),
+          QStringLiteral("NEW chiude la scena H3 (senza la riga del raggio, che torna al default; lo sfondo torna alla sua forma)"));
 
     // Lo stesso toro grande in una scena 3D, con la camera alla stessa distanza
     // in unita' della scena (17.5 = 3.5 raggi): il confronto per l'occhio.
@@ -8804,6 +8886,25 @@ void ScenarioTest::runSceneH3Scenarios()
     gl->setProjectionMode(1);
     check(!gl->hyperbolicSpace() && gl->objectCount() == 2,
           QStringLiteral("scena 3D dopo la H3: camera euclidea (immagine di confronto scene-3d-torus-big.png)"));
+    // Il trifoglio in 3D, da confrontare con quelli in H3: grande come
+    // all'ingresso con la camera a 4 unita', e 10 volte con la camera a 15.
+    // La camera a 4 unita' PRIMA di aggiungerlo: la grandezza d'ingresso
+    // dipende dalla sua distanza (sceneFitScale), come in H3.
+    m_mw->removeSceneObject(1);
+    gl->zoomCamera(13.5f);   // di nuovo a 4 unita'
+    m_mw->addShapeToScene(trefoilPath);
+    wait(1200);
+    m_mw->selectSceneObject(1);
+    gl->setObjectPosition(QVector3D());
+    m_mw->selectSceneObject(0);
+    wait(300);
+    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-3d-tube-small.png"));
+    m_mw->selectSceneObject(1);
+    gl->setObjectScale(10.0f * m_mw->m_objectSessions[1].openingScale);
+    m_mw->selectSceneObject(0);
+    gl->zoomCamera(-11.0f);   // a 15 unita'
+    wait(300);
+    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-3d-tube.png"));
     newScene();
 }
 
