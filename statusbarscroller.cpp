@@ -155,6 +155,13 @@ void StatusBarScroller::install(QStatusBar* bar, QWidget* firstPermanent,
     for (QWidget* w : indicators) {
         if (w) w->installEventFilter(sizer);
     }
+    // Anche un tasto che cambia TESTO cambia la larghezza naturale: Projection
+    // passa da "Perspective" a "Stereographic", piu' lunga. Senza risincronizzare
+    // il nastro restava largo quanto all'avvio e sul telefono il layout
+    // schiacciava il tasto sotto il suo sizeHint, tagliando la scritta ai due
+    // lati. Il nastro riceve LayoutRequest a ogni cambio di testo o visibilita'
+    // dei suoi tasti: ascoltare quello copre tutti i casi, anche quelli futuri.
+    strip->installEventFilter(sizer);
     sizer->syncStripWidth();
 
     StatusBarScroller* filter = new StatusBarScroller(area);
@@ -198,14 +205,20 @@ void StatusBarScroller::syncStripWidth()
 bool StatusBarScroller::eventFilter(QObject* watched, QEvent* event)
 {
     // Istanza sizer: si occupa solo di riadattare il nastro al viewport. Ascolta
-    // il Resize del viewport (rotazione schermo, split view) e lo Show/Hide degli
+    // il Resize del viewport (rotazione schermo, split view), lo Show/Hide degli
     // indicatori, che entrando e uscendo cambiano la larghezza naturale del
-    // nastro senza toccare quella della barra.
+    // nastro senza toccare quella della barra, e il LayoutRequest del nastro
+    // (un tasto ha cambiato testo o visibilita').
     if (m_strip) {
+        // Dal nastro conta solo LayoutRequest: i suoi Resize li provoca
+        // syncStripWidth stessa. Da viewport e indicatori, tutto tranne quello.
+        if ((watched == m_strip) != (event->type() == QEvent::LayoutRequest))
+            return false;
         switch (event->type()) {
         case QEvent::Resize:
         case QEvent::Show:
         case QEvent::Hide:
+        case QEvent::LayoutRequest:
             // Lo Show arriva PRIMA che il layout del nastro abbia ricalcolato lo
             // sizeHint, quindi una sync immediata leggerebbe la larghezza vecchia
             // e la barra di avanzamento resterebbe schiacciata a zero. Rimandata
