@@ -368,6 +368,7 @@
         <file>presets/records/Paths/Parametric/Surfaces/Equations/NIL/Heisenberg Sphere.json</file>
         <file>presets/records/Paths/Parametric/Surfaces/Equations/H3/Enneper.json</file>
         <file>presets/records/Paths/Parametric/Surfaces/Equations/H3/Poincare's Catenoid.json</file>
+        <file>presets/records/Paths/Parametric/Surfaces/Equations/H3/Ellipsoid.json</file>
         <file>presets/records/Paths/Parametric/Surfaces/Equations/S2xR/Warping Torus.json</file>
         <file>presets/records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Cytherean Coil.json</file>
         <file>presets/records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Coiled Coil.json</file>
@@ -399,6 +400,7 @@
         <file>presets/records/Static/Symmetrized Double Enneper.json</file>
         <file>presets/records/Static/Winding Clifford Torus.json</file>
         <file>presets/records/Static/Spherical Cycloid Tube.json</file>
+        <file>presets/records/NewRecord/Ellipsoid Path.json</file>
         <file>presets/records/Animations/Implicit/3D/Morphing Rosette.json</file>
         <file>presets/records/Animations/Implicit/3D/Morphing Sphere-Cube.json</file>
         <file>presets/records/Animations/Implicit/3D/Morphing Chain.json</file>
@@ -499,18 +501,20 @@
         <file>presets/sounds/procedural/Trailing the Twinkling Tunnel.json</file>
         <file>presets/sounds/procedural/Alien Thorns.json</file>
         <file>presets/sounds/procedural/Dust Storm.json</file>
+        <file>presets/scenes/Transparent Overlap.json</file>
         <file>presets/scenes/3DRM Environment-Cross Section Object.json</file>
         <file>presets/scenes/3DRM Environment-3DRM Object.json</file>
         <file>presets/scenes/3DRM Environment-Parametric Object.json</file>
         <file>presets/scenes/Cross Section Environment-Cross Section Object.json</file>
         <file>presets/scenes/Cross Section Environment-3DRM Object.json</file>
         <file>presets/scenes/Parametric Environment-3DRM Object.json</file>
-        <file>presets/scenes/1.json</file>
         <file>presets/scenes/2.json</file>
         <file>presets/scenes/Cross Section Objects.json</file>
         <file>presets/scenes/Parametric Environment-Cross Section Object.json</file>
         <file>presets/scenes/3.json</file>
+        <file>presets/scenes/Transparency Linked Tori.json</file>
         <file>presets/scenes/Cross Section Environment-Parametric Object.json</file>
+        <file>presets/scenes/Test Sound.json</file>
         <file>presets/scenes/Parametric Environment-Parametric Object.json</file>
         <file>shaders/surface.frag</file>
         <file>shaders/common.glsl</file>

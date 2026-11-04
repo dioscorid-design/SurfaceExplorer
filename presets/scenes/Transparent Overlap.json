@@ -32,18 +32,19 @@
         },
         "cameraFov": 45,
         "colors": {
-            "alpha": 1,
-            "surfColor": "#33cc33"
+            "alpha": 0.5,
+            "surfColor": "#1acc1a"
         },
         "constants": {
-            "A": 0.800000011920929,
-            "B": 0.30000001192092896,
+            "A": 1,
+            "B": 1,
             "C": 1,
             "D": 1,
             "E": 1,
             "F": 1,
             "S": 0
         },
+        "crossSectionEquation": "",
         "equations": {
             "defU": "",
             "defV": "",
@@ -52,9 +53,9 @@
             "explicitV": "",
             "explicitW": "",
             "p": "0.0",
-            "x": "(A + B*cos(v))*cos(u)",
-            "y": "(A + B*cos(v))*sin(u)",
-            "z": "B*sin(v)"
+            "x": "(0.8 + 0.3*cos(v))*cos(u)",
+            "y": "(0.8 + 0.3*cos(v))*sin(u)",
+            "z": "0.3*sin(v)"
         },
         "fillLight": 0,
         "fov3D": 45,
@@ -68,15 +69,18 @@
             "v0": "",
             "w0": ""
         },
-        "hintSeconds": 6,
-        "hintText": "Sliders\nA: ring radius\nB: tube radius",
-        "isImplicitMode": false,
+        "hintSeconds": 8,
+        "hintText": "Three transparent spheres overlap: green (ray marching environment), red (parametric) and blue (ray marching).\nEach one must show through the others.",
+        "hybridMarcher": false,
+        "implicitEquation": "x^2 + y^2 + z^2 = 1.0",
+        "implicitUsesCrossSection": false,
+        "isImplicitMode": true,
         "lightIntensity": 1,
         "lightingMode": 0,
         "limits": {
-            "uMax": 6.283199787139893,
+            "uMax": 6.2831854820251465,
             "uMin": 0,
-            "vMax": 6.283199787139893,
+            "vMax": 6.2831854820251465,
             "vMin": 0,
             "wMax": 0,
             "wMin": 0,
@@ -88,7 +92,7 @@
             "zMin": -1000
         },
         "meshScopeAll": true,
-        "name": "1",
+        "name": "Transparent Overlap",
         "observer4D": 4,
         "path3D": {
             "roll": "",
@@ -108,23 +112,25 @@
         "pathMode": 0,
         "pathMode3D": 0,
         "projectionMode": 1,
-        "renderMode": 1,
+        "renderMode": 10,
+        "shellThickness": 0.004999999888241291,
         "speeds": {
             "nutation": 0,
             "omega": 0,
             "path3D": 10,
-            "path4D": 10,
+            "path4D": 0,
             "phi": 0,
             "precession": 0,
             "psi": 0,
             "spin": 0
         },
-        "steps": 100,
+        "steps": 400,
         "texture": {
             "code": "",
             "col1": "#33cc33",
             "col2": "#000000",
-            "enabled": true,
+            "displacement": "",
+            "enabled": false,
             "pan_x": 0,
             "pan_y": 0,
             "rotation": 0,
@@ -138,28 +144,23 @@
         }
     },
     "formatVersion": 1,
-    "name": "1",
+    "name": "Transparent Overlap",
     "objects": [
         {
             "motion": {
-                "rotating": true,
+                "rotating": false,
                 "speeds": {
-                    "nutation": 0.30000001192092896,
+                    "nutation": 0,
                     "omega": 0,
                     "phi": 0,
-                    "precession": 0.4000000059604645,
+                    "precession": 0,
                     "psi": 0,
-                    "spin": 0.30000001192092896
+                    "spin": 0
                 }
             },
             "name": "Sphere",
-            "path": [
-                "cos(t)",
-                "sin(t)",
-                ""
-            ],
             "position": [
-                1,
+                0.8999999761581421,
                 0,
                 0
             ],
@@ -185,10 +186,10 @@
                 "camera3D": {
                     "pitch": 0,
                     "roll": 0,
-                    "rot_w": -0.6870282292366028,
-                    "rot_x": -0.3456000089645386,
-                    "rot_y": -0.2258191853761673,
-                    "rot_z": -0.597961962223053,
+                    "rot_w": -0.6311350464820862,
+                    "rot_x": 0.6547601222991943,
+                    "rot_y": 0.3397018015384674,
+                    "rot_z": 0.2399177849292755,
                     "x": 0,
                     "y": 0,
                     "yaw": 0,
@@ -196,8 +197,8 @@
                 },
                 "cameraFov": 45,
                 "colors": {
-                    "alpha": 1,
-                    "surfColor": "#33cc33"
+                    "alpha": 0.5,
+                    "surfColor": "#e61a1a"
                 },
                 "constants": {
                     "A": 1,
@@ -272,21 +273,21 @@
                 "projectionMode": 1,
                 "renderMode": 1,
                 "speeds": {
-                    "nutation": 0.30000001192092896,
+                    "nutation": 0,
                     "omega": 0,
                     "path3D": 10,
                     "path4D": 10,
                     "phi": 0,
-                    "precession": 0.4000000059604645,
+                    "precession": 0,
                     "psi": 0,
-                    "spin": 0.30000001192092896
+                    "spin": 0
                 },
                 "steps": 100,
                 "texture": {
                     "code": "",
                     "col1": "#33cc33",
                     "col2": "#000000",
-                    "enabled": true,
+                    "enabled": false,
                     "pan_x": 0,
                     "pan_y": 0,
                     "rotation": 0,
@@ -299,7 +300,171 @@
                     "vStep": 4
                 }
             },
-            "scale": 0.28308743238449097
+            "scale": 1,
+            "source": "surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"
+        },
+        {
+            "motion": {
+                "rotating": false,
+                "speeds": {
+                    "nutation": 0,
+                    "omega": 0,
+                    "phi": 0,
+                    "precession": 0,
+                    "psi": 0,
+                    "spin": 0
+                }
+            },
+            "name": "Sphere (2)",
+            "position": [
+                -0.8999999761581421,
+                0,
+                0
+            ],
+            "record": {
+                "activeMotion": "none",
+                "angles": {
+                    "omega": 0,
+                    "phi": 0,
+                    "psi": 0
+                },
+                "background": {
+                    "code": "",
+                    "col1": "#3333cc",
+                    "col2": "#000000",
+                    "color": "#4d4d4d",
+                    "enabled": false,
+                    "pan_x": 0,
+                    "pan_y": 0,
+                    "rotation": 0,
+                    "skyMode": "fixed",
+                    "zoom": 1
+                },
+                "camera3D": {
+                    "pitch": 0,
+                    "roll": 0,
+                    "rot_w": 0.9330127239227295,
+                    "rot_x": 0.2500000298023224,
+                    "rot_y": 0.2499999701976776,
+                    "rot_z": -0.06698719412088394,
+                    "x": 0,
+                    "y": 0,
+                    "yaw": 0,
+                    "z": 4
+                },
+                "cameraFov": 45,
+                "colors": {
+                    "alpha": 0.5,
+                    "surfColor": "#2640f2"
+                },
+                "constants": {
+                    "A": 1,
+                    "B": 1,
+                    "C": 1,
+                    "D": 1,
+                    "E": 1,
+                    "F": 1,
+                    "S": 0
+                },
+                "crossSectionEquation": "",
+                "equations": {
+                    "defU": "",
+                    "defV": "",
+                    "defW": "",
+                    "explicitU": "",
+                    "explicitV": "",
+                    "explicitW": "",
+                    "p": "0.0",
+                    "x": "(0.8 + 0.3*cos(v))*cos(u)",
+                    "y": "(0.8 + 0.3*cos(v))*sin(u)",
+                    "z": "0.3*sin(v)"
+                },
+                "fillLight": 0,
+                "fov3D": 45,
+                "fov4D": 45,
+                "geodesic": {
+                    "conform": "1.0",
+                    "du": "",
+                    "dv": "",
+                    "dw": "",
+                    "u0": "",
+                    "v0": "",
+                    "w0": ""
+                },
+                "hybridMarcher": false,
+                "implicitEquation": "x^2 + y^2 + z^2 = 1.0",
+                "implicitUsesCrossSection": false,
+                "isImplicitMode": true,
+                "lightIntensity": 1,
+                "lightingMode": 0,
+                "limits": {
+                    "uMax": 6.2831854820251465,
+                    "uMin": 0,
+                    "vMax": 6.2831854820251465,
+                    "vMin": 0,
+                    "wMax": 0,
+                    "wMin": 0,
+                    "xMax": 1000,
+                    "xMin": -1000,
+                    "yMax": 1000,
+                    "yMin": -1000,
+                    "zMax": 1000,
+                    "zMin": -1000
+                },
+                "meshScopeAll": true,
+                "name": "Sphere (2)",
+                "observer4D": 4,
+                "path3D": {
+                    "roll": "",
+                    "x": "",
+                    "y": "",
+                    "z": ""
+                },
+                "path4D": {
+                    "alpha": "",
+                    "beta": "",
+                    "gamma": "",
+                    "w": "",
+                    "x": "",
+                    "y": "",
+                    "z": ""
+                },
+                "pathMode": 0,
+                "pathMode3D": 0,
+                "projectionMode": 1,
+                "renderMode": 10,
+                "shellThickness": 0.004999999888241291,
+                "speeds": {
+                    "nutation": 0,
+                    "omega": 0,
+                    "path3D": 10,
+                    "path4D": 0,
+                    "phi": 0,
+                    "precession": 0,
+                    "psi": 0,
+                    "spin": 0
+                },
+                "steps": 400,
+                "texture": {
+                    "code": "",
+                    "col1": "#33cc33",
+                    "col2": "#000000",
+                    "displacement": "",
+                    "enabled": false,
+                    "pan_x": 0,
+                    "pan_y": 0,
+                    "rotation": 0,
+                    "zoom": 1
+                },
+                "type": "motion",
+                "use4DLighting": false,
+                "wireframe": {
+                    "uStep": 4,
+                    "vStep": 4
+                }
+            },
+            "scale": 1,
+            "source": "surfaces/Implicit/3D/Sphere.json"
         }
     ],
     "type": "scene"

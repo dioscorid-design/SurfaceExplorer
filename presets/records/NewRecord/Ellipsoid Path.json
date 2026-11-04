@@ -1,0 +1,142 @@
+{
+    "activeMotion": "path3D",
+    "angles": {
+        "omega": 9.999999747378752e-05,
+        "phi": 9.999999747378752e-05,
+        "psi": 9.999999747378752e-05
+    },
+    "background": {
+        "code": "void mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // Normalized pixel coordinates (from 0 to 1)\n    vec2 uv = fragCoord/iResolution.xy;\n\n    // Time varying pixel color\n    vec3 col = 0.5 + 0.5*cos(iTime+uv.xyx+vec3(0,2,4));\n\n    // Output to screen\n    fragColor = vec4(col,1.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "libName": "Shifting Rainbow",
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "skyMode": "fixed",
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 1,
+        "rot_x": 0,
+        "rot_y": 0,
+        "rot_z": 0,
+        "x": -0.8888,
+        "y": 0.0,
+        "yaw": 0,
+        "z": 0.25
+    },
+    "cameraFov": 45,
+    "colors": {
+        "alpha": 1,
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1.2999999523162842,
+        "B": 1.5700000524520874,
+        "C": 1.5700000524520874,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "2*B*(1+sin(v)*cos(u))",
+        "defV": "B*(1+sin(v)*sin(u))",
+        "defW": "2+cos(v)",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.5",
+        "x": "A*tanh(W/2) * sin(V) * cos(U)",
+        "y": "A*tanh(W/2) * sin(V) * sin(U)",
+        "z": "A*tanh(W/2) * cos(V)"
+    },
+    "fillLight": 0,
+    "fov3D": 45,
+    "fov4D": 45,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "hintSeconds": 8,
+    "hintText": "Closed loop inside the ellipsoid: the camera flies along its core and returns\nwith a smooth turn at each end, without reversing.\nTuned for the default A and B.",
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 3.141590118408203,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "meshScopeAll": true,
+    "name": "Ellipsoid",
+    "observer4D": 4,
+    "path3D": {
+        "x": "(0.921-0.0389*cos(2.4*sin(t))+0.0086*cos(4.8*sin(t))-0.0029*cos(7.2*sin(t))+0.001*cos(9.6*sin(t)))*(-cos(2.4*sin(t)))",
+        "y": "(0.921-0.0389*cos(2.4*sin(t))+0.0086*cos(4.8*sin(t))-0.0029*cos(7.2*sin(t))+0.001*cos(9.6*sin(t)))*(-sin(2.4*sin(t)))",
+        "z": "0.25*cos(t)",
+        "roll": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "pathMode3D": 0,
+    "projectionMode": 1,
+    "renderMode": 1,
+    "speeds": {
+        "nutation": 0.20000000298023224,
+        "omega": 0,
+        "path3D": 10,
+        "path4D": 10,
+        "phi": 0,
+        "precession": 0.20000000298023224,
+        "psi": 0,
+        "spin": 0.20000000298023224
+    },
+    "steps": 553,
+    "texture": {
+        "code": "//IMG:/Users/dioscorid/Projects/C/presets/textures/Images/Solar System/2k_mercury.jpg",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "libName": "2k_mercury",
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
+}
