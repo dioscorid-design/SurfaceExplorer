@@ -24,6 +24,28 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
     // dominio, taglio): dai suoi campi nella copia di lavoro.
     m_uboData.mathParams = o.mathParams;
     m_uboData.mathParams2 = o.mathParams2;
+    // u_mathParams2.w = quanti pixel dell'immagine vale un pixel dello SCHERMO,
+    // meno 1: 0 a schermo (il valore di sempre), diverso solo nelle catture a
+    // risoluzione fissa (immagini, video FBO). Lo leggono le macro dFdx/dFdy/
+    // fwidth di common.glsl, che riportano le derivate delle texture ai pixel
+    // della vista: la texture Wireframe tiene le linee "larghe un pixel" con
+    // fwidth, e in un'immagine piu' grande della vista restavano di UN pixel
+    // dell'immagine -- piu' sottili che a schermo, e l'immagine, vista alla
+    // stessa misura, molto piu' scura. Una componente gia' dichiarata in tutti
+    // gli shader e mai usata (D, E, F sono x, y, z): nessun campo nuovo
+    // nell'UBO, stessa ragione di dummyZero.z e .w.
+    // Il campo visivo e' verticale (ridotto da m_captureVerticalScale quando
+    // l'immagine e' piu' larga della vista): la scala e' quella delle altezze,
+    // la stessa delle linee del wireframe vero (ImageCapture, wireScaleFor).
+    {
+        float pixelScaleMinusOne = 0.0f;
+        if (m_hiResCapture) {
+            const double viewH = double(height()) * devicePixelRatioF() * double(m_captureVerticalScale);
+            if (viewH > 0.0 && renderTarget()->pixelSize().height() > 0)
+                pixelScaleMinusOne = float(double(renderTarget()->pixelSize().height()) / viewH) - 1.0f;
+        }
+        m_uboData.mathParams2.setW(pixelScaleMinusOne);
+    }
     m_uboData.u_min = o.uMin; m_uboData.u_max = o.uMax;
     m_uboData.v_min = o.vMin; m_uboData.v_max = o.vMax;
     m_uboData.x_min = o.xMin; m_uboData.x_max = o.xMax;
@@ -732,7 +754,10 @@ QRhiResourceUpdateBatch *GLWidget::runObjectCompute(SurfaceObject &o, QRhiComman
         // il tempo: su una superficie animata girerebbe a ogni frame.
         QByteArray shape(reinterpret_cast<const char *>(table.data()), int(table.size() * sizeof(QVector4D)));
         shape.append(reinterpret_cast<const char *>(&m_uboData.mathParams), sizeof(QVector4D));
-        shape.append(reinterpret_cast<const char *>(&m_uboData.mathParams2), sizeof(QVector4D));
+        // Di mathParams2 solo D, E, F: la .w e' la scala dei pixel delle
+        // catture (prepareObjectUniforms), che la forma non la cambia --
+        // contandola, ogni immagine ripartiva con la sonda.
+        shape.append(reinterpret_cast<const char *>(&m_uboData.mathParams2), 3 * sizeof(float));
         shape.append(reinterpret_cast<const char *>(&m_uboData.hasExplicitW), sizeof(int));
         shape.append(reinterpret_cast<const char *>(&m_uboData.u_meshCount), sizeof(float));
         // Animata o ferma: ripartendo, la sonda riguarda piu' istanti.

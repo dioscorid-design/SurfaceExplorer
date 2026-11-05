@@ -556,7 +556,14 @@ QTreeWidgetItem* LibraryManager::getOrCreateSubCategory(QTreeWidget* tree, QTree
     int childCount = (parent) ? parent->childCount() : tree->topLevelItemCount();
     for (int i = 0; i < childCount; ++i) {
         QTreeWidgetItem* item = (parent) ? parent->child(i) : tree->topLevelItem(i);
-        if (item->text(0) == name) return item;
+        // Solo CARTELLE (itemType vuoto). Un file con lo stesso nome
+        // visualizzato (la texture "Shadertoy Style.json" accanto alla cartella
+        // "Shadertoy Style") non e' la cartella: preso per tale, riceveva il
+        // percorso della cartella e ne adottava i file, ma il menu lo trattava
+        // da file (guarda prima itemType): niente Paste Here, Rename Folder...
+        // Dipendeva dall'ordine in cui il disco restituisce le voci (file prima
+        // della cartella). itemType copre ogni ramo, scene comprese.
+        if (item->text(0) == name && !itemType(item)) return item;
     }
 
     QTreeWidgetItem* newItem = new QTreeWidgetItem();
