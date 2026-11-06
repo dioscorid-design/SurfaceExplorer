@@ -248,6 +248,10 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
 
     if (uboPartCount <= 1) {
         // Mesh singola: un blocco solo, come da sempre.
+        // Wireframe opaco, come per le parti (vedi sotto). Qui e' una rete di
+        // sicurezza: col wireframe globale updateRenderState riporta gia'
+        // l'alpha a 1.
+        if (m_uboData.renderMode == 2) m_uboData.alpha = 1.0f;
         resourceUpdates->updateDynamicBuffer(o.ubo, 0, sizeof(UboData), &m_uboData);
     } else {
         for (int k = 0; k < uboPartCount; ++k) {
@@ -422,6 +426,15 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
             // senza questa riga una mesh in wireframe con globale Phong veniva
             // illuminata, e una mesh solida con globale wireframe usciva piatta.
             partUbo.renderMode = effectivePartRenderMode(o, mp);
+            // WIREFRAME OPACO. In wireframe la trasparenza e' spenta (slider in
+            // grigio, updateRenderState), ma l'alpha della parte restava quello
+            // dato in modalita' solida e il fragment lo usa sulle linee
+            // (surface.frag, ramo u_renderMode 2): alpha 0 in solido, poi
+            // Wireframe sulla mesh -> il wireframe spariva. L'azzeramento di
+            // updateRenderState scatta solo col wireframe GLOBALE, non con quello
+            // di una mesh. Le linee si disegnano opache; l'alpha della parte resta
+            // salvato e torna in vigore riportando la mesh a solido.
+            if (partUbo.renderMode == 2) partUbo.alpha = 1.0f;
 
             resourceUpdates->updateDynamicBuffer(o.ubo, k * o.uboBlockStride,
                                                  sizeof(UboData), &partUbo);
