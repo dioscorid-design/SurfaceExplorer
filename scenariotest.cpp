@@ -9915,6 +9915,31 @@ void ScenarioTest::runShapeBackgroundScenarios()
                   QStringLiteral("poi una Shape senza colore di sfondo -> grigio di default (%1)")
                       .arg(m_mw->m_scene.bgColor.name()));
     }
+    // FORMA DELLO SFONDO al cambio di preset: una Shape caricata dopo un record
+    // con lo sfondo "Sphere" riparte da Fixed, come NEW e come un record senza
+    // la chiave. Prima la forma restava quella del record: la texture applicata
+    // poi allo sfondo si avvolgeva sul cielo e il Save la scriveva nel record.
+    // Aggiunta alla scena invece la Shape non tocca lo sfondo, che e' della scena.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Shape: la forma dello sfondo torna Fixed dopo un record Sphere =="));
+    if (loadRecord(QStringLiteral("records/Rotations/Parametric/Solid Curves/Single Curves/Torus Knot.json"))) {
+        check(gl->backgroundSkyMode() == GLWidget::BgSphere,
+              QStringLiteral("record Torus Knot -> forma dello sfondo Sphere (%1)")
+                  .arg(GLWidget::bgSkyModeName(gl->backgroundSkyMode())));
+        LibraryManager lm;
+        const LibraryItem torus = lm.parseJson(m_root + QLatin1Char('/') + kTorus, LibraryType::Surface);
+        if (!torus.name.isEmpty()) {
+            m_mw->addPresetAsObject(torus, QStringLiteral("Torus"));
+            wait(500);
+            check(gl->backgroundSkyMode() == GLWidget::BgSphere && m_mw->ui->radioBgSphere->isChecked(),
+                  QStringLiteral("Add to scene del toro -> la scena resta Sphere (%1)")
+                      .arg(GLWidget::bgSkyModeName(gl->backgroundSkyMode())));
+        }
+        if (loadSurface(kTorus))
+            check(gl->backgroundSkyMode() == GLWidget::BgFixed && m_mw->ui->radioBgFixed->isChecked(),
+                  QStringLiteral("poi la Shape del toro -> forma Fixed, nel motore e nei radio (%1)")
+                      .arg(GLWidget::bgSkyModeName(gl->backgroundSkyMode())));
+    }
 
     // NIENTE DA SALVARE, e la texture dello SFONDO coi SUOI colori. Da una
     // scena vuota la Shape si scriveva con le equazioni vuote (riaperta, il

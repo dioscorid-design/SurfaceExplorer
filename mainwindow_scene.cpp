@@ -1669,7 +1669,17 @@ void MainWindow::applySurfaceExample(LibraryItem d, bool asObject)
     // 4. Reset Engine Grafico (Spegne tutte le texture)
     if (ui->glWidget) {
         applySurfaceTextureToEngine();   // intenzione spenta al punto 1 qui sopra
-        if (!asObject) ui->glWidget->setBackgroundTextureEnabled(false);
+        if (!asObject) {
+            ui->glWidget->setBackgroundTextureEnabled(false);
+            // E la FORMA dello sfondo torna Fixed, come a NEW (stopSceneForReset)
+            // e al load di un record senza la chiave (applyRecordBackgroundTexture).
+            // E' uno stato appiccicoso del motore, e una Shape caricata dopo un
+            // record "Sphere" la ereditava: a sfondo spento non si vede, ma la
+            // texture applicata poi allo sfondo si avvolgeva sul cielo (circa otto
+            // volte piu' grande che in Fixed) e il Save la scriveva nel record
+            // nuovo. Aggiunta come oggetto, la Shape non tocca lo sfondo della scena.
+            applyBackgroundSkyMode(GLWidget::BgFixed);
+        }
 
         // Scarico effettivo della texture di superficie dalla GPU. Senza questo,
         // m_surfaceTexture caricata sulla superficie PRECEDENTE resta residente e,
