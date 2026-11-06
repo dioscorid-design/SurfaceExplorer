@@ -526,6 +526,7 @@ void GLWidget::prepareObjectTexture(SurfaceObject &o, QRhiResourceUpdateBatch *r
             o.surfaceTexture->destroy();
             delete o.surfaceTexture;
         }
+        fitToGpuTextureLimit(rhi(), o.pendingSurfaceImage);
         o.surfaceTexture = rhi()->newTexture(QRhiTexture::RGBA8, o.pendingSurfaceImage.size(), 1);
         o.surfaceTexture->create();
 
