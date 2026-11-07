@@ -19,6 +19,9 @@ void MainWindow::saveObjectSession(ObjectSession &s) const
     s.eqApplied = m_eqApplied;
     for (int i = 0; i < 6; ++i) s.spaceLimitsApplied[i] = m_spaceLimitsApplied[i];
     s.meshVisibleExpr = m_meshVisibleExpr;
+    s.lastSectionCount = m_lastSectionCount;
+    s.lastAppliedMeshCount = m_lastAppliedMeshCount;
+    s.lastSourceUsesMesh = m_lastSourceUsesMesh;
     s.lastParametricSteps = m_lastParametricSteps;
     s.lastImplicitSteps = m_lastImplicitSteps;
     s.lastImplicitS = m_lastImplicitS;
@@ -86,6 +89,9 @@ void MainWindow::openObjectSession(const ObjectSession &s)
     m_eqApplied = s.eqApplied;
     for (int i = 0; i < 6; ++i) m_spaceLimitsApplied[i] = s.spaceLimitsApplied[i];
     m_meshVisibleExpr = s.meshVisibleExpr;
+    m_lastSectionCount = s.lastSectionCount;
+    m_lastAppliedMeshCount = s.lastAppliedMeshCount;
+    m_lastSourceUsesMesh = s.lastSourceUsesMesh;
     m_lastParametricSteps = s.lastParametricSteps;
     m_lastImplicitSteps = s.lastImplicitSteps;
     m_lastImplicitS = s.lastImplicitS;
