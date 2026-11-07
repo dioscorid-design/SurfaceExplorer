@@ -1803,6 +1803,13 @@ private:
         std::optional<EquationTexts> eqApplied;
         std::array<QString, 6> spaceLimitsApplied;
         QString meshVisibleExpr;
+        // Il campo Meshes dell'oggetto (countMeshParts): sezioni dello script,
+        // copie applicate e se la sorgente usa `mesh`. Erano solo di MainWindow:
+        // lasciato un oggetto a 60 mesh, sul successivo il 60 scritto valeva
+        // come "gia' applicato" e applyMeshCount non faceva nulla.
+        int lastSectionCount = 0;
+        int lastAppliedMeshCount = 1;
+        bool lastSourceUsesMesh = false;
         int lastParametricSteps = 100;
         int lastImplicitSteps = 400;
         double lastImplicitS = 0.4;

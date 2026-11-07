@@ -489,6 +489,53 @@ void ScenarioTest::runTubeScenarios()
         }
     }
 
+    // LA COSTANTE E NEI CAMPI VALUTATI DA EXPRTK (Meshes, limiti; 2026-11-07).
+    // ExprTk non distingue maiuscole: la 'e' di Nepero, registrata prima,
+    // oscurava la E dello slider, che valeva 2.71828 a qualunque valore
+    // (parseUIConstant, substituteConstantE). La 'e' minuscola resta Nepero e
+    // la notazione scientifica (2E1) non va toccata.
+    {
+        bool okE = false, okLower = false, okSci = false;
+        const float vE = m_mw->parseUIConstant(QStringLiteral("3*round(D) + 6*sgn(round(E))"), 1, 1, 1, 6, 0, 1, 0, &okE);
+        const float vLower = m_mw->parseUIConstant(QStringLiteral("e"), 1, 1, 1, 1, 5, 1, 0, &okLower);
+        const float vSci = m_mw->parseUIConstant(QStringLiteral("2E1 + E"), 1, 1, 1, 1, 5, 1, 0, &okSci);
+        check(okE && vE == 18.0f && okLower && qAbs(vLower - 2.7182818f) < 1e-5f && okSci && vSci == 25.0f,
+              QStringLiteral("costanti nei campi: 3*round(D) + 6*sgn(round(E)) con D = 6, E = 0 -> %1 (18); "
+                             "e -> %2 (Nepero); 2E1 + E con E = 5 -> %3 (25)")
+                  .arg(vE).arg(vLower, 0, 'f', 5).arg(vSci));
+        // UNA COSTANTE CITATA SOLO DAL CAMPO MESHES e' in uso (il campo e' fra
+        // le fonti delle costanti, tubeConstantSource): Spherical Spirals ha
+        // Meshes = A ("Slider A: how many spirals") e A in nessuna equazione.
+        const QString kSpirals = QStringLiteral("surfaces/Parametric/Solid Curves/Multi Curves/Spherical Spirals.json");
+        if (loadSurface(kSpirals)) {
+            const bool openOn = ui->aSlider->isEnabled();
+            const int openParts = gl->meshPartCount();
+            setConstantBySlider(QStringLiteral("A"), 4.0);
+            wait(600);
+            check(openOn && openParts == 6 && ui->aSlider->isEnabled() && gl->meshPartCount() == 4,
+                  QStringLiteral("Spherical Spirals (Meshes = A): aperto con %1 spirali, slider A %2; "
+                                 "A = 4 dallo slider -> %3 spirali, slider A %4")
+                      .arg(openParts).arg(onOff(openOn)).arg(gl->meshPartCount()).arg(onOff(ui->aSlider->isEnabled())));
+        }
+        // Meshes = E: prima il campo, che rende E "in uso" (lo script del
+        // record non la cita), poi il valore di E.
+        const QString kWaveE = QStringLiteral("records/Animations/Parametric/Solid Curves/Multi Curves/Lissajous Layers Wave.json");
+        if (loadRecord(kWaveE)) {
+            typeInField(ui->lineMeshCount, QStringLiteral("E"));
+            pressEnter(ui->lineMeshCount);
+            wait(800);
+            setConstantByField(QStringLiteral("E"), QStringLiteral("5"));
+            wait(400);
+            check(gl->meshPartCount() == 5 && ui->eSlider->isEnabled(),
+                  QStringLiteral("Meshes = E, poi E = 5 -> %1 strati (5), slider E %2")
+                      .arg(gl->meshPartCount()).arg(onOff(ui->eSlider->isEnabled())));
+            m_mw->performMasterStop();
+            m_discardOnPrompt = true;
+            loadRecord(kWaveE);   // di nuovo il record com'e' nel file
+            m_discardOnPrompt = false;
+        }
+    }
+
     // MASTER coi tubi da SCRIPT animati da t: la geometria e' un modulo (prima
     // non lo era: con la geometria ferma il master restava su STOP).
     if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Multi Curves/Lissajous Layers Wave.json"))) {
@@ -6100,6 +6147,50 @@ void ScenarioTest::runSceneObjectScenarios()
         ui->tabModeSelector->setCurrentIndex(0);
         wait(1200);
         m_discardOnPrompt = false;
+    }
+
+    // IL CAMPO MESHES E' DI OGNI OGGETTO (2026-11-07). Le copie applicate
+    // (m_lastAppliedMeshCount, con le sezioni e l'uso di `mesh`) erano di
+    // MainWindow: lasciato un oggetto a 60 mesh, lo stesso 60 scritto sul
+    // successivo valeva "gia' applicato" e applyMeshCount non faceva nulla.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Scena: il campo Meshes e' di ogni oggetto =="));
+    {
+        Ui::MainWindow *ui = m_mw->ui;
+        const QString kFibers = QStringLiteral("surfaces/Parametric/Solid Curves/Multi Curves/Hopf Fibers.json");
+        QString fibersPath;
+        for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+            if (it.filePath.endsWith(kFibers)) fibersPath = it.filePath;
+        m_discardOnPrompt = true;
+        const bool loaded = !fibersPath.isEmpty() && loadSurface(kFibers);
+        m_discardOnPrompt = false;
+        if (loaded) {
+            m_mw->addShapeToScene(fibersPath);
+            wait(800);
+            auto setMeshes = [this, ui](const QString &n) {
+                typeInField(ui->lineMeshCount, n);
+                pressEnter(ui->lineMeshCount);
+                wait(800);
+            };
+            const int opened = gl->meshPartCount();
+            setMeshes(QStringLiteral("60"));
+            const int first = gl->meshPartCount();
+            m_mw->selectSceneObjectFromUi(0);
+            wait(300);
+            const int other = gl->meshPartCount();
+            setMeshes(QStringLiteral("60"));
+            const int second = gl->meshPartCount();
+            m_mw->selectSceneObjectFromUi(1);
+            wait(300);
+            const int back = gl->meshPartCount();
+            check(opened != 60 && first == 60 && other == opened && second == 60 && back == 60,
+                  QStringLiteral("60 mesh sull'oggetto aggiunto (%1 -> %2), poi 60 sull'ambiente (%3 -> %4); "
+                                 "riselezionato l'oggetto ne ha %5")
+                      .arg(opened).arg(first).arg(other).arg(second).arg(back));
+            m_discardOnPrompt = true;
+            loadSurface(kFibers);   // di nuovo il solo ambiente
+            m_discardOnPrompt = false;
+        }
     }
 }
 
