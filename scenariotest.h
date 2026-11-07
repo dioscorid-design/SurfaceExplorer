@@ -243,6 +243,7 @@ private:
     // default, torna riaprendo la Shape, e una Shape senza riporta il grigio.
     // Da sola: --scenario-only shape-background.
     void runShapeBackgroundScenarios();
+    void runRollScenarios();
     // Scena a piu' oggetti (2.0): un secondo oggetto si vede senza toccare il
     // primo e, tolto, lascia l'immagine identica a prima.
     void runSceneObjectScenarios();
