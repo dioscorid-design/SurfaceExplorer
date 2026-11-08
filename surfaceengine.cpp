@@ -84,6 +84,20 @@ void SurfaceEngine::computeMesh()
     generatedVertices.clear();
     generatedIndices.clear();
 
+    // SUPERFICIE VUOTA DI PROPOSITO (NEW, l'ambiente di una scena): senza
+    // equazioni, ne' tubo ne' script, nessuna griglia. Il vertex traduce le
+    // equazioni vuote in "0.0" e la griglia si sarebbe generata lo stesso, tutta
+    // nell'origine: bastava cambiare una costante (quelle dei path della camera
+    // stanno sull'ambiente) e la scena non era piu' vuota per nessuno -- il
+    // master START prendeva la strada di una superficie senza campi e non
+    // ripartiva il path della camera.
+    if (!m_useTubeMode && !m_useScriptMode
+        && eqX.trimmed().isEmpty() && eqY.trimmed().isEmpty() && eqZ.trimmed().isEmpty()) {
+        m_meshParts.clear();
+        generateBorder();   // senza parti: niente bordo
+        return;
+    }
+
     generateParametricGrid();
     generateBorder();
 }
