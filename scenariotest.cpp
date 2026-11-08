@@ -5957,15 +5957,17 @@ void ScenarioTest::runSceneObjectScenarios()
     // dall'utente): le cifre non applicano, l'Invio si'; uscendo senza Invio
     // torna il valore applicato.
     {
+        // Senza widget col fuoco (un'altra finestra davanti a meta' prova) il
+        // tasto non si manda: sendEvent su nullptr faceva cadere l'app.
         auto keys = [](const QString &text) {
             for (QChar c : text) {
                 QKeyEvent press(QEvent::KeyPress, 0, Qt::NoModifier, QString(c));
-                QCoreApplication::sendEvent(QApplication::focusWidget(), &press);
+                if (QWidget *w = QApplication::focusWidget()) QCoreApplication::sendEvent(w, &press);
             }
         };
         auto key = [](int k) {
             QKeyEvent press(QEvent::KeyPress, k, Qt::NoModifier);
-            QCoreApplication::sendEvent(QApplication::focusWidget(), &press);
+            if (QWidget *w = QApplication::focusWidget()) QCoreApplication::sendEvent(w, &press);
         };
         m_mw->m_dockObjects->show();
         wait(200);
@@ -8076,9 +8078,12 @@ void ScenarioTest::runSceneMasterScenarios()
     wait(300);
     m_mw->updateMasterButtonState();
     auto state = [&]() {
-        return QStringLiteral("path %1, toro %2, flusso %3, tasto %4")
+        return QStringLiteral("path %1, toro %2, flusso %3, tasto %4; ambiente: moto della camera '%5', "
+                              "campi del path 4D %6, fermato dall'utente %7, selezionato %8")
             .arg(m_mw->pathRunning(CameraPaths::Path4D)).arg(gl->isObjectRotating(torus))
-            .arg(m_mw->m_objectSessions[flow].geoAnimating).arg(m_mw->m_btnStart->text());
+            .arg(m_mw->m_objectSessions[flow].geoAnimating).arg(m_mw->m_btnStart->text())
+            .arg(m_mw->m_scene.lastCameraMotion).arg(m_mw->hasPath4DInput())
+            .arg(m_mw->m_userStoppedCameraMotion).arg(gl->selectedObject());
     };
     check(m_mw->pathRunning(CameraPaths::Path4D) && gl->isObjectRotating(torus)
               && m_mw->m_objectSessions[flow].geoAnimating,
@@ -10250,8 +10255,11 @@ void ScenarioTest::runShapeBackgroundScenarios()
         check(gl->backgroundSkyMode() == GLWidget::BgSphere,
               QStringLiteral("record Torus Knot -> forma dello sfondo Sphere (%1)")
                   .arg(GLWidget::bgSkyModeName(gl->backgroundSkyMode())));
-        // Una scena con lo sfondo Sphere (NEW, Scene, la forma scelta sull'ambiente).
+        // Una scena con lo sfondo Sphere (NEW, Scene, una texture di sfondo
+        // sull'ambiente -- la forma si sceglie solo con lei -- e Sphere).
         if (buildScene(false, {})) {
+            selectTexture(QStringLiteral("textures/Procedurals/Plasma.json"));
+            wait(600);
             m_mw->ui->radioBgSphere->click();
             wait(300);
             const bool sphereBefore = gl->backgroundSkyMode() == GLWidget::BgSphere;
@@ -11498,12 +11506,14 @@ void ScenarioTest::runLibraryFolderScenarios()
             click(Qt::NoModifier, Qt::NoModifier);
             check(m_mw->m_lastLoadedLibraryItem == second && second->isSelected() && !leaf->isSelected(),
                   QStringLiteral("clic semplice sull'altro preset -> caricato"));
-            // Di nuovo il primo, per il resto della sezione.
+            // Di nuovo il primo, per il resto della sezione, e la texture
+            // evidenziata nell'altro albero (il load di una Shape la toglie).
             m_discardOnPrompt = true;
             tree->setCurrentItem(leaf);
             emit tree->itemClicked(leaf, 0);
             wait(1200);
             m_discardOnPrompt = false;
+            if (tex) ui->treeTextures->setCurrentItem(tex);
         } else {
             check(false, QStringLiteral("la cartella del preset non ne ha un secondo"));
         }
