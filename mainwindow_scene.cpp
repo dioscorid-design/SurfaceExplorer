@@ -2532,7 +2532,9 @@ void MainWindow::syncTextureControlsAfterRecordLoad(const LibraryItem &data)
         // Surface resta SEMPRE abilitato anche in editing sfondo: è il modo per tornare
         // alla superficie (la coppia Surface/Background va sempre navigabile) e
         // l'indicatore di target non deve mai sparire. (Prima: setEnabled(!texEnabled).)
-        ui->radioSurface->setEnabled(true);
+        // Tranne sull'ambiente di una scena, che non ha superficie
+        // (applySceneEnvironmentGating).
+        ui->radioSurface->setEnabled(!sceneEnvironmentSelected());
         if (!texEnabled && ui->btnFlatPreview->isChecked()) {
             ui->btnFlatPreview->setChecked(false);
         }

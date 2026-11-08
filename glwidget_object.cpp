@@ -101,7 +101,7 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
     // dall'ambiente (sceneRotation), che i suoi angoli non contengono.
     QVector3D angles4D = shownAngles4D(o);
     if (!isEnvironment(o)) angles4D += m_sceneRotation.angles4D;
-    // OGGETTO RIGIDO (ambiente in ray marching, vedi rigidObject): si muove
+    // OGGETTO RIGIDO (parametrico in una scena 3D, vedi rigidObject): si muove
     // coi soli moti 3D. Con angoli e w a zero la proiezione 4D -> 3D lascia i
     // punti dove sono, in ogni modalita'.
     const bool rigid = rigidObject(o);

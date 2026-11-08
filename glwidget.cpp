@@ -6667,14 +6667,16 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
     case ObsMovePPos:
         // In RAY MARCHING i tasti P muovono la QUOTA DEL PIANO DI SEZIONE, non
         // l'osservatore 4D: li' u_observerPos non e' letta dal template, mentre
-        // la quota decide quale fetta dell'ipersuperficie si vede. In
-        // parametrico restano quelli storici.
-        if (m_obj->engineMode == ModeImplicit) { m_crossSectionP += sectionSpeed; break; }
+        // la quota decide quale fetta dell'ipersuperficie si vede. Anche
+        // sull'ambiente di una scena 3D, che non ha superficie: la quota e'
+        // quella delle sue Cross Section (cutsSection). In parametrico restano
+        // quelli storici.
+        if (cutsSection()) { m_crossSectionP += sectionSpeed; break; }
         m_cameraPos4D.setW(m_cameraPos4D.w() + obsSpeed);
         m_observerPos.setW(m_observerPos.w() + obsSpeed);
         break;
     case ObsMovePNeg:
-        if (m_obj->engineMode == ModeImplicit) { m_crossSectionP -= sectionSpeed; break; }
+        if (cutsSection()) { m_crossSectionP -= sectionSpeed; break; }
         m_cameraPos4D.setW(m_cameraPos4D.w() - obsSpeed);
         m_observerPos.setW(m_observerPos.w() - obsSpeed);
         break;

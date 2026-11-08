@@ -1908,13 +1908,13 @@ private:
     // c'e' piu'.
     static QString librarySourceKey(const QString &path);
     static QString librarySourceToPath(const QString &key);
-    // Add to Scene (menu delle Shapes): la Shape come oggetto, accanto agli altri.
+    // Add to Scene (menu delle Shapes): la Shape come oggetto, nell'origine.
     void addShapeToScene(const QString &shapePath);
     // La scala a cui la Shape, dalla camera della scena, si vede grande come
     // nel suo preset. 1 con la camera su un path.
     float sceneFitScale(const LibraryItem &shape) const;
     // Una Shape come oggetto nuovo, coi valori del load dal ramo Shapes:
-    // accanto agli altri lungo x, alla scala data, niente path ne' finestra. La
+    // nell'origine, alla scala data, niente path ne' finestra. La
     // usano Add to Scene e Duplicate. Ritorna l'indice dell'oggetto.
     int addShapeObject(const LibraryItem &shape, const QString &name, float scale);
 
@@ -1992,12 +1992,12 @@ private:
     // LA SCENA AVVIATA: la scelta 3D/4D del tasto Scene, o quella del file di
     // scena ("space"; i file di prima la deducono dall'ambiente). None =
     // modalita' Superficie, come se il tasto non ci fosse. La azzera
-    // resetToSingleObject, cioe' tutto cio'
-    // che riscrive la scena da capo; il clic su una Shape o su un record
-    // compatibile, e la superficie di default per una texture, la conservano.
+    // resetToSingleObject, cioe' tutto cio' che riscrive la scena da capo (NEW,
+    // un load); il clic su una Shape o su un record a scena avviata e' rifiutato
+    // (refuseLoadInScene).
     // SpaceH3 (2.1): lo spazio iperbolico, visto da dentro. L'ambiente e' lo
-    // spazio stesso, quindi la scena parte vuota; la camera e' di GLWidget
-    // (setHyperbolicSpace). Per il resto vale come una scena 3D.
+    // spazio stesso; la camera e' di GLWidget (setHyperbolicSpace). Per il
+    // resto vale come una scena 3D.
     enum class SceneSpace { None, Space3D, Space4D, SpaceH3 };
     SceneSpace m_sceneSpace = SceneSpace::None;
     QPushButton *m_btnScene = nullptr;
@@ -2008,15 +2008,22 @@ private:
     void setSceneSpace(SceneSpace space);
     // Il menu 3D/4D del tasto Scene: nessuna scelta = annullato.
     void showSceneSpaceMenu();
-    // L'ambiente e' cio' che e' a schermo, se ci sta; altrimenti un avviso e
-    // tutto resta com'e'. Una scena 4D con l'ambiente vuoto sta in parametrico:
-    // in ray marching gli oggetti sarebbero rigidi (GLWidget::rigidObject).
+    // La scena parte vuota (dopo NEW), con l'ambiente parametrico vuoto; con
+    // una superficie a schermo un avviso e tutto resta com'e'.
     void startScene(SceneSpace space);
     // Il tasto Scene o 3D/4D, selettore e T, secondo sceneStarted.
     void refreshSceneSlot();
-    // Il clic su una Shape o su un record che non puo' fare da ambiente alla
-    // scena avviata: avvisa e ritorna true, e la scena non cambia.
-    bool refuseEnvironmentForScene(QTreeWidgetItem *item);
+    // Il clic su una Shape o su un record a scena avviata: avvisa e ritorna
+    // true, e la scena non cambia (la Shape entra con Add to Scene).
+    bool refuseLoadInScene(QTreeWidgetItem *item);
+    // Il selezionato e' l'ambiente di una scena avviata, che non ha superficie.
+    bool sceneEnvironmentSelected() const;
+    // I dock sull'ambiente di una scena: equazioni spente, texture solo sullo
+    // sfondo. Da setSceneSpace e a ogni selezione (refreshObjectsUi).
+    void applySceneEnvironmentGating();
+    // Lo sfondo come bersaglio della texture l'ha scelto l'ambiente: tornando
+    // su un oggetto si torna sulla sua superficie.
+    bool m_backgroundForcedByEnvironment = false;
     bool m_refreshingObjects = false;   // refreshObjectsUi scrive i widget
     void setupObjectsDock();
     // Allinea elenco, posizione, tasti e selettore agli oggetti della scena.
@@ -2032,19 +2039,19 @@ private:
     // dell'oggetto selezionato. La Shape non li porta (sono del record), quindi
     // la scena li scrive accanto alla posizione ("motion").
     QJsonObject objectMotionJson() const;
-    // La scena e' 4D per la scelta del tasto Scene; senza scelta, se l'ambiente
-    // parametrico ha la P 4D (environmentHasP, vedi addShapeToScene).
+    // La scena e' 4D per la scelta del tasto Scene o del file; senza scelta
+    // (modalita' Superficie), se la superficie parametrica ha la P 4D.
     bool sceneIs4D() const;
     bool environmentHasP() const;
     // Le rotazioni 4D del selezionato hanno effetto: in ray marching nel solo
-    // Cross Section; in parametrico sempre, tranne un oggetto con l'ambiente in
-    // ray marching, che e' rigido (GLWidget::rigidObject).
+    // Cross Section; in parametrico sempre, tranne un oggetto di una scena 3D,
+    // che e' rigido (GLWidget::rigidObject). Sull'ambiente di una scena,
+    // environment4DUsable.
     bool selectedRotates4D() const;
-    // I MOTI 4D DELL'AMBIENTE (path 4D, rotazioni 4D, quota P del taglio)
-    // servono se l'ambiente ha un 4D suo (parametrico o Cross Section) o se
-    // nella scena c'e' un oggetto Cross Section, che ne riceve rotazione e
-    // taglio. Un ambiente in ray marching 3D da solo in 4D non ha nulla da
-    // girare (la regola di sempre della superficie sola).
+    // I MOTI 4D DELL'AMBIENTE (path 4D, rotazioni 4D, quota P del taglio): in
+    // una scena 4D sempre, in una 3D se c'e' un oggetto Cross Section, che ne
+    // riceve rotazione e taglio, in H3 mai. Fuori dalle scene se la superficie
+    // ha un 4D suo (parametrica o Cross Section).
     bool environment4DUsable() const;
     // Campi del path 4D, Departure e View secondo environment4DUsable: da
     // updateRenderState e alla selezione di un oggetto.

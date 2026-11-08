@@ -969,6 +969,10 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
     // (uno vuoto, o a script, non ha la P). I file di prima non hanno la chiave:
     // li deduce MainWindow::loadSceneFile.
     scene["space"] = m_mainWindow->sceneIs4D() ? "4D" : "3D";
+    // LA QUOTA DEL TAGLIO delle Cross Section (P+/P- dell'ambiente, path 4D) e'
+    // della scena (2026-11-08): l'ambiente non ha superficie, e il suo record
+    // la scrive solo se e' una Cross Section. La legge loadSceneFile.
+    scene["crossSectionP"] = double(gl->crossSectionP());
     scene["environment"] = buildMotionJson(name, run, includeSound && !silent.contains(0));
     // I preset della Library da cui vengono ambiente e oggetti, per ritrovarli
     // nelle linguette (la scena porta comunque la copia completa). L'ambiente

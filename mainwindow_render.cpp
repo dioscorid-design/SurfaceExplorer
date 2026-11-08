@@ -1820,10 +1820,16 @@ void MainWindow::updateRenderState()
         // Quindi restano spenti solo dove continuano a non avere effetto: il
         // sotto-tab "3D", la cui equazione e' a 3 variabili e non ha un p da
         // ruotare, e la modalita' parametrica non e' implicita affatto.
-        // Con l'ambiente in ray marching anche un oggetto parametrico non ruota
-        // in 4D (e' rigido), e un ambiente in ray marching 3D ruota se nella
-        // scena c'e' una Cross Section: la regola sta in selectedRotates4D.
+        // In una scena 3D un oggetto parametrico non ruota in 4D (e' rigido),
+        // e l'ambiente ruota se nella scena c'e' una Cross Section: la regola
+        // sta in selectedRotates4D.
         const bool rotates4D = selectedRotates4D();
+        // L'AMBIENTE DI UNA SCENA 3D (vuoto, parametrico): il suo 4D e' quello
+        // delle Cross Section, come quando l'ambiente era in ray marching. Gli
+        // spostamenti dell'osservatore 4D non hanno nulla da muovere (gli
+        // oggetti parametrici sono rigidi) e P+/P- spostano la quota del
+        // taglio (GLWidget::ObsMovePPos).
+        const bool cutEnvironment = sceneEnvironmentSelected() && !sceneIs4D();
 
         // Omega (W-X), Phi (W-Y), Psi (W-Z)
         for (QPushButton *b : { ui->btnOmegaMinus, ui->btnOmegaPlus, ui->btnPhiMinus,
@@ -1893,7 +1899,7 @@ void MainWindow::updateRenderState()
                                 ui->btnYPlus, ui->btnYMinus,
                                 ui->btnZPlus, ui->btnZMinus,
                                 ui->btnLightMode }) {
-            if (b) b->setEnabled(!isImplicitMode);
+            if (b) b->setEnabled(!isImplicitMode && !cutEnvironment);
         }
         // TRASLAZIONE LUNGO P: il caso opposto, ed e' il controllo piu'
         // importante del Cross Section dopo le rotazioni. Muove la QUOTA del
@@ -1905,7 +1911,7 @@ void MainWindow::updateRenderState()
         // In ray marching con la regola delle rotazioni (selectedRotates4D):
         // anche l'ambiente 3D di una scena con oggetti Cross Section.
         for (QPushButton *b : { ui->btnPPlus, ui->btnPMinus }) {
-            if (b) b->setEnabled(!isImplicitMode || rotates4D);
+            if (b) b->setEnabled((!isImplicitMode && !cutEnvironment) || rotates4D);
         }
         // ROTAZIONI 4D della camera: scrivono omega/phi/psi, cioe' lo stato che
         // il sotto-tab Cross Section usa per scegliere la sezione. Sono i
@@ -2426,11 +2432,11 @@ bool MainWindow::ensureSurfaceForTexture()
     // In editing SFONDO non serve: lo sfondo esiste anche senza superficie ed e'
     // proprio il caso che a scena vuota resta componibile.
     if (editingBackground()) return false;
+    // Ne' sull'ambiente di una scena, che non ha superficie: li' la texture va
+    // allo sfondo (applySceneEnvironmentGating).
+    if (sceneStarted()) return false;
 
-    // La superficie di default riempie l'ambiente: la scena avviata resta.
-    const SceneSpace space = m_sceneSpace;
     resetScene(implicitMode() ? 1 : 0, /*loadDefaultSurface=*/true);
-    setSceneSpace(space);
     return true;
 }
 

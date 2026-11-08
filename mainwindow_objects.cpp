@@ -308,11 +308,6 @@ void MainWindow::removeSceneObject(int index)
     syncGeodesicObjectsTimer();
 }
 
-// SCENA 3D O 4D (decisione dell'utente, 2026-10-20): una scena 3D contiene
-// oggetti 3D e Cross Section in ray marching, tagliate tutte dalla stessa
-// quota p; una scena 4D oggetti 3D e 4D, e niente Cross Section. La decide
-// l'ambiente: parametrico con la P 4D. Il path 4D no: anche i record delle
-// Cross Section ne hanno uno.
 void MainWindow::restartSceneTimeline()
 {
     if (!ui->glWidget) return;
@@ -470,16 +465,25 @@ bool MainWindow::selectedRotates4D() const
 {
     if (m_sceneSpace == SceneSpace::SpaceH3) return false;
     const bool environment = !ui->glWidget || ui->glWidget->selectedObject() == 0;
+    // L'ambiente di una scena non ha superficie: le sue rotazioni 4D sono
+    // quelle della scena (environment4DUsable).
+    if (environment && sceneStarted()) return environment4DUsable();
     if (implicitMode()) return crossSectionTab() || (environment && environment4DUsable());
     return !ui->glWidget || !ui->glWidget->selectedObjectRigid();
 }
 
+// LE ROTAZIONI 4D DELL'AMBIENTE (GO, scatti, path 4D). Fuori dalle scene sono
+// della sua superficie: parametrica o Cross Section. In una scena l'ambiente non
+// ha superficie e le rotazioni girano gli oggetti: in 4D tutti, in 3D solo i
+// tagli delle Cross Section (le parametriche sono rigide, GLWidget::rigidObject,
+// e un ray marching 3D non ruota in 4D); in H3 nessuno.
 bool MainWindow::environment4DUsable() const
 {
     if (m_sceneSpace == SceneSpace::SpaceH3) return false;   // vedi selectedRotates4D
+    if (sceneStarted())
+        return sceneIs4D() || (ui->glWidget && ui->glWidget->anyCrossSectionObject());
     const ObjectState &env = environmentState();
-    return !env.implicitMode || env.crossSectionTab
-           || (ui->glWidget && ui->glWidget->anyCrossSectionObject());
+    return !env.implicitMode || env.crossSectionTab;
 }
 
 void MainWindow::updateRotation4DControls()
@@ -488,9 +492,10 @@ void MainWindow::updateRotation4DControls()
     for (QPushButton *b : { ui->btnOmegaMinus, ui->btnOmegaPlus, ui->btnPhiMinus,
                             ui->btnPhiPlus, ui->btnPsiMinus, ui->btnPsiPlus })
         if (b) b->setEnabled(on);
-    // In ray marching P+/P- spostano la quota del taglio delle Cross Section,
-    // comune a tutta la scena: con la stessa regola delle rotazioni.
-    if (implicitMode())
+    // In ray marching, e sull'ambiente di una scena 3D, P+/P- spostano la
+    // quota del taglio delle Cross Section, comune a tutta la scena: con la
+    // stessa regola delle rotazioni.
+    if (implicitMode() || (sceneEnvironmentSelected() && !sceneIs4D()))
         for (QPushButton *b : { ui->btnPPlus, ui->btnPMinus })
             if (b) b->setEnabled(on);
     updatePath4DControls();
@@ -536,23 +541,20 @@ void MainWindow::setSceneSpace(SceneSpace space)
                                : QString());
         updateRotation4DControls();
     }
+    // In una scena 3D (e in H3, che e' uno spazio 3D) gli oggetti parametrici
+    // sono rigidi (GLWidget::rigidObject).
+    if (ui->glWidget) ui->glWidget->setScene3D(space == SceneSpace::Space3D || space == SceneSpace::SpaceH3);
     refreshSceneSlot();
+    applySceneEnvironmentGating();
+    // I moti 4D dell'ambiente dipendono dallo spazio (environment4DUsable): da
+    // Scene 3D in poi spenti finche' non entra una Cross Section.
+    updateRotation4DControls();
 }
 
 // La P di una Shape o di un record: come environmentHasP, dal file.
 static bool itemHasP(const LibraryItem &d)
 {
     return !d.isImplicitMode && SurfaceEngine::isFourthCoordinate(d.isTube ? d.tubeP : d.w);
-}
-
-// Perche' un ambiente non puo' stare in una scena; vuoto se puo'.
-static QString environmentRefusal(bool implicit, bool hasP, bool scene4D)
-{
-    if (scene4D && implicit)
-        return QStringLiteral("Ray marching surfaces can only be the environment of a 3D scene.");
-    if (!scene4D && hasP)
-        return QStringLiteral("Surfaces with a P coordinate can only be the environment of a 4D scene.");
-    return QString();
 }
 
 void MainWindow::showSceneSpaceMenu()
@@ -567,16 +569,36 @@ void MainWindow::showSceneSpaceMenu()
     menu.exec(m_btnScene->mapToGlobal(QPoint(0, 0)) - QPoint(0, menu.sizeHint().height()));
 }
 
+// LA SCENA PARTE VUOTA (decisione dell'utente, 2026-11-08): l'ambiente non ha
+// superficie -- e' la camera coi suoi path e le sue rotazioni, lo sfondo, il
+// suono, l'osservatore e la luce 4D (in H3 lo spazio stesso) -- e tutto il
+// resto e' fatto di oggetti (Add to Scene). Prima, in 3D e 4D, la superficie a
+// schermo diventava l'ambiente: si portava dietro le sue regole (niente ray
+// marching in 4D, niente P in 3D, gli oggetti parametrici rigidi solo con
+// l'ambiente in ray marching) e a scena costruita non si poteva piu' cambiare.
+// H3 partiva gia' vuota.
 void MainWindow::startScene(SceneSpace space)
 {
-    // H3: l'ambiente e' lo spazio, quindi si parte da una scena vuota.
+    if (!isSceneEmpty()) {
+        InputValidator::showSceneNotice(this,
+            space == SceneSpace::SpaceH3
+                ? QStringLiteral("In a hyperbolic scene the environment is the space itself, so the scene starts empty.")
+                : QStringLiteral("A scene starts empty: its environment is the camera, the background and the "
+                                 "sound, and everything else is added as objects."),
+            QStringLiteral("Press NEW first, then Scene."));
+        return;
+    }
+    // L'ambiente vuoto e' sempre quello parametrico: il ray marching vuoto
+    // marcerebbe lo stesso tutto lo schermo, e la sua linguetta ne farebbe un
+    // ambiente "in ray marching". Gli stessi due gesti a mano: la linguetta
+    // parametrica, poi NEW.
+    if (implicitMode()) {
+        if (!confirmDiscardUnsaved(ScopeScene)) return;
+        ui->tabModeSelector->setCurrentIndex(0);
+        resetScene(0, /*loadDefaultSurface=*/false);
+        updateMeshScopeEnabled();
+    }
     if (space == SceneSpace::SpaceH3) {
-        if (!isSceneEmpty()) {
-            InputValidator::showSceneNotice(this,
-                QStringLiteral("In a hyperbolic scene the environment is the space itself, so the scene starts empty."),
-                QStringLiteral("Press NEW first, then Scene."));
-            return;
-        }
         // Sulla scena vuota si puo' avviare un path 4D o dare velocita' 4D al
         // GO prima di Scene: in H3 il 4D non c'e' (selectedRotates4D), e i loro
         // tasti stanno per spegnersi, quindi si fermano qui.
@@ -589,24 +611,6 @@ void MainWindow::startScene(SceneSpace space)
         ui->glWidget->setPhiSpeed(0.0f);
         ui->glWidget->setPsiSpeed(0.0f);
         refreshRotationSpeedLabels();
-        setSceneSpace(space);
-        refreshObjectsUi();
-        return;
-    }
-    const bool scene4D = space == SceneSpace::Space4D;
-    if (!isSceneEmpty()) {
-        const QString refusal = environmentRefusal(implicitMode(), environmentHasP(), scene4D);
-        if (!refusal.isEmpty()) {
-            InputValidator::showSceneNotice(this, refusal,
-                QStringLiteral("To build this scene from scratch, press NEW first."));
-            return;
-        }
-    } else if (scene4D && implicitMode()) {
-        // Gli stessi due gesti a mano: la linguetta parametrica, poi NEW.
-        if (!confirmDiscardUnsaved(ScopeScene)) return;
-        ui->tabModeSelector->setCurrentIndex(0);
-        resetScene(0, /*loadDefaultSurface=*/false);
-        updateMeshScopeEnabled();
     }
     setSceneSpace(space);
     // Il selettore ora si vede anche con il solo ambiente, e al primo avvio
@@ -614,24 +618,72 @@ void MainWindow::startScene(SceneSpace space)
     refreshObjectsUi();
 }
 
-bool MainWindow::refuseEnvironmentForScene(QTreeWidgetItem *item)
+// IL CLIC SU UNA SHAPE O SU UN RECORD A SCENA AVVIATA: avviso, e la scena
+// resta. L'ambiente non ha superficie da sostituire, e il load riscriverebbe
+// la scena intera; la Shape entra con Add to Scene (prima, in 3D e 4D, il clic
+// cambiava l'ambiente e toglieva gli oggetti; in H3 si rifiutava gia').
+bool MainWindow::refuseLoadInScene(QTreeWidgetItem *item)
 {
     if (m_sceneSpace == SceneSpace::None) return false;
     const QString path = item->toolTip(0);
-    const LibraryItem *d = m_libraryManager.getSurfaceByPath(path);
-    if (!d) d = m_libraryManager.getMotionByPath(path);
-    if (!d) return false;
-    if (m_sceneSpace == SceneSpace::SpaceH3) {
-        InputValidator::showSceneNotice(this,
-            QStringLiteral("In a hyperbolic scene the environment is the space itself."),
-            QStringLiteral("Press NEW to leave this scene."));
-        return true;
-    }
-    const QString refusal = environmentRefusal(d->isImplicitMode, itemHasP(*d),
-                                               m_sceneSpace == SceneSpace::Space4D);
-    if (refusal.isEmpty()) return false;
-    InputValidator::showSceneNotice(this, refusal, QStringLiteral("Press NEW to leave this scene."));
+    const bool shape = m_libraryManager.getSurfaceByPath(path) != nullptr;
+    if (!shape && !m_libraryManager.getMotionByPath(path)) return false;
+    InputValidator::showSceneNotice(this,
+        shape ? QStringLiteral("In a scene a shape is added as an object: right-click it and choose Add to Scene.")
+              : QStringLiteral("A record can't be loaded into a scene: its shape can, right-click it in Shapes and "
+                               "choose Add to Scene."),
+        QStringLiteral("Press NEW to leave this scene."));
     return true;
+}
+
+bool MainWindow::sceneEnvironmentSelected() const
+{
+    return sceneStarted() && ui->glWidget && ui->glWidget->selectedObject() == 0;
+}
+
+// I DOCK SULL'AMBIENTE DI UNA SCENA: senza superficie, quello che si puo' usare
+// e' cio' che resta all'ambiente (camera, path, rotazioni, sfondo, suono). Il
+// resto lo spegne gia' il gate della scena vuota (applyEmptySceneGating: resa,
+// passi, mesh, FOV, Border); qui le equazioni, che a scena vuota restano
+// scrivibili perche' da li' si riparte con un Run, e il bersaglio della
+// texture, che sull'ambiente e' solo lo sfondo. Le costanti A..F restano
+// (updateConstantsUIState): i path della camera le usano.
+void MainWindow::applySceneEnvironmentGating()
+{
+    if (!ui->glWidget || !ui->panelEquations) return;
+    const bool environment = sceneEnvironmentSelected();
+    ui->panelEquations->setEnabled(!environment);
+    ui->panelEquations->setToolTip(environment
+        ? QStringLiteral("The environment of a scene has no surface. To add one, right-click a Shape "
+                         "in the Library and choose Add to Scene.")
+        : QString());
+    for (QRadioButton *r : { ui->radioSurface, ui->radioBorder }) {
+        if (!r) continue;
+        // Border ha la sua regola (a scena vuota e' spento): si riaccende
+        // solo Surface, e Border lo rimette a posto updateRenderState.
+        if (environment) r->setEnabled(false);
+        else if (r == ui->radioSurface) r->setEnabled(true);
+    }
+    if (ui->radioSurface)
+        ui->radioSurface->setToolTip(environment
+            ? QStringLiteral("The environment of a scene has no surface: its texture is the background.")
+            : QString());
+    bool clicked = false;
+    if (environment && !editingBackground() && ui->radioBackground) {
+        // Il clic vero, per la transizione del dock (script, colori, Library).
+        ui->radioBackground->click();
+        m_backgroundForcedByEnvironment = true;
+        clicked = true;
+    } else if (!environment && m_backgroundForcedByEnvironment) {
+        // Tornando su un oggetto, il bersaglio torna la sua superficie: lo
+        // sfondo l'aveva scelto l'ambiente, non l'utente.
+        m_backgroundForcedByEnvironment = false;
+        if (editingBackground() && ui->radioSurface) { ui->radioSurface->click(); clicked = true; }
+    }
+    // Il clic passa da updateRenderState, che riaccende i tasti 4D senza
+    // guardare i path: con un path in corsa scatti e spostamenti tornano
+    // spenti qui (updateRotation4DControls -> updateViewButtonsEnabled).
+    if (clicked) updateRotation4DControls();
 }
 
 // LA GRANDEZZA D'INGRESSO: una Shape e' salvata con la camera che la inquadra, e
@@ -654,7 +706,7 @@ float MainWindow::sceneFitScale(const LibraryItem &shape) const
 }
 
 // ADD TO SCENE (menu delle Shapes): la Shape come oggetto della scena a
-// schermo, accanto agli altri lungo x. La posizione si regola dal dock Objects.
+// schermo, nell'origine. La posizione si regola dal dock Objects.
 void MainWindow::addShapeToScene(const QString &shapePath)
 {
     const LibraryItem *d = m_libraryManager.getSurfaceByPath(shapePath);
@@ -666,18 +718,23 @@ void MainWindow::addShapeToScene(const QString &shapePath)
             QStringLiteral("Ray marching shapes cannot be added to a hyperbolic scene yet."));
         return;
     }
-    const bool crossSection = d->isImplicitMode && d->usesCrossSection;
+    // SCENA 3D O 4D (decisione dell'utente, 2026-11-08): in 3D oggetti 3D e
+    // ray marching (le Cross Section tagliate tutte dalla stessa quota p,
+    // girate dalle rotazioni 4D), con le parametriche rigide; in 4D solo
+    // parametriche, 3D e 4D. Prima in 4D entravano anche i ray marching 3D.
     const bool object4D = itemHasP(*d);
-    if (sceneIs4D() && crossSection) {
+    if (sceneIs4D() && d->isImplicitMode) {
         QMessageBox::information(this, QStringLiteral("Add to Scene"),
-            QStringLiteral("This scene is 4D (its environment has a P coordinate): cross sections "
-                           "can only be added to 3D scenes, where they are all cut by the same P."));
+            QStringLiteral("This scene is 4D: ray marching shapes, cross sections included, can only be "
+                           "added to 3D scenes."));
         return;
     }
     if (!sceneIs4D() && object4D) {
         QMessageBox::information(this, QStringLiteral("Add to Scene"),
-            QStringLiteral("This scene is 3D: objects with a P coordinate can only be added to 4D "
-                           "scenes (an environment with a P coordinate)."));
+            m_sceneSpace == SceneSpace::SpaceH3
+                ? QStringLiteral("This scene is hyperbolic, a 3D space: objects with a P coordinate can only "
+                                 "be added to 4D scenes.")
+                : QStringLiteral("This scene is 3D: objects with a P coordinate can only be added to 4D scenes."));
         return;
     }
     const int index = addShapeObject(*d, uniqueObjectName(d->name), sceneFitScale(*d));
@@ -689,9 +746,12 @@ int MainWindow::addShapeObject(const LibraryItem &shape, const QString &name, fl
 {
     const int index = addPresetAsObject(shape, name);
     m_objectSessions[index].openingScale = scale;
-    // Il passo lungo x scala con l'oggetto: la stessa inquadratura, non solo la
-    // stessa grandezza.
-    ui->glWidget->setObjectPosition(QVector3D(2.5f * scale * float(index), 0.0f, 0.0f));
+    // NELL'ORIGINE (decisione dell'utente, 2026-11-08): prima entrava accanto
+    // agli altri, a x = 2.5 * scala * indice, e dal terzo o quarto oggetto era
+    // quasi sempre fuori dall'inquadratura. L'origine e' il centro attorno a
+    // cui sceneFitScale misura la distanza della camera; da li' lo si sposta
+    // col dock Objects.
+    ui->glWidget->setObjectPosition(QVector3D(0.0f, 0.0f, 0.0f));
     ui->glWidget->setObjectScale(scale);
     captureObjectStartPose();   // la posa a cui lo riporta il RESET
     m_sceneObjectsChanged = true;
@@ -808,6 +868,15 @@ bool MainWindow::loadSceneFile(const QString &path)
         }
         applyObjectMotion(o.value(QStringLiteral("motion")).toObject());
         captureObjectStartPose();
+    }
+    // La quota del taglio delle Cross Section, della scena (buildSceneJson). I
+    // file di prima la portavano nel record dell'ambiente, se era una Cross
+    // Section, e l'ha gia' messa il suo load.
+    // Anche nella posa d'apertura, fotografata dal load dell'ambiente: e' quella
+    // a cui riporta il RESET.
+    if (root.contains(QStringLiteral("crossSectionP"))) {
+        gl->setCrossSectionP(float(root.value(QStringLiteral("crossSectionP")).toDouble()));
+        m_startFraming.crossSectionP = gl->crossSectionP();
     }
     // La scena girata con l'ambiente (GLWidget::sceneRotation), se c'e': e'
     // anche quella a cui la riporta il RESET.
@@ -1035,9 +1104,9 @@ void MainWindow::setupObjectsDock()
     auto *w = new QWidget(m_dockObjects);
     auto *lay = new QVBoxLayout(w);
 
-    auto *help = new QLabel(QStringLiteral("Press Scene in the status bar and choose 3D or 4D: what is on "
-                                           "screen becomes the environment (in H³ the environment is the "
-                                           "hyperbolic space itself). "
+    auto *help = new QLabel(QStringLiteral("Press NEW, then Scene in the status bar, and choose 3D, 4D or H³: "
+                                           "the scene starts empty, with the camera, the background and the "
+                                           "sound (in H³ the environment is the hyperbolic space itself). "
                                            "Add objects to it: right-click a Shape, then Add to Scene."), w);
     help->setWordWrap(true);
     lay->addWidget(help);
@@ -1386,6 +1455,8 @@ void MainWindow::refreshObjectsUi()
     checkPath3DFields();
     refreshPathControls();
     refreshSceneTimeLabel();
+    // Equazioni e bersaglio della texture: l'ambiente di una scena non ha superficie.
+    applySceneEnvironmentGating();
 }
 
 bool MainWindow::pathFieldsShowObject() const
