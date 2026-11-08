@@ -151,6 +151,25 @@ private:
     void setScriptMode(int mode);
     // Il tasto NEW, rispondendo "Don't save" alla conferma.
     void pressNew();
+    // UNA SCENA COME LA COSTRUISCE L'UTENTE (2026-11-08): NEW, Scene 3D o 4D
+    // (l'ambiente parte vuoto), poi le Shape `shapes` come oggetti, con Add to
+    // Scene e nell'ordine dato: la prima e' l'oggetto 1, selezionato alla
+    // fine l'ultimo. False (e una verifica fallita) se la scena non parte o
+    // una Shape non entra.
+    bool buildScene(bool scene4D, const QStringList &shapes);
+    // LA SCENA DI UN TEST SCRITTO QUANDO L'AMBIENTE AVEVA UNA SUPERFICIE: la
+    // Shape `first`, che era l'ambiente, e' l'oggetto 1, a scala 1 e con
+    // proiezione, FOV e camera del suo preset (l'inquadratura di allora); poi
+    // gli altri, con la grandezza d'ingresso misurata da quella camera.
+    // Selezionato alla fine l'ultimo oggetto.
+    bool buildSceneOn(bool scene4D, const QString &first, const QStringList &others = {});
+    // Il percorso nella Library della Shape `rel` (relativo alla radice dei preset).
+    QString shapePath(const QString &rel) const;
+    // IL MOTO DELLA CAMERA DEL RECORD `rel`, scritto a mano sull'ambiente di
+    // una scena avviata (un record non entra in una scena): i campi dei path
+    // nei dock 3D e 4D, le costanti che citano, le velocita' delle rotazioni e
+    // dei path, poi il moto che il record avvia (Departure o GO).
+    bool writeCameraMotionOf(const QString &rel);
     // Il tasto Invio dentro un campo (applica equazioni, limiti, costanti).
     void pressEnter(QWidget *w);
     // Il focus della TASTIERA su w, per digitare come l'utente: false se la

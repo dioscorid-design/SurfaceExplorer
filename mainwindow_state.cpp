@@ -967,13 +967,15 @@ MainWindow::EquationTexts MainWindow::equationTextsFromItem(const LibraryItem &d
 {
     EquationTexts e;
     const bool fromScript = loadsFromScript(d);
-    // Equazioni e flusso geodetico. Il fattore conforme vuoto vale 1.
+    // Equazioni e flusso geodetico. Il fattore conforme vuoto vale 1, tranne
+    // in un record senza superficie (l'ambiente di una scena): li' resta
+    // vuoto come dopo NEW, e la scena riaperta si risalva uguale.
     e.x = d.x;  e.y = d.y;  e.z = d.z;  e.p = d.w;
     e.u = d.defU;  e.v = d.defV;  e.w = d.defW;
     e.explicitU = d.explicitU;  e.explicitV = d.explicitV;  e.explicitW = d.explicitW;
     e.geoU = d.geoU0;  e.geoV = d.geoV0;  e.geoW = d.geoW0;
     e.geoDU = d.geoDU;  e.geoDV = d.geoDV;  e.geoDW = d.geoDW;
-    e.conform = d.geoConform.isEmpty() ? QStringLiteral("1.0") : d.geoConform;
+    e.conform = d.geoConform.isEmpty() && !recordHasNoSurface(d) ? QStringLiteral("1.0") : d.geoConform;
     // Con uno script X/Y/Z/P sono la MAPPA DI VISUALIZZAZIONE: quella dedicata
     // del file (script metrici), o le equazioni del file se citano U/V/W,
     // altrimenti vuote (lo script metrico vi mettera' l'identita').

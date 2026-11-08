@@ -1055,8 +1055,9 @@ void MainWindow::setNavControlsEnabled(bool enabled)
     // gate usati la': gli spostamenti dell'osservatore sono sempre spenti in
     // Ray Marching, mentre P+/P- e le rotazioni 4D dipendono da rot4DUsable
     // (accesi nel solo sotto-tab Cross Section, dove governano quota e
-    // inclinazione del piano di sezione).
-    if (enabled && implicitMode()) {
+    // inclinazione del piano di sezione). Lo stesso sull'ambiente di una scena
+    // 3D, il cui 4D sono le Cross Section (vedi updateRenderState).
+    if (enabled && (implicitMode() || (sceneEnvironmentSelected() && !sceneIs4D()))) {
         for (QPushButton *b : { ui->btnXPlus, ui->btnXMinus,
                                 ui->btnYPlus, ui->btnYMinus,
                                 ui->btnZPlus, ui->btnZMinus,
@@ -1067,7 +1068,7 @@ void MainWindow::setNavControlsEnabled(bool enabled)
             if (b) b->setEnabled(selectedRotates4D());
     }
     // Rotazioni 4D a scatto: solo dove agiscono (in ray marching il Cross
-    // Section; non un oggetto parametrico rigido, con l'ambiente in ray marching).
+    // Section; non un oggetto parametrico rigido, in una scena 3D).
     if (enabled && !selectedRotates4D()) {
         for (QPushButton *b : { ui->btnOmegaAhead, ui->btnOmegaRear,
                                 ui->btnPhiAhead,   ui->btnPhiRear,

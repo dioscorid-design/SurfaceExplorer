@@ -2,6 +2,7 @@
 // repository, copia/incolla, salvataggi, risorse di fabbrica.
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
+#include "librarytreewidget.h"
 
 // Library: alberi, menu contestuali, osservatore del file system. Parte del costruttore, nell'ordine in cui la chiama.
 void MainWindow::setupLibraryDock()
@@ -227,7 +228,7 @@ bool MainWindow::confirmLibraryClick(QTreeWidget *src, QTreeWidgetItem *item)
         // sempre l'item giusto.)
         QTreeWidgetItem *previous = m_lastLoadedLibraryItem;
 
-        if (refuseEnvironmentForScene(item) || !confirmDiscardUnsaved(ScopeScene)) {
+        if (refuseLoadInScene(item) || !confirmDiscardUnsaved(ScopeScene)) {
             bool b = src->blockSignals(true);
             src->clearSelection();
             // Il preset in vigore puo' stare in un ALTRO albero (una
@@ -520,9 +521,33 @@ void MainWindow::restartActiveLibraryTexture(const LibraryItem &data)
     updateMasterButtonState();
 }
 
+// CMD/CTRL+CLIC (o SHIFT+CLIC) SU UNA VOCE: e' la selezione multipla (Copy,
+// Cut, Delete, trascinamento), non un load. Basta una di tre prove (con la
+// sola prima il preset si caricava ancora col Cmd premuto, 2026-11-08):
+//  - i modificatori del clic, alla pressione o al rilascio (LibraryTreeWidget);
+//  - quelli della tastiera adesso;
+//  - la selezione dopo il clic: un preset si carica solo se e' selezionato ed
+//    e' il solo selezionato del suo albero. Cmd+clic e Shift+clic ne lasciano
+//    piu' d'uno, o tolgono proprio quello cliccato. Non vale per le cartelle,
+//    che il clic semplice non seleziona (LibraryTreeWidget), ne' per la
+//    selezione singola di mobile.
+static bool multiSelectionClick(QObject *sender, QTreeWidgetItem *item)
+{
+    if (QGuiApplication::keyboardModifiers() & (Qt::ControlModifier | Qt::ShiftModifier | Qt::MetaModifier))
+        return true;
+    if (const auto *tree = qobject_cast<const LibraryTreeWidget *>(sender); tree && tree->multiSelectionClick())
+        return true;
+    QTreeWidget *tree = item ? item->treeWidget() : nullptr;
+    if (!tree || tree->selectionMode() == QAbstractItemView::SingleSelection
+        || item->childCount() > 0 || item->data(0, Qt::UserRole + 10).isValid())
+        return false;
+    return !item->isSelected() || tree->selectedItems().size() > 1;
+}
+
 void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
 {
     Q_UNUSED(column);
+    if (multiSelectionClick(sender(), item)) return;
 
     // Azzeramento incrociato ASIMMETRICO. Prima un click su QUALSIASI albero
     // azzerava tutti gli altri: cosi' caricare una texture dopo una superficie
@@ -596,10 +621,8 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // La conferma "vuoi salvare?" e' gia' stata chiesta in cima alla
             // funzione, prima di toccare qualunque stato.
             lastSurfacePath = data.filePath;
-            // A scena avviata cambia l'ambiente: la scena resta 3D o 4D.
-            const SceneSpace space = m_sceneSpace;
+            // A scena avviata non si arriva qui (refuseLoadInScene).
             applySurfaceExample(data);
-            setSceneSpace(space);
         }
         return;
     }
@@ -677,9 +700,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // (pauseMotion, stopAll, path fermati, tempo dei path azzerato).
             // La conferma "vuoi salvare?" e' gia' stata chiesta in cima alla
             // funzione, prima di toccare qualunque stato.
-            const SceneSpace space = m_sceneSpace;   // come per le Shape
-            applyMotionExample(data);
-            setSceneSpace(space);
+            applyMotionExample(data);   // come per le Shape: mai a scena avviata
         }
         return;
     }
@@ -1133,6 +1154,7 @@ void MainWindow::onSaveMotionClicked() {
 void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
 {
     Q_UNUSED(column);
+    if (multiSelectionClick(sender(), item)) return;   // selezione multipla, non un suono da caricare
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     if (item->childCount() > 0) {

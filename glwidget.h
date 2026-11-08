@@ -408,19 +408,26 @@ public:
     // oggetto selezionato il path resta sull'ambiente.
     SurfaceEngine *environmentEngine() const { return m_objects.front()->engine.get(); }
     bool isEnvironment(const SurfaceObject &o) const { return &o == m_objects.front().get(); }
-    // OGGETTI RIGIDI (utente, 2026-10-24): con l'ambiente in ray marching --
-    // una Cross Section, cioe' un TAGLIO dello spazio 4D, o una superficie 3D,
-    // che in 4D non ruota -- gli oggetti parametrici abitano il suo 3D: niente
-    // rotazioni 4D, ne' loro ne' di path e GO dell'ambiente, e niente P(t)
-    // (prepareObjectUniforms). Ruotati, se ne vedrebbe la PROIEZIONE, un'altra
-    // operazione nello stesso fotogramma. Con un ambiente parametrico ruotano
-    // in 4D come lui. Le Cross Section oggetto restano tagli: seguono le
-    // rotazioni.
+    // OGGETTI RIGIDI (utente, 2026-10-24 e 2026-11-08): in una scena 3D gli
+    // oggetti parametrici abitano il suo 3D -- quello in cui le Cross Section
+    // sono TAGLI dello spazio 4D -- e non ruotano in 4D: ne' loro rotazioni,
+    // ne' path e GO dell'ambiente, e niente P(t) (prepareObjectUniforms).
+    // Ruotati, se ne vedrebbe la PROIEZIONE, un'altra operazione nello stesso
+    // fotogramma. In una scena 4D ruotano in 4D. Le Cross Section oggetto
+    // restano tagli: seguono le rotazioni. Prima decideva la modalita'
+    // dell'ambiente (rigidi con l'ambiente in ray marching); ora l'ambiente di
+    // una scena non ha superficie e decide la scelta 3D/4D (setScene3D).
     bool rigidObject(const SurfaceObject &o) const {
-        return !isEnvironment(o) && o.engineMode == ModeParametric
-               && m_objects.front()->engineMode == ModeImplicit;
+        return !isEnvironment(o) && o.engineMode == ModeParametric && m_scene3D;
     }
     bool selectedObjectRigid() const { return rigidObject(*m_obj); }
+    // La scena e' 3D (MainWindow::setSceneSpace); false fuori dalle scene.
+    void setScene3D(bool on) { if (m_scene3D != on) { m_scene3D = on; update(); } }
+    // P+/P- muovono la quota del taglio: col selezionato in ray marching, o
+    // sull'ambiente di una scena 3D (il 4D di una scena 3D sono le Cross Section).
+    bool cutsSection() const {
+        return m_obj->engineMode == ModeImplicit || (m_scene3D && isEnvironment(*m_obj));
+    }
     // Un oggetto della scena (non l'ambiente) e' una Cross Section: le
     // rotazioni e il path 4D dell'ambiente ne cambiano il taglio.
     bool anyCrossSectionObject() const {
@@ -1934,6 +1941,8 @@ private:
     float m_viewOmega = 0.0f, m_viewPhi = 0.0f, m_viewPsi = 0.0f;
     // La rotazione della scena data dall'ambiente: vedi sceneRotation.
     SceneRotation m_sceneRotation;
+    // Scena 3D: gli oggetti parametrici sono rigidi (rigidObject, setScene3D).
+    bool m_scene3D = false;
     // La posa dell'ambiente a T = 0 (o dove le rotazioni sono subentrate), per il cursore T (seekEnvironmentRotations).
     struct EnvironmentRotationBase {
         bool valid = false;
