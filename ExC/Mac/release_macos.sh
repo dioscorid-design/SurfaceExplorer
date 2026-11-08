@@ -21,7 +21,7 @@ set -e
 
 # --- CONFIGURAZIONE ---
 APP_NAME="SurfaceExplorer"
-BUNDLE_ID="com.dioscorid.surfaceexplorer2.dmg"
+# BUNDLE_ID e il nome dell'app nel DMG si ricavano dalla versione: vedi sotto.
 SIGN_IDENTITY="Developer ID Application: GAETANO MOSCHETTI (BAPKX72394)"
 NOTARY_PROFILE="notarytool-profile"
 REPO="dioscorid-design/SurfaceExplorer"
@@ -86,15 +86,36 @@ if [ ! -d "$APP_PATH" ]; then
 fi
 [ -x "$MACDEPLOYQT" ] || { echo "ERRORE: macdeployqt non trovato: $MACDEPLOYQT"; exit 1; }
 
+# IDENTITA' DELL'APP, come in CMakeLists.txt: la x.0 e' "Surface Explorer v2" (id
+# ...surfaceexplorer2.dmg); dalla x.1 ogni minore ha la sua, "Surface Explorer v2.1"
+# (id ...surfaceexplorer21.dmg), e sta in Applicazioni accanto alla 2.0 invece di
+# sostituirla (dal 2026-11-07). L'eseguibile dentro resta SurfaceExplorer.
+MAJOR="${VERSION%%.*}"
+MINOR="${VERSION#*.}"
+if [ "$MINOR" = "0" ]; then
+  APP_DISPLAY_NAME="Surface Explorer v$MAJOR"
+  BUNDLE_ID="com.dioscorid.surfaceexplorer$MAJOR.dmg"
+else
+  APP_DISPLAY_NAME="Surface Explorer v$VERSION"
+  BUNDLE_ID="com.dioscorid.surfaceexplorer$MAJOR$MINOR.dmg"
+fi
+# Una Release compilata PRIMA del cambio di identita' avrebbe ancora l'id vecchio, e
+# l'app installata sostituirebbe quella della versione precedente: meglio fermarsi.
+BUILT_ID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+if [ "$BUILT_ID" != "$BUNDLE_ID" ]; then
+  echo "ERRORE: l'app compilata ha l'id '$BUILT_ID', atteso '$BUNDLE_ID' per la $VERSION."
+  echo "Ricompila la Release da Qt Creator (CMakeLists.txt la riconfigura) e rilancia lo script."
+  exit 1
+fi
+
 # Si lavora su una copia: macdeployqt e la firma cambiano il bundle, e quello di Qt
 # Creator deve restare com'e' (firmato in place, al primo Info.plist rigenerato senza
 # relink la firma non combaciava piu' e macOS uccideva l'app all'avvio).
 STAGING_DIR="$BUILD_DIR/dmg_staging"
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
-# Nel DMG l'app si chiama "Surface Explorer v2.app": con lo stesso nome della 1.x
-# la copia in Applicazioni la sostituirebbe. L'eseguibile dentro resta SurfaceExplorer.
-APP_DISPLAY_NAME="Surface Explorer v${VERSION%%.*}"
+# Nel DMG l'app ha il nome della sua versione (APP_DISPLAY_NAME, sopra): con lo
+# stesso nome di un'altra, la copia in Applicazioni la sostituirebbe.
 STAGED_APP="$STAGING_DIR/$APP_DISPLAY_NAME.app"
 cp -R "$APP_PATH" "$STAGED_APP"
 
