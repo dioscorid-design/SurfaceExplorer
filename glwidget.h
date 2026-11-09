@@ -4,7 +4,7 @@
 #include "surfaceengine.h"
 #include "geometrybuilder.h"   // WireframeRange (intervalli per parte di mesh)
 #include "surfaceobject.h"     // i dati di un oggetto della scena
-#include "hyperbolicspace.h"   // la camera delle scene in H3 (2.1)
+#include "hyperbolicspace.h"   // la camera delle scene in H3
 
 #include <QWidget>
 #include <QRhiWidget>
@@ -996,7 +996,7 @@ public:
     }
     void setBackgroundSkyMode(int mode) { if (m_bgSkyMode == mode) return; m_bgSkyMode = mode; update(); }
     int backgroundSkyMode() const { return m_bgSkyMode; }
-    // La forma con cui lo sfondo si disegna: in una scena H3 (2.1) sempre la
+    // La forma con cui lo sfondo si disegna: in una scena H3 sempre la
     // palla di Poincare', il cielo vero di H3 (il bordo all'infinito visto dalla
     // camera); la scelta dell'utente resta in m_bgSkyMode e torna fuori da H3.
     int effectiveBackgroundSkyMode() const { return m_hyperbolic ? int(BgPoincare) : m_bgSkyMode; }
@@ -1170,7 +1170,7 @@ public:
     bool anyClockAdvanced() const;
     void virtualMove(MoveDir dir, float speed3D, float speed4D);
 
-    // SCENA IPERBOLICA (2.1): lo spazio della scena e' H3 e la camera e' una
+    // SCENA IPERBOLICA: lo spazio della scena e' H3 e la camera e' una
     // sua isometria (hyperbolicspace.h), composta in double passo dopo passo.
     // La accende e la spegne MainWindow col tasto Scene; accenderla porta la
     // camera nell'origine, il centro della scena. In H3 rotella, pinch e tasti
@@ -1192,7 +1192,7 @@ public:
     static constexpr double kH3DefaultCurvatureRadius = 2.0;
     void setHyperbolicCurvatureRadius(double radius);
     double hyperbolicCurvatureRadius() const { return 1.0 / m_h3RadiiPerSceneUnit; }
-    // IL RETICOLO {4,3,5} (2.1): le pareti di H3, cubi con angoli diedri di 72
+    // IL RETICOLO {4,3,5}: le pareti di H3, cubi con angoli diedri di 72
     // gradi, cinque attorno a ogni spigolo (H3::honeycomb435). E' di H3, non
     // della scena: il lato e' sempre 1.617 raggi di curvatura. Spento di default;
     // ogni scena H3 riparte spenta. Spigoli come tubi geodetici, disegnati a
@@ -1211,7 +1211,7 @@ public:
     double hyperbolicLatticeDensity() const { return m_h3LatticeDensity; }
     double hyperbolicLatticeReach();
     int hyperbolicLatticeDrawnEdges();
-    // LA VISTA DA FUORI (2.1): in H3 la proiezione ortogonale porta fuori
+    // LA VISTA DA FUORI: in H3 la proiezione ortogonale porta fuori
     // dallo spazio, e allora si guarda il modello: la palla di Poincare' in R3
     // (geodetiche come archi di cerchio ortogonali al bordo), centrata nel
     // centro della scena, con una camera euclidea ortogonale che guarda dalla
@@ -2049,7 +2049,7 @@ private:
     // L'orientamento della camera trasportato nell'origine (la matrice che
     // resta togliendo la traslazione), e la sua posizione nella palla di Poincare'.
     QMatrix4x4 hyperbolicCameraRotation() const;
-    // IL MONDO GIRATO DALL'AMBIENTE (2.1): le rotazioni dell'ambiente (GO)
+    // IL MONDO GIRATO DALL'AMBIENTE: le rotazioni dell'ambiente (GO)
     // girano tutta la scena attorno al centro (m_sceneRotation): in H3 anche il
     // reticolo e il cielo, che e' il bordo del mondo. Per loro la camera e' quella
     // vista dal mondo girato: rotazione della scena^-1 * camera. Gli oggetti la
@@ -2145,7 +2145,7 @@ private:
     // e il rollio come si vedono a schermo.
     void moveObjectOnScreen(const QVector3D &delta);
     void rollObjectOnScreen(float angle);
-    // In H3 (2.1) la scena segue l'ambiente anche senza oggetti: la scena e' il
+    // In H3 la scena segue l'ambiente anche senza oggetti: la scena e' il
     // mondo, col reticolo e il cielo (hyperbolicWorldCamera).
     bool sceneFollowsEnvironment(const SurfaceObject &o) const {
         return (m_objects.size() > 1 || m_hyperbolic) && isEnvironment(o);

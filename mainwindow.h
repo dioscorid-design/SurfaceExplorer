@@ -1946,7 +1946,7 @@ private:
     // Il cursore della timeline (decimi di secondo) e il T che mostra.
     QSlider *m_sceneTimeSlider = nullptr;
     QLabel *m_sceneTimeValue = nullptr;
-    // IL RAGGIO DI CURVATURA della scena H3 (2.1, GLWidget::setHyperbolicCurvatureRadius):
+    // IL RAGGIO DI CURVATURA della scena H3 (GLWidget::setHyperbolicCurvatureRadius):
     // la riga del dock Objects, visibile solo in H3. Cursore logaritmico da 0.5 a
     // 50 unita' della scena (il default, 2, a 60 su 200).
     QWidget *m_h3CurvatureRow = nullptr;
@@ -1995,7 +1995,7 @@ private:
     // resetToSingleObject, cioe' tutto cio' che riscrive la scena da capo (NEW,
     // un load); il clic su una Shape o su un record a scena avviata e' rifiutato
     // (refuseLoadInScene).
-    // SpaceH3 (2.1): lo spazio iperbolico, visto da dentro. L'ambiente e' lo
+    // SpaceH3: lo spazio iperbolico, visto da dentro. L'ambiente e' lo
     // spazio stesso; la camera e' di GLWidget (setHyperbolicSpace). Per il
     // resto vale come una scena 3D.
     enum class SceneSpace { None, Space3D, Space4D, SpaceH3 };

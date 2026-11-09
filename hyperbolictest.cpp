@@ -291,7 +291,7 @@ void testPoincareBallBackground()
 {
     // Lo sfondo Poincare' Ball (bgBallUV in glwidget.cpp) campiona il cielo in
     // normalize(2(1 + p.d) p + (1 - |p|^2) d): l'estremita' della geodetica da p
-    // in direzione d, con la traslazione di Moebius 0 -> p. La camera della 2.1
+    // in direzione d, con la traslazione di Moebius 0 -> p. La camera delle scene H3
     // dovra' guidarlo con la stessa matrice: qui le due cose devono coincidere.
     double moebius = 0.0, sky = 0.0;
     for (int i = 0; i < 200; ++i) {

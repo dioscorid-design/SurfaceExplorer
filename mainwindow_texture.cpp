@@ -2389,7 +2389,7 @@ void MainWindow::updateBackgroundControlsGate()
     // i radio si accendono solo col bersaglio Background E la texture accesa.
     const bool onBackground = editingBackground();
     const bool bgTexture = ui->glWidget && ui->glWidget->isBackgroundTextureEnabled();
-    // SCENA H3 (2.1): la forma non si sceglie, lo sfondo e' il cielo di H3 (il
+    // SCENA H3: la forma non si sceglie, lo sfondo e' il cielo di H3 (il
     // motore la impone, GLWidget::effectiveBackgroundSkyMode). I radio mostrano
     // Poincare' Ball; fuori da H3 di nuovo la scelta salvata nel motore.
     const bool hyperbolic = m_sceneSpace == SceneSpace::SpaceH3;

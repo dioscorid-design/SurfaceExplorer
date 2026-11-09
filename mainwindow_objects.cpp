@@ -457,7 +457,7 @@ const ObjectState &MainWindow::environmentState() const
     return m_objectSessions[0].state;
 }
 
-// In H3 (2.1) niente 4D: lo spazio e' 3D, e una rotazione 4D o un path 4D non
+// In H3 niente 4D: lo spazio e' 3D, e una rotazione 4D o un path 4D non
 // sono isometrie di H3, deformerebbero gli oggetti. Spenti qui i moti (GO e
 // scatti omega/phi/psi, path 4D della camera); il resto del dock 4D
 // (osservatore, luce 4D) lo spegne setSceneSpace.
@@ -711,7 +711,7 @@ void MainWindow::addShapeToScene(const QString &shapePath)
 {
     const LibraryItem *d = m_libraryManager.getSurfaceByPath(shapePath);
     if (!d || d->name.isEmpty()) return;
-    // 2.1: in H3 solo le mesh (GLWidget::hyperbolicObject); il ray marching
+    // In H3 solo le mesh (GLWidget::hyperbolicObject); il ray marching
     // resta fuori dal livello 1.
     if (m_sceneSpace == SceneSpace::SpaceH3 && d->isImplicitMode) {
         QMessageBox::information(this, QStringLiteral("Add to Scene"),
@@ -1344,7 +1344,7 @@ void MainWindow::setupObjectsDock()
     });
 }
 
-// IL LIMITE DI ZOOM IN H3 (2.1): un oggetto entra grande al piu' ~1.75 unita'
+// IL LIMITE DI ZOOM IN H3: un oggetto entra grande al piu' ~1.75 unita'
 // (l'inquadratura della sua Shape, sceneFitScale), e lo zoom si ferma quando
 // sarebbe grande kH3MaxZoomRadii raggi di curvatura, ~10 raggi. Oltre, una mesh
 // in float non lo rappresenta piu': in H3 le circonferenze crescono come sinh

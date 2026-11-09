@@ -150,7 +150,7 @@ layout(std140, binding = 0) uniform SceneUBO {
 // normale per la luce (v_pos, v_normal), sceneClip la posizione sullo schermo.
 // Tutti i rami (superficie, tubi, bordo, wireframe) passano da qui: una sola posa.
 #ifdef HYPERBOLIC
-// SCENA IN H3 (2.1, GLWidget::hyperbolicObjectMatrices). L'isometria che porta il
+// SCENA IN H3 (GLWidget::hyperbolicObjectMatrices). L'isometria che porta il
 // centro dell'oggetto nel riferimento della camera e' k * spinta lungo z di R * kp
 // (H3::splitAlongZ): u_mMatrix = kp * rotazione e scala dell'oggetto, in raggi di
 // curvatura; u_mvMatrix = k nel 3x3 e R in [3][3]; u_mvpMatrix = la sola

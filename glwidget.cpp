@@ -2425,7 +2425,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         resourceUpdates = runObjectCompute(o, cb, resourceUpdates);
     }
 
-    // IL RETICOLO DI H3 (2.1): cella della camera, istanze e uniform. Solo col
+    // IL RETICOLO DI H3: cella della camera, istanze e uniform. Solo col
     // reticolo acceso: altrimenti il percorso del fotogramma resta quello di sempre.
     if (m_hyperbolic && m_h3Lattice) {
         if (!resourceUpdates) resourceUpdates = rhi()->nextResourceUpdateBatch();
@@ -5715,7 +5715,7 @@ void GLWidget::setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &t
     update();
 }
 
-// --- SCENA IPERBOLICA (2.1) ---
+// --- SCENA IPERBOLICA ---
 // Lunghezze in raggi di curvatura: m_h3RadiiPerSceneUnit per unita' della scena
 // (setHyperbolicCurvatureRadius).
 // Oltre questa distanza dal centro (in raggi) la camera non va: le coordinate
@@ -5953,7 +5953,7 @@ void GLWidget::hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMa
     lorentz(3, 3) = float(distance);
 }
 
-// --- IL RETICOLO {4,3,5} (2.1) ---
+// --- IL RETICOLO {4,3,5} ---
 // I pezzi disegnati: le celle col centro entro questa distanza (in raggi)
 // dalla cella centrale del pezzo.
 // - In prospettiva attorno alla cella della camera: entro 3.5 ~6600 spigoli,
@@ -8159,7 +8159,7 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
     // appare dritta), quindi l'alto dello schermo e l'alto del cielo (+Y del
     // mondo) si mappano entrambi su v = 1. Ricavato da cio' che si vede, non dal
     // backend: se lo sfondo fisso e' dritto, lo e' anche il cielo.
-    // HYPERBOLIC_SKY (solo nelle scene H3, 2.1): in ortogonale, la vista da
+    // HYPERBOLIC_SKY (solo nelle scene H3): in ortogonale, la vista da
     // fuori, il cielo e' l'emisfero di fondo della palla di Poincare' (punto
     // della palla = pixel per la mezza altezza in [3][0], le proporzioni in
     // [3][2], piu' lo spostamento laterale in [0][3], [1][3]); il punto
@@ -8394,7 +8394,7 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
                    "layout(binding=1) uniform sampler2D tex;\n"
                    + uboBlock + "\n" + bgBaseUVFunc + "\n" + commonCode + "\n" + dynamicBody;
     }
-    // Scena H3 (2.1): il cielo dell'ortogonale (bgBaseUV). Fuori da H3 lo
+    // Scena H3: il cielo dell'ortogonale (bgBaseUV). Fuori da H3 lo
     // sfondo compila esattamente come prima.
     if (m_hyperbolic) fsSource.replace(QStringLiteral("#version 450"), QStringLiteral("#version 450\n#define HYPERBOLIC_SKY"));
 
@@ -8576,7 +8576,7 @@ QString GLWidget::createVertexShaderSource(SurfaceObject &o, const QString &xEq,
     if (objectHasP(o)) {
         source.replace("#version 450", "#version 450\n#define HAS_OBJECT_P\n");
     }
-    // Scena in H3 (2.1): la posa iperbolica (sceneClip e compagne nel template).
+    // Scena in H3: la posa iperbolica (sceneClip e compagne nel template).
     if (hyperbolicObject(o)) {
         source.replace("#version 450", "#version 450\n#define HYPERBOLIC\n");
     }
@@ -9087,7 +9087,7 @@ QString GLWidget::createFragmentShaderSource(SurfaceObject &o, const QString &cu
     if (o.isCustomMesh) {
         fullSource.replace("#version 450", "#version 450\n#define CUSTOM_MESH\n");
     }
-    // Scena in H3 (2.1): la luce sta sulla camera e arriva lungo la geodetica.
+    // Scena in H3: la luce sta sulla camera e arriva lungo la geodetica.
     if (hyperbolicObject(o)) {
         fullSource.replace("#version 450", "#version 450\n#define HYPERBOLIC\n");
     }

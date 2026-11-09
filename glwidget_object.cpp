@@ -76,7 +76,7 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
         mvp = rhi()->clipSpaceCorrMatrix() * m_projection * m_view * o.model;
         mv = m_view * o.model;
     }
-    // IN H3 (2.1) le tre matrici cambiano significato, il blocco UBO no (un
+    // IN H3 le tre matrici cambiano significato, il blocco UBO no (un
     // campo nuovo andrebbe dichiarato nei due shader, vedi CLAUDE.md):
     // u_mMatrix = la parte locale dell'oggetto, u_mvMatrix = l'isometria di
     // Lorentz verso la camera, u_mvpMatrix = la sola proiezione. Le legge il

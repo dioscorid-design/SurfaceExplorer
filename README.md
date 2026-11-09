@@ -37,7 +37,7 @@ You don't need to compile the project to try it! Check out the **[Latest Release
 * **Linux**: Download `SurfaceExplorer-*-linux-x86_64.AppImage` — a self-contained binary that bundles Qt, so it runs on any x86_64 distribution with no installation. Every release page carries the exact commands to make it executable and, with `install-linux.sh`, to add it to your applications menu.
 * **iPhone and iPad**: available on the [App Store](https://apps.apple.com/app/id6787015297).
 
-Version 1.4 is available for every platform. macOS already has [v1.5](https://github.com/dioscorid-design/SurfaceExplorer/releases/tag/v1.5), and the 2.0 and 2.1 betas for macOS add scenes with several surfaces together.
+Version 1.4 is available for every platform. macOS already has [v1.5](https://github.com/dioscorid-design/SurfaceExplorer/releases/tag/v1.5), and the [2.0 beta](https://github.com/dioscorid-design/SurfaceExplorer/releases/tag/v2.0-beta) for macOS adds scenes with several surfaces together.
 
 ## 🛠️ Build from Source
 To compile Surface Explorer manually, ensure you have **Qt 6.10.2** and **CMake** installed:

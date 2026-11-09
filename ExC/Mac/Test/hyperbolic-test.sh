@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# hyperbolic-test.sh - Test del nucleo matematico di H3 (hyperbolicspace.h, 2.1).
+# hyperbolic-test.sh - Test del nucleo matematico di H3 (hyperbolicspace.h).
 #
 # Compila e lancia build/Tests/hyperbolic-test: un programma a se', senza
 # finestra ne' GPU, che confronta il nucleo con le formule chiuse della

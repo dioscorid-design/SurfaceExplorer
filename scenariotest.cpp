@@ -8878,7 +8878,7 @@ void ScenarioTest::runSceneH3Scenarios()
     GLWidget *gl = m_mw->ui->glWidget;
     using Space = MainWindow::SceneSpace;
     m_lines.append(QString());
-    m_lines.append(QStringLiteral("== Scena H3 (2.1): avvio a scena vuota, camera come isometria, rifiuti, RESET View, NEW =="));
+    m_lines.append(QStringLiteral("== Scena H3: avvio a scena vuota, camera come isometria, rifiuti, RESET View, NEW =="));
     const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
     const QString kRM = QStringLiteral("surfaces/Implicit/3D/Sphere.json");
     const QString kTrefoil = QStringLiteral("surfaces/Parametric/Solid Curves/Single Curves/Trefoil Knot.json");

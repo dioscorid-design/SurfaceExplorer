@@ -288,7 +288,7 @@ void main() {
     float nDotL = dot(N, L);
     float nDotH = dot(N, H);
 #ifdef HYPERBOLIC
-    // H3 (2.1): in H3 non ci sono direzioni parallele. La luce arriva lungo il
+    // In H3 non ci sono direzioni parallele. La luce arriva lungo il
     // raggio che forma l'immagine, come la vista, quindi luce e vista sono la
     // stessa direzione e conta solo il coseno fra quel raggio e la normale.
     // v_pos e v_normal sono punto e normale (unitaria) sull'iperboloide, nel

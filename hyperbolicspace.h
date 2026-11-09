@@ -1,4 +1,4 @@
-// hyperbolicspace.h - Lo spazio iperbolico H3 (2.1): punti, isometrie, mappa
+// hyperbolicspace.h - Lo spazio iperbolico H3: punti, isometrie, mappa
 // esponenziale. E' il nucleo matematico delle scene dentro H3 viste da un
 // abitante: la camera e le pose degli oggetti sono isometrie di questo file.
 //
@@ -79,7 +79,7 @@ double isometryError(const Matrix &m);
 // invece di sottrarre numeri grandi come e^r in float.
 void splitAlongZ(const Matrix &m, Matrix &k, double &distance, Matrix &kp);
 
-// IL RETICOLO {4,3,5} (2.1, le pareti della scena H3): cubi con angoli diedri di
+// IL RETICOLO {4,3,5} (le pareti della scena H3): cubi con angoli diedri di
 // 72 gradi, cinque attorno a ogni spigolo, venti attorno a ogni vertice. Il cubo
 // centrale, nella carta di Klein, e' [-a, a]^3 con cos(72) = a^2 / (1 - a^2); gli
 // altri sono le sue immagini per le riflessioni nelle facce (isometrie di Lorentz).
