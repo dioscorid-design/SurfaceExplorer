@@ -66,6 +66,20 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
 #endif
     // ---------------------------------------
 
+    // SPAZIO DELLE FRECCE NEGLI SPINBOX (%3 qui sotto). Con Qt 6.10 il campo di
+    // testo di uno spinbox stilizzato arrivava sotto le frecce, e padding-right:
+    // 18px teneva il numero fuori da li'. Con Qt 6.12 il campo finisce gia' dove
+    // cominciano le frecce e la larghezza minima le conta da se': il padding le
+    // contava una seconda volta, +18px a campo (misurato con 6.12.0: campo
+    // 0..87, frecce 87..106, numero identico con e senza padding). Il dock
+    // Objects, con X Y Z in una riga, era passato da 372 a 432px di minimo,
+    // oltre i 400 del dock (test degli scenari, sezione scene-path).
+#if QT_VERSION >= QT_VERSION_CHECK(6, 12, 0)
+    const QString spinArrowRoom;
+#else
+    const QString spinArrowRoom = QStringLiteral("QAbstractSpinBox { padding-right: 18px; }");
+#endif
+
     // 3. IL TUO FOGLIO DI STILE (QSS)
     // Usa QString(...) e .arg() alla fine per iniettare i font
     QString darkStyle = QString(R"(
@@ -150,13 +164,14 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
         QPlainTextEdit:focus, QLineEdit:focus { border: 2px solid #007ACC; }
         /* Spazio a destra per le due frecce (18px = 16 + margine), o il numero
            ci finisce sotto: il padding: 4px ereditato dalla regola condivisa
-           con QLineEdit non ne lascia abbastanza.
+           con QLineEdit non ne lascia abbastanza. Solo prima di Qt 6.12
+           (spinArrowRoom, sopra): da 6.12 le frecce stanno gia' fuori dal campo.
            ESCLUSO il caso mobile: li' le frecce native non ci sono
            (installMobileSpinButtons -> NoButtons + due QPushButton esterni) e
            un padding a destra scentrerebbe il numero, che invece e' impostato
            su AlignCenter. La proprieta' "mobileSpinButtons" la mette proprio
            quella funzione; il ramo mobile la rimette a 0 subito sotto. */
-        QAbstractSpinBox { padding-right: 18px; }
+        %3
         QAbstractSpinBox[mobileSpinButtons="true"] { padding-right: 4px; }
 
         /* --- FRECCE DEI QSPINBOX ---
@@ -170,9 +185,11 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
            QAbstractSpinBox e non QSpinBox: le regole valgono anche per i
            QDoubleSpinBox (dock Objects), che di QSpinBox non sono sottoclassi
            e restavano con l'aspetto nativo, diverso dal selettore Mesh.
-           I triangoli sono fatti coi bordi (box di lato zero + tre bordi
-           trasparenti): niente PNG da aggiungere al .qrc, che e' GENERATO da
-           update_resources.py e andrebbe tenuto in sincrono a mano.
+           I triangoli sono PNG delle risorse (:/ui, generate da
+           ui/make_icons.py, con le varianti @2x). Prima erano fatti coi bordi
+           (box di lato zero + tre bordi trasparenti): con Qt 6.12 uscivano
+           rettangoli pieni. Non SVG in linea (url("data:...")): il foglio di
+           stile di Qt non carica gli URL data: e le frecce sparivano.
            NB: su mobile le frecce native sono nascoste apposta
            (ButtonSymbols::NoButtons) e rimpiazzate da due QPushButton grandi in
            installMobileSpinButtons(); li' queste regole non si applicano. */
@@ -201,22 +218,18 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
             border-color: #444;
         }
         QAbstractSpinBox::up-arrow {
-            width: 0px; height: 0px;
-            border-left: 4px solid transparent;
-            border-right: 4px solid transparent;
-            border-bottom: 5px solid #E0E0E0;
+            image: url(:/ui/spin-up.png);
+            width: 8px; height: 5px;
         }
         QAbstractSpinBox::down-arrow {
-            width: 0px; height: 0px;
-            border-left: 4px solid transparent;
-            border-right: 4px solid transparent;
-            border-top: 5px solid #E0E0E0;
+            image: url(:/ui/spin-down.png);
+            width: 8px; height: 5px;
         }
         QAbstractSpinBox::up-arrow:disabled, QAbstractSpinBox::up-arrow:off {
-            border-bottom-color: #666;
+            image: url(:/ui/spin-up-off.png);
         }
         QAbstractSpinBox::down-arrow:disabled, QAbstractSpinBox::down-arrow:off {
-            border-top-color: #666;
+            image: url(:/ui/spin-down-off.png);
         }
 
         /* --- GROUP BOX --- */
@@ -378,7 +391,7 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
         QSlider::handle:horizontal:pressed {
             background: #0098FF;
         }
-    )").arg(baseFontSize, inputFontSize);
+    )").arg(baseFontSize, inputFontSize, spinArrowRoom);
 
     // ==========================================================
     // 4. FIX: STILE CHECKBOX E RADIO BUTTON (Alto Contrasto e Pallino Solido)
@@ -422,7 +435,10 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
         QCheckBox::indicator:checked {
             background-color: #007ACC;
             border: 2px solid #007ACC;
-            image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3 8.5 L6.5 12 L13 4' stroke='%23FFFFFF' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+            /* La spunta: PNG delle risorse (ui/make_icons.py). Era un SVG in
+               linea (url("data:...")), che il foglio di stile di Qt non carica:
+               la checkbox accesa restava un quadrato blu pieno. */
+            image: url(:/ui/check.png);
         }
         QCheckBox::indicator:disabled {
             background-color: #2D2D30;

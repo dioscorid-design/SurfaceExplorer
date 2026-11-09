@@ -546,6 +546,17 @@
         <file>docs/doc_library-management.html</file>
         <file>docs/doc_modular-controls.html</file>
         <file>docs/doc_acknowledgments.html</file>
+        <file>ui/spin-up.png</file>
+        <file>ui/spin-up@2x.png</file>
+        <file>ui/spin-down.png</file>
+        <file>ui/spin-down@2x.png</file>
+        <file>ui/spin-up-off.png</file>
+        <file>ui/spin-up-off@2x.png</file>
+        <file>ui/spin-down-off.png</file>
+        <file>ui/spin-down-off@2x.png</file>
+        <file>ui/check.png</file>
+        <file>ui/check@2x.png</file>
+        <file>ui/check@3x.png</file>
         <file>shaders/surface.frag</file>
         <file>shaders/common.glsl</file>
         <file>shaders/geodesic.glsl</file>

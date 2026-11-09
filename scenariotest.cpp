@@ -2378,7 +2378,7 @@ void ScenarioTest::run()
     const QString kDispRecord = QStringLiteral("records/Animations/Implicit/3D/Blistered Gyroid.json");
     const QString kLimestone  = QStringLiteral("textures/Ray Marching/Materials/Limestone.json");
     const QString kFbm        = QStringLiteral("textures/Ray Marching/Fractal Noise FBm.json");
-    const QString kFractal    = QStringLiteral("textures/Ray Marching/Fractal Noise.json");
+    const QString kFractal    = QStringLiteral("textures/Ray Marching/Materials/Fractal Noise.json");
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Displacement: Ray Marching (%1) ==").arg(kDispRecord));
     if (loadRecord(kDispRecord)) {
@@ -4895,7 +4895,7 @@ void ScenarioTest::runBorderScenarios()
                   QStringLiteral("immagine col bersaglio Border -> immagine sul bordo, ferma"));
         const QString imageCode = gl->borderTextureCode();
         const int popups = m_popupsClosed;
-        selectTexture(QStringLiteral("textures/Ray Marching/Fractal Noise.json"));
+        selectTexture(QStringLiteral("textures/Ray Marching/Materials/Fractal Noise.json"));
         check(gl->borderTextureCode() == imageCode && m_popupsClosed == popups + 1 && !m_mw->implicitMode(),
               QStringLiteral("texture Ray Marching col bersaglio Border -> rifiutata con un avviso, niente cambio di modalita'"));
 
@@ -4908,7 +4908,10 @@ void ScenarioTest::runBorderScenarios()
         m_mw->applySurfaceExample(saved);  wait(1500);
         click(ui->radioBorder);
         check(gl->borderTextureCode() == imageCode && gl->borderTextureShown() && ui->chkBoxTexture->isChecked(),
-              QStringLiteral("Save riaperto -> immagine sul bordo, checkbox acceso"));
+              QStringLiteral("Save riaperto -> immagine sul bordo, checkbox acceso (codice %1, mostrata %2, checkbox %3)")
+                  .arg(gl->borderTextureCode() == imageCode ? QStringLiteral("uguale")
+                                                            : QStringLiteral("\"%1\"").arg(gl->borderTextureCode().left(40)),
+                       onOff(gl->borderTextureShown()), onOff(ui->chkBoxTexture->isChecked())));
 
         // FOCUS DELLA LIBRARY IN UN RECORD: ogni bersaglio evidenzia la SUA
         // texture. Superficie con Disco Sun Vortex, bordo con Plasma.
@@ -9622,10 +9625,53 @@ void ScenarioTest::runScenePathScenarios()
           QStringLiteral("oggetto selezionato: R, angoli e viste spenti, sono della camera"));
 
     // Il dock Objects largo come gli altri (400) e il suo contenuto ci sta.
-    check(m_mw->m_dockObjects->minimumWidth() == 400 && m_mw->m_dockObjects->maximumWidth() == 400
-              && m_mw->m_dockObjects->widget()->minimumSizeHint().width() <= 400,
-          QStringLiteral("dock Objects largo 400 come gli altri (contenuto: minimo %1)")
-              .arg(m_mw->m_dockObjects->widget()->minimumSizeHint().width()));
+    // Se non ci sta, il messaggio dice quanto chiede ogni riga visibile: col
+    // passaggio a Qt 6.12 il minimo era salito da 372 a 432 senza che il dock
+    // cambiasse, e il solo totale non diceva quale riga sforava.
+    {
+        QWidget *content = m_mw->m_dockObjects->widget();
+        const int need = content->minimumSizeHint().width();
+        QStringList rows;
+        if (need > 400 && content->layout()) {
+            QLayout *lay = content->layout();
+            const QMargins m = lay->contentsMargins();
+            rows << QStringLiteral("margini %1+%2").arg(m.left()).arg(m.right());
+            for (int i = 0; i < lay->count(); ++i) {
+                QLayoutItem *item = lay->itemAt(i);
+                if (item->isEmpty()) continue;
+                QStringList parts;
+                const auto describe = [&parts](QWidget *x) {
+                    const QString name = qobject_cast<QLabel *>(x)
+                        ? static_cast<QLabel *>(x)->text().left(12)
+                        : QString::fromLatin1(x->metaObject()->className()).remove(QLatin1Char('Q'));
+                    parts << QStringLiteral("%1(%2)").arg(name).arg(x->minimumSizeHint().width());
+                };
+                if (item->widget()) describe(item->widget());
+                else if (QLayout *row = item->layout())
+                    for (int j = 0; j < row->count(); ++j)
+                        if (QWidget *x = row->itemAt(j)->widget(); x && !row->itemAt(j)->isEmpty())
+                            describe(x);
+                rows << QStringLiteral("%1 = %2").arg(parts.join(QLatin1Char(' '))).arg(item->minimumSize().width());
+            }
+        }
+        check(m_mw->m_dockObjects->minimumWidth() == 400 && m_mw->m_dockObjects->maximumWidth() == 400
+                  && need <= 400,
+              QStringLiteral("dock Objects largo 400 come gli altri (contenuto: minimo %1%2)")
+                  .arg(need)
+                  .arg(rows.isEmpty() ? QString() : QStringLiteral("; ") + rows.join(QStringLiteral("; "))));
+    }
+    // Le icone del foglio di stile (frecce degli spinbox, spunta delle
+    // checkbox): se mancano dal .qrc il foglio di stile non dice nulla e le
+    // frecce e la spunta semplicemente non si vedono (ui/make_icons.py).
+    {
+        QStringList missing;
+        for (const char *name : { "spin-up", "spin-down", "spin-up-off", "spin-down-off", "check" })
+            if (QPixmap(QStringLiteral(":/ui/%1.png").arg(QLatin1String(name))).isNull())
+                missing << QLatin1String(name);
+        check(missing.isEmpty(),
+              QStringLiteral("icone del foglio di stile nelle risorse (mancano: %1)")
+                  .arg(missing.isEmpty() ? QStringLiteral("nessuna") : missing.join(QStringLiteral(", "))));
+    }
 
     // Dal dock: la virgola di mod(t,2) resta (niente sostituzione col punto).
     // Il path fermo aspetta il suo GO: l'Invio non applica nulla.
