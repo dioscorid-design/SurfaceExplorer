@@ -109,7 +109,8 @@ cd /Users/dioscorid/Projects/C/SurfaceExplorer
 
 Dettagli:
 - **Build number auto-incrementale**: legge il valore corrente da CMakeLists.txt e fa +1,
-  sincronizzando i 3 punti (CMake ×2 + Info.plist) con verifica di coerenza e `plutil -lint`.
+  sincronizzando i campi del CMakeLists con verifica di coerenza (i plist non hanno numeri:
+  leggono `${MACOSX_BUNDLE_BUNDLE_VERSION}`, e lo script controlla che restino cosi').
   NON tocca la versione marketing X.Y (quella si cambia con `ExC/bump-version.sh`).
 - **Fa da sé la pulizia critica** del passo 4 (DerivedData + `build/ios-appstore`): niente
   binari stantii.
@@ -141,13 +142,10 @@ XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "N"  # <- incrementa (stesso valore)
 > **quattro** volte (due per ramo). Gli script le allineano tutte; a mano, tienile
 > allineate anche tu — un valore rimasto indietro produce un archivio con un build number
 > diverso da quello che credi di star caricando.
-Poi apri **Info.plist** e cambia lo stesso numero:
-```xml
-<key>CFBundleVersion</key>
-<string>N</string>
-```
-(`CFBundleShortVersionString` / `MARKETING_VERSION` = "3.0" resta invariato finché non
-cambi la versione "commerciale", es. per la 3.1 o 4.0.)
+**Info.plist** e **Info-macos.plist** non vanno toccati: `CFBundleVersion` vale
+`${MACOSX_BUNDLE_BUNDLE_VERSION}` e `CFBundleShortVersionString` vale
+`${MACOSX_BUNDLE_SHORT_VERSION_STRING}`, che CMake riempie da questi campi e da
+`project(... VERSION X.Y)` (anche col generatore Xcode). Non rimetterci un numero.
 
 Committa e pusha (buona pratica, non strettamente necessario per il build):
 ```bash
@@ -341,8 +339,8 @@ Mac App Store (iOS non la richiede), quindi non si era mai vista.
 `LSRequiresIPhoneOS=true` e porta chiavi UIKit (`UILaunchScreen`, orientamenti, status bar)
 prive di senso su Mac.
 
-> ⚠️ **Ora i plist da tenere allineati sono DUE.** `release_testflight_mac.sh` bumpa
-> entrambi; a mano, ricordarsi del secondo file.
+> I plist sono DUE, ma nessuno dei due contiene numeri di versione o di build: li
+> ricevono dal CMakeLists (`${MACOSX_BUNDLE_*}`), quindi non possono divergere.
 
 La categoria nel plist accetta **un solo valore** e **non** è quella mostrata nello Store:
 le categorie primaria e secondaria si impostano sulla scheda prodotto di App Store Connect

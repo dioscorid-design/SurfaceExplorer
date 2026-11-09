@@ -5,7 +5,8 @@
 # Automatizza i passi 3-5 della guida ExC/docs/GUIDA_rilascio_build_ios_macos.md:
 #   1. Incrementa il BUILD NUMBER (+1) in TUTTI i punti coerenti:
 #        CMakeLists.txt : MACOSX_BUNDLE_BUNDLE_VERSION, XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION
-#        Info.plist     : CFBundleVersion
+#        (Info.plist e Info-macos.plist lo leggono da li': CFBundleVersion vale
+#         ${MACOSX_BUNDLE_BUNDLE_VERSION}; lo script verifica che resti cosi')
 #      (la VERSIONE MARKETING X.Y NON viene toccata: si cambia con ExC/bump-version.sh)
 #   2. Committa il bump (a meno di --no-commit).
 #   3. Pulisce la cache Xcode (DerivedData) e la cartella del progetto iOS generato:
@@ -99,21 +100,19 @@ sed -E \
   -e "s/(XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION[[:space:]]+\")[0-9]+(\")/\1${NEW_BUILD}\2/" \
   "$CMAKE" > "$tmp" && mv "$tmp" "$CMAKE"
 
-# --- Info.plist: <string> sulla riga DOPO la chiave CFBundleVersion ---
-tmp="$(mktemp)"
-awk -v v="$NEW_BUILD" '
-  f && /<string>[0-9]+<\/string>/ { sub(/<string>[0-9]+<\/string>/, "<string>" v "</string>"); f=0 }
-  /<key>CFBundleVersion<\/key>/ { f=1 }
-  { print }
-' "$PLIST" > "$tmp" && mv "$tmp" "$PLIST"
+# --- Info.plist: nessun numero da scrivere ---
+# Dal 40a02ee CFBundleVersion vale ${MACOSX_BUNDLE_BUNDLE_VERSION}, che CMake
+# riempie dal campo qui sopra (anche col generatore Xcode). Prima lo script vi
+# scriveva il numero; ora verifica solo che nessuno ce ne abbia rimesso uno.
 
-# --- Verifica coerenza dei tre punti ---
+# --- Verifica coerenza ---
 C1="$(sed -nE 's/.*MACOSX_BUNDLE_BUNDLE_VERSION[[:space:]]+"([0-9]+)".*/\1/p' "$CMAKE" | head -1)"
 C2="$(sed -nE 's/.*XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION[[:space:]]+"([0-9]+)".*/\1/p' "$CMAKE" | head -1)"
-P1="$(awk '/<key>CFBundleVersion<\/key>/{getline; gsub(/[^0-9]/,""); print; exit}' "$PLIST")"
-[ "$C1" = "$NEW_BUILD" ] && [ "$C2" = "$NEW_BUILD" ] && [ "$P1" = "$NEW_BUILD" ] \
-  || err "Bump build number incoerente: CMake($C1,$C2) Plist($P1), atteso $NEW_BUILD. Controlla i file."
-ok "Build number aggiornato a $NEW_BUILD (CMake x2 + Info.plist)."
+[ "$C1" = "$NEW_BUILD" ] && [ "$C2" = "$NEW_BUILD" ] \
+  || err "Bump build number incoerente: CMake($C1,$C2), atteso $NEW_BUILD. Controlla i file."
+grep -A1 '<key>CFBundleVersion</key>' "$PLIST" | grep -qF '<string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>' \
+  || err "Info.plist: CFBundleVersion deve valere \${MACOSX_BUNDLE_BUNDLE_VERSION}, non un numero."
+ok "Build number aggiornato a $NEW_BUILD (CMake x2; Info.plist lo legge da li')."
 
 # Info.plist deve restare un plist valido (una copia-cartella lo puo' corrompere).
 plutil -lint "$PLIST" >/dev/null || err "Info.plist non valido dopo il bump (plutil -lint fallito)."

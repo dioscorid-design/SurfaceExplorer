@@ -4,8 +4,10 @@ cmake_minimum_required(VERSION 3.16)
 # dialogo About stampa. Prima il numero era scritto a mano anche in
 # mainwindow.cpp e restava indietro a ogni bump (bump-version.sh non poteva
 # raggiungerlo e si limitava a stampare un promemoria).
-# Info.plist resta un file a parte, aggiornato da ExC/Mac/bump-version.sh.
-project(SurfaceExplorer VERSION 2.1 LANGUAGES CXX)
+# Info.plist e Info-macos.plist non contengono numeri: CFBundleShortVersionString
+# e CFBundleVersion arrivano da qui (${MACOSX_BUNDLE_SHORT_VERSION_STRING},
+# ${MACOSX_BUNDLE_BUNDLE_VERSION}, sostituiti da CMake anche col generatore Xcode).
+project(SurfaceExplorer VERSION 2.0 LANGUAGES CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -122,7 +124,7 @@ qt_add_executable(SurfaceExplorer
     surfaceobject.h
     geometrybuilder.cpp
     geometrybuilder.h
-    # 2.1: lo spazio iperbolico H3 (punti, isometrie, carte).
+    # Lo spazio iperbolico H3 (punti, isometrie, carte).
     hyperbolicspace.cpp
     hyperbolicspace.h
 
@@ -317,8 +319,9 @@ elseif (APPLE)
     # dall'utente): la 2.1 e' "Surface Explorer v2.1", id "...surfaceexplorer21.dmg", e
     # sta in Applicazioni ACCANTO alla 2.0 invece di sostituirla. Prima il nome portava
     # solo la major, apposta perche' la 2.1 aggiornasse la 2.0. La .0 tiene il nome e
-    # l'id di sempre ("Surface Explorer v2", "...surfaceexplorer2.dmg"): la 2.0 gia'
-    # installata non cambia identita' quando questo ramo confluira' in v2.
+    # l'id di sempre ("Surface Explorer v2", "...surfaceexplorer2.dmg"). Il ramo v2.1
+    # (le scene in H3) e' confluito nella 2.0 il 2026-11-09 senza uscire come 2.1:
+    # la 2.0 installata ha tenuto la sua identita'.
     # Al primo avvio la 2.1 copia le impostazioni della 2.0 (main.cpp).
     if (CMAKE_GENERATOR STREQUAL "Xcode" OR SE_APPSTORE_ID)
         set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer")        # App Store
@@ -382,8 +385,8 @@ elseif (APPLE)
     set(CMAKE_XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${SE_MACOS_BUNDLE_ID}")
 
     set_target_properties(SurfaceExplorer PROPERTIES
-        # Build number e versione marketing: stessi campi che il bump di
-        # release_testflight_mac.sh tiene allineati con Info.plist.
+        # Build number e versione marketing: il build number lo incrementa
+        # release_testflight_mac.sh; Info-macos.plist li legge da qui.
         MACOSX_BUNDLE_BUNDLE_VERSION "62"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "62"
