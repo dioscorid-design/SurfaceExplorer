@@ -22,7 +22,8 @@ PROJECT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 BIN="$PROJECT_DIR/build/Tests/hyperbolic-test"
 OUT="$PROJECT_DIR/build/test-reports/hyperbolic-$(date +%Y%m%d-%H%M%S)"
 
-TARGET=hyperbolic-test "$(dirname "$0")/build-tests.sh"
+# Con bash: nel repo gli script sono 644 (core.fileMode=false), senza bit x.
+TARGET=hyperbolic-test bash "$(dirname "$0")/build-tests.sh"
 mkdir -p "$OUT"
 
 RC=0
