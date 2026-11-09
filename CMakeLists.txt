@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.16)
 # mainwindow.cpp e restava indietro a ogni bump (bump-version.sh non poteva
 # raggiungerlo e si limitava a stampare un promemoria).
 # Info.plist resta un file a parte, aggiornato da ExC/Mac/bump-version.sh.
-project(SurfaceExplorer VERSION 2.0 LANGUAGES CXX)
+project(SurfaceExplorer VERSION 2.1 LANGUAGES CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -122,6 +122,9 @@ qt_add_executable(SurfaceExplorer
     surfaceobject.h
     geometrybuilder.cpp
     geometrybuilder.h
+    # 2.1: lo spazio iperbolico H3 (punti, isometrie, carte).
+    hyperbolicspace.cpp
+    hyperbolicspace.h
 
 
 
@@ -305,18 +308,28 @@ elseif (APPLE)
     # La 2.x DMG ha un'identita' PROPRIA (id "...surfaceexplorer2.dmg" e nome "Surface
     # Explorer v2") per poter stare in Applicazioni accanto alla 1.x: con lo stesso id e lo
     # stesso nome le due app erano la stessa applicazione per launchd, il Dock e TCC, e
-    # una sostituiva l'altra. Nel nome solo la major, come nell'id: con "2.0" la 2.1 si
-    # sarebbe installata accanto alla 2.0, stesso id e cartella diversa. La "v" serve:
-    # senza si confonderebbe con "SurfaceExplorer 2", la copia TestFlight in Applicazioni
-    # accanto a SurfaceExplorer.app (il "2" lo aggiunge macOS alla cartella). Il suffisso
-    # ".dmg" resta: main.cpp lo usa per riconoscere il canale (e "surfaceexplorer2" per
-    # scegliere il dominio delle impostazioni).
+    # una sostituiva l'altra. La "v" serve: senza si confonderebbe con "SurfaceExplorer
+    # 2", la copia TestFlight in Applicazioni accanto a SurfaceExplorer.app (il "2" lo
+    # aggiunge macOS alla cartella). Il suffisso ".dmg" resta: main.cpp lo usa per
+    # riconoscere il canale, e il numero dopo "surfaceexplorer" per scegliere il dominio
+    # delle impostazioni.
+    # LE MINORI DOPO LA .0 HANNO UN'IDENTITA' LORO (dal 2026-11-07, chiesto
+    # dall'utente): la 2.1 e' "Surface Explorer v2.1", id "...surfaceexplorer21.dmg", e
+    # sta in Applicazioni ACCANTO alla 2.0 invece di sostituirla. Prima il nome portava
+    # solo la major, apposta perche' la 2.1 aggiornasse la 2.0. La .0 tiene il nome e
+    # l'id di sempre ("Surface Explorer v2", "...surfaceexplorer2.dmg"): la 2.0 gia'
+    # installata non cambia identita' quando questo ramo confluira' in v2.
+    # Al primo avvio la 2.1 copia le impostazioni della 2.0 (main.cpp).
     if (CMAKE_GENERATOR STREQUAL "Xcode" OR SE_APPSTORE_ID)
         set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer")        # App Store
         set(SE_MACOS_BUNDLE_NAME "Surface Explorer")
-    else()
-        set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer2.dmg")   # Developer ID, 2.x
+    elseif (PROJECT_VERSION_MINOR EQUAL 0)                              # Developer ID, x.0
+        set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer${PROJECT_VERSION_MAJOR}.dmg")
         set(SE_MACOS_BUNDLE_NAME "Surface Explorer v${PROJECT_VERSION_MAJOR}")
+    else()                                                              # Developer ID, x.y
+        set(SE_MACOS_BUNDLE_ID
+            "com.dioscorid.surfaceexplorer${PROJECT_VERSION_MAJOR}${PROJECT_VERSION_MINOR}.dmg")
+        set(SE_MACOS_BUNDLE_NAME "Surface Explorer v${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}")
     endif()
 
     # --- CONFIGURAZIONE NOME APP MACOS ---
@@ -514,6 +527,9 @@ if((CMAKE_BUILD_TYPE STREQUAL "Debug" OR SE_SELF_TESTS) AND NOT ANDROID AND NOT 
         set_source_files_properties(testactivity.mm PROPERTIES LANGUAGE CXX)
     endif()
     target_compile_definitions(SurfaceExplorer PRIVATE SE_SELF_TESTS)
+    # Il nucleo di H3 si prova da solo, senza finestra ne' Qt: hyperbolic-test.sh.
+    add_executable(hyperbolic-test hyperbolictest.cpp hyperbolicspace.cpp hyperbolicspace.h)
+    set_target_properties(hyperbolic-test PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 endif()
 
 # --- SECURITY-SCOPED BOOKMARK (solo canale App Store, ma compilato ovunque) ---

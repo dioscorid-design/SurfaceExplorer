@@ -3,6 +3,7 @@
 #include <QIcon>
 #include <QSettings>
 #include <QDir>
+#include <QRegularExpression>
 #include <QWindow>
 #include <QScreen>
 #include "mainwindow.h"
@@ -106,35 +107,50 @@ int main(int argc, char *argv[])
                                    + QStringLiteral("/../Info.plist"),
                                    QSettings::NativeFormat);
         const QString id = bundleInfo.value(QStringLiteral("CFBundleIdentifier")).toString();
-        // La 2.0 DMG ("...surfaceexplorer2.dmg") ha il suo dominio, cosi' sta in
-        // Applicazioni accanto alla 1.x senza contendersi le impostazioni.
+        // Ogni app DMG ha il suo dominio, preso dal numero dopo "surfaceexplorer" nell'id
+        // (CMakeLists): "" la 1.x, "2" la 2.0, "21" la 2.1. Cosi' stanno in Applicazioni
+        // una accanto all'altra senza contendersi le impostazioni.
         const bool isDmg = id.endsWith(QLatin1String(".dmg"));
-        const bool isV2 = id.contains(QLatin1String("surfaceexplorer2"));
-        QCoreApplication::setApplicationName(isDmg ? (isV2 ? QStringLiteral("SurfaceExplorer2-dmg")
-                                                            : QStringLiteral("SurfaceExplorer-dmg"))
+        static const QRegularExpression dmgIdRe(QStringLiteral("surfaceexplorer(\\d*)\\.dmg$"));
+        const QRegularExpressionMatch idMatch = dmgIdRe.match(id);
+        const QString series = idMatch.hasMatch() ? idMatch.captured(1) : QString();
+        QCoreApplication::setApplicationName(isDmg ? QStringLiteral("SurfaceExplorer%1-dmg").arg(series)
                                                    : QStringLiteral("SurfaceExplorer"));
-        // Primo avvio col dominio nuovo: si riparte dalle impostazioni della 1.x
-        // (cartella della libreria, finestre, scelte) invece di chiedere tutto da capo.
-        // Da qui in poi le impostazioni sono separate: resta in comune solo la cartella
-        // della libreria, finche' si sceglie la stessa.
-        if (isDmg && isV2) {
+        // Primo avvio col dominio nuovo: si riparte dalle impostazioni della versione
+        // precedente (cartella della libreria, ultime cartelle dei dialoghi, scelte del
+        // REC) invece di chiedere tutto da capo. Da qui in poi le impostazioni sono
+        // separate: resta in comune solo la cartella della libreria, finche' si sceglie
+        // la stessa. La 2.0 parte dalla 1.x; dalla 2.1 in poi si parte dalla 2.0, o
+        // dalla 1.x se la 2.0 non e' mai stata installata.
+        if (isDmg && !series.isEmpty()) {
+            const QString prefs = QDir::homePath() + QStringLiteral("/Library/Preferences/");
+            const QString from1x = prefs + QStringLiteral("com.dioscorid.SurfaceExplorer-dmg.plist");
+            const QString from20 = prefs + QStringLiteral("com.dioscorid.SurfaceExplorer2-dmg.plist");
+            const QStringList sources = (series == QLatin1String("2")) ? QStringList{ from1x }
+                                                                        : QStringList{ from20, from1x };
+            // La chiave della 2.0 resta quella di sempre (la sua installazione l'ha gia').
+            const QString doneKey = (series == QLatin1String("2")) ? QStringLiteral("settings1xImportDone")
+                                                                    : QStringLiteral("settingsImportDone");
             // Non si guarda allKeys(): su macOS QSettings unisce anche i domini piu' larghi
             // (organizzazione, globale), quindi non e' mai vuoto. Basta la cartella della
-            // libreria per dire "primo avvio": la chiede sempre, e la 1.x la ha gia'. Le
-            // impostazioni della 1.x si leggono dal suo file, non dal dominio, per non
-            // portarsi dietro anche le chiavi globali del sistema.
+            // libreria per dire "primo avvio": la chiede sempre, e la versione precedente
+            // la ha gia'. Le impostazioni precedenti si leggono dal loro file, non dal
+            // dominio, per non portarsi dietro anche le chiavi globali del sistema.
             QSettings mine;
             // Una volta sola: la cartella puo' mancare anche dopo (una radice di sistema
-            // si toglie), e ripetere l'import cancellerebbe le scelte fatte nella 2.x.
-            if (!mine.value(QStringLiteral("settings1xImportDone")).toBool()) {
+            // si toglie), e ripetere l'import cancellerebbe le scelte fatte qui.
+            if (!mine.value(doneKey).toBool()) {
                 if (!mine.contains(QStringLiteral("libraryRootPath"))) {
-                    const QSettings old(QDir::homePath()
-                                        + QStringLiteral("/Library/Preferences/com.dioscorid.SurfaceExplorer-dmg.plist"),
-                                        QSettings::NativeFormat);
-                    for (const QString &key : old.allKeys())
-                        mine.setValue(key, old.value(key));
+                    for (const QString &file : sources) {
+                        const QSettings old(file, QSettings::NativeFormat);
+                        if (!old.contains(QStringLiteral("libraryRootPath"))) continue;
+                        for (const QString &key : old.allKeys())
+                            if (!key.startsWith(QLatin1String("settings")) || !key.endsWith(QLatin1String("ImportDone")))
+                                mine.setValue(key, old.value(key));
+                        break;
+                    }
                 }
-                mine.setValue(QStringLiteral("settings1xImportDone"), true);
+                mine.setValue(doneKey, true);
                 mine.sync();
             }
         }

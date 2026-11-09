@@ -4,6 +4,7 @@
 #include "surfaceengine.h"
 #include "geometrybuilder.h"   // WireframeRange (intervalli per parte di mesh)
 #include "surfaceobject.h"     // i dati di un oggetto della scena
+#include "hyperbolicspace.h"   // la camera delle scene in H3 (2.1)
 
 #include <QWidget>
 #include <QRhiWidget>
@@ -11,6 +12,7 @@
 #include <rhi/qshader.h>
 #include <rhi/qshaderbaker.h>
 #include <QTimer>
+#include <algorithm>
 #include <memory>
 #include <limits>
 #include <functional>
@@ -261,6 +263,12 @@ public:
     }
     void setObjectScale(float s);
     float objectScale() const { return m_obj->scale; }
+    // Di un oggetto qualunque, senza selezionarlo (il limite di zoom in H3).
+    float objectScaleAt(int index) const { return m_objects[index]->scale; }
+    void setObjectScaleAt(int index, float s) {
+        m_objects[index]->scale = std::clamp(s, 0.01f, 100.0f);
+        update();
+    }
 
     // IL TEMPO T DELLA SCENA, in secondi: e' il tempo del MOTO DELLA CAMERA
     // DELL'AMBIENTE (decisioni dell'utente, 2026-10-21 e 10-24): il suo path
@@ -413,15 +421,16 @@ public:
     // sono TAGLI dello spazio 4D -- e non ruotano in 4D: ne' loro rotazioni,
     // ne' path e GO dell'ambiente, e niente P(t) (prepareObjectUniforms).
     // Ruotati, se ne vedrebbe la PROIEZIONE, un'altra operazione nello stesso
-    // fotogramma. In una scena 4D ruotano in 4D. Le Cross Section oggetto
-    // restano tagli: seguono le rotazioni. Prima decideva la modalita'
-    // dell'ambiente (rigidi con l'ambiente in ray marching); ora l'ambiente di
-    // una scena non ha superficie e decide la scelta 3D/4D (setScene3D).
+    // fotogramma. In una scena 4D ruotano in 4D; in H3, uno spazio 3D, sono
+    // rigidi come in 3D. Le Cross Section oggetto restano tagli: seguono le
+    // rotazioni. Prima decideva la modalita' dell'ambiente (rigidi con
+    // l'ambiente in ray marching); ora l'ambiente di una scena non ha
+    // superficie e decide la scelta dello spazio (setScene3D).
     bool rigidObject(const SurfaceObject &o) const {
         return !isEnvironment(o) && o.engineMode == ModeParametric && m_scene3D;
     }
     bool selectedObjectRigid() const { return rigidObject(*m_obj); }
-    // La scena e' 3D (MainWindow::setSceneSpace); false fuori dalle scene.
+    // La scena e' 3D o H3 (MainWindow::setSceneSpace); false fuori dalle scene.
     void setScene3D(bool on) { if (m_scene3D != on) { m_scene3D = on; update(); } }
     // P+/P- muovono la quota del taglio: col selezionato in ray marching, o
     // sull'ambiente di una scena 3D (il 4D di una scena 3D sono le Cross Section).
@@ -987,6 +996,10 @@ public:
     }
     void setBackgroundSkyMode(int mode) { if (m_bgSkyMode == mode) return; m_bgSkyMode = mode; update(); }
     int backgroundSkyMode() const { return m_bgSkyMode; }
+    // La forma con cui lo sfondo si disegna: in una scena H3 (2.1) sempre la
+    // palla di Poincare', il cielo vero di H3 (il bordo all'infinito visto dalla
+    // camera); la scelta dell'utente resta in m_bgSkyMode e torna fuori da H3.
+    int effectiveBackgroundSkyMode() const { return m_hyperbolic ? int(BgPoincare) : m_bgSkyMode; }
     // Stato GLOBALE della texture di superficie (quello che le parti senza
     // texture propria ereditano).
     bool isTextureEnabled() const { return m_obj->textureEnabled; }
@@ -1157,6 +1170,63 @@ public:
     bool anyClockAdvanced() const;
     void virtualMove(MoveDir dir, float speed3D, float speed4D);
 
+    // SCENA IPERBOLICA (2.1): lo spazio della scena e' H3 e la camera e' una
+    // sua isometria (hyperbolicspace.h), composta in double passo dopo passo.
+    // La accende e la spegne MainWindow col tasto Scene; accenderla porta la
+    // camera nell'origine, il centro della scena. In H3 rotella, pinch e tasti
+    // del dock 3D muovono la camera nel SUO riferimento (avanti = lungo la
+    // geodetica di vista), il trascinamento gira il mondo attorno al centro
+    // della scena, cielo compreso: il cielo e' il bordo all'infinito di H3.
+    void setHyperbolicSpace(bool on);
+    bool hyperbolicSpace() const { return m_hyperbolic; }
+    const H3::Matrix &hyperbolicCamera() const { return m_h3Camera; }
+    // IL RAGGIO DI CURVATURA della scena H3, in unita' della scena: le
+    // lunghezze di H3 sono in raggi di curvatura, e un'unita' della scena
+    // (passi della camera, posizioni e grandezze degli oggetti) ne vale
+    // 1 / raggio. Cambiandolo, oggetti e camera restano dove sono in unita'
+    // della scena (la camera entro la distanza massima dal centro): cambia solo
+    // quanto e' curvo lo spazio. Verso l'infinito si torna a R3. Ogni scena H3
+    // parte dal default (setHyperbolicSpace): 2, cosi' la camera d'avvio (4
+    // unita') sta a 2 raggi e la geometria si vede subito (a 5 l'utente non
+    // vedeva differenze con R3; a 1 gli oggetti d'ingresso erano puntini).
+    static constexpr double kH3DefaultCurvatureRadius = 2.0;
+    void setHyperbolicCurvatureRadius(double radius);
+    double hyperbolicCurvatureRadius() const { return 1.0 / m_h3RadiiPerSceneUnit; }
+    // IL RETICOLO {4,3,5} (2.1): le pareti di H3, cubi con angoli diedri di 72
+    // gradi, cinque attorno a ogni spigolo (H3::honeycomb435). E' di H3, non
+    // della scena: il lato e' sempre 1.617 raggi di curvatura. Spento di default;
+    // ogni scena H3 riparte spenta. Spigoli come tubi geodetici, disegnati a
+    // istanze attorno alla cella che contiene la camera: sembra infinito.
+    void setHyperbolicLattice(bool on);
+    bool hyperbolicLattice() const { return m_h3Lattice; }
+    // Gli spigoli del pezzo del modo attuale (prospettiva o vista da fuori).
+    int hyperbolicLatticeEdgeCount();
+    // LA DENSITA' DEL RETICOLO: quanta parte se ne disegna, da 0 (il solo cubo
+    // attorno alla camera; nella vista da fuori quello centrale) a 1 (tutto il
+    // pezzo, il default). Si disegnano gli spigoli che stanno entro una distanza
+    // dal centro della cella (hyperbolicLatticeReach, in raggi di curvatura).
+    // Ogni scena H3 riparte da 1. Conteggi e reach generano il pezzo del modo
+    // attuale se ancora non c'e'.
+    void setHyperbolicLatticeDensity(double t);
+    double hyperbolicLatticeDensity() const { return m_h3LatticeDensity; }
+    double hyperbolicLatticeReach();
+    int hyperbolicLatticeDrawnEdges();
+    // LA VISTA DA FUORI (2.1): in H3 la proiezione ortogonale porta fuori
+    // dallo spazio, e allora si guarda il modello: la palla di Poincare' in R3
+    // (geodetiche come archi di cerchio ortogonali al bordo), centrata nel
+    // centro della scena, con una camera euclidea ortogonale che guarda dalla
+    // parte della camera iperbolica (drag, zoom e path la muovono come in
+    // prospettiva). La luce e' euclidea, sul modello.
+    bool hyperbolicOutsideView() const { return m_hyperbolic && projectionMode == Ortho4D; }
+    // L'oggetto e' disegnato in H3 (vertex shader con HYPERBOLIC, posa di
+    // hyperbolicObjectMatrices). Solo le mesh: il ray marching resta fuori dal livello 1.
+    bool hyperbolicObject(const SurfaceObject &o) const {
+        return m_hyperbolic && o.engineMode == ModeParametric;
+    }
+    // Il trascinamento col mouse o col dito gira il mondo (non un oggetto).
+    bool dragOrbitsHyperbolicCamera() const { return m_hyperbolic && isEnvironment(*m_obj); }
+    void orbitHyperbolicCamera(float dYawDeg, float dPitchDeg);
+
     QVector3D getCameraPos() const { return m_cameraPos; }
     float getCameraYaw() const { return m_cameraYaw; }
     float getCameraPitch() const { return m_cameraPitch; }
@@ -1234,10 +1304,17 @@ public:
     // (utente, 2026-10-24; dal 10-21 al 10-23 non ruotava mai, poi solo a
     // path fermo). Durante un path il trascinamento e gli scatti 4D restano
     // spenti come con una superficie sola (InputHandler, setNavControlsEnabled).
+    // In H3 gli assi dello schermo sono quelli della camera trasportati nel
+    // centro della scena: dopo un giro attorno al centro non sono piu' quelli
+    // del mondo, e il trascinamento girerebbe l'oggetto su assi che non si vedono.
     void addObjectRotation(float dPrecession, float dNutation, float dSpin) {
-        addObjectRotation(*m_obj, dPrecession, dNutation, dSpin);
+        addObjectRotation(*m_obj, dPrecession, dNutation, dSpin,
+                          m_hyperbolic ? hyperbolicCameraRotation() : QMatrix4x4());
     }
-    void addObjectRotation(SurfaceObject &o, float dPrecession, float dNutation, float dSpin);
+    // `screenAxes`: le colonne sono gli assi x, y, z dello schermo nel mondo
+    // (identita' = quelli del mondo, la scena euclidea e il timer delle rotazioni).
+    void addObjectRotation(SurfaceObject &o, float dPrecession, float dNutation, float dSpin,
+                           const QMatrix4x4 &screenAxes = QMatrix4x4());
     // Avanza rotazioni oggetto (prec/nut/spin) e 4D (omega/phi/psi) di
     // dtSeconds di tempo d'animazione, alle velocita' correnti, di OGNI
     // oggetto col GO acceso (SurfaceObject::rotating). Unica implementazione:
@@ -1750,6 +1827,13 @@ private:
     // Il bordo si puo' disegnare sulla mesh corrente: sempre sulle superfici,
     // sulla mesh custom solo se c'e' la texture dei lati.
     bool borderSupported(const SurfaceObject &o) const { return !o.isCustomMesh || o.borderEdgeTex; }
+    // Lo shader dell'oggetto costruisce un tubo attorno a una curva (IS_TUBE) o
+    // il bordo a tubi (HAS_BORDER): le condizioni con cui si compone (una sede
+    // sola, createVertexShaderSource e compagne le leggono da qui).
+    bool drawsAsTube(const SurfaceObject &o) const {
+        return o.engine && o.engine->isTubeModeActive() && !o.engine->isScriptModeActive() && !o.isCustomMesh;
+    }
+    bool drawsBorder(const SurfaceObject &o) const { return o.borderRadius > 0.0f && borderSupported(o); }
     // Lo slot 3 di ogni binding della superficie: i lati della mesh custom, o
     // la dummy.
     QRhiShaderResourceBinding borderEdgesBinding(const SurfaceObject &o) const;
@@ -1907,6 +1991,103 @@ private:
     QMatrix4x4 m_view;
 
     QVector3D m_cameraPos;
+    // La camera in H3 (vedi setHyperbolicSpace): dal riferimento della camera
+    // al mondo, posizione = m_h3Camera * origine; guarda lungo -z come quella
+    // euclidea. m_cameraPos e gli angoli restano quelli della scena euclidea.
+    bool m_hyperbolic = false;
+    H3::Matrix m_h3Camera = H3::Matrix::identity();
+    // Raggi di curvatura per unita' della scena (1 / raggio di curvatura).
+    double m_h3RadiiPerSceneUnit = 1.0 / kH3DefaultCurvatureRadius;
+    // Il reticolo (setHyperbolicLattice): gli spigoli del pezzo attorno
+    // all'origine come riferimenti (H3::frameTowards, generati alla prima
+    // accensione), la cella che contiene la camera (si cammina dal fotogramma
+    // prima), e la pipeline propria: un tubo canonico lungo z (VBO statico),
+    // una matrice di Lorentz per istanza (camera^-1 * cella * spigolo, in double
+    // sulla CPU: ogni spigolo e' ricentrato su se stesso, niente perdita di
+    // precisione lontano), il suo blocco uniform (LatticeUBO, uguale nei due stadi).
+    bool m_h3Lattice = false;
+    H3::Matrix m_h3LatticeCell = H3::Matrix::identity();
+    // I PEZZI: gli spigoli in ordine di distanza dal centro della cella
+    // (reach: il piu' lontano dei due estremi), cosi' la densita' ne disegna i
+    // primi; fine = quanti col tubo intero (gli altri, lontani, col tubo
+    // semplice). Due pezzi, generati al primo uso: attorno alla cella della
+    // camera in prospettiva, piu' grande e attorno alla cella centrale nella
+    // vista da fuori (hyperbolicLatticePiece sceglie e genera).
+    struct LatticePiece {
+        std::vector<H3::Matrix> edges;
+        std::vector<double> reach;
+        int fine = 0;
+    };
+    LatticePiece m_h3LatticeAround;
+    LatticePiece m_h3LatticeWhole;
+    LatticePiece &hyperbolicLatticePiece();
+    double m_h3LatticeDensity = 1.0;
+    // Del fotogramma: spigoli disegnati, di cui col tubo intero, e da quale pezzo.
+    int m_h3LatticeDrawn = 0;
+    int m_h3LatticeFine = 0;
+    bool m_h3LatticeWholeDraw = false;
+    QRhiGraphicsPipeline *m_latticePipeline = nullptr;
+    QRhiShaderResourceBindings *m_latticeSrb = nullptr;
+    QRhiBuffer *m_latticeUbo = nullptr;
+    QRhiBuffer *m_latticeVbo = nullptr;
+    QRhiBuffer *m_latticeInstances = nullptr;        // prospettiva: a ogni fotogramma
+    QRhiBuffer *m_latticeWholeInstances = nullptr;   // vista da fuori: caricate una volta
+    int m_latticeFineVertexCount = 0;                // il tubo intero, poi il semplice, nel VBO
+    int m_latticeCoarseVertexCount = 0;
+    std::vector<float> m_latticeVertices;   // i tubi canonici, fino al caricamento nel VBO
+    bool m_latticeVboUploaded = false;
+    // Prima del render pass: cella della camera, istanze, uniform (e la
+    // pipeline, la prima volta). Nel render pass: il disegno, fra lo sfondo e
+    // gli oggetti opachi.
+    void prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates);
+    void drawHyperbolicLattice(QRhiCommandBuffer *cb, const QSize &outputSize);
+    bool createLatticePipeline();
+    void releaseHyperbolicLattice();
+    // Un passo nel riferimento della camera (traslazione o rotazione), a
+    // destra della matrice; rifiutato se la porterebbe oltre la distanza massima.
+    void moveHyperbolicCamera(const H3::Matrix &localStep);
+    // L'orientamento della camera trasportato nell'origine (la matrice che
+    // resta togliendo la traslazione), e la sua posizione nella palla di Poincare'.
+    QMatrix4x4 hyperbolicCameraRotation() const;
+    // IL MONDO GIRATO DALL'AMBIENTE (2.1): le rotazioni dell'ambiente (GO)
+    // girano tutta la scena attorno al centro (m_sceneRotation): in H3 anche il
+    // reticolo e il cielo, che e' il bordo del mondo. Per loro la camera e' quella
+    // vista dal mondo girato: rotazione della scena^-1 * camera. Gli oggetti la
+    // ricevono gia' nella loro posa (hyperbolicObjectMatrices).
+    H3::Matrix hyperbolicSceneRotation() const;
+    H3::Matrix hyperbolicWorldCamera() const;
+    // Per il cielo: l'orientamento della camera del mondo girato, trasportato
+    // nel centro, e la sua posizione nella palla di Poincare'.
+    QMatrix4x4 hyperbolicSkyRotation() const;
+    QVector3D hyperbolicCameraInBall() const;
+    // ORTOGONALE IN H3 (vista da fuori): la mezza altezza della finestra in
+    // coordinate della palla di Poincare' (poco piu' di 1: tutta la palla), e
+    // lo spostamento laterale della camera euclidea (x, y della camera
+    // iperbolica nella palla, nel riferimento della vista: zero se guarda il
+    // centro). Una sede sola per la proiezione e il cielo.
+    float hyperbolicOrthoHalfHeight() const;
+    QVector2D hyperbolicOutsideOffset() const;
+    // Il riferimento da cui si guarda: in prospettiva la camera stessa; nella
+    // vista da fuori il suo orientamento trasportato nel centro della scena
+    // (la palla e' centrata li'). camera e' m_h3Camera per gli oggetti,
+    // hyperbolicWorldCamera() per reticolo e cielo.
+    H3::Matrix hyperbolicViewer(const H3::Matrix &camera) const;
+    // I PATH DELLA CAMERA in H3: la posa che il path consegna (posizione,
+    // bersaglio, alto e rollio, in unita' della scena, come per la camera
+    // euclidea) diventa la camera iperbolica. La posizione e il bersaglio sono
+    // vettori dal centro della scena, come le posizioni degli oggetti (mappa
+    // esponenziale nell'origine); la camera guarda verso il bersaglio lungo la
+    // geodetica, l'alto e' nel riferimento portato dall'origine. Entro la
+    // distanza massima dal centro.
+    void setHyperbolicCameraLookAt(const QVector3D &pos, const QVector3D &target, const QVector3D &up, float rollDeg);
+    // La posa di un oggetto in H3 per l'UBO. L'isometria che porta il suo
+    // centro nel riferimento della camera (camera^-1 * rotazione della scena *
+    // traslazione nella sua posizione) e' m = k * spinta lungo z di R * kp.
+    // `local` = kp * rotazione e scala dell'oggetto in raggi di curvatura (va
+    // in u_mMatrix), `lorentz` = k nel 3x3, R in (3,3) e in (0,3) la scelta
+    // dello spessore dei tubi (va in u_mvMatrix).
+    // Il vertex shader (HYPERBOLIC, hyperbolicPoint) fa il resto.
+    void hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMatrix4x4 &lorentz);
     QVector4D m_cameraPos4D = QVector4D(0.0f, 0.0f, 4.0f, 4.0f);
     QVector4D m_observerPos = QVector4D(0.0f, 0.0f, 0.0f, 4.0f);
     // QUOTA DEL PIANO DI SEZIONE (sotto-tab Cross Section): il valore di p a cui
@@ -1964,8 +2145,10 @@ private:
     // e il rollio come si vedono a schermo.
     void moveObjectOnScreen(const QVector3D &delta);
     void rollObjectOnScreen(float angle);
+    // In H3 (2.1) la scena segue l'ambiente anche senza oggetti: la scena e' il
+    // mondo, col reticolo e il cielo (hyperbolicWorldCamera).
     bool sceneFollowsEnvironment(const SurfaceObject &o) const {
-        return m_objects.size() > 1 && isEnvironment(o);
+        return (m_objects.size() > 1 || m_hyperbolic) && isEnvironment(o);
     }
     bool isObjectRotating(const SurfaceObject &o) const {
         return o.rotating && rotationTimer && rotationTimer->isActive();

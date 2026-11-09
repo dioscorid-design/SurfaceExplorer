@@ -50,15 +50,28 @@
 #   ./ExC/Mac/reset_dmg_state.sh --run               azzera e lancia /Applications
 #   ./ExC/Mac/reset_dmg_state.sh --run --app build/Qt_6_12_0_for_macOS_Release/SurfaceExplorer.app
 #                                                    azzera e lancia quel bundle
-#   ./ExC/Mac/reset_dmg_state.sh --import-1x         come sopra, ma il primo avvio importa
-#                                                    le impostazioni della 1.x (se c'e')
+#   ./ExC/Mac/reset_dmg_state.sh --import            come sopra, ma il primo avvio importa
+#                                                    le impostazioni della versione precedente
+#                                                    (--import-1x vale ancora)
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
-BUNDLE_ID="com.dioscorid.surfaceexplorer2.dmg"
+# Identita' del canale DMG di QUESTA versione, come in CMakeLists.txt e main.cpp: la
+# x.0 e' "Surface Explorer v2" (id ...surfaceexplorer2.dmg, dominio SurfaceExplorer2-dmg),
+# dalla x.1 ogni minore ha la sua: la 2.1 e' "Surface Explorer v2.1" (id
+# ...surfaceexplorer21.dmg, dominio SurfaceExplorer21-dmg) e sta accanto alla 2.0.
+PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+VERSION="$(sed -nE 's/^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+).*/\1/p' \
+           "$PROJECT_DIR/CMakeLists.txt" | head -1)"
+[ -n "$VERSION" ] || { echo "versione non trovata in CMakeLists.txt" >&2; exit 1; }
+MAJOR="${VERSION%%.*}"
+MINOR="${VERSION#*.}"
+if [ "$MINOR" = "0" ]; then SERIES="$MAJOR"; APP_LABEL="v$MAJOR"; IMPORT_KEY="settings1xImportDone"
+else                        SERIES="$MAJOR$MINOR"; APP_LABEL="v$VERSION"; IMPORT_KEY="settingsImportDone"; fi
+BUNDLE_ID="com.dioscorid.surfaceexplorer$SERIES.dmg"
 # Dominio QSettings: NON coincide col bundle id. Vedi il commento sopra.
-QT_DOMAIN="com.dioscorid.SurfaceExplorer2-dmg"
-APP="/Applications/Surface Explorer v2.app"
+QT_DOMAIN="com.dioscorid.SurfaceExplorer$SERIES-dmg"
+APP="/Applications/Surface Explorer $APP_LABEL.app"
 
 info() { printf '\033[36m•\033[0m %s\n' "$1"; }
 ok()   { printf '\033[32m✓\033[0m %s\n' "$1"; }
@@ -70,12 +83,12 @@ IMPORT_1X=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --run) DO_RUN=1 ;;
-    --import-1x) IMPORT_1X=1 ;;
+    --import|--import-1x) IMPORT_1X=1 ;;
     # Percorso di un .app da lanciare al posto di quello in /Applications: le
     # preferenze sono le stesse per ogni bundle con id "...dmg", quindi si puo'
     # provare il binario appena compilato senza installarlo.
     --app) shift; [ -n "${1:-}" ] || err "--app richiede un percorso"; APP="$1" ;;
-    *) err "argomento sconosciuto: $1 (usa --run, --import-1x, --app <percorso.app>)" ;;
+    *) err "argomento sconosciuto: $1 (usa --run, --import, --app <percorso.app>)" ;;
   esac
   shift
 done
@@ -133,11 +146,12 @@ fi
 killall -u "$USER" cfprefsd 2>/dev/null || true
 ok "Cache cfprefsd svuotata."
 
-# 5. Con la 1.x sullo stesso Mac il primo avvio ne importerebbe le impostazioni
-#    (main.cpp), libraryRootPath compresa, e il primo avvio vero non si vedrebbe mai.
+# 5. Con la versione precedente sullo stesso Mac (la 1.x per la 2.0; la 2.0, o la
+#    1.x, per la 2.1) il primo avvio ne importerebbe le impostazioni (main.cpp),
+#    libraryRootPath compresa, e il primo avvio vero non si vedrebbe mai.
 if [ "$IMPORT_1X" -eq 0 ]; then
-  defaults write "$QT_DOMAIN" settings1xImportDone -bool true
-  info "Import dalla 1.x saltato (--import-1x per provarlo)."
+  defaults write "$QT_DOMAIN" "$IMPORT_KEY" -bool true
+  info "Import dalla versione precedente saltato (--import per provarlo)."
 fi
 
 echo

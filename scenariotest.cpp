@@ -2171,6 +2171,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-h3")) {
+        runSceneH3Scenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-path")) {
         runScenePathScenarios();
         finish();
@@ -4042,6 +4047,7 @@ void ScenarioTest::run()
     runSceneResetScenarios();
     runSceneTimelineScenarios();
     runSceneSpaceScenarios();
+    runSceneH3Scenarios();
     runScenePathScenarios();
     runSceneSeekScenarios();
     runImageCaptureScenarios();
@@ -8864,6 +8870,728 @@ void ScenarioTest::runSceneSpaceScenarios()
     json = sceneJson();
     check(json.value(QStringLiteral("space")).toString() == QLatin1String("3D"), QStringLiteral("il file dice 3D"));
     reopen(json, QStringLiteral("3D"), QStringLiteral("scena 3D: riaperta 3D"));
+    newScene();
+}
+
+void ScenarioTest::runSceneH3Scenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    using Space = MainWindow::SceneSpace;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Scena H3 (2.1): avvio a scena vuota, camera come isometria, rifiuti, RESET View, NEW =="));
+    const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
+    const QString kRM = QStringLiteral("surfaces/Implicit/3D/Sphere.json");
+    const QString kTrefoil = QStringLiteral("surfaces/Parametric/Solid Curves/Single Curves/Trefoil Knot.json");
+    QString torusPath, rmPath, trefoilPath;
+    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces) {
+        if (it.filePath.endsWith(kTorus)) torusPath = it.filePath;
+        if (it.filePath.endsWith(kRM)) rmPath = it.filePath;
+        if (it.filePath.endsWith(kTrefoil)) trefoilPath = it.filePath;
+    }
+    check(!torusPath.isEmpty() && !rmPath.isEmpty() && !trefoilPath.isEmpty(),
+          QStringLiteral("toro, sfera in ray marching e trifoglio nella libreria"));
+    if (torusPath.isEmpty() || rmPath.isEmpty() || trefoilPath.isEmpty()) return;
+    const auto newScene = [this]() {
+        m_discardOnPrompt = true;
+        m_mw->onNewSceneClicked();
+        wait(300);
+        m_discardOnPrompt = false;
+    };
+    const auto camera = [gl]() { return gl->hyperbolicCamera() * H3::origin(); };
+    const auto distance = [&]() { return H3::distance(H3::origin(), camera()); };
+
+    // Con qualcosa a schermo non parte: l'ambiente e' lo spazio stesso.
+    if (!loadSurface(kTorus)) return;
+    {
+        const int before = m_popupsClosed;
+        m_mw->startScene(Space::SpaceH3);
+        wait(200);
+        check(!m_mw->sceneStarted() && !gl->hyperbolicSpace() && m_popupsClosed == before + 1,
+              QStringLiteral("H3 col toro a schermo: un avviso, la scena non parte"));
+    }
+    newScene();
+    m_mw->startScene(Space::SpaceH3);
+    m_mw->refreshSceneTimeLabel();
+    check(m_mw->sceneStarted() && gl->hyperbolicSpace() && m_mw->isSceneEmpty()
+              && m_mw->m_sceneSpaceLabel->text() == QStringLiteral("H³"),
+          QStringLiteral("H3 dopo NEW: scena avviata e vuota, nella barra H3"));
+    // IL DEFAULT: raggio di curvatura kH3DefaultCurvatureRadius, la riga del
+    // dock Objects c'e', la camera d'avvio a 4 unita' (4 / raggio raggi), la
+    // rotella avanza di un'unita'. Lo sfondo e' il cielo di H3, la forma non si
+    // sceglie (radio Poincare' Ball, spenti).
+    {
+        const double radius = GLWidget::kH3DefaultCurvatureRadius;
+        check(!m_mw->m_h3CurvatureRow->isHidden() && std::abs(gl->hyperbolicCurvatureRadius() - radius) < 1e-9,
+              QStringLiteral("raggio di curvatura: la riga c'e', %1 di default").arg(radius));
+        check(std::abs(distance() - 4.0 / radius) < 1e-9,
+              QStringLiteral("camera d'avvio a 4 unita' dal centro (%1 raggi)").arg(distance()));
+        gl->zoomCamera(1.0f);
+        check(std::abs(distance() - 3.0 / radius) < 1e-9,
+              QStringLiteral("rotella: un'unita' verso il centro (%1 raggi)").arg(distance()));
+        check(gl->effectiveBackgroundSkyMode() == GLWidget::BgPoincare && m_mw->ui->radioBgPoincare->isChecked()
+                  && !m_mw->ui->panelBgLock->isEnabled(),
+              QStringLiteral("sfondo in H3: Poincare' Ball, la forma non si sceglie"));
+    }
+    // Da qui il raggio 5, quello delle immagini e delle misure scritte prima
+    // del default 2: la camera d'avvio di allora (0.8 raggi = 4 unita').
+    m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(5.0));
+    gl->m_h3Camera = H3::translation({0.0, 0.0, 0.8});
+
+    // La Library non cambia l'ambiente; Add to Scene: il ray marching no.
+    {
+        const int before = m_popupsClosed;
+        QTreeWidget *shapes = m_mw->ui->treeSurfaces;
+        for (QTreeWidgetItemIterator it(shapes); *it; ++it) {
+            if ((*it)->childCount() > 0 || !(*it)->toolTip(0).endsWith(kTorus)) continue;
+            m_discardOnPrompt = true;
+            shapes->setCurrentItem(*it);
+            emit shapes->itemClicked(*it, 0);
+            wait(800);
+            m_discardOnPrompt = false;
+            break;
+        }
+        m_mw->addShapeToScene(rmPath);
+        wait(300);
+        check(gl->hyperbolicSpace() && m_mw->isSceneEmpty() && gl->objectCount() == 1
+                  && m_popupsClosed == before + 2,
+              QStringLiteral("clic sul toro e Add to Scene di una sfera in ray marching: due avvisi, la scena H3 resta vuota"));
+    }
+
+    // Add to Scene di una Shape parametrica: entra, col vertex shader iperbolico.
+    {
+        const int before = m_popupsClosed;
+        m_mw->addShapeToScene(torusPath);
+        wait(800);
+        m_mw->selectSceneObject(1);
+        const SurfaceObject &o = *gl->m_obj;
+        const QString vs = gl->createVertexShaderSource(o.eqX, o.eqY, o.eqZ, o.eqW);
+        check(gl->objectCount() == 2 && m_popupsClosed == before && vs.contains(QLatin1String("#define HYPERBOLIC")),
+              QStringLiteral("Add to Scene del toro: entra, shader con HYPERBOLIC"));
+        // Qualcosa e' disegnato: l'immagine non e' di un colore solo.
+        const QImage img = gl->grabFramebuffer();
+        img.save(m_outDir + QStringLiteral("/scene-h3-torus.png"));
+        int different = 0;
+        const QRgb corner = img.pixel(0, 0);
+        for (int y = 0; y < img.height(); y += 4)
+            for (int x = 0; x < img.width(); x += 4)
+                if (img.pixel(x, y) != corner) ++different;
+        check(different > 100, QStringLiteral("il toro si vede (%1 punti diversi dallo sfondo, scene-h3-torus.png)").arg(different));
+        // Lo zoom dell'oggetto si ferma a 30 volte la grandezza d'ingresso
+        // (oltre, una mesh in float non lo rappresenta piu'). Da guardare
+        // scene-h3-max-zoom.png: la luce dev'essere liscia anche li'.
+        {
+            const float opening = m_mw->m_objectSessions[1].openingScale;
+            for (int i = 0; i < 80; ++i) gl->zoomCamera(1.0f);
+            wait(300);
+            gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-max-zoom.png"));
+            check(std::abs(gl->objectScale() - 30.0f * opening) < 1e-3f * opening,
+                  QStringLiteral("zoom in H3: si ferma a 30 volte la grandezza d'ingresso (%1, ingresso %2)")
+                      .arg(gl->objectScale()).arg(opening));
+            gl->setObjectScale(opening);
+        }
+        // Da guardare: lo stesso toro, grande come all'ingresso e nel centro,
+        // la camera a 4 unita' (quella d'avvio) e a 2. Cambia solo il raggio di
+        // curvatura: 50 e' quasi R3. Prima il raggio 5, poi la camera (in raggi
+        // col raggio 5), poi il raggio della foto: la camera resta alle stesse
+        // unita' (col raggio 0.5 e 4 unita' il limite dei 6 raggi la porta a 3).
+        {
+            gl->setObjectPosition(QVector3D());
+            m_mw->selectSceneObject(0);
+            const int slider5 = MainWindow::h3CurvatureSliderFromRadius(5.0);
+            for (double units : {4.0, 2.0}) {
+                for (double radius : {50.0, 5.0, 1.0, 0.5}) {
+                    m_mw->m_h3CurvatureSlider->setValue(slider5);
+                    gl->m_h3Camera = H3::translation({0.0, 0.0, units / 5.0});
+                    m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(radius));
+                    wait(300);
+                    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-curvature-%1-camera-%2.png")
+                                                              .arg(radius).arg(units));
+                }
+            }
+            m_mw->m_h3CurvatureSlider->setValue(slider5);
+            gl->m_h3Camera = H3::translation({0.0, 0.0, 0.8});
+            m_mw->selectSceneObject(1);
+        }
+        // Da guardare accanto a scene-3d-torus-big.png (fine sezione): il toro
+        // nel centro, grande rispetto al raggio di curvatura (raggio esterno
+        // quasi 2), la camera a 3.5 raggi. Avanti e indietro lungo l'asse: la
+        // camera torna esattamente dov'era.
+        gl->setObjectPosition(QVector3D());
+        gl->setObjectScale(gl->objectScale() * 9.0f);
+        m_mw->selectSceneObject(0);
+        gl->zoomCamera(-13.5f);
+        wait(300);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-torus-big.png"));
+        gl->setProjectionMode(0);   // ortogonale
+        wait(300);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-torus-big-ortho.png"));
+        gl->setProjectionMode(1);
+        gl->zoomCamera(13.5f);
+    }
+
+    // Rotella: avanti, verso il centro, di 0.2 raggi per unita'.
+    gl->zoomCamera(1.0f);
+    check(std::abs(distance() - 0.6) < 1e-9, QStringLiteral("rotella: 0.2 raggi verso il centro (%1)").arg(distance()));
+
+    // Il trascinamento gira il mondo attorno al centro: distanza uguale, posizione nuova.
+    {
+        const H3::Vec4 before = camera();
+        const double d0 = distance();
+        gl->orbitHyperbolicCamera(30.0f, 20.0f);
+        check(std::abs(distance() - d0) < 1e-9 && H3::distance(before, camera()) > 0.1,
+              QStringLiteral("trascinamento: la camera gira attorno al centro (spostata di %1)")
+                  .arg(H3::distance(before, camera())));
+    }
+
+    // Tasti del dock 3D: Left trasla di lato, Roll gira senza spostare.
+    {
+        const double d0 = distance();
+        gl->virtualMove(GLWidget::MoveLeft, 0.1f, 0.1f);
+        const H3::Vec4 moved = camera();
+        gl->virtualMove(GLWidget::RollLeft, 0.1f, 0.1f);
+        check(distance() > d0 && H3::distance(moved, camera()) < 1e-9,
+              QStringLiteral("dock 3D: Left sposta (da %1 a %2), Roll no").arg(d0).arg(distance()));
+    }
+
+    // Indietro senza fine: la camera si ferma entro 6 raggi, e resta un'isometria.
+    for (int i = 0; i < 20; ++i) gl->zoomCamera(-10.0f);
+    check(distance() <= 6.0 + 1e-9 && distance() > 4.0,
+          QStringLiteral("indietro: la camera si ferma entro 6 raggi (%1)").arg(distance()));
+    check(H3::isometryError(gl->hyperbolicCamera()) < 1e-12,
+          QStringLiteral("la camera e' ancora un'isometria (errore %1)").arg(H3::isometryError(gl->hyperbolicCamera())));
+
+    // PRECISIONE, da guardare (scene-h3-precision.png): il toro con l'anima a 8
+    // raggi dal centro e il tubo di 3, la camera a 0.05 dalla parete interna (a 5
+    // raggi), rivolta verso di lei. Col prodotto diretto della matrice in float
+    // era rumore (errore 2.6e-2 della distanza); con la spinta in sinh(R - r)
+    // dev'essere liscia (hyperbolic-test misura i due errori).
+    {
+        m_mw->selectSceneObject(1);
+        gl->setRotationQuat(QQuaternion());
+        gl->setObjectPosition(QVector3D());
+        gl->setObjectScale(50.0f);
+        m_mw->selectSceneObject(0);
+        gl->m_h3Camera = H3::translation({4.95, 0.0, 0.0}) * H3::rotation({0.0, 1.0, 0.0}, -M_PI / 2.0);
+        gl->update();
+        wait(300);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-precision.png"));
+    }
+
+    // I TUBI hanno lo spessore costante in H3 (sceneTubeVertex): da guardare
+    // scene-h3-tube.png, il nodo trifoglio grande 10 volte l'ingresso nel
+    // centro, la camera a 3 raggi. Con lo spessore delle coordinate
+    // dell'oggetto il tubo si gonfiava lontano dal centro (di sinh(r)/r).
+    // Il trifoglio prende il posto del toro: e' l'oggetto 1 da qui in avanti.
+    {
+        m_mw->removeSceneObject(1);
+        const int popups = m_popupsClosed;
+        m_mw->addShapeToScene(trefoilPath);
+        wait(1200);
+        m_mw->selectSceneObject(1);
+        const SurfaceObject &o = *gl->m_obj;
+        const bool tube = o.engine && o.engine->isTubeModeActive()
+                          && gl->createVertexShaderSource(o.eqX, o.eqY, o.eqZ, o.eqW).contains(QLatin1String("#define HYPERBOLIC"));
+        gl->setObjectPosition(QVector3D());
+        m_mw->selectSceneObject(0);
+        // Grande come all'ingresso e con la camera d'avvio: dev'essere quasi
+        // uguale a scene-3d-tube-small.png (fine sezione).
+        gl->m_h3Camera = H3::translation({0.0, 0.0, 0.8});
+        gl->update();
+        wait(500);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-tube-small.png"));
+        m_mw->selectSceneObject(1);
+        gl->setObjectScale(10.0f * m_mw->m_objectSessions[1].openingScale);
+        m_mw->selectSceneObject(0);
+        gl->m_h3Camera = H3::translation({0.0, 0.0, 3.0});
+        gl->update();
+        wait(500);
+        const QImage img = gl->grabFramebuffer();
+        img.save(m_outDir + QStringLiteral("/scene-h3-tube.png"));
+        int different = 0;
+        const QRgb corner = img.pixel(0, 0);
+        for (int y = 0; y < img.height(); y += 4)
+            for (int x = 0; x < img.width(); x += 4)
+                if (img.pixel(x, y) != corner) ++different;
+        check(!trefoilPath.isEmpty() && tube && gl->objectCount() == 2 && m_popupsClosed == popups && different > 100,
+              QStringLiteral("tubo in H3: il trifoglio entra (tubo, HYPERBOLIC) e si vede (%1 punti, scene-h3-tube.png)")
+                  .arg(different));
+    }
+
+    // RESET View: diritta verso il centro, alla distanza di adesso.
+    {
+        const double d0 = distance();
+        m_mw->resetView();
+        const H3::Matrix expected = H3::translation({0.0, 0.0, d0});
+        double worst = 0.0;
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j)
+                worst = std::max(worst, std::abs(gl->hyperbolicCamera().m[i][j] - expected.m[i][j]));
+        check(gl->hyperbolicSpace() && worst < 1e-9,
+              QStringLiteral("RESET View: verso il centro alla stessa distanza (scarto %1)").arg(worst));
+    }
+
+    // IL RAGGIO DI CURVATURA cambiato: la camera resta dov'e' in unita' della
+    // scena, e il limite di zoom segue il raggio (6 raggi per unita' di
+    // grandezza d'ingresso). Si parte dal raggio 5.
+    {
+        gl->m_h3Camera = H3::translation({0.0, 0.0, 0.8});   // 4 unita' dal centro col raggio 5
+        m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(2.0));
+        const double radius = gl->hyperbolicCurvatureRadius();
+        check(std::abs(radius - 2.0) < 0.02 && std::abs(distance() - 4.0 / radius) < 1e-9,
+              QStringLiteral("raggio %1: la camera resta a 4 unita' dal centro (%2 raggi)").arg(radius).arg(distance()));
+        m_mw->selectSceneObject(1);
+        for (int i = 0; i < 80; ++i) gl->zoomCamera(1.0f);
+        const float opening = m_mw->m_objectSessions[1].openingScale;
+        const float limit = float(6.0 * radius) * opening;
+        check(std::abs(gl->objectScale() - limit) < 1e-3f * limit,
+              QStringLiteral("raggio %1: lo zoom si ferma a %2 (6 raggi per unita' di grandezza d'ingresso)")
+                  .arg(radius).arg(gl->objectScale()));
+        m_mw->selectSceneObject(0);
+    }
+
+    // IL RETICOLO {4,3,5}: la casella c'e' in H3, spenta; accesa, il pezzo
+    // attorno alla cella della camera ha migliaia di spigoli e si vede. Da
+    // guardare: scene-h3-lattice-face.png (dal centro del cubo centrale verso
+    // una faccia), scene-h3-lattice-edge.png (verso uno spigolo: CINQUE cubi
+    // attorno, in R3 sarebbero quattro), scene-h3-lattice-start.png (dalla
+    // camera d'avvio). Senza oggetti, per vedere solo il reticolo.
+    {
+        m_mw->removeSceneObject(1);
+        m_mw->refreshObjectsUi();
+        const bool shownOff = !m_mw->m_h3Lattice->isHidden() && !m_mw->m_h3Lattice->isChecked() && !gl->hyperbolicLattice();
+        m_mw->m_h3Lattice->setChecked(true);
+        m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(GLWidget::kH3DefaultCurvatureRadius));
+        const auto shot = [&](const H3::Matrix &camera, const QString &name) {
+            gl->m_h3Camera = camera;
+            gl->update();
+            wait(500);
+            const QImage img = gl->grabFramebuffer();
+            img.save(m_outDir + QStringLiteral("/") + name);
+            int different = 0;
+            const QRgb corner = img.pixel(img.width() / 2, img.height() / 2);
+            for (int y = 0; y < img.height(); y += 4)
+                for (int x = 0; x < img.width(); x += 4)
+                    if (img.pixel(x, y) != corner) ++different;
+            return different;
+        };
+        const int face = shot(H3::Matrix::identity(), QStringLiteral("scene-h3-lattice-face.png"));
+        // LUNGO uno spigolo: dal suo punto di mezzo (a, a, 0) nella carta di
+        // Klein, 0.1 raggi verso il centro del cubo (fuori dal tubo), guardando
+        // lungo +z (lo spigolo e' parallelo a z; la traslazione verso (1, 1, 0)
+        // non cambia la direzione z). Le facce che vi si incontrano sono raggi
+        // attorno al centro dello schermo: cinque, a 72 gradi.
+        const double a = H3::honeycomb435HalfSide();
+        const H3::Matrix alongEdge = H3::translationTo(H3::fromKlein({a, a, 0.0}))
+                                   * H3::translation({-0.1 / std::sqrt(2.0), -0.1 / std::sqrt(2.0), 0.0})
+                                   * H3::rotation({0.0, 1.0, 0.0}, M_PI);
+        const int edge = shot(alongEdge, QStringLiteral("scene-h3-lattice-edge.png"));
+        const int start = shot(H3::translation({0.0, 0.0, 4.0 / GLWidget::kH3DefaultCurvatureRadius}),
+                               QStringLiteral("scene-h3-lattice-start.png"));
+        check(shownOff && gl->hyperbolicLattice() && gl->hyperbolicLatticeEdgeCount() > 2000
+                  && face > 100 && edge > 100 && start > 100,
+              QStringLiteral("reticolo {4,3,5}: spento di default, acceso si vede (%1 spigoli; %2, %3, %4 punti)")
+                  .arg(gl->hyperbolicLatticeEdgeCount()).arg(face).arg(edge).arg(start));
+    }
+
+    // LE ROTAZIONI DELL'AMBIENTE girano il mondo attorno al centro: in H3 anche
+    // il reticolo (e il cielo), non solo gli oggetti. La camera resta ferma.
+    {
+        const auto changedPixels = [](const QImage &x, const QImage &y) {
+            int n = 0;
+            for (int j = 0; j < x.height(); j += 4)
+                for (int i = 0; i < x.width(); i += 4)
+                    if (x.pixel(i, j) != y.pixel(i, j)) ++n;
+            return n;
+        };
+        m_mw->selectSceneObject(0);
+        gl->m_h3Camera = H3::translation({0.0, 0.0, 2.0});
+        const H3::Matrix camera = gl->hyperbolicCamera();
+        gl->update();
+        wait(300);
+        const QImage before = gl->grabFramebuffer();
+        gl->setPrecessionSpeed(1.0f);
+        m_mw->refreshRotationSpeedLabels();
+        m_mw->onStopClicked();   // GO dell'ambiente
+        wait(800);
+        const bool rotating = gl->isObjectRotating(0);
+        const QImage after = gl->grabFramebuffer();
+        m_mw->onStopClicked();   // e di nuovo fermo
+        wait(200);
+        gl->setPrecessionSpeed(0.0f);
+        m_mw->refreshRotationSpeedLabels();
+        double moved = 0.0;
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j) moved = std::max(moved, std::abs(gl->hyperbolicCamera().m[i][j] - camera.m[i][j]));
+        const int changed = changedPixels(before, after);
+        check(rotating && changed > 100 && moved < 1e-12,
+              QStringLiteral("rotazioni dell'ambiente in H3: il reticolo gira (%1 punti), la camera resta").arg(changed));
+    }
+
+    // I PATH DELLA CAMERA in H3: la posa del path muove la camera iperbolica,
+    // con la posizione letta come vettore dal centro della scena. Finito il
+    // passaggio morbido (~1.2 s) la camera e' nel punto del path.
+    {
+        typeInField(m_mw->ui->lineX_P3D, QStringLiteral("3*cos(t)"));
+        typeInField(m_mw->ui->lineY_P3D, QStringLiteral("1"));
+        typeInField(m_mw->ui->lineZ_P3D, QStringLiteral("3*sin(t)"));
+        m_mw->ui->btnDeparture3D->click();
+        wait(1800);
+        const bool running = m_mw->pathRunning(CameraPaths::Path3D);
+        const QVector3D pathPos = gl->getCameraPos();   // il punto del path, in unita'
+        const H3::Vec3 v = H3::logAtOrigin(gl->hyperbolicCamera() * H3::origin());
+        const double k = 1.0 / gl->hyperbolicCurvatureRadius();
+        const double error = std::sqrt(std::pow(v.x / k - pathPos.x(), 2) + std::pow(v.y / k - pathPos.y(), 2)
+                                       + std::pow(v.z / k - pathPos.z(), 2));
+        const QImage moving1 = gl->grabFramebuffer();
+        wait(400);
+        const QImage moving2 = gl->grabFramebuffer();
+        int changed = 0;
+        for (int j = 0; j < moving1.height(); j += 4)
+            for (int i = 0; i < moving1.width(); i += 4)
+                if (moving1.pixel(i, j) != moving2.pixel(i, j)) ++changed;
+        m_mw->ui->btnDeparture3D->click();
+        wait(300);
+        check(running && pathPos.length() > 2.5f && error < 1e-3 && changed > 100,
+              QStringLiteral("path 3D in H3: la camera iperbolica segue il path (scarto %1, punto %2 %3 %4; %5 punti cambiano)")
+                  .arg(error).arg(pathPos.x()).arg(pathPos.y()).arg(pathPos.z()).arg(changed));
+    }
+    // NIENTE 4D IN H3: lo spazio e' 3D, e un path 4D o una rotazione 4D
+    // deformerebbero gli oggetti. Il dock 4D (path 4D, osservatore, scatti,
+    // luce 4D) e' spento tutto, e nel dock 3D le velocita' omega/phi/psi del
+    // GO; il path 3D resta. Con l'ambiente e con un oggetto selezionato.
+    {
+        const auto off4D = [this]() {
+            Ui::MainWindow *ui = m_mw->ui;
+            bool off = !m_mw->dockContent(ui->dock4D)->isEnabled() && !ui->lineX_P->isEnabled()
+                       && !ui->btnDeparture->isEnabled() && !ui->btnPPlus->isEnabled()
+                       && !ui->btnXPlus->isEnabled() && !ui->btnOmegaAhead->isEnabled()
+                       && !ui->btnLightMode->isEnabled();
+            for (QPushButton *b : { ui->btnOmegaMinus, ui->btnOmegaPlus, ui->btnPhiMinus,
+                                    ui->btnPhiPlus, ui->btnPsiMinus, ui->btnPsiPlus })
+                off = off && !b->isEnabled();
+            return off && ui->lineX_P3D->isEnabled() && ui->btnSpinPlus->isEnabled();
+        };
+        m_mw->selectSceneObject(0);
+        const bool environment = off4D();
+        m_mw->selectSceneObject(1);
+        const bool object = off4D();
+        m_mw->selectSceneObject(0);
+        check(environment && object,
+              QStringLiteral("H3: dock 4D spento, velocita' 4D del GO spente, path 3D e rotazioni 3D accesi "
+                             "(ambiente %1, oggetto %2)").arg(environment).arg(object));
+    }
+
+    // IL CIELO IN ORTOGONALE coincide col disco del piano dello schermo: dentro
+    // l'emisfero dove finiscono le geodetiche perpendicolari, fuori il colore di
+    // fondo (gli angoli dello schermo, con la camera a 2 raggi la finestra e'
+    // tutto il disco). Da guardare: scene-h3-ortho-sky.png.
+    {
+        gl->loadBackgroundScript(QStringLiteral("return vec3(uv.x, uv.y, 0.5);"));
+        gl->setBackgroundTextureEnabled(true);
+        gl->setProjectionMode(0);
+        gl->m_h3Camera = H3::translation({0.0, 0.0, 2.0});
+        gl->update();
+        wait(600);
+        const QImage img = gl->grabFramebuffer();
+        img.save(m_outDir + QStringLiteral("/scene-h3-ortho-sky.png"));
+        const QColor bg = QColor::fromRgbF(gl->m_bgColor.x(), gl->m_bgColor.y(), gl->m_bgColor.z());
+        const auto near = [](QColor a, QColor b) {
+            return std::abs(a.red() - b.red()) <= 2 && std::abs(a.green() - b.green()) <= 2 && std::abs(a.blue() - b.blue()) <= 2;
+        };
+        const bool cornerEmpty = near(img.pixelColor(2, 2), bg) && near(img.pixelColor(2, img.height() / 2), bg);
+        const bool centerSky = !near(img.pixelColor(img.width() / 2, img.height() / 2), bg);
+        gl->setProjectionMode(1);
+        gl->setBackgroundTextureEnabled(false);
+        check(cornerEmpty && centerSky,
+              QStringLiteral("cielo in ortogonale: fuori dal disco il colore di fondo, dentro il cielo (scene-h3-ortho-sky.png)"));
+    }
+
+    newScene();
+    check(!m_mw->sceneStarted() && !gl->hyperbolicSpace() && m_mw->m_h3CurvatureRow->isHidden()
+              && !gl->hyperbolicLattice() && m_mw->m_h3Lattice->isHidden()
+              && std::abs(gl->hyperbolicCurvatureRadius() - GLWidget::kH3DefaultCurvatureRadius) < 1e-9
+              && gl->effectiveBackgroundSkyMode() == gl->backgroundSkyMode(),
+          QStringLiteral("NEW chiude la scena H3 (senza la riga del raggio, che torna al default; lo sfondo torna alla sua forma)"));
+    check(m_mw->dockContent(m_mw->ui->dock4D)->isEnabled() && m_mw->ui->btnOmegaPlus->isEnabled(),
+          QStringLiteral("fuori da H3 il dock 4D e le velocita' 4D del GO tornano accesi"));
+
+    // Sulla scena vuota un path 4D e una velocita' 4D avviati PRIMA di Scene:
+    // entrando in H3 si fermano (i loro tasti si spengono).
+    {
+        typeInField(m_mw->ui->lineX_P, QStringLiteral("2*cos(t)"));
+        m_mw->ui->btnDeparture->click();
+        gl->setOmegaSpeed(0.5f);
+        wait(500);
+        const bool runningBefore = m_mw->pathRunning(CameraPaths::Path4D);
+        m_mw->startScene(Space::SpaceH3);
+        wait(300);
+        check(runningBefore && gl->hyperbolicSpace() && !m_mw->pathRunning(CameraPaths::Path4D)
+                  && gl->getOmegaSpeed() == 0.0f,
+              QStringLiteral("H3 dopo un path 4D e un GO 4D sulla scena vuota: entrambi fermi (prima in corsa: %1)")
+                  .arg(runningBefore));
+        newScene();
+        typeInField(m_mw->ui->lineX_P, QString());
+    }
+
+    // CURVE 4D IN PROSPETTIVA: lo spareggio di profondita' 4D non taglia piu'.
+    // In H3 il far plane e' il cielo, e la quota fissa dello spareggio
+    // mandava oltre il fondo le parti con w < 0 gia' a 1.86 raggi dalla camera:
+    // i bordi di Brieskorn-Pham troncati. Lo spareggio cambia solo la
+    // profondita', quindi la sagoma non deve dipendere dal segno di w: con la
+    // costante C (w = C * Im z2) a +1 e a -1, angoli 4D neutri e l'osservatore
+    // 4D lontanissimo (la prospettiva 4D non cambia la forma), le due sagome
+    // coincidono. Da guardare: scene-h3-brieskorn-{perspective,stereographic,ortho}.png,
+    // con gli angoli della Shape.
+    {
+        const QString kBrieskorn = QStringLiteral("surfaces/Parametric/Solid Curves/Borders/Brieskorn-Pham.json");
+        QString brieskornPath;
+        for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+            if (it.filePath.endsWith(kBrieskorn)) brieskornPath = it.filePath;
+        m_mw->startScene(Space::SpaceH3);
+        if (!brieskornPath.isEmpty()) m_mw->addShapeToScene(brieskornPath);
+        wait(1500);
+        const bool entered = !brieskornPath.isEmpty() && gl->objectCount() == 2;
+        if (entered) {
+            m_mw->selectSceneObject(1);
+            gl->setObjectPosition(QVector3D());
+            gl->setObjectScale(2.0f * m_mw->m_objectSessions[1].openingScale);
+            m_mw->selectSceneObject(0);
+            for (const auto &[mode, name] : { std::pair<int, const char *>{1, "perspective"}, {2, "stereographic"}, {0, "ortho"} }) {
+                gl->setProjectionMode(mode);
+                gl->update();
+                wait(500);
+                gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-brieskorn-%1.png").arg(QLatin1String(name)));
+            }
+            gl->setProjectionMode(1);
+            m_mw->selectSceneObject(1);
+            gl->setRotation4D(0.0001f, 0.0001f, 0.0001f);
+            const float observerW = gl->getObserverPos4D();
+            gl->setObserverPos4D(1.0e4f);
+            const auto silhouette = [&](float c) {
+                gl->m_obj->mathParams.setZ(c);
+                gl->update();
+                wait(500);
+                const QImage img = gl->grabFramebuffer();
+                const QRgb corner = img.pixel(0, 0);
+                QVector<bool> mask;
+                for (int y = 0; y < img.height(); y += 2)
+                    for (int x = 0; x < img.width(); x += 2) mask.append(img.pixel(x, y) != corner);
+                return mask;
+            };
+            const QVector<bool> plus = silhouette(1.0f);
+            const QVector<bool> minus = silhouette(-1.0f);
+            gl->m_obj->mathParams.setZ(1.0f);
+            gl->setObserverPos4D(observerW);
+            m_mw->selectSceneObject(0);
+            int either = 0, onlyOne = 0;
+            for (int i = 0; i < plus.size(); ++i) {
+                if (plus[i] || minus[i]) ++either;
+                if (plus[i] != minus[i]) ++onlyOne;
+            }
+            check(either > 500 && onlyOne < either / 100,
+                  QStringLiteral("curva 4D in H3, prospettiva: la sagoma non dipende dal segno di w, niente "
+                                 "tagliato dal fondo (%1 punti su %2 in una sola delle due)").arg(onlyOne).arg(either));
+        } else {
+            check(false, QStringLiteral("Brieskorn-Pham (Solid Curves/Borders) entra nella scena H3"));
+        }
+        newScene();
+    }
+
+    // IL MASTER CON L'AMBIENTE VUOTO SELEZIONATO (segnalazione del 3 novembre):
+    // un oggetto nella scena, l'ambiente selezionato col suo GO in corsa;
+    // fermato (dal master o dal GO) e ripartito dal master, nessun avviso
+    // "Incomplete Equations": l'ambiente vuoto non ha niente da costruire.
+    // Nella scena H3 e, per confronto, nella 3D.
+    QString brieskornPath;
+    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+        if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Solid Curves/Borders/Brieskorn-Pham.json")))
+            brieskornPath = it.filePath;
+    for (const auto &[space, shape, shapeName, rmTab] :
+         { std::tuple{Space::SpaceH3, torusPath, QStringLiteral("toro"), false},
+           std::tuple{Space::Space3D, torusPath, QStringLiteral("toro"), false},
+           std::tuple{Space::SpaceH3, trefoilPath, QStringLiteral("trifoglio"), false},
+           std::tuple{Space::Space3D, trefoilPath, QStringLiteral("trifoglio"), false},
+           std::tuple{Space::SpaceH3, brieskornPath, QStringLiteral("Brieskorn-Pham"), false},
+           std::tuple{Space::SpaceH3, torusPath, QStringLiteral("toro, ambiente in Ray Marching"), true},
+           std::tuple{Space::Space3D, torusPath, QStringLiteral("toro, ambiente in Ray Marching"), true} }) {
+        if (rmTab) {
+            m_mw->ui->tabModeSelector->setCurrentIndex(1);
+            wait(1500);
+            newScene();
+        }
+        m_mw->startScene(space);
+        m_mw->addShapeToScene(shape);
+        wait(1200);
+        m_mw->selectSceneObject(1);
+        wait(200);
+        m_mw->selectSceneObject(0);
+        gl->setPrecessionSpeed(1.0f);
+        m_mw->refreshRotationSpeedLabels();
+        m_mw->onStopClicked();   // GO dell'ambiente
+        wait(300);
+        const auto conditions = [&]() {
+            return QStringLiteral("eq '%1' '%2' '%3' '%4', script '%5', scriptMode %6, sceneEmpty %7, implicit %8, "
+                                  "tubes %9, master '%10'")
+                .arg(m_mw->m_scene.eq.x, m_mw->m_scene.eq.y, m_mw->m_scene.eq.z, m_mw->m_scene.eq.p,
+                     m_mw->m_scene.surfaceScriptApplied.left(20))
+                .arg(gl->getEngine()->isScriptModeActive()).arg(m_mw->isSceneEmpty()).arg(m_mw->implicitMode())
+                .arg(m_mw->tubesShown()).arg(m_mw->m_btnStart->text());
+        };
+        const int before = m_popupsClosed;
+        m_mw->m_btnStart->click();   // master STOP
+        wait(300);
+        const QString atStart = conditions();
+        m_mw->m_btnStart->click();   // master START
+        wait(500);
+        const int fromMaster = m_popupsClosed - before;
+        const bool rotatingAfterMaster = gl->isObjectRotating(0);
+        m_mw->onStopClicked();       // GO: fermo
+        wait(300);
+        m_mw->m_btnStart->click();   // master START
+        wait(500);
+        const int fromGo = m_popupsClosed - before - fromMaster;
+        const bool rotatingAfterGo = gl->isObjectRotating(0);
+        gl->setPrecessionSpeed(0.0f);
+        m_mw->refreshRotationSpeedLabels();
+        check(fromMaster == 0 && fromGo == 0 && rotatingAfterMaster && rotatingAfterGo,
+              QStringLiteral("%1 col %7, ambiente vuoto selezionato: fermato dal master o dal GO, il master START "
+                             "riparte senza avvisi (avvisi %2 e %3; gira %4 e %5; %6)")
+                  .arg(space == Space::SpaceH3 ? QStringLiteral("H3") : QStringLiteral("3D"))
+                  .arg(fromMaster).arg(fromGo).arg(rotatingAfterMaster).arg(rotatingAfterGo).arg(atStart, shapeName));
+        newScene();
+        if (rmTab) {
+            m_mw->ui->tabModeSelector->setCurrentIndex(0);
+            wait(1500);
+            newScene();
+        }
+    }
+
+    // LA VISTA DA FUORI (Orthogonal in H3): la palla di Poincare' centrata nel
+    // centro della scena, vista in parallelo dalla parte della camera. Il toro
+    // nel centro (A + B = 1.1 dal suo centro, il massimo sull'equatore
+    // esterno), a scala s: nella palla il bordo della sagoma sta a tanh(rho/2),
+    // rho = 1.1 s / raggio di curvatura (un cerchio proiettato ha sempre il
+    // semiasse maggiore intero). La finestra: dalla camera d'avvio (2 raggi)
+    // la prospettiva vede tutto il piano per il centro, quindi la mezza altezza
+    // e' la palla col 5% di margine.
+    // Il reticolo li' ha il suo pezzo, piu' grande (fino al 97.8% del raggio
+    // della palla, i lontani col tubo semplice); la densita' come in
+    // prospettiva. Da guardare: scene-h3-outside-{plain,lattice,lattice-0,lattice-50}.png.
+    {
+        m_mw->startScene(Space::SpaceH3);
+        m_mw->addShapeToScene(torusPath);
+        wait(800);
+        constexpr float scale = 2.0f;
+        m_mw->selectSceneObject(1);
+        gl->setObjectPosition(QVector3D());
+        gl->setObjectScale(scale);
+        m_mw->selectSceneObject(0);
+        m_mw->refreshObjectsUi();
+        m_mw->toggleProjection();   // Stereographic
+        m_mw->toggleProjection();   // Orthogonal
+        const QColor bg = QColor::fromRgbF(gl->m_bgColor.x(), gl->m_bgColor.y(), gl->m_bgColor.z());
+        const auto near = [](QColor a, QColor b) {
+            return std::abs(a.red() - b.red()) <= 2 && std::abs(a.green() - b.green()) <= 2 && std::abs(a.blue() - b.blue()) <= 2;
+        };
+        gl->update();
+        wait(500);
+        const QImage plain = gl->grabFramebuffer();
+        plain.save(m_outDir + QStringLiteral("/scene-h3-outside-plain.png"));
+        const double cx = plain.width() / 2.0, cy = plain.height() / 2.0;
+        double edge = 0.0;
+        for (int y = 0; y < plain.height(); ++y)
+            for (int x = 0; x < plain.width(); ++x)
+                if (!near(plain.pixelColor(x, y), bg)) edge = std::max(edge, std::hypot(x + 0.5 - cx, y + 0.5 - cy));
+        const double d = distance();
+        const double xp = std::sinh(d) * std::tan(double(gl->effectiveCameraFov()) * 0.5 * M_PI / 180.0);
+        const double halfH = 1.05 * (xp < 1.0 ? xp / (1.0 + std::sqrt(1.0 - xp * xp)) : 1.0);
+        const double rho = 1.1 * scale / gl->hyperbolicCurvatureRadius();
+        const double expected = std::tanh(rho / 2.0) / halfH * cy;
+        check(gl->projectionMode == GLWidget::Ortho4D && std::abs(edge - expected) < 2.5,
+              QStringLiteral("vista da fuori: la sagoma del toro nella palla di Poincare' finisce a tanh(rho/2) "
+                             "(%1 pixel, attesi %2; scene-h3-outside-plain.png)").arg(edge, 0, 'f', 1).arg(expected, 0, 'f', 1));
+        // IL RETICOLO: la densita' spenta col reticolo spento; acceso, tutta a
+        // destra (il default) tutti gli spigoli del pezzo grande, i lontani
+        // col tubo semplice; tutta a sinistra i 12 del cubo centrale. Il bordo
+        // del reticolo: sull'asse orizzontale, al 97% del raggio della palla
+        // c'e' ancora qualcosa (col pezzo della prospettiva era vuoto oltre il 94%).
+        QSlider *latticeDensity = m_mw->m_h3LatticeDensity;
+        const bool latticeSliderOff = !latticeDensity->isEnabled() && m_mw->m_h3LatticeDensityValue->text().isEmpty();
+        m_mw->m_h3Lattice->setChecked(true);
+        gl->update();
+        wait(1200);
+        const QImage lattice = gl->grabFramebuffer();
+        lattice.save(m_outDir + QStringLiteral("/scene-h3-outside-lattice.png"));
+        const int wholeEdges = gl->hyperbolicLatticeEdgeCount();
+        const bool latticeFull = latticeDensity->isEnabled() && latticeDensity->value() == 100
+                                 && gl->hyperbolicLatticeDrawnEdges() == wholeEdges
+                                 && gl->m_h3LatticeFine > 0 && gl->m_h3LatticeFine < gl->m_h3LatticeDrawn;
+        int farRing = 0;
+        for (int x = int(cx + 0.95 * cy / halfH); x < int(cx + 0.985 * cy / halfH); ++x)
+            for (int y = int(cy) - 40; y <= int(cy) + 40; ++y)
+                if (!near(lattice.pixelColor(x, y), bg)) ++farRing;
+        latticeDensity->setValue(0);
+        gl->update();
+        wait(500);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-outside-lattice-0.png"));
+        const int cubeEdges = gl->hyperbolicLatticeDrawnEdges();
+        latticeDensity->setValue(50);
+        gl->update();
+        wait(500);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-outside-lattice-50.png"));
+        const int halfEdges = gl->hyperbolicLatticeDrawnEdges();
+        latticeDensity->setValue(100);
+        m_mw->m_h3Lattice->setChecked(false);
+        m_mw->toggleProjection();   // Perspective
+        m_mw->m_h3Lattice->setChecked(true);
+        const int aroundEdges = gl->hyperbolicLatticeEdgeCount();
+        m_mw->m_h3Lattice->setChecked(false);
+        check(latticeSliderOff && latticeFull && cubeEdges == 12 && halfEdges > 12 && halfEdges < wholeEdges
+                  && wholeEdges > 4 * aroundEdges && farRing > 20,
+              QStringLiteral("vista da fuori: il reticolo ha il suo pezzo (%1 spigoli, in prospettiva %2), arriva "
+                             "oltre il 95% della palla (%3 punti fra 95 e 98.5%); densita' spenta col reticolo "
+                             "spento, 0 il solo cubo centrale (%4 spigoli), 50 %5 (scene-h3-outside-lattice-*.png)")
+                  .arg(wholeEdges).arg(aroundEdges).arg(farRing).arg(cubeEdges).arg(halfEdges));
+        newScene();
+    }
+
+    // Lo stesso toro grande in una scena 3D, con la camera alla stessa distanza
+    // in unita' della scena (17.5 = 3.5 raggi): il confronto per l'occhio.
+    m_mw->startScene(Space::Space3D);
+    m_mw->addShapeToScene(torusPath);
+    wait(800);
+    m_mw->selectSceneObject(1);
+    gl->setObjectPosition(QVector3D());
+    gl->setObjectScale(gl->objectScale() * 9.0f);
+    m_mw->selectSceneObject(0);
+    gl->zoomCamera(-13.5f);
+    wait(300);
+    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-3d-torus-big.png"));
+    gl->setProjectionMode(0);
+    wait(300);
+    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-3d-torus-big-ortho.png"));
+    gl->setProjectionMode(1);
+    check(!gl->hyperbolicSpace() && gl->objectCount() == 2,
+          QStringLiteral("scena 3D dopo la H3: camera euclidea (immagine di confronto scene-3d-torus-big.png)"));
+    // Il trifoglio in 3D, da confrontare con quelli in H3: grande come
+    // all'ingresso con la camera a 4 unita', e 10 volte con la camera a 15.
+    // La camera a 4 unita' PRIMA di aggiungerlo: la grandezza d'ingresso
+    // dipende dalla sua distanza (sceneFitScale), come in H3.
+    m_mw->removeSceneObject(1);
+    gl->zoomCamera(13.5f);   // di nuovo a 4 unita'
+    m_mw->addShapeToScene(trefoilPath);
+    wait(1200);
+    m_mw->selectSceneObject(1);
+    gl->setObjectPosition(QVector3D());
+    m_mw->selectSceneObject(0);
+    wait(300);
+    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-3d-tube-small.png"));
+    m_mw->selectSceneObject(1);
+    gl->setObjectScale(10.0f * m_mw->m_objectSessions[1].openingScale);
+    m_mw->selectSceneObject(0);
+    gl->zoomCamera(-11.0f);   // a 15 unita'
+    wait(300);
+    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-3d-tube.png"));
     newScene();
 }
 

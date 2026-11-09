@@ -457,8 +457,13 @@ const ObjectState &MainWindow::environmentState() const
     return m_objectSessions[0].state;
 }
 
+// In H3 (2.1) niente 4D: lo spazio e' 3D, e una rotazione 4D o un path 4D non
+// sono isometrie di H3, deformerebbero gli oggetti. Spenti qui i moti (GO e
+// scatti omega/phi/psi, path 4D della camera); il resto del dock 4D
+// (osservatore, luce 4D) lo spegne setSceneSpace.
 bool MainWindow::selectedRotates4D() const
 {
+    if (m_sceneSpace == SceneSpace::SpaceH3) return false;
     const bool environment = !ui->glWidget || ui->glWidget->selectedObject() == 0;
     // L'ambiente di una scena non ha superficie: le sue rotazioni 4D sono
     // quelle della scena (environment4DUsable).
@@ -471,9 +476,10 @@ bool MainWindow::selectedRotates4D() const
 // della sua superficie: parametrica o Cross Section. In una scena l'ambiente non
 // ha superficie e le rotazioni girano gli oggetti: in 4D tutti, in 3D solo i
 // tagli delle Cross Section (le parametriche sono rigide, GLWidget::rigidObject,
-// e un ray marching 3D non ruota in 4D).
+// e un ray marching 3D non ruota in 4D); in H3 nessuno.
 bool MainWindow::environment4DUsable() const
 {
+    if (m_sceneSpace == SceneSpace::SpaceH3) return false;   // vedi selectedRotates4D
     if (sceneStarted())
         return sceneIs4D() || (ui->glWidget && ui->glWidget->anyCrossSectionObject());
     const ObjectState &env = environmentState();
@@ -515,9 +521,29 @@ bool MainWindow::sceneStarted() const
 
 void MainWindow::setSceneSpace(SceneSpace space)
 {
+    const bool h3Changed = (m_sceneSpace == SceneSpace::SpaceH3) != (space == SceneSpace::SpaceH3);
     m_sceneSpace = space;
-    // In una scena 3D gli oggetti parametrici sono rigidi (GLWidget::rigidObject).
-    if (ui->glWidget) ui->glWidget->setScene3D(space == SceneSpace::Space3D);
+    if (ui->glWidget) ui->glWidget->setHyperbolicSpace(space == SceneSpace::SpaceH3);
+    if (m_h3CurvatureRow) m_h3CurvatureRow->setVisible(space == SceneSpace::SpaceH3);
+    refreshHyperbolicControls();
+    // In H3 lo sfondo e' il cielo di H3: i radio della forma lo mostrano, spenti.
+    updateBackgroundControlsGate();
+    // In H3 il dock 4D e' spento tutto (path 4D, osservatore, scatti 4D, luce
+    // 4D): il contenuto, non le linguette, per poter tornare al 3D View. I
+    // singoli tasti tengono il loro stato e lo ritrovano uscendo da H3. Solo
+    // entrando e uscendo: setSceneSpace gira anche annidata nei load.
+    if (h3Changed) {
+        const bool h3 = space == SceneSpace::SpaceH3;
+        QWidget *content = dockContent(ui->dock4D);
+        content->setEnabled(!h3);
+        content->setToolTip(h3 ? QStringLiteral("A hyperbolic scene is a 3D space: 4D paths, 4D rotations "
+                                                "and observer moves don't apply.")
+                               : QString());
+        updateRotation4DControls();
+    }
+    // In una scena 3D (e in H3, che e' uno spazio 3D) gli oggetti parametrici
+    // sono rigidi (GLWidget::rigidObject).
+    if (ui->glWidget) ui->glWidget->setScene3D(space == SceneSpace::Space3D || space == SceneSpace::SpaceH3);
     refreshSceneSlot();
     applySceneEnvironmentGating();
     // I moti 4D dell'ambiente dipendono dallo spazio (environment4DUsable): da
@@ -538,22 +564,27 @@ void MainWindow::showSceneSpaceMenu()
             [this]() { startScene(SceneSpace::Space3D); });
     connect(menu.addAction(QStringLiteral("4D")), &QAction::triggered, this,
             [this]() { startScene(SceneSpace::Space4D); });
+    connect(menu.addAction(QStringLiteral("H³")), &QAction::triggered, this,
+            [this]() { startScene(SceneSpace::SpaceH3); });
     menu.exec(m_btnScene->mapToGlobal(QPoint(0, 0)) - QPoint(0, menu.sizeHint().height()));
 }
 
 // LA SCENA PARTE VUOTA (decisione dell'utente, 2026-11-08): l'ambiente non ha
 // superficie -- e' la camera coi suoi path e le sue rotazioni, lo sfondo, il
-// suono, l'osservatore e la luce 4D -- e tutto il resto e' fatto di oggetti
-// (Add to Scene). Prima la superficie a schermo diventava l'ambiente: si
-// portava dietro le sue regole (niente ray marching in 4D, niente P in 3D, gli
-// oggetti parametrici rigidi solo con l'ambiente in ray marching) e a scena
-// costruita non si poteva piu' cambiare.
+// suono, l'osservatore e la luce 4D (in H3 lo spazio stesso) -- e tutto il
+// resto e' fatto di oggetti (Add to Scene). Prima, in 3D e 4D, la superficie a
+// schermo diventava l'ambiente: si portava dietro le sue regole (niente ray
+// marching in 4D, niente P in 3D, gli oggetti parametrici rigidi solo con
+// l'ambiente in ray marching) e a scena costruita non si poteva piu' cambiare.
+// H3 partiva gia' vuota.
 void MainWindow::startScene(SceneSpace space)
 {
     if (!isSceneEmpty()) {
         InputValidator::showSceneNotice(this,
-            QStringLiteral("A scene starts empty: its environment is the camera, the background and the "
-                           "sound, and everything else is added as objects."),
+            space == SceneSpace::SpaceH3
+                ? QStringLiteral("In a hyperbolic scene the environment is the space itself, so the scene starts empty.")
+                : QStringLiteral("A scene starts empty: its environment is the camera, the background and the "
+                                 "sound, and everything else is added as objects."),
             QStringLiteral("Press NEW first, then Scene."));
         return;
     }
@@ -566,6 +597,20 @@ void MainWindow::startScene(SceneSpace space)
         ui->tabModeSelector->setCurrentIndex(0);
         resetScene(0, /*loadDefaultSurface=*/false);
         updateMeshScopeEnabled();
+    }
+    if (space == SceneSpace::SpaceH3) {
+        // Sulla scena vuota si puo' avviare un path 4D o dare velocita' 4D al
+        // GO prima di Scene: in H3 il 4D non c'e' (selectedRotates4D), e i loro
+        // tasti stanno per spegnersi, quindi si fermano qui.
+        if (pathRunning(CameraPaths::Path4D)) {
+            m_paths->stop(CameraPaths::Path4D);
+            ui->btnDeparture->setText(QStringLiteral("DEPARTURE"));
+            if (!pathRunning(CameraPaths::Path3D)) ui->glWidget->setPathAnimating(false);
+        }
+        ui->glWidget->setOmegaSpeed(0.0f);
+        ui->glWidget->setPhiSpeed(0.0f);
+        ui->glWidget->setPsiSpeed(0.0f);
+        refreshRotationSpeedLabels();
     }
     setSceneSpace(space);
     // Il selettore ora si vede anche con il solo ambiente, e al primo avvio
@@ -666,6 +711,13 @@ void MainWindow::addShapeToScene(const QString &shapePath)
 {
     const LibraryItem *d = m_libraryManager.getSurfaceByPath(shapePath);
     if (!d || d->name.isEmpty()) return;
+    // 2.1: in H3 solo le mesh (GLWidget::hyperbolicObject); il ray marching
+    // resta fuori dal livello 1.
+    if (m_sceneSpace == SceneSpace::SpaceH3 && d->isImplicitMode) {
+        QMessageBox::information(this, QStringLiteral("Add to Scene"),
+            QStringLiteral("Ray marching shapes cannot be added to a hyperbolic scene yet."));
+        return;
+    }
     // SCENA 3D O 4D (decisione dell'utente, 2026-11-08): in 3D oggetti 3D e
     // ray marching (le Cross Section tagliate tutte dalla stessa quota p,
     // girate dalle rotazioni 4D), con le parametriche rigide; in 4D solo
@@ -679,7 +731,10 @@ void MainWindow::addShapeToScene(const QString &shapePath)
     }
     if (!sceneIs4D() && object4D) {
         QMessageBox::information(this, QStringLiteral("Add to Scene"),
-            QStringLiteral("This scene is 3D: objects with a P coordinate can only be added to 4D scenes."));
+            m_sceneSpace == SceneSpace::SpaceH3
+                ? QStringLiteral("This scene is hyperbolic, a 3D space: objects with a P coordinate can only "
+                                 "be added to 4D scenes.")
+                : QStringLiteral("This scene is 3D: objects with a P coordinate can only be added to 4D scenes."));
         return;
     }
     const int index = addShapeObject(*d, uniqueObjectName(d->name), sceneFitScale(*d));
@@ -1049,8 +1104,9 @@ void MainWindow::setupObjectsDock()
     auto *w = new QWidget(m_dockObjects);
     auto *lay = new QVBoxLayout(w);
 
-    auto *help = new QLabel(QStringLiteral("Press NEW, then Scene in the status bar, and choose 3D or 4D: the "
-                                           "scene starts empty, with the camera, the background and the sound. "
+    auto *help = new QLabel(QStringLiteral("Press NEW, then Scene in the status bar, and choose 3D, 4D or H³: "
+                                           "the scene starts empty, with the camera, the background and the "
+                                           "sound (in H³ the environment is the hyperbolic space itself). "
                                            "Add objects to it: right-click a Shape, then Add to Scene."), w);
     help->setWordWrap(true);
     lay->addWidget(help);
@@ -1149,6 +1205,71 @@ void MainWindow::setupObjectsDock()
         if (!m_refreshingObjects) seekSceneTime(float(v) / 10.0f);
     });
 
+    // IL RAGGIO DI CURVATURA (solo nelle scene H3): quanto e' curvo lo spazio
+    // rispetto a cio' che contiene. Oggetti e camera restano dove sono in unita'
+    // della scena.
+    m_h3CurvatureRow = new QWidget(w);
+    auto *curvatureRow = new QHBoxLayout(m_h3CurvatureRow);
+    curvatureRow->setContentsMargins(0, 0, 0, 0);
+    curvatureRow->addWidget(rowLabel(QStringLiteral("Curvature radius")));
+    m_h3CurvatureSlider = new QSlider(Qt::Horizontal, m_h3CurvatureRow);
+    m_h3CurvatureSlider->setRange(0, 200);
+    m_h3CurvatureSlider->setPageStep(10);
+    m_h3CurvatureSlider->setMinimumHeight(UiStyleManager::kSliderMinHeight);
+    curvatureRow->addWidget(m_h3CurvatureSlider, 1);
+    m_h3CurvatureValue = new QLabel(m_h3CurvatureRow);
+    m_h3CurvatureValue->setMinimumWidth(m_h3CurvatureValue->fontMetrics().horizontalAdvance(QStringLiteral("00.00")));
+    m_h3CurvatureValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    curvatureRow->addWidget(m_h3CurvatureValue);
+    m_h3CurvatureRow->setToolTip(QStringLiteral(
+        "Radius of curvature of the hyperbolic space, in scene units. The smaller it is, the more the "
+        "geometry shows; very large, the space is almost Euclidean. Objects and camera keep their "
+        "positions and sizes in scene units."));
+    m_h3CurvatureRow->setVisible(false);
+    lay->addWidget(m_h3CurvatureRow);
+    // IL RETICOLO {4,3,5}: le pareti di H3, della scena (non dell'oggetto), con
+    // la sua densita' accanto. Visibilita', stato e tooltip: refreshHyperbolicControls.
+    auto *latticeRow = new QHBoxLayout();
+    latticeRow->setContentsMargins(0, 0, 0, 0);
+    m_h3Lattice = new QCheckBox(QStringLiteral("Lattice {4,3,5}"), w);
+    m_h3Lattice->setToolTip(QStringLiteral(
+        "The walls of hyperbolic space: the regular tiling of H³ by cubes whose dihedral angles are 72 degrees, "
+        "so that five of them meet around each edge (four in ordinary space). Its size belongs to H³, not to the "
+        "scene: each edge is 1.62 radii of curvature long."));
+    m_h3LatticeDensity = new QSlider(Qt::Horizontal, w);
+    m_h3LatticeDensity->setRange(0, 100);
+    m_h3LatticeDensity->setPageStep(10);
+    m_h3LatticeDensity->setMinimumHeight(UiStyleManager::kSliderMinHeight);
+    m_h3LatticeDensityValue = new QLabel(w);
+    m_h3LatticeDensityValue->setMinimumWidth(m_h3LatticeDensityValue->fontMetrics().horizontalAdvance(QStringLiteral("00.00")));
+    m_h3LatticeDensityValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    for (QWidget *x : std::initializer_list<QWidget *>{ m_h3Lattice, m_h3LatticeDensity, m_h3LatticeDensityValue })
+        x->setVisible(false);
+    latticeRow->addWidget(m_h3Lattice);
+    latticeRow->addWidget(m_h3LatticeDensity, 1);
+    latticeRow->addWidget(m_h3LatticeDensityValue);
+    lay->addLayout(latticeRow);
+    connect(m_h3Lattice, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_refreshingObjects) return;
+        ui->glWidget->setHyperbolicLattice(on);
+        refreshHyperbolicControls();
+        m_sceneObjectsChanged = true;
+    });
+    connect(m_h3LatticeDensity, &QSlider::valueChanged, this, [this](int v) {
+        if (m_refreshingObjects) return;
+        ui->glWidget->setHyperbolicLatticeDensity(v / 100.0);
+        refreshHyperbolicControls();
+        m_sceneObjectsChanged = true;
+    });
+    connect(m_h3CurvatureSlider, &QSlider::valueChanged, this, [this](int v) {
+        const double radius = h3CurvatureRadiusFromSlider(v);
+        m_h3CurvatureValue->setText(QString::number(radius, 'f', radius < 10.0 ? 2 : 1));
+        if (m_refreshingObjects) return;
+        ui->glWidget->setHyperbolicCurvatureRadius(radius);
+        clampHyperbolicObjectScales();
+        m_sceneObjectsChanged = true;
+    });
+
     for (QDoubleSpinBox *box : { m_objectWindowIn, m_objectWindowOut }) {
         connect(box, &QDoubleSpinBox::valueChanged, this, [this](double) {
             if (m_refreshingObjects) return;
@@ -1162,8 +1283,10 @@ void MainWindow::setupObjectsDock()
     }
     // La scala dell'oggetto la cambiano rotella, pinch e Back/Forward
     // (GLWidget::zoomCamera).
+    // Il segnale arriva prima del disegno: niente fotogramma oltre il limite.
     connect(ui->glWidget, &GLWidget::objectScaleChangedByUser, this, [this]() {
         m_sceneObjectsChanged = true;
+        clampHyperbolicObjectScales();
     });
     // La posizione spostata dai tasti del dock 3D (GLWidget::virtualMove).
     connect(ui->glWidget, &GLWidget::objectPositionChangedByUser, this, [this](const QVector3D &p) {
@@ -1221,6 +1344,60 @@ void MainWindow::setupObjectsDock()
     });
 }
 
+// IL LIMITE DI ZOOM IN H3 (2.1): un oggetto entra grande al piu' ~1.75 unita'
+// (l'inquadratura della sua Shape, sceneFitScale), e lo zoom si ferma quando
+// sarebbe grande kH3MaxZoomRadii raggi di curvatura, ~10 raggi. Oltre, una mesh
+// in float non lo rappresenta piu': in H3 le circonferenze crescono come sinh
+// del raggio (con la scala 100 e il raggio 5 il toro aveva segmenti di 140000
+// raggi e vertici sbagliati di mezzo raggio). Col raggio 5 e' 30 volte la
+// grandezza d'ingresso, col default (2) 12; vale anche quando il raggio cambia.
+void MainWindow::clampHyperbolicObjectScales()
+{
+    if (m_sceneSpace != SceneSpace::SpaceH3) return;
+    constexpr double kH3MaxZoomRadii = 6.0;   // volte la grandezza d'ingresso, in raggi per unita'
+    GLWidget *gl = ui->glWidget;
+    const float maxZoom = float(kH3MaxZoomRadii * gl->hyperbolicCurvatureRadius());
+    for (int k = 1; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k) {
+        const float limit = maxZoom * m_objectSessions[k].openingScale;
+        if (gl->objectScaleAt(k) > limit) gl->setObjectScaleAt(k, limit);
+    }
+}
+
+void MainWindow::refreshHyperbolicControls()
+{
+    if (!m_h3Lattice || !m_h3LatticeDensity || !ui->glWidget) return;
+    GLWidget *gl = ui->glWidget;
+    const bool h3 = m_sceneSpace == SceneSpace::SpaceH3;
+    for (QWidget *x : std::initializer_list<QWidget *>{ m_h3Lattice, m_h3LatticeDensity, m_h3LatticeDensityValue })
+        x->setVisible(h3);
+    if (!h3) return;
+    const bool on = gl->hyperbolicLattice();
+    const QSignalBlocker blocker(m_h3Lattice);
+    const QSignalBlocker sliderBlocker(m_h3LatticeDensity);
+    m_h3Lattice->setChecked(on);
+    m_h3LatticeDensity->setValue(int(std::lround(gl->hyperbolicLatticeDensity() * 100.0)));
+    m_h3LatticeDensity->setEnabled(on);
+    m_h3LatticeDensityValue->setEnabled(on);
+    // La distanza raggiunta, in raggi: solo col reticolo acceso (chiederla
+    // genera il pezzo, che a reticolo spento non serve). Dipende anche dalla
+    // proiezione: la vista da fuori ha il suo pezzo, piu' grande.
+    m_h3LatticeDensityValue->setText(on ? QString::number(gl->hyperbolicLatticeReach(), 'f', 1) : QString());
+    m_h3LatticeDensity->setToolTip(
+        on ? QStringLiteral("Lattice density: how far the lattice reaches, in radii of curvature from the centre of "
+                            "the cube around the camera (in Orthogonal, the central cube). Leftmost, that cube alone.")
+           : QStringLiteral("Turn the Lattice on to choose its density."));
+}
+
+double MainWindow::h3CurvatureRadiusFromSlider(int v)
+{
+    return 0.5 * std::pow(10.0, double(v) / 100.0);   // 0 -> 0.5, 100 -> 5, 200 -> 50
+}
+
+int MainWindow::h3CurvatureSliderFromRadius(double radius)
+{
+    return qBound(0, int(std::lround(100.0 * std::log10(radius / 0.5))), 200);
+}
+
 void MainWindow::refreshObjectsUi()
 {
     if (!m_objectList || !ui->glWidget) return;
@@ -1258,6 +1435,13 @@ void MainWindow::refreshObjectsUi()
     m_objectWindowOut->setValue(gl->objectWindowOut(selected));
     m_btnObjectDuplicate->setEnabled(selected > 0);
     m_btnObjectRemove->setEnabled(selected > 0);
+    refreshHyperbolicControls();
+    if (m_h3CurvatureRow) {
+        m_h3CurvatureRow->setVisible(m_sceneSpace == SceneSpace::SpaceH3);
+        m_h3CurvatureSlider->setValue(h3CurvatureSliderFromRadius(gl->hyperbolicCurvatureRadius()));
+        const double radius = gl->hyperbolicCurvatureRadius();
+        m_h3CurvatureValue->setText(QString::number(radius, 'f', radius < 10.0 ? 2 : 1));
+    }
     if (m_btnObjectSelector) {
         const QString name = QFontMetrics(m_btnObjectSelector->font())
                                  .elidedText(nameOf(selected), Qt::ElideRight, 110);
@@ -1443,7 +1627,10 @@ void MainWindow::refreshSceneSlot()
     const bool started = sceneStarted();
     m_btnScene->setVisible(!started);
     m_sceneSpaceLabel->setVisible(started);
-    if (started) m_sceneSpaceLabel->setText(sceneIs4D() ? QStringLiteral("4D") : QStringLiteral("3D"));
+    if (started)
+        m_sceneSpaceLabel->setText(m_sceneSpace == SceneSpace::SpaceH3 ? QStringLiteral("H³")
+                                   : sceneIs4D()                         ? QStringLiteral("4D")
+                                                                         : QStringLiteral("3D"));
     m_btnObjectSelector->setVisible(started);
     m_sceneTimeLabel->setVisible(started);
 }

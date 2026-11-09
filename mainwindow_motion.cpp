@@ -1231,6 +1231,8 @@ void MainWindow::updateProjectionButtonText()
 
     // Chiamata a ogni cambio di proiezione (toggle, load preset/record, init):
     // in Ortho gli slider FOV si spengono.
+    // In H3 la distanza raggiunta dal reticolo dipende dalla proiezione.
+    refreshHyperbolicControls();
 }
 
 

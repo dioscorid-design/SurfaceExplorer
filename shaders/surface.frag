@@ -285,15 +285,42 @@ void main() {
 
     vec3 L = vec3(0.0, 0.0, 1.0);   // Luce frontale
     vec3 H = normalize(L + V);      // Vettore mediano
+    float nDotL = dot(N, L);
+    float nDotH = dot(N, H);
+#ifdef HYPERBOLIC
+    // H3 (2.1): in H3 non ci sono direzioni parallele. La luce arriva lungo il
+    // raggio che forma l'immagine, come la vista, quindi luce e vista sono la
+    // stessa direzione e conta solo il coseno fra quel raggio e la normale.
+    // v_pos e v_normal sono punto e normale (unitaria) sull'iperboloide, nel
+    // riferimento della camera (surface.vert): il coseno si calcola li', senza
+    // carte, preciso anche lontano dal centro degli oggetti.
+    // Prospettiva: il raggio e' la geodetica verso la camera, coseno
+    // -N.w / |P.xyz|. Verificato contro la geodetica (hyperbolic-test).
+    // Ortogonale, la vista da fuori (surface.vert, hyperbolicChart): si guarda
+    // il modello, la palla di Poincare' in R3, e la luce e' euclidea, frontale,
+    // sulla sua superficie. Il riferimento e' quello della palla (guarda lungo
+    // -z). La normale del modello e' l'immagine di N col differenziale della
+    // carta x / (1 + w), conforme, quindi ancora perpendicolare alla
+    // superficie: a meno di un fattore N.xyz - P.xyz N.w / (1 + P.w), con
+    // P.w = sqrt(1 + |P.xyz|^2). Verificata con le differenze finite
+    // (hyperbolic-test).
+    if (ubuf.u_projMode == 0) {
+        vec3 nm = v_normal.xyz - v_pos * (v_normal.w / (1.0 + sqrt(1.0 + dot(v_pos, v_pos))));
+        nDotL = nm.z / max(length(nm), 1.0e-12);
+    } else {
+        nDotL = -v_normal.w / max(length(v_pos), 1.0e-6);
+    }
+    nDotH = nDotL;
+#endif
 
     // --- 2. ILLUMINAZIONE DIFFUSA ---
-    float diff = abs(dot(N, L));
+    float diff = abs(nDotL);
     diff = 0.3 + 0.7 * diff;
 
     // --- 3. ILLUMINAZIONE SPECULARE (PHONG) CALIBRATA ---
     float spec = 0.0;
     if (ubuf.useSpecular != 0) {
-        float specAngle = abs(dot(N, H));
+        float specAngle = abs(nDotH);
         specAngle = clamp(specAngle, 0.0, 1.0);
         spec = pow(specAngle, 64.0);
         spec *= 0.3;

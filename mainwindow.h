@@ -1946,6 +1946,27 @@ private:
     // Il cursore della timeline (decimi di secondo) e il T che mostra.
     QSlider *m_sceneTimeSlider = nullptr;
     QLabel *m_sceneTimeValue = nullptr;
+    // IL RAGGIO DI CURVATURA della scena H3 (2.1, GLWidget::setHyperbolicCurvatureRadius):
+    // la riga del dock Objects, visibile solo in H3. Cursore logaritmico da 0.5 a
+    // 50 unita' della scena (il default, 2, a 60 su 200).
+    QWidget *m_h3CurvatureRow = nullptr;
+    QSlider *m_h3CurvatureSlider = nullptr;
+    QLabel *m_h3CurvatureValue = nullptr;
+    // Il reticolo {4,3,5} della scena H3 (GLWidget::setHyperbolicLattice).
+    QCheckBox *m_h3Lattice = nullptr;
+    // La densita' del reticolo accanto alla casella (0..100 ->
+    // GLWidget::setHyperbolicLatticeDensity; accanto la distanza raggiunta in raggi).
+    QSlider *m_h3LatticeDensity = nullptr;
+    QLabel *m_h3LatticeDensityValue = nullptr;
+    // I controlli H3 del dock Objects: visibili solo in H3. Il reticolo sempre
+    // attivo, la sua densita' col reticolo acceso, col tooltip che dice perche'.
+    // La richiama anche updateProjectionButtonText: la distanza raggiunta
+    // dipende dalla proiezione (il pezzo della vista da fuori e' piu' grande).
+    void refreshHyperbolicControls();
+    static double h3CurvatureRadiusFromSlider(int v);
+    static int h3CurvatureSliderFromRadius(double radius);
+    // In H3 nessun oggetto supera il limite di zoom (vedi objectScaleChangedByUser).
+    void clampHyperbolicObjectScales();
     bool m_applyingObjectPath = false;
     // Come i path dell'ambiente, ma il path FERMO aspetta il suo Departure:
     // l'Invio su un campo applica la modifica solo a path in corsa (svuotati
@@ -1974,7 +1995,10 @@ private:
     // resetToSingleObject, cioe' tutto cio' che riscrive la scena da capo (NEW,
     // un load); il clic su una Shape o su un record a scena avviata e' rifiutato
     // (refuseLoadInScene).
-    enum class SceneSpace { None, Space3D, Space4D };
+    // SpaceH3 (2.1): lo spazio iperbolico, visto da dentro. L'ambiente e' lo
+    // spazio stesso; la camera e' di GLWidget (setHyperbolicSpace). Per il
+    // resto vale come una scena 3D.
+    enum class SceneSpace { None, Space3D, Space4D, SpaceH3 };
     SceneSpace m_sceneSpace = SceneSpace::None;
     QPushButton *m_btnScene = nullptr;
     QLabel *m_sceneSpaceLabel = nullptr;
@@ -2026,8 +2050,8 @@ private:
     bool selectedRotates4D() const;
     // I MOTI 4D DELL'AMBIENTE (path 4D, rotazioni 4D, quota P del taglio): in
     // una scena 4D sempre, in una 3D se c'e' un oggetto Cross Section, che ne
-    // riceve rotazione e taglio. Fuori dalle scene se la superficie ha un 4D
-    // suo (parametrica o Cross Section).
+    // riceve rotazione e taglio, in H3 mai. Fuori dalle scene se la superficie
+    // ha un 4D suo (parametrica o Cross Section).
     bool environment4DUsable() const;
     // Campi del path 4D, Departure e View secondo environment4DUsable: da
     // updateRenderState e alla selezione di un oggetto.

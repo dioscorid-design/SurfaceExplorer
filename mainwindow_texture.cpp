@@ -2389,7 +2389,20 @@ void MainWindow::updateBackgroundControlsGate()
     // i radio si accendono solo col bersaglio Background E la texture accesa.
     const bool onBackground = editingBackground();
     const bool bgTexture = ui->glWidget && ui->glWidget->isBackgroundTextureEnabled();
-    const bool usable = onBackground && bgTexture;
+    // SCENA H3 (2.1): la forma non si sceglie, lo sfondo e' il cielo di H3 (il
+    // motore la impone, GLWidget::effectiveBackgroundSkyMode). I radio mostrano
+    // Poincare' Ball; fuori da H3 di nuovo la scelta salvata nel motore.
+    const bool hyperbolic = m_sceneSpace == SceneSpace::SpaceH3;
+    if (ui->glWidget) {
+        const int shown = ui->glWidget->effectiveBackgroundSkyMode();
+        if (shown >= 0 && shown < radios.size() && !radios[shown]->isChecked()) {
+            QList<bool> old;
+            for (QRadioButton *r : radios) old << r->blockSignals(true);
+            radios[shown]->setChecked(true);
+            for (int i = 0; i < radios.size(); ++i) radios[i]->blockSignals(old[i]);
+        }
+    }
+    const bool usable = onBackground && bgTexture && !hyperbolic;
     ui->panelBgLock->setEnabled(usable);
 
     // Stesso ordine di bgSkyRadios / GLWidget::BgSkyMode.
@@ -2400,7 +2413,9 @@ void MainWindow::updateBackgroundControlsGate()
         tr("The background is a cube around the scene."),
         tr("The background is the sky of hyperbolic space, seen from inside the Poincaré ball.")
     };
-    const QString why = !onBackground ? tr("Select Background to change it.")
+    const QString why = hyperbolic    ? tr("In a hyperbolic scene the background is the sky of H³: the boundary at "
+                                         "infinity, seen from the camera.")
+                      : !onBackground ? tr("Select Background to change it.")
                                       : tr("Turn on the Background Texture to choose its shape.");
     for (int i = 0; i < radios.size(); ++i)
         radios[i]->setToolTip(usable ? what.value(i) : why);

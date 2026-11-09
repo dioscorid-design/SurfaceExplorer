@@ -13,6 +13,7 @@
 #   ./ExC/Mac/Test/build-tests.sh                       sorgenti del repo -> build/Tests
 #   ./ExC/Mac/Test/build-tests.sh <sorgenti> <build>    altro albero (es. il worktree
 #                                                       di riferimento del test immagini)
+#   TARGET=hyperbolic-test ./ExC/Mac/Test/build-tests.sh  un solo bersaglio (senza l'app)
 
 set -euo pipefail
 
@@ -27,4 +28,4 @@ if [ ! -f "$BLD/build.ninja" ]; then
     "$CMAKE" -S "$SRC" -B "$BLD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DSE_SELF_TESTS=ON \
         -DCMAKE_PREFIX_PATH="$QT_PREFIX" -DCMAKE_MAKE_PROGRAM="$NINJA" > /dev/null
 fi
-"$CMAKE" --build "$BLD" -j8
+"$CMAKE" --build "$BLD" -j8 ${TARGET:+--target "$TARGET"}
