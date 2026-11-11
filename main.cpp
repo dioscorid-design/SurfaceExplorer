@@ -178,6 +178,27 @@ int main(int argc, char *argv[])
     //    rapporto. I bordi della cornice (barra del titolo) si conoscono solo
     //    con la finestra nativa: winId() la crea.
     w.winId();
+#ifdef SE_SELF_TESTS
+    // I TEST SU UNO SCHERMO SCELTO: SE_TEST_SCREEN=<nome> (o una sua parte,
+    // come lo scrive QScreen::name, es. "HP") apre la finestra su quello
+    // schermo, cosi' l'altro resta libero mentre la suite gira. Prima della
+    // misura qui sotto, che cosi' usa lo spazio dello schermo scelto. Se non
+    // c'e', gli schermi nel log e si resta sul principale.
+    if (const QString want = qEnvironmentVariable("SE_TEST_SCREEN"); !want.isEmpty() && w.windowHandle()) {
+        QScreen *chosen = nullptr;
+        QStringList names;
+        for (QScreen *s : QGuiApplication::screens()) {
+            names << s->name();
+            if (!chosen && s->name().contains(want, Qt::CaseInsensitive)) chosen = s;
+        }
+        if (chosen) {
+            w.windowHandle()->setScreen(chosen);
+            w.move(chosen->availableGeometry().topLeft() + QPoint(20, 20));
+        } else {
+            qWarning().noquote() << "SE_TEST_SCREEN: nessuno schermo" << want << "fra" << names.join(QStringLiteral(", "));
+        }
+    }
+#endif
     const QMargins frame = w.windowHandle() ? w.windowHandle()->frameMargins() : QMargins();
     QSize startSize(1320, 880);
     if (const QScreen *screen = w.screen()) {
