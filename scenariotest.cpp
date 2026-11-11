@@ -5916,6 +5916,36 @@ void ScenarioTest::runSceneObjectScenarios()
           QStringLiteral("scena caricata: due oggetti, selezionato l'ambiente"));
     check(!m_mw->hasUnsavedWork(), QStringLiteral("scena caricata: niente da salvare: %1")
                                        .arg(m_mw->unsavedKeys().join(QStringLiteral(", "))));
+    // LA VISTA MOSSA CON L'AMBIENTE SELEZIONATO e' lavoro della scena (la camera
+    // e' sua), e NEW chiede di salvarlo. Prima l'ambiente, che in una scena non
+    // ha superficie, la faceva ignorare: cambiando scena o con NEW non si
+    // chiedeva niente (segnalato dall'utente, 11-11). Dopo ogni gesto la scena
+    // si ricarica dal file.
+    {
+        const std::pair<QString, std::function<void()>> gestures[] = {
+            { QStringLiteral("trascinamento"), [gl]() { emit gl->userMovedView(); } },
+            { QStringLiteral("tasto Forward del dock 3D"), [this]() { m_mw->ui->btnForward->click(); } },
+        };
+        for (const auto &g : gestures) {
+            g.second();
+            wait(200);
+            const bool dirty = m_mw->hasUnsavedWork();
+            const QString keys = m_mw->unsavedKeys().join(QStringLiteral(", "));
+            const int before = m_discardPrompts;
+            m_discardOnPrompt = true;
+            m_mw->onNewSceneClicked();
+            wait(300);
+            m_discardOnPrompt = false;
+            check(dirty && m_discardPrompts == before + 1,
+                  QStringLiteral("scena caricata, ambiente selezionato, %1: da salvare (%2), NEW lo chiede")
+                      .arg(g.first, keys));
+            if (!loadSurface(kSphere)) return;
+            m_mw->loadSceneFile(scenePath);
+            wait(600);
+        }
+        check(gl->objectCount() == 2 && gl->selectedObject() == 0 && !m_mw->hasUnsavedWork(),
+              QStringLiteral("scena ricaricata: due oggetti, ambiente selezionato, niente da salvare"));
+    }
     dockProblems(QStringLiteral("scena caricata, ambiente"));
     const QJsonObject envAfter = m_mw->m_presetSerializer->buildSurfaceJson(QStringLiteral("E"));
     const QStringList envDiff = jsonDiff(envBefore, envAfter);

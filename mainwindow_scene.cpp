@@ -402,12 +402,17 @@ bool MainWindow::soundModuleDirty() const
 // A SCENA VUOTA non marca nulla: dopo un NEW non c'e' niente da proteggere, e
 // ruotare il nulla non e' lavoro (l'app chiedeva "vuoi salvare?" su una scena
 // in cui l'utente non aveva messo niente).
+// Vuota e' la scena INTERA (isWholeSceneEmpty), non l'oggetto selezionato:
+// l'ambiente di una scena a piu' oggetti non ha superficie, e ogni scena si
+// apre col suo ambiente selezionato. Con isSceneEmpty trascinare, la rotella
+// e i tasti del dock 3D non contavano mai li', e cambiando scena o con NEW non
+// si chiedeva di salvare la vista cambiata (segnalato dall'utente, 11-11).
 void MainWindow::noteViewControlUsed()
 {
     // Ci arrivano solo gesti (mouse, touch, tasti di camera); prima di
     // m_uiReady nessuno.
     if (!m_uiReady) return;
-    if (isSceneEmpty()) return;
+    if (isWholeSceneEmpty()) return;
     m_viewTouched = true;
 }
 
