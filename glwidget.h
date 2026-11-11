@@ -1196,6 +1196,10 @@ public:
     void setHyperbolicSpace(bool on);
     bool hyperbolicSpace() const { return m_hyperbolic; }
     const H3::Matrix &hyperbolicCamera() const { return m_h3Camera; }
+    // La camera di una scena H3 riaperta da file (MainWindow::applyHyperbolicSceneJson),
+    // dopo il raggio di curvatura, che la riscalerebbe. Rifiuta (false) cio' che
+    // non e' un'isometria o sta oltre la distanza massima dal centro.
+    bool setHyperbolicCamera(const H3::Matrix &camera);
     // IL RAGGIO DI CURVATURA della scena H3, in unita' della scena: le
     // lunghezze di H3 sono in raggi di curvatura, e un'unita' della scena
     // (passi della camera, posizioni e grandezze degli oggetti) ne vale

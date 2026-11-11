@@ -9337,6 +9337,60 @@ void ScenarioTest::runSceneH3Scenarios()
               QStringLiteral("cielo in ortogonale: fuori dal disco il colore di fondo, dentro il cielo (scene-h3-ortho-sky.png)"));
     }
 
+    // SAVE E LOAD DI UNA SCENA H3: lo spazio, il raggio di curvatura, il reticolo
+    // con la sua densita' e la camera iperbolica tornano com'erano. Prima la
+    // scena si scriveva "3D" e si riapriva euclidea (segnalato dall'utente, 11-11).
+    // Senza il path 3D di prima: all'apertura ripartirebbe e porterebbe la camera
+    // dove dice lui, come in ogni scena.
+    {
+        for (QLineEdit *e : { m_mw->ui->lineX_P3D, m_mw->ui->lineY_P3D, m_mw->ui->lineZ_P3D })
+            typeInField(e, QString());
+        if (gl->objectCount() < 2) {
+            m_mw->addShapeToScene(torusPath);
+            wait(500);
+            m_mw->selectSceneObject(0);
+        }
+        m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(3.0));
+        m_mw->m_h3Lattice->setChecked(true);
+        m_mw->m_h3LatticeDensity->setValue(40);
+        gl->m_h3Camera = H3::renormalized(H3::rotation({0.0, 1.0, 0.0}, 0.7) * H3::translation({0.3, -0.2, 1.1}));
+        const double radius = gl->hyperbolicCurvatureRadius();
+        const H3::Matrix camera = gl->hyperbolicCamera();
+        const int objects = gl->objectCount();
+        PresetSerializer::MotionRunState run;
+        const QJsonObject json = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("H3 Scene"), run, false);
+        const QString path = m_outDir + QStringLiteral("/scene-h3.json");
+        QFile f(path);
+        const bool written = f.open(QIODevice::WriteOnly) && f.write(QJsonDocument(json).toJson()) > 0;
+        f.close();
+        check(written && json.value(QStringLiteral("space")).toString() == QLatin1String("H3")
+                  && json.value(QStringLiteral("h3")).toObject().value(QStringLiteral("camera")).toArray().size() == 16,
+              QStringLiteral("Save di una scena H3: space \"%1\", stato di H3 nella chiave h3")
+                  .arg(json.value(QStringLiteral("space")).toString()));
+        newScene();
+        const bool loaded = m_mw->loadSceneFile(path);
+        wait(800);
+        m_mw->refreshSceneTimeLabel();
+        double cameraDiff = 0.0;
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j)
+                cameraDiff = std::max(cameraDiff, std::abs(gl->hyperbolicCamera().m[i][j] - camera.m[i][j]));
+        check(loaded && gl->hyperbolicSpace() && m_mw->m_sceneSpaceLabel->text() == QStringLiteral("H³")
+                  && gl->objectCount() == objects,
+              QStringLiteral("scena H3 riaperta: spazio H3 (barra '%1'), %2 oggetti su %3")
+                  .arg(m_mw->m_sceneSpaceLabel->text()).arg(gl->objectCount()).arg(objects));
+        check(std::abs(gl->hyperbolicCurvatureRadius() - radius) < 1e-9 && gl->hyperbolicLattice()
+                  && std::abs(gl->hyperbolicLatticeDensity() - 0.4) < 1e-9 && cameraDiff < 1e-9,
+              QStringLiteral("riaperta: raggio %1 (salvato %2), reticolo %3 a densita' %4, camera (scarto %5)")
+                  .arg(gl->hyperbolicCurvatureRadius()).arg(radius).arg(gl->hyperbolicLattice())
+                  .arg(gl->hyperbolicLatticeDensity()).arg(cameraDiff));
+        check(m_mw->m_h3CurvatureSlider->value() == MainWindow::h3CurvatureSliderFromRadius(radius)
+                  && m_mw->m_h3Lattice->isChecked() && m_mw->m_h3LatticeDensity->value() == 40
+                  && !m_mw->hasUnsavedWork(),
+              QStringLiteral("riaperta: dock Objects allineato (raggio, reticolo, densita'), niente da salvare: %1")
+                  .arg(m_mw->unsavedKeys().join(QStringLiteral(", "))));
+    }
+
     newScene();
     check(!m_mw->sceneStarted() && !gl->hyperbolicSpace() && m_mw->m_h3CurvatureRow->isHidden()
               && !gl->hyperbolicLattice() && m_mw->m_h3Lattice->isHidden()

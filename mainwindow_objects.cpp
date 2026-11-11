@@ -940,11 +940,18 @@ bool MainWindow::loadSceneFile(const QString &path)
     // dell'ambiente (SceneCleanGuard), prima che un suo path muova la camera:
     // rifotografarla qui, a path gia' partito, mescolava la posizione del path
     // con la direzione salvata e il RESET View guardava fuori dagli oggetti.
-    // Una scena aperta da file e' una scena avviata: 3D o 4D lo dice il file, e
-    // quelli di prima, senza la chiave, lo deducono dall'ambiente.
+    // Una scena aperta da file e' una scena avviata: 3D, 4D o H3 lo dice il
+    // file, e quelli di prima, senza la chiave, lo deducono dall'ambiente.
+    // H3 si accende coi suoi default (setHyperbolicSpace), poi il file rimette
+    // raggio, reticolo e camera.
     const QString space = root.value(QStringLiteral("space")).toString();
-    const bool scene4D = space.isEmpty() ? environmentHasP() : space == QLatin1String("4D");
-    setSceneSpace(scene4D ? SceneSpace::Space4D : SceneSpace::Space3D);
+    if (space == QLatin1String("H3")) {
+        setSceneSpace(SceneSpace::SpaceH3);
+        applyHyperbolicSceneJson(root.value(QStringLiteral("h3")).toObject());
+    } else {
+        const bool scene4D = space.isEmpty() ? environmentHasP() : space == QLatin1String("4D");
+        setSceneSpace(scene4D ? SceneSpace::Space4D : SceneSpace::Space3D);
+    }
     refreshObjectsUi();
     // Il messaggio della scena: ambiente e oggetti, ciascuno col suo nome.
     showComposedObjectsHint();
@@ -1386,6 +1393,30 @@ void MainWindow::refreshHyperbolicControls()
         on ? QStringLiteral("Lattice density: how far the lattice reaches, in radii of curvature from the centre of "
                             "the cube around the camera (in Orthogonal, the central cube). Leftmost, that cube alone.")
            : QStringLiteral("Turn the Lattice on to choose its density."));
+}
+
+// LO STATO DI H3 DA UN FILE DI SCENA (chiave "h3", PresetSerializer::buildSceneJson),
+// a H3 gia' acceso: prima il raggio, che riscalerebbe la camera, poi reticolo
+// e camera. Una chiave che manca lascia il default; la camera che non e'
+// un'isometria resta quella d'avvio. I comandi del dock seguono (il cursore
+// del raggio lo allinea refreshObjectsUi, a segnali fermi).
+void MainWindow::applyHyperbolicSceneJson(const QJsonObject &h3)
+{
+    GLWidget *gl = ui->glWidget;
+    if (!gl || m_sceneSpace != SceneSpace::SpaceH3) return;
+    if (h3.contains(QStringLiteral("curvatureRadius")))
+        gl->setHyperbolicCurvatureRadius(qBound(h3CurvatureRadiusFromSlider(0),
+                                                h3.value(QStringLiteral("curvatureRadius")).toDouble(),
+                                                h3CurvatureRadiusFromSlider(200)));
+    gl->setHyperbolicLattice(h3.value(QStringLiteral("lattice")).toBool(false));
+    gl->setHyperbolicLatticeDensity(qBound(0.0, h3.value(QStringLiteral("latticeDensity")).toDouble(1.0), 1.0));
+    const QJsonArray camera = h3.value(QStringLiteral("camera")).toArray();
+    if (camera.size() == 16) {
+        H3::Matrix c;
+        for (int k = 0; k < 16; ++k) c.m[k / 4][k % 4] = camera.at(k).toDouble();
+        gl->setHyperbolicCamera(c);
+    }
+    refreshHyperbolicControls();
 }
 
 double MainWindow::h3CurvatureRadiusFromSlider(int v)

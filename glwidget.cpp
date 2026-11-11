@@ -5783,6 +5783,16 @@ void GLWidget::setHyperbolicCurvatureRadius(double radius)
     update();
 }
 
+bool GLWidget::setHyperbolicCamera(const H3::Matrix &camera)
+{
+    if (!m_hyperbolic || !(H3::isometryError(camera) < 1e-6)) return false;
+    const H3::Matrix c = H3::renormalized(camera);
+    if (!(H3::distance(H3::origin(), c * H3::origin()) <= kH3MaxCameraDistance + 1e-9)) return false;
+    m_h3Camera = c;
+    update();
+    return true;
+}
+
 void GLWidget::moveHyperbolicCamera(const H3::Matrix &localStep)
 {
     // Raddrizzata a ogni passo: in double la deriva e' gia' trascurabile

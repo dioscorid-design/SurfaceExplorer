@@ -1974,6 +1974,8 @@ private:
     // La richiama anche updateProjectionButtonText: la distanza raggiunta
     // dipende dalla proiezione (il pezzo della vista da fuori e' piu' grande).
     void refreshHyperbolicControls();
+    // Raggio, reticolo e camera di una scena H3 riaperta da file (loadSceneFile).
+    void applyHyperbolicSceneJson(const QJsonObject &h3);
     static double h3CurvatureRadiusFromSlider(int v);
     static int h3CurvatureSliderFromRadius(double radius);
     // In H3 nessun oggetto supera il limite di zoom (vedi objectScaleChangedByUser).

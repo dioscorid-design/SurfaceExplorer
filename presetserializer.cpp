@@ -965,10 +965,29 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
     scene["type"] = "scene";
     scene["formatVersion"] = 1;
     scene["name"] = name;
-    // 3D o 4D: la scelta del tasto Scene, che l'ambiente da solo non sempre dice
-    // (uno vuoto, o a script, non ha la P). I file di prima non hanno la chiave:
-    // li deduce MainWindow::loadSceneFile.
-    scene["space"] = m_mainWindow->sceneIs4D() ? "4D" : "3D";
+    // 3D, 4D o H3: la scelta del tasto Scene, che l'ambiente da solo non sempre
+    // dice (uno vuoto, o a script, non ha la P; in H3 l'ambiente e' lo spazio
+    // stesso). I file di prima non hanno la chiave: li deduce
+    // MainWindow::loadSceneFile. Prima H3 non c'era: una scena H3 si scriveva
+    // "3D" (sceneIs4D falso) e si riapriva euclidea (segnalato dall'utente, 11-11).
+    const bool h3 = m_mainWindow->m_sceneSpace == MainWindow::SceneSpace::SpaceH3;
+    scene["space"] = h3 ? "H3" : m_mainWindow->sceneIs4D() ? "4D" : "3D";
+    // LO STATO DI H3, della scena e non dell'ambiente: raggio di curvatura,
+    // reticolo con la sua densita', e la camera, che in H3 e' un'isometria (la
+    // camera euclidea dell'ambiente li' non conta), in double, riga per riga.
+    // Lo rimette MainWindow::applyHyperbolicSceneJson.
+    if (h3) {
+        QJsonObject hyperbolic;
+        hyperbolic["curvatureRadius"] = gl->hyperbolicCurvatureRadius();
+        hyperbolic["lattice"] = gl->hyperbolicLattice();
+        hyperbolic["latticeDensity"] = gl->hyperbolicLatticeDensity();
+        QJsonArray camera;
+        const H3::Matrix &c = gl->hyperbolicCamera();
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j) camera.append(c.m[i][j]);
+        hyperbolic["camera"] = camera;
+        scene["h3"] = hyperbolic;
+    }
     // LA QUOTA DEL TAGLIO delle Cross Section (P+/P- dell'ambiente, path 4D) e'
     // della scena (2026-11-08): l'ambiente non ha superficie, e il suo record
     // la scrive solo se e' una Cross Section. La legge loadSceneFile.
