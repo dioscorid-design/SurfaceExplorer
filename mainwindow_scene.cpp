@@ -1476,7 +1476,14 @@ void MainWindow::switchToMainMode()
 void MainWindow::onNewSceneClicked()
 {
     if (!confirmDiscardUnsaved(ScopeScene)) return;
-    resetScene(implicitMode() ? 1 : 0, /*loadDefaultSurface=*/false);
+    // Il modo e' quello dell'AMBIENTE: resetScene torna per prima cosa al solo
+    // ambiente, e il reset deve essere del suo modo. Con quello dell'oggetto
+    // selezionato (implicitMode), un oggetto Ray Marching in una scena
+    // parametrica portava il motore in Ray Marching mentre lo svuotamento,
+    // fatto sullo stato dell'ambiente, svuotava il parametrico: restava a
+    // schermo la sfera di default del marcher, con la linguetta su Parametric
+    // (segnalato dall'utente, 2026-11-11). Senza scena e' lo stesso modo.
+    resetScene(environmentState().implicitMode ? 1 : 0, /*loadDefaultSurface=*/false);
     // Scena vuota: niente parti, l'ambito torna ad "All" (restava "Mesh" dopo
     // un multi-mesh, perche' una scena vuota non emette meshPartsChanged).
     updateMeshScopeEnabled();

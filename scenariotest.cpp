@@ -8947,6 +8947,24 @@ void ScenarioTest::runSceneSpaceScenarios()
     check(json.value(QStringLiteral("space")).toString() == QLatin1String("3D"), QStringLiteral("il file dice 3D"));
     reopen(json, QStringLiteral("3D"), QStringLiteral("scena 3D: riaperta 3D"));
     newScene();
+
+    // NEW CON UN OGGETTO RAY MARCHING SELEZIONATO: la scena vuota, come con
+    // qualunque altro oggetto. Prima il reset prendeva il modo dall'oggetto
+    // selezionato, il motore restava in Ray Marching con la sfera di default
+    // del marcher e la linguetta su Parametric (segnalato dall'utente, 2026-11-11).
+    start(Space::Space3D);
+    m_mw->addShapeToScene(shapePath(kRM));
+    wait(800);
+    const bool rmSelected = gl->objectCount() == 2 && gl->selectedObject() == 1 && m_mw->implicitMode();
+    newScene();
+    wait(600);
+    const QImage frame = gl->grabFramebuffer();
+    const bool blank = frame.pixel(frame.width() / 2, frame.height() / 2) == frame.pixel(2, 2);
+    check(rmSelected && !m_mw->sceneStarted() && m_mw->isSceneEmpty() && blank
+              && gl->getEngineMode() == GLWidget::ModeParametric && ui->tabModeSelector->currentIndex() == 0,
+          QStringLiteral("NEW con l'oggetto Ray Marching selezionato: scena vuota, motore parametrico, niente a schermo "
+                         "(RM selezionato %1, motore RM %2, centro vuoto %3)")
+              .arg(rmSelected).arg(gl->getEngineMode() == GLWidget::ModeImplicit).arg(blank));
 }
 
 void ScenarioTest::runSceneH3Scenarios()
