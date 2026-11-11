@@ -1535,6 +1535,10 @@ private:
     // Larghezza di un dock su mobile: 400; sul telefono meta' della larghezza
     // utile della finestra, colonna delle linguette compresa.
     int dockPanelWidth() const;
+    // Proporzioni che la vista avrebbe A DOCK CHIUSI (GLWidget::setFullViewAspect,
+    // per la texture procedurale di sfondo): ricalcolate a ogni cambio di misura
+    // della vista (GLWidget::viewResized).
+    void updateFullViewAspect();
     // TELEFONO (iPhone): un solo pulsante Docks nella barra di stato e, a destra
     // di ogni dock, la stessa colonna di linguette verticali (Equations,
     // Renderer, View, Script, Objects, Library): a schermo e' un pannello unico

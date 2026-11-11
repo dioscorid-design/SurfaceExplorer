@@ -63,6 +63,12 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
         o.model.setToIdentity();
         mvp = rhi()->clipSpaceCorrMatrix();
         mv.setToIdentity();
+        // VISTA 2D: il quad a schermo intero non usa u_mvMatrix, che porta
+        // invece in [0][0] la LARGHEZZA del dominio di una texture procedurale
+        // (alta 1): le proporzioni della vista intera. La legge la funzione
+        // texture degli script (buildTextureFunction); un'immagine si stira
+        // sulla vista e la ignora. Vedi setFullViewAspect.
+        mv(0, 0) = fullViewTextureWidth();
     } else {
         o.model.setToIdentity();
         // Gli oggetti girano con l'ambiente attorno al centro della scena
