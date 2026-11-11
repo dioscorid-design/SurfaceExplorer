@@ -1184,6 +1184,8 @@ public:
     // Qualche orologio (di un oggetto qualunque, o dello sfondo) e' avanzato
     // dall'origine: il RESET dei moti cambierebbe qualcosa.
     bool anyClockAdvanced() const;
+    // Lo stesso per UN oggetto (gli orologi che azzera resetObjectClocks).
+    bool objectClocksAdvanced(int index) const;
     void virtualMove(MoveDir dir, float speed3D, float speed4D);
 
     // SCENA IPERBOLICA: lo spazio della scena e' H3 e la camera e' una
@@ -1198,8 +1200,14 @@ public:
     const H3::Matrix &hyperbolicCamera() const { return m_h3Camera; }
     // La camera di una scena H3 riaperta da file (MainWindow::applyHyperbolicSceneJson),
     // dopo il raggio di curvatura, che la riscalerebbe. Rifiuta (false) cio' che
-    // non e' un'isometria o sta oltre la distanza massima dal centro.
+    // non e' un'isometria o sta oltre la distanza massima dal centro. E' anche
+    // la camera d'apertura della scena.
     bool setHyperbolicCamera(const H3::Matrix &camera);
+    // LA CAMERA D'APERTURA di H3, a cui la riporta il RESET View (resetFraming):
+    // quella d'avvio (setHyperbolicSpace) o del file (setHyperbolicCamera),
+    // riportata al raggio di curvatura di adesso restando dov'era in unita'
+    // della scena, come fa il cursore del raggio con la camera.
+    H3::Matrix hyperbolicStartCamera() const;
     // IL RAGGIO DI CURVATURA della scena H3, in unita' della scena: le
     // lunghezze di H3 sono in raggi di curvatura, e un'unita' della scena
     // (passi della camera, posizioni e grandezze degli oggetti) ne vale
@@ -2024,6 +2032,9 @@ private:
     H3::Matrix m_h3Camera = H3::Matrix::identity();
     // Raggi di curvatura per unita' della scena (1 / raggio di curvatura).
     double m_h3RadiiPerSceneUnit = 1.0 / kH3DefaultCurvatureRadius;
+    // La camera d'apertura col raggio di allora (hyperbolicStartCamera).
+    H3::Matrix m_h3StartCamera = H3::Matrix::identity();
+    double m_h3StartRadiiPerSceneUnit = 1.0 / kH3DefaultCurvatureRadius;
     // Il reticolo (setHyperbolicLattice): gli spigoli del pezzo attorno
     // all'origine come riferimenti (H3::frameTowards, generati alla prima
     // accensione), la cella che contiene la camera (si cammina dal fotogramma

@@ -278,21 +278,27 @@ private slots:
     // prima di un eventuale reset della vista, che a path fermo gliela toglie.
     void resetMotions(std::optional<CameraPaths::Path> camPath);
     void resetMotions() { resetMotions(cameraPath()); }
-    // L'inquadratura a cui View riporterebbe (in una scena: direzione
-    // d'apertura alla distanza di adesso), e se cambierebbe qualcosa: con la
-    // camera gia' li' View non fa nulla, e il RESET non lo chiede.
+    // L'inquadratura a cui View riporterebbe (quella d'apertura, zoom
+    // compreso), e se cambierebbe qualcosa: con la camera gia' li' View non fa
+    // nulla, e il RESET non lo chiede.
     GLWidget::Framing viewResetFraming() const;
     bool viewResetChangesSomething() const;
     // Il gemello per i moti: un path non a t = 0, l'ambiente o un oggetto non
     // all'orientamento d'apertura, un orologio o un flusso geodetico non
     // all'origine. Se no Motions non fa nulla, e il RESET non lo chiede.
     bool motionsResetChangesSomething() const;
-    // IL RESET DI UN OGGETTO della scena (selezionato, non l'ambiente): solo i
-    // suoi moti, senza chiedere (decisione dell'utente, 2026-10-21: la vista e'
-    // della scena, non dell'oggetto). Orientamento d'apertura, orologi, flusso
-    // geodetico; path, camera e gli altri oggetti restano.
+    // IL RESET DI UN OGGETTO della scena (selezionato, non l'ambiente): due
+    // parti come il RESET della scena, la GRANDEZZA (la scala d'apertura) e i
+    // MOTI (orientamento d'apertura, orologi, flusso geodetico); il popup solo
+    // se tutte e due hanno qualcosa da rimettere. Posizione, path, camera e
+    // gli altri oggetti restano. Fino al 2026-11-11 solo i moti (decisione
+    // dell'utente del 2026-10-21, cambiata da lui: la scala data con la
+    // rotella non tornava piu').
     void resetSelectedObject();
     void resetObjectMotions();
+    void resetObjectSize();
+    bool objectSizeResetChangesSomething() const;
+    bool objectMotionsResetChangesSomething() const;
     void captureObjectStartPose();
     // Il flusso geodetico di un oggetto non selezionato al suo tempo (dalla
     // sessione): il passo di advanceGeodesicObjectsBy, e il RESET della scena.
@@ -1865,9 +1871,12 @@ private:
         // advanceGeodesicObjectsBy; alla selezione torna a m_geoTime e al timer.
         double geoTime = 0.0;
         bool geoAnimating = false;
-        // ORIENTAMENTO D'APERTURA dell'oggetto (aggiunto, duplicato, scena
-        // aperta): a questo lo riporta il RESET (captureObjectStartPose).
+        // ORIENTAMENTO E SCALA D'APERTURA dell'oggetto (aggiunto, duplicato,
+        // scena aperta): a questi lo riporta il RESET (captureObjectStartPose).
+        // La scala e' quella del file o di Add to Scene; openingScale invece
+        // e' solo quella calcolata per Add to Scene (e per le sue copie).
         GLWidget::Orientation startOrientation;
+        float startScale = 1.0f;
         // I SUOI MODULI PER IL MASTER, quando lo si e' lasciato (masterActivity
         // dell'oggetto in quel momento): finche' non e' selezionato non
         // cambiano, tranne il flusso geodetico (fromGeo: il suo moto e'

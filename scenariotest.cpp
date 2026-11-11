@@ -8369,21 +8369,35 @@ void ScenarioTest::runSceneResetScenarios()
     m_mw->selectSceneObject(2);
     wait(200);
 
-    // RESET DELL'OGGETTO: solo i suoi moti, senza domande. Posizione, scala e
-    // camera sono della scena e restano.
-    m_lastPopup.clear();
+    // RESET DELL'OGGETTO: due parti, la grandezza (scala d'apertura) e i moti.
+    // Scalato e ruotato, chiede quale (dal 2026-11-11: prima solo i moti, e la
+    // scala data con la rotella non tornava piu'). Motions: orientamento
+    // d'apertura, la scala resta. Un secondo RESET ha solo la scala da
+    // rimettere: senza popup. Posizione e camera restano sempre.
+    const float startScale = m_mw->m_objectSessions[2].startScale;
+    m_popupAnswer = QStringLiteral("Motions");
     m_mw->onResetClicked();
     // Subito: col GO acceso l'oggetto riprende a ruotare dalla posa d'apertura.
     const QQuaternion qReset = gl->getRotationQuat();
-    check(m_lastPopup.isEmpty() && sameQ(qReset, startQ),
-          QStringLiteral("RESET dell'oggetto: orientamento d'apertura, senza popup%1")
-              .arg(m_lastPopup.isEmpty() ? QString() : QStringLiteral(" (popup: ") + m_lastPopup + QLatin1Char(')')));
-    check(gl->objectPosition() == movedPos && std::abs(gl->objectScale() - 2.0f) < 1e-6f
-              && gl->getCameraPos() == zoomedCam,
-          QStringLiteral("e posizione, scala e camera restano"));
+    const bool asked = m_popupAnswer.isEmpty();   // la risposta e' stata data al popup
+    m_popupAnswer.clear();
+    check(asked && sameQ(qReset, startQ) && std::abs(gl->objectScale() - 2.0f) < 1e-6f,
+          QStringLiteral("RESET dell'oggetto scalato e ruotato: chiede; Motions -> orientamento d'apertura, scala %1 resta")
+              .arg(gl->objectScale()));
+    check(gl->objectPosition() == movedPos && gl->getCameraPos() == zoomedCam,
+          QStringLiteral("e posizione e camera restano"));
     wait(300);
     check(gl->isAnimating(), QStringLiteral("la sua rotazione continua (le velocita' restano)"));
     m_mw->onStopClicked();
+    m_mw->resetObjectMotions();   // fermo, di nuovo all'apertura: resta solo la scala
+    m_lastPopup.clear();
+    m_mw->onResetClicked();
+    check(m_lastPopup.isEmpty() && std::abs(gl->objectScale() - startScale) < 1e-6f
+              && gl->objectPosition() == movedPos,
+          QStringLiteral("secondo RESET: solo la scala da rimettere, senza popup -> %1 (d'apertura %2), posizione invariata%3")
+              .arg(gl->objectScale()).arg(startScale)
+              .arg(m_lastPopup.isEmpty() ? QString() : QStringLiteral(" (popup: ") + m_lastPopup + QLatin1Char(')')));
+    gl->setObjectScale(2.0f);
 
     // RESET DELLA SCENA (ambiente selezionato): camera d'apertura col FOV di
     // adesso, orientamento d'apertura di tutti, posizioni degli oggetti invariate.
@@ -8398,10 +8412,11 @@ void ScenarioTest::runSceneResetScenarios()
     const float fovAfter = gl->cameraFov();
     m_mw->selectSceneObject(2);
     wait(100);
-    // Direzione d'apertura, ma alla distanza di prima (lo zoom resta) e col FOV di adesso.
-    const QVector3D expectedCam = startCam.normalized() * zoomedCam.length();
-    check((camAfter - expectedCam).length() < 1e-4f && std::abs(fovAfter - 70.0f) < 1e-3f,
-          QStringLiteral("RESET della scena: direzione d'apertura, zoom e FOV invariati (%1,%2,%3 / FOV %4)")
+    // La camera d'apertura, zoom compreso (dal 2026-11-11: prima teneva la
+    // distanza di adesso), col FOV di adesso.
+    check((camAfter - startCam).length() < 1e-4f && (zoomedCam - startCam).length() > 0.1f
+              && std::abs(fovAfter - 70.0f) < 1e-3f,
+          QStringLiteral("RESET della scena: camera d'apertura, zoom compreso, FOV invariato (%1,%2,%3 / FOV %4)")
               .arg(camAfter.x()).arg(camAfter.y()).arg(camAfter.z()).arg(fovAfter));
     check(sameQ(gl->getRotationQuat(), startQ) && gl->objectPosition() == movedPos,
           QStringLiteral("e l'oggetto all'orientamento d'apertura, nella sua posizione"));
@@ -9178,17 +9193,20 @@ void ScenarioTest::runSceneH3Scenarios()
                   .arg(different));
     }
 
-    // RESET View: diritta verso il centro, alla distanza di adesso.
+    // RESET View: la camera d'apertura, zoom compreso (dal 2026-11-11, come
+    // nelle scene euclidee; prima teneva la distanza di adesso): quella
+    // d'avvio, 4 unita' dal centro lungo +z, al raggio di adesso.
     {
         const double d0 = distance();
         m_mw->resetView();
-        const H3::Matrix expected = H3::translation({0.0, 0.0, d0});
+        const H3::Matrix expected = H3::translation({0.0, 0.0, 4.0 / gl->hyperbolicCurvatureRadius()});
         double worst = 0.0;
         for (int i = 0; i < 4; ++i)
             for (int j = 0; j < 4; ++j)
                 worst = std::max(worst, std::abs(gl->hyperbolicCamera().m[i][j] - expected.m[i][j]));
-        check(gl->hyperbolicSpace() && worst < 1e-9,
-              QStringLiteral("RESET View: verso il centro alla stessa distanza (scarto %1)").arg(worst));
+        check(gl->hyperbolicSpace() && worst < 1e-9 && std::abs(d0 - distance()) > 1e-3,
+              QStringLiteral("RESET View: camera d'apertura, zoom compreso (da %1 a %2 raggi, scarto %3)")
+                  .arg(d0).arg(distance()).arg(worst));
     }
 
     // IL RAGGIO DI CURVATURA cambiato: la camera resta dov'e' in unita' della
@@ -9419,6 +9437,18 @@ void ScenarioTest::runSceneH3Scenarios()
                   && !m_mw->hasUnsavedWork(),
               QStringLiteral("riaperta: dock Objects allineato (raggio, reticolo, densita'), niente da salvare: %1")
                   .arg(m_mw->unsavedKeys().join(QStringLiteral(", "))));
+        // La camera del file e' quella d'apertura: zoom, poi RESET View la rimette.
+        m_mw->selectSceneObject(0);
+        gl->zoomCamera(1.0f);
+        const bool zoomed = m_mw->viewResetChangesSomething();
+        m_mw->resetView();
+        double resetDiff = 0.0;
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j)
+                resetDiff = std::max(resetDiff, std::abs(gl->hyperbolicCamera().m[i][j] - camera.m[i][j]));
+        check(zoomed && resetDiff < 1e-9,
+              QStringLiteral("riaperta, zoom e RESET View: di nuovo la camera del file (View aveva da fare %1, scarto %2)")
+                  .arg(zoomed).arg(resetDiff));
     }
 
     newScene();

@@ -371,7 +371,7 @@ void MainWindow::onResetClicked()
     box.setWindowTitle("Reset");
     box.setText("What do you want to reset?");
     const bool scene = ui->glWidget && ui->glWidget->objectCount() > 1;
-    box.setInformativeText(QString(scene ? "View: the camera direction (zoom and field of view stay).\n"
+    box.setInformativeText(QString(scene ? "View: camera and zoom (the field of view stays).\n"
                                          : "View: camera, zoom and field of view.\n")
                            + QString("Motions: rotations, camera paths and everything that moves "
                                      "with t go back to the start."));
@@ -415,15 +415,23 @@ std::optional<CameraPaths::Path> MainWindow::cameraPath() const
     return std::nullopt;
 }
 
+// L'inquadratura d'apertura, zoom compreso, anche in una scena. Dal
+// 2026-10-21 in una scena teneva la distanza di adesso (decisione
+// dell'utente: allontanarsi per inquadrare tutti gli oggetti non si perdeva
+// col RESET); il 2026-11-11 l'utente l'ha cambiata: lo zoom dell'ambiente
+// non tornava piu', e il popup non usciva perche' View non aveva niente da
+// rimettere. Il FOV in una scena resta (resetView).
 GLWidget::Framing MainWindow::viewResetFraming() const
 {
-    GLWidget::Framing framing = m_startFraming;
-    if (ui->glWidget->objectCount() > 1) {
-        const float distance = ui->glWidget->getCameraPos().length();
-        if (framing.cameraPos.lengthSquared() > 1e-8f && distance > 1e-4f)
-            framing.cameraPos = framing.cameraPos.normalized() * distance;
-    }
-    return framing;
+    return m_startFraming;
+}
+
+// Orientamento (3D e angoli 4D) diverso da quello d'apertura.
+static bool orientationTurned(const GLWidget::Orientation &a, const GLWidget::Orientation &b)
+{
+    return std::abs(QQuaternion::dotProduct(a.rotation, b.rotation)) < 0.999999f
+           || std::abs(a.omega - b.omega) > 1e-4f || std::abs(a.phi - b.phi) > 1e-4f
+           || std::abs(a.psi - b.psi) > 1e-4f;
 }
 
 bool MainWindow::viewResetChangesSomething() const
@@ -438,7 +446,17 @@ bool MainWindow::viewResetChangesSomething() const
                       && near(now.crossSectionP, target.crossSectionP)
                       // Il FOV lo rimette solo la superficie sola (resetView).
                       && (ui->glWidget->objectCount() > 1 || near(m_scene.fov, m_startFov));
-    return !same;
+    if (!same) return true;
+    // In H3 la camera e' l'isometria di GLWidget: View la riporta a quella
+    // d'apertura (resetFraming), zoom compreso.
+    if (ui->glWidget->hyperbolicSpace()) {
+        const H3::Matrix &cam = ui->glWidget->hyperbolicCamera();
+        const H3::Matrix start = ui->glWidget->hyperbolicStartCamera();
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j)
+                if (std::abs(cam.m[i][j] - start.m[i][j]) > 1e-9) return true;
+    }
+    return false;
 }
 
 bool MainWindow::motionsResetChangesSomething() const
@@ -446,11 +464,7 @@ bool MainWindow::motionsResetChangesSomething() const
     GLWidget *gl = ui->glWidget;
     if (m_paths->time(CameraPaths::Path4D) != 0.0f || m_paths->time(CameraPaths::Path3D) != 0.0f)
         return true;
-    auto turned = [](const GLWidget::Orientation &a, const GLWidget::Orientation &b) {
-        return std::abs(QQuaternion::dotProduct(a.rotation, b.rotation)) < 0.999999f
-               || std::abs(a.omega - b.omega) > 1e-4f || std::abs(a.phi - b.phi) > 1e-4f
-               || std::abs(a.psi - b.psi) > 1e-4f;
-    };
+    const auto turned = orientationTurned;
     // L'ambiente (il RESET della scena si fa con l'ambiente selezionato) e gli oggetti.
     if (turned(gl->objectOrientation(0), m_startOrientation)) return true;
     {
@@ -473,10 +487,9 @@ void MainWindow::resetView()
     // Inquadratura d'apertura. Le velocita' e i moti non si toccano. Un path
     // FERMO lascia la camera: si torna alla vista libera (resetFraming spegne
     // la modalita' path).
-    // In una SCENA si rimette la direzione della camera ma si tiene la distanza
-    // di adesso dal centro (decisione dell'utente, 2026-10-21): allontanarsi
-    // per inquadrare tutti gli oggetti non si perde col RESET. Con una
-    // superficie sola la posa d'apertura intera, zoom compreso, come dalla 1.4.
+    // Anche in una SCENA la posa d'apertura intera, zoom compreso (dal
+    // 2026-11-11, vedi viewResetFraming); il FOV qui sotto solo con una
+    // superficie sola.
     ui->glWidget->resetFraming(viewResetFraming());
 
     // Un path IN CORSA la camera la tiene: gliela si rimette subito al suo
@@ -563,6 +576,7 @@ void MainWindow::captureObjectStartPose()
     const int k = gl ? gl->selectedObject() : 0;
     if (k <= 0 || k >= int(m_objectSessions.size())) return;
     m_objectSessions[k].startOrientation = gl->orientation();
+    m_objectSessions[k].startScale = gl->objectScale();
 }
 
 void MainWindow::resetObjectMotions()
@@ -578,11 +592,63 @@ void MainWindow::resetObjectMotions()
     updateMasterButtonState();
 }
 
+void MainWindow::resetObjectSize()
+{
+    GLWidget *gl = ui->glWidget;
+    const int k = gl->selectedObject();
+    if (k <= 0 || k >= int(m_objectSessions.size())) return;
+    gl->setObjectScale(m_objectSessions[k].startScale);
+    clampHyperbolicObjectScales();
+    refreshObjectsUi();
+}
+
+bool MainWindow::objectSizeResetChangesSomething() const
+{
+    GLWidget *gl = ui->glWidget;
+    const int k = gl->selectedObject();
+    if (k <= 0 || k >= int(m_objectSessions.size())) return false;
+    const float start = m_objectSessions[k].startScale;
+    return std::abs(gl->objectScale() - start) > 1e-5f * std::max(1.0f, start);
+}
+
+bool MainWindow::objectMotionsResetChangesSomething() const
+{
+    GLWidget *gl = ui->glWidget;
+    const int k = gl->selectedObject();
+    if (k <= 0 || k >= int(m_objectSessions.size())) return false;
+    return orientationTurned(gl->orientation(), m_objectSessions[k].startOrientation)
+           || gl->objectClocksAdvanced(k) || m_geoTime != 0.0;
+}
+
+// Come il RESET della scena (onResetClicked): se una delle due parti non ha
+// niente da rimettere si fa l'altra senza chiedere; il popup solo se tutte e
+// due hanno qualcosa. Senza niente da rimettere, i moti (non cambiano nulla).
 void MainWindow::resetSelectedObject()
 {
-    // Solo i moti: la vista (camera, zoom) e' della scena, e l'oggetto ci sta
-    // dentro. Nessuna domanda: c'e' una sola cosa da rimettere.
-    resetObjectMotions();
+    const bool sizeChanges = objectSizeResetChangesSomething();
+    const bool motionsChange = objectMotionsResetChangesSomething();
+    if (!sizeChanges || !motionsChange) {
+        if (sizeChanges) resetObjectSize();
+        else resetObjectMotions();
+        return;
+    }
+
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Question);
+    box.setWindowTitle("Reset");
+    box.setText("What do you want to reset in this object?");
+    box.setInformativeText("Size: the size it opened with (its position stays).\n"
+                           "Motions: its rotations and everything of it that moves with t go back to the start.");
+    QPushButton *sizeBtn   = box.addButton("Size",    QMessageBox::ActionRole);
+    QPushButton *motionBtn = box.addButton("Motions", QMessageBox::ActionRole);
+    QPushButton *bothBtn   = box.addButton("Both",    QMessageBox::AcceptRole);
+    box.addButton("Cancel", QMessageBox::RejectRole);
+    box.setDefaultButton(bothBtn);
+    box.exec();
+
+    const QAbstractButton *choice = box.clickedButton();
+    if (choice == sizeBtn   || choice == bothBtn) resetObjectSize();
+    if (choice == motionBtn || choice == bothBtn) resetObjectMotions();
 }
 
 void MainWindow::onNavTimerTick()

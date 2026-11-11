@@ -5761,26 +5761,42 @@ void GLWidget::setHyperbolicSpace(bool on)
     // quella euclidea: a 4 unita' dal centro lungo +z, rivolta verso di lui.
     m_h3RadiiPerSceneUnit = 1.0 / kH3DefaultCurvatureRadius;
     m_h3Camera = H3::translation({0.0, 0.0, 4.0 * m_h3RadiiPerSceneUnit});
+    // ...ed e' la camera a cui la riporta il RESET View (hyperbolicStartCamera).
+    m_h3StartCamera = m_h3Camera;
+    m_h3StartRadiiPerSceneUnit = m_h3RadiiPerSceneUnit;
     update();
+}
+
+// Una camera di H3 scritta col raggio di curvatura fromK (raggi per unita'
+// della scena) riportata a toK restando dov'e' in unita' della scena: la sua
+// posizione e' un vettore dal centro (logaritmo nell'origine, in raggi), che
+// si riscala; l'orientamento resta. Entro la distanza massima.
+static H3::Matrix rescaledHyperbolicCamera(const H3::Matrix &camera, double fromK, double toK)
+{
+    const H3::Vec4 p = camera * H3::origin();
+    const H3::Matrix rotation = H3::inverse(H3::translationTo(p)) * camera;
+    H3::Vec3 v = H3::logAtOrigin(p);
+    double s = toK / fromK;
+    const double len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z) * s;
+    if (len > kH3MaxCameraDistance) s *= kH3MaxCameraDistance / len;
+    v = {v.x * s, v.y * s, v.z * s};
+    return H3::renormalized(H3::translation(v) * rotation);
 }
 
 void GLWidget::setHyperbolicCurvatureRadius(double radius)
 {
     const double k = 1.0 / radius;
     if (k == m_h3RadiiPerSceneUnit) return;
-    // La camera resta dov'e' in unita' della scena, come gli oggetti: la sua
-    // posizione e' un vettore dal centro (logaritmo nell'origine, in raggi), che
-    // si riscala; l'orientamento resta. Entro la distanza massima.
-    const H3::Vec4 p = m_h3Camera * H3::origin();
-    const H3::Matrix rotation = H3::inverse(H3::translationTo(p)) * m_h3Camera;
-    H3::Vec3 v = H3::logAtOrigin(p);
-    double s = k / m_h3RadiiPerSceneUnit;
-    const double len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z) * s;
-    if (len > kH3MaxCameraDistance) s *= kH3MaxCameraDistance / len;
-    v = {v.x * s, v.y * s, v.z * s};
-    m_h3Camera = H3::renormalized(H3::translation(v) * rotation);
+    // La camera resta dov'e' in unita' della scena, come gli oggetti.
+    m_h3Camera = rescaledHyperbolicCamera(m_h3Camera, m_h3RadiiPerSceneUnit, k);
     m_h3RadiiPerSceneUnit = k;
     update();
+}
+
+H3::Matrix GLWidget::hyperbolicStartCamera() const
+{
+    if (m_h3StartRadiiPerSceneUnit == m_h3RadiiPerSceneUnit) return m_h3StartCamera;
+    return rescaledHyperbolicCamera(m_h3StartCamera, m_h3StartRadiiPerSceneUnit, m_h3RadiiPerSceneUnit);
 }
 
 bool GLWidget::setHyperbolicCamera(const H3::Matrix &camera)
@@ -5789,6 +5805,10 @@ bool GLWidget::setHyperbolicCamera(const H3::Matrix &camera)
     const H3::Matrix c = H3::renormalized(camera);
     if (!(H3::distance(H3::origin(), c * H3::origin()) <= kH3MaxCameraDistance + 1e-9)) return false;
     m_h3Camera = c;
+    // La camera del file e' quella d'apertura della scena: a questa la
+    // riporta il RESET View.
+    m_h3StartCamera = c;
+    m_h3StartRadiiPerSceneUnit = m_h3RadiiPerSceneUnit;
     update();
     return true;
 }
@@ -6497,10 +6517,12 @@ void GLWidget::resetFraming(const Framing &f)
     m_bgPan = QVector2D(0.0f, 0.0f);
 
     // In H3 (sempre una scena) come nelle scene euclidee, MainWindow::resetView:
-    // la direzione d'avvio, diritta e verso il centro, alla distanza di adesso.
-    // La Framing e' della camera euclidea e qui non conta.
+    // la camera d'apertura, zoom compreso (hyperbolicStartCamera: quella
+    // d'avvio o del file, al raggio di adesso). Fino al 2026-11-11 la
+    // direzione d'avvio alla distanza di adesso, come allora le scene
+    // euclidee. La Framing e' della camera euclidea e qui non conta.
     if (m_hyperbolic)
-        m_h3Camera = H3::translation({0.0, 0.0, H3::distance(H3::origin(), m_h3Camera * H3::origin())});
+        m_h3Camera = hyperbolicStartCamera();
 
     // Azzera le memorie di backup
     m_viewStates[0] = ViewState();
@@ -6548,15 +6570,21 @@ void GLWidget::setObjectOrientation(int index, const Orientation &o)
 bool GLWidget::anyClockAdvanced() const
 {
     if (m_timeBg != 0.0f) return true;
-    for (const auto &obj : m_objects) {
-        const SurfaceObject &o = *obj;
-        if (o.timeGeom != 0.0f || o.timeTex != 0.0f || o.borderTimeTex != 0.0f
-            || o.pathTime[0] != 0.0f || o.pathTime[1] != 0.0f)
-            return true;
-        if (o.engine)
-            for (const MeshPart &mp : o.engine->getMeshParts())
-                if (mp.timeTex != 0.0f) return true;
-    }
+    for (int k = 0; k < int(m_objects.size()); ++k)
+        if (objectClocksAdvanced(k)) return true;
+    return false;
+}
+
+bool GLWidget::objectClocksAdvanced(int index) const
+{
+    if (index < 0 || index >= int(m_objects.size())) return false;
+    const SurfaceObject &o = *m_objects[index];
+    if (o.timeGeom != 0.0f || o.timeTex != 0.0f || o.borderTimeTex != 0.0f
+        || o.pathTime[0] != 0.0f || o.pathTime[1] != 0.0f)
+        return true;
+    if (o.engine)
+        for (const MeshPart &mp : o.engine->getMeshParts())
+            if (mp.timeTex != 0.0f) return true;
     return false;
 }
 
