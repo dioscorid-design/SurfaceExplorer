@@ -253,6 +253,8 @@ static void parseSceneCommon(const QJsonObject &root, LibraryItem &d)
         d.use4DLighting = root["use4DLighting"].toBool();
         d.hasLightingState = true;
     }
+    // Lo spazio in cui la Shape e' definita ("H3"); vuoto = euclidea.
+    d.space = root["space"].toString().trimmed();
     d.renderMode = root.contains("renderMode") ? root["renderMode"].toInt() : 0;
     if (root.contains("projectionMode")) {
         d.projectionMode = root["projectionMode"].toInt();
@@ -1299,6 +1301,8 @@ QJsonObject LibraryManager::toJson(const LibraryItem &d)
     root["use4DLighting"] = d.use4DLighting;
     // renderMode e' gia' nella codifica del file (in RM: +10 = Shell).
     root["renderMode"] = d.renderMode;
+    // Solo le Shape definite in H3: le altre restano scritte uguali.
+    if (!d.space.isEmpty()) root["space"] = d.space;
     if (d.isImplicitMode) {
         root["shellThickness"] = (double)d.shellThickness;
         root["hybridMarcher"] = d.hybridMarcher;

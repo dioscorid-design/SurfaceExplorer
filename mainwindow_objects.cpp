@@ -718,6 +718,18 @@ void MainWindow::addShapeToScene(const QString &shapePath)
             QStringLiteral("Ray marching shapes cannot be added to a hyperbolic scene yet."));
         return;
     }
+    // UNA SHAPE DEFINITA IN H3 (chiave "space": "H3", le cartelle H3 della
+    // Library) e' gia' un'immagine di H3, la palla di Poincare' di una
+    // superficie iperbolica: in una scena H3 verrebbe letta come un disegno
+    // euclideo e portata in H3 una seconda volta (decisione dell'utente,
+    // 2026-11-12: una superficie da vedere in H3 si prende definita in uno
+    // spazio piatto). In una scena 3D o 4D resta il disegno che e'.
+    if (m_sceneSpace == SceneSpace::SpaceH3 && d->space == QLatin1String("H3")) {
+        QMessageBox::information(this, QStringLiteral("Add to Scene"),
+            QStringLiteral("This shape is defined in hyperbolic space (its picture is already a Poincare "
+                           "ball): it cannot be added to a hyperbolic scene. Add a shape defined in flat space."));
+        return;
+    }
     // SCENA 3D O 4D (decisione dell'utente, 2026-11-08): in 3D oggetti 3D e
     // ray marching (le Cross Section tagliate tutte dalla stessa quota p,
     // girate dalle rotazioni 4D), con le parametriche rigide; in 4D solo

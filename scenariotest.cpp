@@ -9563,6 +9563,35 @@ void ScenarioTest::runSceneH3Scenarios()
         typeInField(m_mw->ui->lineX_P, QString());
     }
 
+    // LE SHAPE DEFINITE IN H3 (chiave "space": "H3", le cartelle H3 della
+    // Library) sono gia' un'immagine di H3: in una scena H3 Add to Scene le
+    // rifiuta col suo messaggio (prima entravano come disegni euclidei,
+    // portati in H3 una seconda volta); in una scena 3D entrano come sempre.
+    {
+        const QString h3TorusPath = shapePath(QStringLiteral("surfaces/Parametric/Surfaces/Equations/H3/Torus.json"));
+        const LibraryItem *torus = h3TorusPath.isEmpty() ? nullptr : m_mw->m_libraryManager.getSurfaceByPath(h3TorusPath);
+        pressNew();
+        m_mw->startScene(Space::SpaceH3);
+        wait(300);
+        m_lastPopup.clear();
+        if (!h3TorusPath.isEmpty()) m_mw->addShapeToScene(h3TorusPath);
+        wait(500);
+        check(torus && torus->space == QLatin1String("H3") && gl->objectCount() == 1
+                  && m_lastPopup.contains(QLatin1String("defined in hyperbolic space")),
+              QStringLiteral("H3 Torus (space \"%1\") in una scena H3: rifiutato (oggetti %2, popup: %3)")
+                  .arg(torus ? torus->space : QStringLiteral("?")).arg(gl->objectCount()).arg(m_lastPopup.simplified()));
+        pressNew();
+        m_mw->startScene(Space::Space3D);
+        wait(300);
+        m_lastPopup.clear();
+        if (!h3TorusPath.isEmpty()) m_mw->addShapeToScene(h3TorusPath);
+        wait(1500);
+        check(torus && gl->objectCount() == 2 && m_lastPopup.isEmpty(),
+              QStringLiteral("H3 Torus in una scena 3D: entra come disegno euclideo (oggetti %1, popup: %2)")
+                  .arg(gl->objectCount()).arg(m_lastPopup.simplified()));
+        pressNew();
+    }
+
     // CURVE 4D IN PROSPETTIVA: lo spareggio di profondita' 4D non taglia piu'.
     // In H3 il far plane e' il cielo, e la quota fissa dello spareggio
     // mandava oltre il fondo le parti con w < 0 gia' a 1.86 raggi dalla camera:

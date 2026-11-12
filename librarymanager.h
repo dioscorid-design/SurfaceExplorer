@@ -272,6 +272,13 @@ struct LibraryItem {
     bool use4DLighting = false;
     int lightingMode = -1;
 
+    // LO SPAZIO IN CUI LA SHAPE E' DEFINITA (chiave "space", come nelle scene):
+    // "H3" per le Shape delle cartelle H3, che sono gia' un'immagine di H3
+    // (la palla di Poincare') e non un oggetto da portarci; vuoto per le
+    // altre, euclidee. Il marcatore e' la chiave, non la cartella: serve ad
+    // Add to Scene per rifiutarle in una scena H3 (MainWindow::addShapeToScene).
+    QString space;
+
     // DOUBLE, non float: il Save li scrive come valori calcolati in doppia
     // precisione (alpha arrotondata ai centesimi, luce = slider/100). Un float
     // li cambierebbe nel file (0.45 -> 0.4499999881).
