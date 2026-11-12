@@ -1978,6 +1978,9 @@ private:
     // GLWidget::setHyperbolicLatticeDensity; accanto la distanza raggiunta in raggi).
     QSlider *m_h3LatticeDensity = nullptr;
     QLabel *m_h3LatticeDensityValue = nullptr;
+    // Il colore base del reticolo (GLWidget::setHyperbolicLatticeColor): un
+    // pulsante che mostra il colore, e apre la palette al clic.
+    QPushButton *m_h3LatticeColor = nullptr;
     // I controlli H3 del dock Objects: visibili solo in H3. Il reticolo sempre
     // attivo, la sua densita' col reticolo acceso, col tooltip che dice perche'.
     // La richiama anche updateProjectionButtonText: la distanza raggiunta

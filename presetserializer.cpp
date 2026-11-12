@@ -981,6 +981,9 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
         hyperbolic["curvatureRadius"] = gl->hyperbolicCurvatureRadius();
         hyperbolic["lattice"] = gl->hyperbolicLattice();
         hyperbolic["latticeDensity"] = gl->hyperbolicLatticeDensity();
+        // Colore base del reticolo: #rrggbb. Le scene che non la scrivono
+        // (prima di questa chiave) hanno il colore di default.
+        hyperbolic["latticeColor"] = gl->hyperbolicLatticeColor().name();
         QJsonArray camera;
         const H3::Matrix &c = gl->hyperbolicCamera();
         for (int i = 0; i < 4; ++i)

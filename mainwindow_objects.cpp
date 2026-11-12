@@ -8,6 +8,7 @@
 #include "mainwindow_p.h"
 #include "scenehintoverlay.h"
 
+#include <QColorDialog>
 #include <QDoubleSpinBox>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -1250,12 +1251,27 @@ void MainWindow::setupObjectsDock()
     m_h3LatticeDensityValue = new QLabel(w);
     m_h3LatticeDensityValue->setMinimumWidth(m_h3LatticeDensityValue->fontMetrics().horizontalAdvance(QStringLiteral("00.00")));
     m_h3LatticeDensityValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    for (QWidget *x : std::initializer_list<QWidget *>{ m_h3Lattice, m_h3LatticeDensity, m_h3LatticeDensityValue })
+    m_h3LatticeColor = new QPushButton(w);
+    m_h3LatticeColor->setToolTip(QStringLiteral(
+        "Colour of the lattice walls. It is the base colour: the light still shades them, as it does the objects."));
+    m_h3LatticeColor->setFixedWidth(UiStyleManager::kSliderMinHeight);
+    m_h3LatticeColor->setMinimumHeight(UiStyleManager::kSliderMinHeight / 2);
+    for (QWidget *x : std::initializer_list<QWidget *>{ m_h3Lattice, m_h3LatticeDensity, m_h3LatticeDensityValue, m_h3LatticeColor })
         x->setVisible(false);
     latticeRow->addWidget(m_h3Lattice);
     latticeRow->addWidget(m_h3LatticeDensity, 1);
     latticeRow->addWidget(m_h3LatticeDensityValue);
+    latticeRow->addWidget(m_h3LatticeColor);
     lay->addLayout(latticeRow);
+    connect(m_h3LatticeColor, &QPushButton::clicked, this, [this]() {
+        if (m_refreshingObjects || !ui->glWidget) return;
+        const QColor picked = QColorDialog::getColor(ui->glWidget->hyperbolicLatticeColor(), this,
+                                                     QStringLiteral("Lattice colour"));
+        if (!picked.isValid()) return;
+        ui->glWidget->setHyperbolicLatticeColor(picked);
+        refreshHyperbolicControls();
+        m_sceneObjectsChanged = true;
+    });
     connect(m_h3Lattice, &QCheckBox::toggled, this, [this](bool on) {
         if (m_refreshingObjects) return;
         ui->glWidget->setHyperbolicLattice(on);
@@ -1372,12 +1388,16 @@ void MainWindow::clampHyperbolicObjectScales()
 
 void MainWindow::refreshHyperbolicControls()
 {
-    if (!m_h3Lattice || !m_h3LatticeDensity || !ui->glWidget) return;
+    if (!m_h3Lattice || !m_h3LatticeDensity || !m_h3LatticeColor || !ui->glWidget) return;
     GLWidget *gl = ui->glWidget;
     const bool h3 = m_sceneSpace == SceneSpace::SpaceH3;
-    for (QWidget *x : std::initializer_list<QWidget *>{ m_h3Lattice, m_h3LatticeDensity, m_h3LatticeDensityValue })
+    for (QWidget *x : std::initializer_list<QWidget *>{ m_h3Lattice, m_h3LatticeDensity, m_h3LatticeDensityValue, m_h3LatticeColor })
         x->setVisible(h3);
     if (!h3) return;
+    // Il pulsante mostra il colore del reticolo (indipendente dall'accensione).
+    const QString hex = gl->hyperbolicLatticeColor().name();
+    m_h3LatticeColor->setStyleSheet(QStringLiteral(
+        "QPushButton { background-color: %1; border: 1px solid palette(mid); border-radius: 3px; }").arg(hex));
     const bool on = gl->hyperbolicLattice();
     const QSignalBlocker blocker(m_h3Lattice);
     const QSignalBlocker sliderBlocker(m_h3LatticeDensity);
@@ -1410,6 +1430,9 @@ void MainWindow::applyHyperbolicSceneJson(const QJsonObject &h3)
                                                 h3CurvatureRadiusFromSlider(200)));
     gl->setHyperbolicLattice(h3.value(QStringLiteral("lattice")).toBool(false));
     gl->setHyperbolicLatticeDensity(qBound(0.0, h3.value(QStringLiteral("latticeDensity")).toDouble(1.0), 1.0));
+    // Il colore del reticolo: una chiave che manca lascia il default della scena H3.
+    if (h3.contains(QStringLiteral("latticeColor")))
+        gl->setHyperbolicLatticeColor(QColor(h3.value(QStringLiteral("latticeColor")).toString()));
     const QJsonArray camera = h3.value(QStringLiteral("camera")).toArray();
     if (camera.size() == 16) {
         H3::Matrix c;

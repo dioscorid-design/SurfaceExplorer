@@ -5757,6 +5757,7 @@ void GLWidget::setHyperbolicSpace(bool on)
     m_h3Lattice = false;
     m_h3LatticeCell = H3::Matrix::identity();
     m_h3LatticeDensity = 1.0;
+    m_h3LatticeColor = defaultHyperbolicLatticeColor();
     // Ogni scena H3 parte dal raggio di default, con la camera d'avvio come
     // quella euclidea: a 4 unita' dal centro lungo +z, rivolta verso di lui.
     m_h3RadiiPerSceneUnit = 1.0 / kH3DefaultCurvatureRadius;
@@ -6096,6 +6097,13 @@ int GLWidget::hyperbolicLatticeEdgeCount()
     return int(hyperbolicLatticePiece().edges.size());
 }
 
+void GLWidget::setHyperbolicLatticeColor(const QColor &c)
+{
+    if (!c.isValid() || c == m_h3LatticeColor) return;
+    m_h3LatticeColor = c;
+    update();
+}
+
 void GLWidget::setHyperbolicLatticeDensity(double t)
 {
     t = std::clamp(t, 0.0, 1.0);
@@ -6290,7 +6298,11 @@ void GLWidget::prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates)
     const QMatrix4x4 proj = rhi()->clipSpaceCorrMatrix() * m_projection;
     memcpy(u.proj, proj.constData(), sizeof(u.proj));
     memcpy(u.view, view.constData(), sizeof(u.view));
-    u.color[0] = 0.78f; u.color[1] = 0.80f; u.color[2] = 0.86f; u.color[3] = 1.0f;
+    // Il colore base della scena (setHyperbolicLatticeColor); la luce lo modula come sempre.
+    u.color[0] = float(m_h3LatticeColor.redF());
+    u.color[1] = float(m_h3LatticeColor.greenF());
+    u.color[2] = float(m_h3LatticeColor.blueF());
+    u.color[3] = 1.0f;
     u.params[0] = float(kLatticeTubeRadius);
     u.params[1] = float(H3::honeycomb435EdgeLength());
     u.params[2] = m_objects.front()->lightIntensity;   // la luce dell'ambiente

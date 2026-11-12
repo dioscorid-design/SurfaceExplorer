@@ -1237,6 +1237,13 @@ public:
     // attuale se ancora non c'e'.
     void setHyperbolicLatticeDensity(double t);
     double hyperbolicLatticeDensity() const { return m_h3LatticeDensity; }
+    // IL COLORE DEL RETICOLO: il colore base delle pareti, indipendente dallo
+    // sfondo e dalla superficie dell'ambiente (chiave "latticeColor" del blocco
+    // h3 della scena). Resta illuminato: e' il colore prima della luce, come gli
+    // oggetti. Ogni scena H3 riparte dal default.
+    void setHyperbolicLatticeColor(const QColor &c);
+    QColor hyperbolicLatticeColor() const { return m_h3LatticeColor; }
+    static QColor defaultHyperbolicLatticeColor() { return QColor::fromRgbF(0.78, 0.80, 0.86); }
     double hyperbolicLatticeReach();
     int hyperbolicLatticeDrawnEdges();
     // LA VISTA DA FUORI: in H3 la proiezione ortogonale porta fuori
@@ -2059,6 +2066,8 @@ private:
     LatticePiece m_h3LatticeWhole;
     LatticePiece &hyperbolicLatticePiece();
     double m_h3LatticeDensity = 1.0;
+    // Colore base delle pareti (prima della luce): nel LatticeUbo, color.
+    QColor m_h3LatticeColor = defaultHyperbolicLatticeColor();
     // Del fotogramma: spigoli disegnati, di cui col tubo intero, e da quale pezzo.
     int m_h3LatticeDrawn = 0;
     int m_h3LatticeFine = 0;
