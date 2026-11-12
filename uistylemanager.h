@@ -1,6 +1,7 @@
 #ifndef UISTYLEMANAGER_H
 #define UISTYLEMANAGER_H
 
+#include <QColor>
 #include <QList>
 
 // Forward declarations
@@ -54,6 +55,16 @@ public:
     // per un dito) e questa e' la sede unica della distinzione desktop/mobile.
     static void setupDocumentationDialog(QDialog* dialog, QVBoxLayout* layout, QTextBrowser* browser, QPushButton* closeBtn,
                                          QLineEdit* searchEdit = nullptr);
+    // SCEGLIERE UN COLORE: la palette di sistema dove c'e' (macOS NSColorPanel,
+    // iOS UIColorPickerViewController, Windows e Linux il QColorDialog). Android
+    // non ne ha una: QColorDialog vi apre il suo dialogo a widget, a dimensione
+    // fissa e con le freccine degli spinbox, che sul telefono non ci sta. Li'
+    // pickColorWithSliders. Un colore non valido = annullato.
+    static QColor pickColor(QWidget* parent, const QColor& initial, const QString& title);
+    // Il campione del colore e tre cursori R G B grandi (setupBigSliders, gli
+    // stessi del dock Render), poi Cancel/OK: per un dito, a tutto schermo su
+    // Android. Compilato su ogni piattaforma: lo scenario test lo prova sul desktop.
+    static QColor pickColorWithSliders(QWidget* parent, const QColor& initial, const QString& title);
     // MOBILE: sostituisce le frecce native di uno spinbox (intero o decimale)
     // con due QPushButton a forma di freccia, affiancati al campo. Su iOS il
     // campo diventa anche non editabile da tastiera: toccarlo (frecce native

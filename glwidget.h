@@ -1243,7 +1243,9 @@ public:
     // oggetti. Ogni scena H3 riparte dal default.
     void setHyperbolicLatticeColor(const QColor &c);
     QColor hyperbolicLatticeColor() const { return m_h3LatticeColor; }
-    static QColor defaultHyperbolicLatticeColor() { return QColor::fromRgbF(0.78, 0.80, 0.86); }
+    // Il colore di prima (0.78, 0.80, 0.86) a 8 bit, come lo scrive #rrggbb:
+    // salvato e riaperto resta identico.
+    static QColor defaultHyperbolicLatticeColor() { return QColor(199, 204, 219); }
     double hyperbolicLatticeReach();
     int hyperbolicLatticeDrawnEdges();
     // LA VISTA DA FUORI: in H3 la proiezione ortogonale porta fuori

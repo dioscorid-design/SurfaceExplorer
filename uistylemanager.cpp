@@ -17,6 +17,8 @@
 #include <QStyleFactory>
 #include <QWidget>
 #include <QDialog>
+#include <QColorDialog>
+#include <QDialogButtonBox>
 #include <QMessageBox>
 #include <QVBoxLayout>
 #include <QTextBrowser>
@@ -912,6 +914,74 @@ void UiStyleManager::setupDocumentationDialog(QDialog* dialog, QVBoxLayout* layo
     dialog->setMinimumSize(320, 480);
     dialog->resize(800, 600);
 #endif
+}
+
+QColor UiStyleManager::pickColor(QWidget* parent, const QColor& initial, const QString& title)
+{
+#if defined(Q_OS_ANDROID)
+    return pickColorWithSliders(parent, initial, title);
+#else
+    return QColorDialog::getColor(initial, parent, title);
+#endif
+}
+
+QColor UiStyleManager::pickColorWithSliders(QWidget* parent, const QColor& initial, const QString& title)
+{
+    QDialog dialog(parent);
+    dialog.setObjectName(QStringLiteral("pickColorWithSliders"));
+    dialog.setWindowTitle(title);
+    auto *lay = new QVBoxLayout(&dialog);
+#if defined(Q_OS_ANDROID)
+    // A tutto schermo e senza cornice (come la documentazione): il titolo
+    // della finestra non si vede, lo dice un'etichetta.
+    auto *heading = new QLabel(title, &dialog);
+    QFont headingFont = heading->font();
+    headingFont.setBold(true);
+    heading->setFont(headingFont);
+    lay->addWidget(heading);
+#endif
+    auto *swatch = new QLabel(&dialog);
+    swatch->setMinimumHeight(2 * kSliderMinHeight);
+    lay->addWidget(swatch);
+    const QColor start = initial.isValid() ? initial.toRgb() : QColor(Qt::white);
+    const int startValue[3] = { start.red(), start.green(), start.blue() };
+    const QString channel[3] = { QStringLiteral("R"), QStringLiteral("G"), QStringLiteral("B") };
+    QSlider *slider[3];
+    QLabel *value[3];
+    for (int i = 0; i < 3; ++i) {
+        auto *row = new QHBoxLayout();
+        slider[i] = new QSlider(Qt::Horizontal, &dialog);
+        slider[i]->setRange(0, 255);
+        slider[i]->setValue(startValue[i]);
+        value[i] = new QLabel(&dialog);
+        value[i]->setMinimumWidth(value[i]->fontMetrics().horizontalAdvance(QStringLiteral("000")));
+        value[i]->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        row->addWidget(new QLabel(channel[i], &dialog));
+        row->addWidget(slider[i], 1);
+        row->addWidget(value[i]);
+        lay->addLayout(row);
+    }
+    setupBigSliders(slider[0], slider[1], slider[2], nullptr);
+    const auto current = [&]() { return QColor(slider[0]->value(), slider[1]->value(), slider[2]->value()); };
+    const auto refresh = [&]() {
+        for (int i = 0; i < 3; ++i) value[i]->setNum(slider[i]->value());
+        swatch->setStyleSheet(QStringLiteral("QLabel { background-color: %1; border: 1px solid palette(mid); "
+                                             "border-radius: 3px; }").arg(current().name()));
+    };
+    for (QSlider *s : slider) QObject::connect(s, &QSlider::valueChanged, &dialog, refresh);
+    refresh();
+    lay->addStretch(1);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    lay->addWidget(buttons);
+#if defined(Q_OS_ANDROID)
+    dialog.setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+    dialog.setWindowState(Qt::WindowMaximized);
+#else
+    dialog.setMinimumWidth(320);
+#endif
+    return dialog.exec() == QDialog::Accepted ? current() : QColor();
 }
 
 void UiStyleManager::styleMobileMenuButton(QPushButton* button) {

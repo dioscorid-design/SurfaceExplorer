@@ -21,6 +21,7 @@
 #include <QApplication>
 #include <QCryptographicHash>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDirIterator>
 #include <QEventLoop>
@@ -9419,6 +9420,11 @@ void ScenarioTest::runSceneH3Scenarios()
         m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(3.0));
         m_mw->m_h3Lattice->setChecked(true);
         m_mw->m_h3LatticeDensity->setValue(40);
+        // Il colore del reticolo: il pulsante apre la palette di sistema, che
+        // un test non pilota; lo stesso setter.
+        const QColor latticeColor(0x3a, 0x7f, 0xd0);
+        const bool colorWasDefault = gl->hyperbolicLatticeColor() == GLWidget::defaultHyperbolicLatticeColor();
+        gl->setHyperbolicLatticeColor(latticeColor);
         gl->m_h3Camera = H3::renormalized(H3::rotation({0.0, 1.0, 0.0}, 0.7) * H3::translation({0.3, -0.2, 1.1}));
         const double radius = gl->hyperbolicCurvatureRadius();
         const H3::Matrix camera = gl->hyperbolicCamera();
@@ -9433,6 +9439,10 @@ void ScenarioTest::runSceneH3Scenarios()
                   && json.value(QStringLiteral("h3")).toObject().value(QStringLiteral("camera")).toArray().size() == 16,
               QStringLiteral("Save di una scena H3: space \"%1\", stato di H3 nella chiave h3")
                   .arg(json.value(QStringLiteral("space")).toString()));
+        const QString savedColor = json.value(QStringLiteral("h3")).toObject().value(QStringLiteral("latticeColor")).toString();
+        check(colorWasDefault && savedColor == latticeColor.name(),
+              QStringLiteral("colore del reticolo: la scena H3 nuova parte dal default (%1), il save lo scrive (\"%2\", atteso %3)")
+                  .arg(colorWasDefault).arg(savedColor, latticeColor.name()));
         newScene();
         const bool loaded = m_mw->loadSceneFile(path);
         wait(800);
@@ -9455,6 +9465,30 @@ void ScenarioTest::runSceneH3Scenarios()
                   && !m_mw->hasUnsavedWork(),
               QStringLiteral("riaperta: dock Objects allineato (raggio, reticolo, densita'), niente da salvare: %1")
                   .arg(m_mw->unsavedKeys().join(QStringLiteral(", "))));
+        check(gl->hyperbolicLatticeColor() == latticeColor
+                  && !m_mw->m_h3LatticeColor->isHidden()
+                  && m_mw->m_h3LatticeColor->styleSheet().contains(latticeColor.name()),
+              QStringLiteral("riaperta: colore del reticolo %1 (salvato %2), il pulsante del dock lo mostra")
+                  .arg(gl->hyperbolicLatticeColor().name(), latticeColor.name()));
+        // Una scena di prima della chiave latticeColor: lo stesso file senza.
+        // Apre col colore di default, che salvato e riaperto resta identico.
+        {
+            QJsonObject old = json;
+            QJsonObject oldH3 = old.value(QStringLiteral("h3")).toObject();
+            oldH3.remove(QStringLiteral("latticeColor"));
+            old.insert(QStringLiteral("h3"), oldH3);
+            const QString oldPath = m_outDir + QStringLiteral("/scene-h3-no-lattice-color.json");
+            QFile of(oldPath);
+            const bool oldWritten = of.open(QIODevice::WriteOnly) && of.write(QJsonDocument(old).toJson()) > 0;
+            of.close();
+            const bool oldLoaded = oldWritten && m_mw->loadSceneFile(oldPath);
+            wait(800);
+            const QColor def = GLWidget::defaultHyperbolicLatticeColor();
+            check(oldLoaded && gl->hyperbolicSpace() && gl->hyperbolicLatticeColor() == def
+                      && QColor(def.name()) == def && !m_mw->hasUnsavedWork(),
+                  QStringLiteral("scena H3 senza latticeColor: colore di default %1 (letto %2), niente da salvare")
+                      .arg(def.name(), gl->hyperbolicLatticeColor().name()));
+        }
         // La camera del file e' quella d'apertura: zoom, poi RESET View la rimette.
         m_mw->selectSceneObject(0);
         gl->zoomCamera(1.0f);
@@ -9467,6 +9501,39 @@ void ScenarioTest::runSceneH3Scenarios()
         check(zoomed && resetDiff < 1e-9,
               QStringLiteral("riaperta, zoom e RESET View: di nuovo la camera del file (View aveva da fare %1, scarto %2)")
                   .arg(zoomed).arg(resetDiff));
+    }
+
+    // IL SELETTORE DI COLORE DI ANDROID (UiStyleManager::pickColorWithSliders,
+    // al posto della palette di sistema che li' non c'e'): qui sul desktop, mosso
+    // come da un dito. Parte dal colore dato, OK da' quello dei cursori, Cancel
+    // nessuno. Il dialogo si pilota al primo giro del suo exec, prima della
+    // sentinella dei popup (che a 100 ms lo annullerebbe).
+    {
+        const QColor initial(0x3a, 0x7f, 0xd0);
+        auto drive = [](std::function<void(QDialog *, const QList<QSlider *> &)> act) {
+            QTimer::singleShot(0, qApp, [act] {
+                auto *d = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+                if (!d || d->objectName() != QLatin1String("pickColorWithSliders")) return;
+                act(d, d->findChildren<QSlider *>());
+            });
+        };
+        QList<int> opened;
+        drive([&opened](QDialog *d, const QList<QSlider *> &s) {
+            for (QSlider *x : s) opened << x->value();
+            if (s.size() == 3) { s[0]->setValue(10); s[1]->setValue(200); s[2]->setValue(255); }
+            if (auto *box = d->findChild<QDialogButtonBox *>()) box->button(QDialogButtonBox::Ok)->click();
+        });
+        const QColor accepted = UiStyleManager::pickColorWithSliders(m_mw, initial, QStringLiteral("Lattice colour"));
+        drive([](QDialog *d, const QList<QSlider *> &s) {
+            if (s.size() == 3) s[0]->setValue(0);
+            if (auto *box = d->findChild<QDialogButtonBox *>()) box->button(QDialogButtonBox::Cancel)->click();
+        });
+        const QColor cancelled = UiStyleManager::pickColorWithSliders(m_mw, initial, QStringLiteral("Lattice colour"));
+        check(opened == QList<int>{ 0x3a, 0x7f, 0xd0 } && accepted == QColor(10, 200, 255) && !cancelled.isValid(),
+              QStringLiteral("selettore di Android: apre sul colore dato (%1), OK da' i cursori (%2), Cancel niente (%3)")
+                  .arg(opened.size() == 3 ? QColor(opened[0], opened[1], opened[2]).name() : QStringLiteral("non aperto"),
+                       accepted.isValid() ? accepted.name() : QStringLiteral("nessuno"),
+                       cancelled.isValid() ? cancelled.name() : QStringLiteral("nessuno")));
     }
 
     newScene();

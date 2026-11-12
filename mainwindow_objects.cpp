@@ -8,7 +8,6 @@
 #include "mainwindow_p.h"
 #include "scenehintoverlay.h"
 
-#include <QColorDialog>
 #include <QDoubleSpinBox>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -1265,8 +1264,8 @@ void MainWindow::setupObjectsDock()
     lay->addLayout(latticeRow);
     connect(m_h3LatticeColor, &QPushButton::clicked, this, [this]() {
         if (m_refreshingObjects || !ui->glWidget) return;
-        const QColor picked = QColorDialog::getColor(ui->glWidget->hyperbolicLatticeColor(), this,
-                                                     QStringLiteral("Lattice colour"));
+        const QColor picked = UiStyleManager::pickColor(this, ui->glWidget->hyperbolicLatticeColor(),
+                                                        QStringLiteral("Lattice colour"));
         if (!picked.isValid()) return;
         ui->glWidget->setHyperbolicLatticeColor(picked);
         refreshHyperbolicControls();
@@ -1430,9 +1429,10 @@ void MainWindow::applyHyperbolicSceneJson(const QJsonObject &h3)
                                                 h3CurvatureRadiusFromSlider(200)));
     gl->setHyperbolicLattice(h3.value(QStringLiteral("lattice")).toBool(false));
     gl->setHyperbolicLatticeDensity(qBound(0.0, h3.value(QStringLiteral("latticeDensity")).toDouble(1.0), 1.0));
-    // Il colore del reticolo: una chiave che manca lascia il default della scena H3.
-    if (h3.contains(QStringLiteral("latticeColor")))
-        gl->setHyperbolicLatticeColor(QColor(h3.value(QStringLiteral("latticeColor")).toString()));
+    // Il colore del reticolo: una chiave che manca (scene di prima) o che non
+    // e' un colore da' il default, come le altre chiavi.
+    const QColor latticeColor(h3.value(QStringLiteral("latticeColor")).toString());
+    gl->setHyperbolicLatticeColor(latticeColor.isValid() ? latticeColor : GLWidget::defaultHyperbolicLatticeColor());
     const QJsonArray camera = h3.value(QStringLiteral("camera")).toArray();
     if (camera.size() == 16) {
         H3::Matrix c;
