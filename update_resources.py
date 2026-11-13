@@ -17,9 +17,10 @@ RESOURCE_GROUPS = {
         "presets/sounds",
         # 2.0: le scene. Restore Factory le copia da :/library/presets/scenes
         # (LibraryFolders::branches): senza questa riga su iOS non arrivavano.
-        "presets/scenes",
-        "shaders"
+        "presets/scenes"
     ],
+    # Gli shader si leggono solo da :/shaders/... (prefisso "/"): elencarli
+    # anche sotto "/library" li impacchettava due volte nel binario.
     "/": [
         "shaders"
     ]
