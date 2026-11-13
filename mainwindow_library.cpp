@@ -1536,10 +1536,14 @@ void MainWindow::refreshRepositories()
         return path;
     };
 
-    // 2-3. SALVATAGGIO, per ogni albero, di STATO ESPANSIONE E SELEZIONE (basato
-    // sul percorso univoco) e POSIZIONE DELLA BARRA DI SCORRIMENTO (impedisce
-    // il salto visivo). Stesso ordine di libraryBranches().
-    struct TreeState { QSet<QString> expanded, selected; int scroll = 0; };
+    // 2-3. SALVATAGGIO, per ogni albero, di STATO ESPANSIONE, SELEZIONE ed
+    // ELEMENTO CORRENTE (basato sul percorso univoco) e POSIZIONE DELLA BARRA DI
+    // SCORRIMENTO (impedisce il salto visivo). Stesso ordine di libraryBranches().
+    // L'elemento corrente e' il preset a schermo (LibraryTreeFocus::resting,
+    // LibraryTreeWidget::mousePressEvent): senza, dopo la rilettura che il
+    // watcher fa partire dopo un Incolla, il primo Cmd+clic non toglieva piu' il
+    // preset a schermo dalla selezione e i comandi del menu agivano anche su di lui.
+    struct TreeState { QSet<QString> expanded, selected; QString current; int scroll = 0; };
     QList<TreeState> states;
     for (const LibraryBranch &b : libraryBranches()) {
         TreeState st;
@@ -1548,6 +1552,7 @@ void MainWindow::refreshRepositories()
             if ((*it)->isExpanded()) st.expanded.insert(path);
             if ((*it)->isSelected()) st.selected.insert(path);
         }
+        if (b.tree->currentItem()) st.current = getItemPath(b.tree->currentItem());
         st.scroll = b.tree->verticalScrollBar()->value();
         states.append(st);
     }
@@ -1622,11 +1627,15 @@ void MainWindow::refreshRepositories()
     // (tutti gli alberi riempiti prima di scorrerli, come sempre).
     for (int i = 0; i < libraryBranches().size(); ++i) {
         const TreeState &st = states[i];
+        QTreeWidgetItem *current = nullptr;
         for (QTreeWidgetItemIterator it(libraryBranches()[i].tree); *it; ++it) {
             const QString path = getItemPath(*it);
             if (st.expanded.contains(path)) (*it)->setExpanded(true);
             if (st.selected.contains(path)) (*it)->setSelected(true);
+            if (!current && !st.current.isEmpty() && path == st.current) current = *it;
         }
+        // Senza toccare la selezione e senza autoscroll (la barra si rimette qui sotto).
+        if (current) LibraryTreeFocus::setCurrentQuietly(libraryBranches()[i].tree, current);
     }
     for (int i = 0; i < libraryBranches().size(); ++i)
         libraryBranches()[i].tree->verticalScrollBar()->setValue(states[i].scroll);
