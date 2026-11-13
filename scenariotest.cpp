@@ -9032,7 +9032,8 @@ void ScenarioTest::runSceneH3Scenarios()
     m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(5.0));
     gl->m_h3Camera = H3::translation({0.0, 0.0, 0.8});
 
-    // La Library non cambia l'ambiente; Add to Scene: il ray marching no.
+    // La Library non cambia l'ambiente. (Il ray marching ora entra: vedi
+    // "IL RAY MARCHING IN H3" piu' avanti.)
     {
         const int before = m_popupsClosed;
         QTreeWidget *shapes = m_mw->ui->treeSurfaces;
@@ -9045,11 +9046,9 @@ void ScenarioTest::runSceneH3Scenarios()
             m_discardOnPrompt = false;
             break;
         }
-        m_mw->addShapeToScene(rmPath);
-        wait(300);
         check(gl->hyperbolicSpace() && m_mw->isSceneEmpty() && gl->objectCount() == 1
-                  && m_popupsClosed == before + 2,
-              QStringLiteral("clic sul toro e Add to Scene di una sfera in ray marching: due avvisi, la scena H3 resta vuota"));
+                  && m_popupsClosed == before + 1,
+              QStringLiteral("clic sul toro: un avviso, la scena H3 resta vuota"));
     }
 
     // Add to Scene di una Shape parametrica: entra, col vertex shader iperbolico.
@@ -9589,6 +9588,175 @@ void ScenarioTest::runSceneH3Scenarios()
         check(torus && gl->objectCount() == 2 && m_lastPopup.isEmpty(),
               QStringLiteral("H3 Torus in una scena 3D: entra come disegno euclideo (oggetti %1, popup: %2)")
                   .arg(gl->objectCount()).arg(m_lastPopup.simplified()));
+        pressNew();
+    }
+
+    // IL RAY MARCHING IN H3 (raymarch_template.txt, ramo HYPERBOLIC). La sfera
+    // unitaria in ray marching entra con lo shader di H3. Nel centro della
+    // scena, a scala 1, e' la sfera di H3 di raggio sigma = 1 / raggio di
+    // curvatura (la mappa esponenziale conserva le distanze dal centro), quindi
+    // la sua sagoma e' nota: dalla camera a D raggi il semiangolo e'
+    // sin(alpha) = sinh(sigma) / sinh(D), e nella carta di Klein il raggio a
+    // schermo e' tan(alpha) / tan(fov / 2) della mezza altezza; nella vista da
+    // fuori e' il disco di raggio tanh(sigma / 2) della palla. Il cubo di taglio
+    // stretto attorno alla sfera (il ramo che limita la marcia alla sua sfera)
+    // non cambia un pixel; la scena salvata e riaperta si rivede uguale (gli
+    // oggetti entrano prima che lo spazio diventi H3: lo shader si ricompila);
+    // la sfera parametrica nella stessa posa copre gli stessi pixel.
+    {
+        const QString meshSpherePath = shapePath(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"));
+        pressNew();
+        m_mw->startScene(Space::SpaceH3);
+        m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(5.0));
+        gl->m_h3Camera = H3::translation({0.0, 0.0, 0.8});
+        const auto grab = [&](int projection) {
+            gl->setProjectionMode(projection);
+            wait(400);
+            return gl->grabFramebuffer();
+        };
+        // I pixel che l'oggetto cambia rispetto alla scena vuota.
+        const auto changed = [](const QImage &img, const QImage &empty) {
+            std::vector<bool> m(size_t(img.width()) * size_t(img.height()), false);
+            if (img.size() != empty.size()) return m;
+            for (int y = 0; y < img.height(); ++y)
+                for (int x = 0; x < img.width(); ++x)
+                    m[size_t(y) * size_t(img.width()) + size_t(x)] = img.pixel(x, y) != empty.pixel(x, y);
+            return m;
+        };
+        const auto overlap = [](const std::vector<bool> &a, const std::vector<bool> &b) {
+            int both = 0, either = 0;
+            for (size_t i = 0; i < a.size() && i < b.size(); ++i) {
+                both += (a[i] && b[i]) ? 1 : 0;
+                either += (a[i] || b[i]) ? 1 : 0;
+            }
+            return either > 0 ? double(both) / double(either) : 0.0;
+        };
+        // La larghezza della sagoma lungo la riga di mezzo, in pixel.
+        const auto rowWidth = [](const std::vector<bool> &m, const QImage &img) {
+            const int w = img.width(), row = img.height() / 2;
+            int left = -1, right = -1;
+            for (int x = 0; x < w && !m.empty(); ++x)
+                if (m[size_t(row) * size_t(w) + size_t(x)]) {
+                    if (left < 0) left = x;
+                    right = x;
+                }
+            return left < 0 ? 0 : right - left + 1;
+        };
+        const QImage emptyPersp = grab(1), emptyOutside = grab(0);
+        gl->setProjectionMode(1);
+
+        const int popupsBefore = m_popupsClosed;
+        m_lastPopup.clear();
+        m_mw->addShapeToScene(rmPath);
+        wait(800);
+        const int objectsAfterAdd = gl->objectCount();
+        m_mw->selectSceneObject(1);
+        SurfaceObject &rmObj = *gl->m_obj;
+        check(objectsAfterAdd == 2 && m_popupsClosed == popupsBefore && rmObj.engineMode == SurfaceObject::ModeImplicit
+                  && gl->createImplicitFragmentShader(rmObj).contains(QLatin1String("#define HYPERBOLIC")),
+              QStringLiteral("Add to Scene della sfera in ray marching in H3: entra (oggetti %1, popup: %2), shader con HYPERBOLIC")
+                  .arg(objectsAfterAdd).arg(m_lastPopup.simplified()));
+        gl->setObjectPosition(QVector3D());
+        gl->setObjectScale(1.0f);
+        const QImage rmPerspImg = grab(1), rmOutsideImg = grab(0);
+        gl->setProjectionMode(1);
+        rmPerspImg.save(m_outDir + QStringLiteral("/scene-h3-rm-sphere.png"));
+        rmOutsideImg.save(m_outDir + QStringLiteral("/scene-h3-rm-sphere-outside.png"));
+        const std::vector<bool> rmPersp = changed(rmPerspImg, emptyPersp);
+        const std::vector<bool> rmOutside = changed(rmOutsideImg, emptyOutside);
+        {
+            const double sigma = 1.0 / gl->hyperbolicCurvatureRadius();
+            const double d = H3::distance(H3::origin(), gl->hyperbolicCamera() * H3::origin());
+            const double halfH = 0.5 * rmPerspImg.height();
+            const double alpha = std::asin(std::sinh(sigma) / std::sinh(d));
+            const double expectPersp = 2.0 * halfH * std::tan(alpha)
+                                     / std::tan(0.5 * qDegreesToRadians(double(gl->cameraFov())));
+            const double expectOutside = 2.0 * halfH * std::tanh(0.5 * sigma) / double(gl->hyperbolicOrthoHalfHeight());
+            const int persp = rowWidth(rmPersp, rmPerspImg), outside = rowWidth(rmOutside, rmOutsideImg);
+            check(std::abs(persp - expectPersp) <= std::max(3.0, 0.02 * expectPersp)
+                      && std::abs(outside - expectOutside) <= std::max(3.0, 0.02 * expectOutside),
+                  QStringLiteral("sfera in ray marching in H3: sagoma larga %1 px in prospettiva (sfera di H3: %2), %3 px "
+                                 "nella vista da fuori (%4); scene-h3-rm-sphere*.png")
+                      .arg(persp).arg(expectPersp, 0, 'f', 1).arg(outside).arg(expectOutside, 0, 'f', 1));
+        }
+        // Il cubo di taglio stretto: la marcia si limita alla sua sfera, l'immagine resta.
+        {
+            const float box[6] = {rmObj.xMin, rmObj.xMax, rmObj.yMin, rmObj.yMax, rmObj.zMin, rmObj.zMax};
+            rmObj.xMin = rmObj.yMin = rmObj.zMin = -1.5f;
+            rmObj.xMax = rmObj.yMax = rmObj.zMax = 1.5f;
+            const QImage boxPersp = grab(1), boxOutside = grab(0);
+            gl->setProjectionMode(1);
+            rmObj.xMin = box[0]; rmObj.xMax = box[1]; rmObj.yMin = box[2];
+            rmObj.yMax = box[3]; rmObj.zMin = box[4]; rmObj.zMax = box[5];
+            const double persp = overlap(changed(boxPersp, emptyPersp), rmPersp);
+            const double outside = overlap(changed(boxOutside, emptyOutside), rmOutside);
+            check(persp > 0.999 && outside > 0.999,
+                  QStringLiteral("sfera in ray marching col cubo di taglio a +/-1.5: stessi pixel (sovrapposizione %1 in "
+                                 "prospettiva, %2 nella vista da fuori)").arg(persp, 0, 'f', 4).arg(outside, 0, 'f', 4));
+        }
+        // Save e load.
+        {
+            m_mw->selectSceneObject(0);
+            PresetSerializer::MotionRunState run;
+            const QJsonObject json = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("H3 RM Scene"), run, false);
+            const QString path = m_outDir + QStringLiteral("/scene-h3-rm.json");
+            QFile f(path);
+            const bool written = f.open(QIODevice::WriteOnly) && f.write(QJsonDocument(json).toJson()) > 0;
+            f.close();
+            newScene();
+            const bool loaded = written && m_mw->loadSceneFile(path);
+            wait(800);
+            const QImage again = grab(1);
+            again.save(m_outDir + QStringLiteral("/scene-h3-rm-sphere-reloaded.png"));
+            const double same = overlap(changed(again, emptyPersp), rmPersp);
+            check(loaded && gl->hyperbolicSpace() && gl->objectCount() == 2 && same > 0.99,
+                  QStringLiteral("scena H3 con la sfera in ray marching, salvata e riaperta: si rivede uguale "
+                                 "(oggetti %1, sovrapposizione %2)").arg(gl->objectCount()).arg(same, 0, 'f', 4));
+        }
+        // La sfera parametrica nella stessa posa.
+        if (!meshSpherePath.isEmpty()) {
+            while (gl->objectCount() > 1) m_mw->removeSceneObject(gl->objectCount() - 1);
+            m_mw->addShapeToScene(meshSpherePath);
+            wait(800);
+            m_mw->selectSceneObject(1);
+            gl->setObjectPosition(QVector3D());
+            gl->setObjectScale(1.0f);
+            const QImage meshPerspImg = grab(1), meshOutsideImg = grab(0);
+            gl->setProjectionMode(1);
+            meshPerspImg.save(m_outDir + QStringLiteral("/scene-h3-mesh-sphere.png"));
+            meshOutsideImg.save(m_outDir + QStringLiteral("/scene-h3-mesh-sphere-outside.png"));
+            const double persp = overlap(changed(meshPerspImg, emptyPersp), rmPersp);
+            const double outside = overlap(changed(meshOutsideImg, emptyOutside), rmOutside);
+            check(persp > 0.95 && outside > 0.95,
+                  QStringLiteral("sfera in ray marching e sfera parametrica nella stessa posa in H3: stessi pixel "
+                                 "(sovrapposizione %1 in prospettiva, %2 nella vista da fuori; scene-h3-mesh-sphere*.png)")
+                      .arg(persp, 0, 'f', 3).arg(outside, 0, 'f', 3));
+        } else {
+            check(false, QStringLiteral("sfera parametrica R3/Sphere nella libreria"));
+        }
+        // LE CROSS SECTION NO: la fetta di un'ipersuperficie di R4 non ha senso
+        // in H3. Rifiutata col suo messaggio; in una scena 3D entra come sempre.
+        {
+            const QString t3Path = shapePath(QStringLiteral("surfaces/Implicit/Cross Sections/T3.json"));
+            const LibraryItem *t3 = t3Path.isEmpty() ? nullptr : m_mw->m_libraryManager.getSurfaceByPath(t3Path);
+            const int objects = gl->objectCount();
+            m_lastPopup.clear();
+            if (t3) m_mw->addShapeToScene(t3Path);
+            wait(500);
+            check(t3 && t3->usesCrossSection && gl->objectCount() == objects
+                      && m_lastPopup.contains(QLatin1String("Cross sections cannot be added")),
+                  QStringLiteral("Cross Section T3 in una scena H3: rifiutata (oggetti %1 su %2, popup: %3)")
+                      .arg(gl->objectCount()).arg(objects).arg(m_lastPopup.simplified()));
+            pressNew();
+            m_mw->startScene(Space::Space3D);
+            wait(300);
+            m_lastPopup.clear();
+            if (t3) m_mw->addShapeToScene(t3Path);
+            wait(1500);
+            check(t3 && gl->objectCount() == 2 && m_lastPopup.isEmpty(),
+                  QStringLiteral("Cross Section T3 in una scena 3D: entra (oggetti %1, popup: %2)")
+                      .arg(gl->objectCount()).arg(m_lastPopup.simplified()));
+        }
         pressNew();
     }
 

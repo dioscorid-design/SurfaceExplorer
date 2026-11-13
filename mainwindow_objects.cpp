@@ -711,11 +711,15 @@ void MainWindow::addShapeToScene(const QString &shapePath)
 {
     const LibraryItem *d = m_libraryManager.getSurfaceByPath(shapePath);
     if (!d || d->name.isEmpty()) return;
-    // In H3 solo le mesh (GLWidget::hyperbolicObject); il ray marching
-    // resta fuori dal livello 1.
-    if (m_sceneSpace == SceneSpace::SpaceH3 && d->isImplicitMode) {
+    // In H3 entrano mesh e ray marching (GLWidget::hyperbolicObject), ma non
+    // le Cross Section (decisione dell'utente, 2026-11-13): la fetta di
+    // un'ipersuperficie di R4 a una quota p non ha un senso geometrico in H3,
+    // che non sta in R4. Un oggetto gia' in scena non ci diventa: il cambio di
+    // sotto-tab esce dalla scena (resetScene -> resetToSingleObject).
+    if (m_sceneSpace == SceneSpace::SpaceH3 && d->isImplicitMode && d->usesCrossSection) {
         QMessageBox::information(this, QStringLiteral("Add to Scene"),
-            QStringLiteral("Ray marching shapes cannot be added to a hyperbolic scene yet."));
+            QStringLiteral("Cross sections cannot be added to a hyperbolic scene: a slice of a 4D shape has no "
+                           "meaning in hyperbolic space. Add a 3D ray marching shape."));
         return;
     }
     // UNA SHAPE DEFINITA IN H3 (chiave "space": "H3", le cartelle H3 della

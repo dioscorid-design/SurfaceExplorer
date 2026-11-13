@@ -435,6 +435,367 @@ void testLightCosines()
                  "(coseno %.1e)", persp, outside));
 }
 
+// ---------------------------------------------------------------------------
+// IL RAY MARCHING IN H3 (raymarch_template.txt, ramo HYPERBOLIC): le sue
+// formule trascritte in float, come le esegue la GPU, contro il nucleo in
+// double. La posa e' quella delle mesh (GLWidget::hyperbolicObjectMatrices):
+// il punto p del modello va nel riferimento della camera (o della palla nella
+// vista da fuori) come k * spinta di R * exp(M p), M = kp * rotazione * sigma.
+
+struct F3 { float x = 0, y = 0, z = 0; };
+Vec3 add3(const Vec3 &a, const Vec3 &b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
+F3 f3(const Vec3 &v) { return {float(v.x), float(v.y), float(v.z)}; }
+Vec3 d3(const F3 &v) { return {v.x, v.y, v.z}; }
+F3 fadd(F3 a, F3 b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
+F3 fsub(F3 a, F3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
+F3 fmul(F3 a, float s) { return {a.x * s, a.y * s, a.z * s}; }
+float fdot(F3 a, F3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+float flen(F3 a) { return std::sqrt(fdot(a, a)); }
+F3 fnorm(F3 a) { return fmul(a, 1.0f / flen(a)); }
+F3 fcross(F3 a, F3 b) { return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; }
+
+// Matrice 3x3 in float, m[riga][colonna].
+struct F33 { float m[3][3] = {}; };
+F3 fapply(const F33 &a, F3 v)
+{
+    return {a.m[0][0] * v.x + a.m[0][1] * v.y + a.m[0][2] * v.z,
+            a.m[1][0] * v.x + a.m[1][1] * v.y + a.m[1][2] * v.z,
+            a.m[2][0] * v.x + a.m[2][1] * v.y + a.m[2][2] * v.z};
+}
+F3 fapplyT(const F33 &a, F3 v)
+{
+    return {a.m[0][0] * v.x + a.m[1][0] * v.y + a.m[2][0] * v.z,
+            a.m[0][1] * v.x + a.m[1][1] * v.y + a.m[2][1] * v.z,
+            a.m[0][2] * v.x + a.m[1][2] * v.y + a.m[2][2] * v.z};
+}
+F3 fcol(const F33 &a, int c) { return {a.m[0][c], a.m[1][c], a.m[2][c]}; }
+
+// Cio' che lo shader riceve: M (u_mMatrix), k (u_mvMatrix), R e l'inversa di M.
+struct RmPose {
+    F33 M, K, Minv;
+    float R = 0.0f;
+    double sigma = 0.0;
+    Matrix m;             // il centro dell'oggetto nel riferimento di chi guarda (double)
+    double rot[3][3] = {};
+};
+
+RmPose rmPose(const Matrix &m, const Matrix &rot, double sigma)
+{
+    RmPose p;
+    p.m = m;
+    p.sigma = sigma;
+    Matrix k, kp;
+    double dist = 0.0;
+    splitAlongZ(m, k, dist, kp);
+    double M[3][3];
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) {
+            p.rot[i][j] = rot.m[i][j];
+            double s = 0.0;
+            for (int l = 0; l < 3; ++l) s += kp.m[i][l] * rot.m[l][j];
+            M[i][j] = s * sigma;
+            p.K.m[i][j] = float(k.m[i][j]);
+        }
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) {
+            p.M.m[i][j] = float(M[i][j]);
+            p.Minv.m[i][j] = float(M[j][i] / (sigma * sigma));   // M = sigma * rotazione
+        }
+    p.R = float(dist);
+    return p;
+}
+
+// Il punto del modello nel riferimento di chi guarda, in double.
+Vec4 rmExact(const RmPose &pose, const Vec3 &p)
+{
+    Vec3 v;
+    v.x = pose.sigma * (pose.rot[0][0] * p.x + pose.rot[0][1] * p.y + pose.rot[0][2] * p.z);
+    v.y = pose.sigma * (pose.rot[1][0] * p.x + pose.rot[1][1] * p.y + pose.rot[1][2] * p.z);
+    v.z = pose.sigma * (pose.rot[2][0] * p.x + pose.rot[2][1] * p.y + pose.rot[2][2] * p.z);
+    return pose.m * expAtOrigin(v);
+}
+
+float rmLogLength(F3 y, F3 &dir)
+{
+    const float m = std::max(std::abs(y.x), std::max(std::abs(y.y), std::abs(y.z)));
+    if (m < 1.0e-30f) { dir = {0.0f, 0.0f, 1.0f}; return 0.0f; }
+    const F3 yn = fmul(y, 1.0f / m);
+    const float ln = flen(yn);
+    dir = fmul(yn, 1.0f / ln);
+    return std::log(m) + std::log(ln + std::sqrt(ln * ln + 1.0f / (m * m)));
+}
+
+// h3RayAt in prospettiva: il raggio di direzione d (unitaria, nella camera) a
+// distanza s dalla camera, nel modello.
+F3 rmRayPerspective(const RmPose &pose, F3 d, float s)
+{
+    const F3 dk = fapplyT(pose.K, d);
+    const float lateral = dk.x * dk.x + dk.y * dk.y;
+    const float oneMinusDz = dk.z > 0.0f ? lateral / (1.0f + dk.z) : 1.0f - dk.z;
+    const float sh = std::sinh(s);
+    const F3 y = {sh * dk.x, sh * dk.y, std::sinh(s - pose.R) - oneMinusDz * sh * std::cosh(pose.R)};
+    F3 dir;
+    const float rho = rmLogLength(y, dir);
+    return fapply(pose.Minv, fmul(dir, rho));
+}
+
+// h3RayAt nella vista da fuori: la retta (bx, by, -u) della palla, a lunghezza
+// iperbolica a dal punto di mezzo.
+F3 rmRayOutside(const RmPose &pose, float bx, float by, float a)
+{
+    const float c = std::sqrt(1.0f - bx * bx - by * by);
+    const F3 base = fapplyT(pose.K, {bx, by, 0.0f});
+    const F3 dirZ = fapplyT(pose.K, {0.0f, 0.0f, 1.0f});
+    const float tanhHalfR = std::tanh(0.5f * pose.R);
+    const float chh = std::cosh(0.5f * pose.R);
+    const float sech2HalfR = 1.0f / (chh * chh);
+    const float h = 0.5f * c * a;
+    const float u = c * std::tanh(h);
+    const float ch = std::cosh(h);
+    const float oneMinusB2 = c * c / (ch * ch);
+    const F3 centre = {0.0f, 0.0f, tanhHalfR};
+    const F3 dl = fsub(fsub(base, fmul(dirZ, u)), centre);
+    const float dl2 = fdot(dl, dl);
+    const F3 x = fmul(fsub(fmul(dl, sech2HalfR), fmul(centre, dl2)),
+                      1.0f / std::max(dl2 + oneMinusB2 * sech2HalfR, 1.0e-30f));
+    const float lx = flen(x);
+    const F3 dir = lx > 1.0e-30f ? fmul(x, 1.0f / lx) : F3{0.0f, 0.0f, 1.0f};
+    const float rho = 2.0f * std::atanh(std::min(lx, 0.9999999f));
+    return fapply(pose.Minv, fmul(dir, rho));
+}
+
+// h3ShadingVectors: vista e luce negli assi del modello, nel punto p di normale n.
+void rmShading(const RmPose &pose, bool outside, F3 p, F3 n, F3 light, F3 &viewM, F3 &lightM)
+{
+    const F33 &M = pose.M, &K = pose.K;
+    const float R = pose.R, chR = std::cosh(R), shR = std::sinh(R);
+    const F3 v = fapply(M, p);
+    const float r = flen(v);
+    const F3 w = r > 1.0e-6f ? fmul(v, 1.0f / r) : F3{0.0f, 0.0f, 1.0f};
+    const float ez = w.z < 0.0f ? (w.x * w.x + w.y * w.y) / (1.0f - w.z) : 1.0f + w.z;
+    const float sr = std::sinh(r), cr = std::cosh(r), cRr = std::cosh(R - r), sRr = std::sinh(R - r);
+    const F3 Pxyz = fapply(K, {sr * w.x, sr * w.y, sRr + ez * chR * sr});
+    const float Pw = cRr + ez * shR * sr;
+    const F3 radXyz = fapply(K, {cr * w.x, cr * w.y, ez * chR * cr - cRr});
+    const float radW = ez * shR * cr - sRr;
+    const float lp = flen(Pxyz);
+    const F3 dHat = lp > 1.0e-12f ? fmul(Pxyz, 1.0f / lp) : F3{0.0f, 0.0f, -1.0f};
+    F3 cols[3];
+    for (int i = 0; i < 3; ++i) {
+        const F3 u = fnorm(fcol(M, i));
+        const float a = fdot(u, w);
+        const F3 up = fsub(u, fmul(w, a));
+        const F3 Xxyz = fadd(fmul(radXyz, a), fapply(K, {up.x, up.y, chR * up.z}));
+        const float Xw = a * radW + shR * up.z;
+        cols[i] = outside ? fnorm(fsub(Xxyz, fmul(Pxyz, Xw / (1.0f + Pw))))
+                          : fsub(Xxyz, fmul(dHat, fdot(Xxyz, dHat) * (1.0f - 1.0f / Pw)));
+    }
+    const F3 nl = fnorm(fapply(M, n));
+    const float nr = fdot(nl, w);
+    const F3 nt = fsub(nl, fmul(w, nr));
+    const float k = r > 1.0e-6f ? r / sr : 1.0f;
+    const F3 nTrue = fnorm(fapplyT(M, fadd(fmul(w, nr), fmul(nt, k))));
+    const F3 axis = fcross(nTrue, n);
+    const float c = fdot(nTrue, n);
+    const auto rotateTo = [&](F3 x) {
+        return fadd(fadd(fmul(x, c), fcross(axis, x)), fmul(axis, fdot(axis, x) / (1.0f + c)));
+    };
+    const auto toModel = [&](F3 x) { return F3{fdot(cols[0], x), fdot(cols[1], x), fdot(cols[2], x)}; };
+    const F3 viewV = outside ? F3{0.0f, 0.0f, 1.0f} : fmul(dHat, -1.0f);
+    viewM = rotateTo(toModel(viewV));
+    lightM = rotateTo(toModel(light));
+}
+
+// Una posa a caso: camera entro 4 raggi dal centro della scena, oggetto entro 2,
+// rotazione qualunque, sigma fra 0.2 e 1 raggi per unita' del modello.
+struct RmScene { RmPose perspective, outside; Matrix camera, place; double sigma; };
+RmScene randomRmScene()
+{
+    RmScene s;
+    s.camera = translation(randomVec(4.0)) * rotation(randomDir(), uniform(-kPi, kPi));
+    s.place = translation(randomVec(2.0));
+    const Matrix rot = rotation(randomDir(), uniform(-kPi, kPi));
+    s.sigma = uniform(0.2, 1.0);
+    s.perspective = rmPose(inverse(s.camera) * s.place, rot, s.sigma);
+    // La vista da fuori guarda dal centro della scena con l'orientamento della camera.
+    const Matrix viewer = inverse(translationTo(s.camera * origin())) * s.camera;
+    s.outside = rmPose(inverse(viewer) * s.place, rot, s.sigma);
+    return s;
+}
+
+void testRayMarching()
+{
+    // 1. L'INVERSA DELLA POSA: un punto del modello mandato nella camera col
+    // nucleo, poi riportato nel modello da h3RayAt lungo il suo raggio. Errore
+    // in unita' del modello, punti entro 2 unita' dal centro dell'oggetto.
+    double perspErr = 0.0, outsideErr = 0.0;
+    for (int i = 0; i < 400; ++i) {
+        const RmScene sc = randomRmScene();
+        const Vec3 p = randomVec(2.0);
+        const Vec4 q = rmExact(sc.perspective, p);
+        const Vec3 qx = {q.x, q.y, q.z};
+        const double s = std::asinh(len3(qx));
+        if (s < 0.05) continue;   // sul punto della camera la direzione non c'e'
+        perspErr = std::max(perspErr, diff3(d3(rmRayPerspective(sc.perspective, f3(normalized(qx)), float(s))), p));
+        // Vista da fuori: il punto nella palla, la sua retta e la lunghezza dal punto di mezzo.
+        const Vec3 b = toPoincare(rmExact(sc.outside, p));
+        const double c = std::sqrt(1.0 - b.x * b.x - b.y * b.y);
+        const double a = 2.0 / c * std::atanh(-b.z / c);
+        outsideErr = std::max(outsideErr, diff3(d3(rmRayOutside(sc.outside, float(b.x), float(b.y), float(a))), p));
+    }
+    check(perspErr < 1e-3 && outsideErr < 1e-3,
+          format("ray marching in H3, in float: il raggio riporta il punto colpito nel modello (prospettiva %.1e, "
+                 "vista da fuori %.1e unita' del modello)", perspErr, outsideErr));
+
+    // 2. LA LUNGHEZZA LUNGO LA RETTA DELLA PALLA: u = c tanh(c a / 2) e' la
+    // retta percorsa a lunghezza iperbolica a (metrica 2 |du| / (1 - |b|^2)).
+    double arcErr = 0.0;
+    for (int i = 0; i < 50; ++i) {
+        const double bx = uniform(-0.6, 0.6), by = uniform(-0.6, 0.6);
+        const double c = std::sqrt(1.0 - bx * bx - by * by);
+        const double a = uniform(-6.0, 6.0);
+        const double uEnd = c * std::tanh(0.5 * c * a);
+        // Simpson sulla metrica lungo la retta.
+        const int steps = 4000;
+        const auto metric = [c](double u) { return 2.0 / (c * c - u * u); };
+        double length = metric(0.0) + metric(uEnd);
+        for (int j = 1; j < steps; ++j) length += (j % 2 ? 4.0 : 2.0) * metric(uEnd * j / steps);
+        length *= uEnd / (3.0 * steps);
+        arcErr = std::max(arcErr, std::abs(length - a));
+    }
+    check(arcErr < 1e-6, format("vista da fuori: la retta del pixel nella palla e' percorsa a lunghezza iperbolica "
+                                "(errore %.1e raggi)", arcErr));
+
+    // 3. IL LOGARITMO NON ALLUNGA: due punti del raggio a distanza iperbolica ds
+    // stanno nel modello a meno di ds / sigma (i passi del marcher sono sicuri).
+    double worstRatio = 0.0;
+    for (int i = 0; i < 300; ++i) {
+        const RmScene sc = randomRmScene();
+        const F3 d = f3(randomDir());
+        const float s = float(uniform(0.1, 8.0)), ds = float(uniform(0.01, 0.5));
+        const double gap = diff3(d3(rmRayPerspective(sc.perspective, d, s + ds)), d3(rmRayPerspective(sc.perspective, d, s)));
+        worstRatio = std::max(worstRatio, gap * sc.sigma / ds);
+    }
+    check(worstRatio <= 1.0 + 1e-3,
+          format("i passi del marcher: lungo il raggio il punto del modello si sposta al piu' di t "
+                 "(rapporto massimo %.6f)", worstRatio));
+
+    // 4. LA SFERA DELL'OGGETTO (h3SetupRay): in prospettiva l'intervallo di s in
+    // cui il raggio sta entro rho dal centro, agli estremi distanza rho; nella
+    // vista da fuori l'immagine della sfera nella palla, una sfera euclidea.
+    double perspBound = 0.0, outsideBound = 0.0;
+    int perspHits = 0, outsideHits = 0;
+    for (int i = 0; i < 400; ++i) {
+        const RmScene sc = randomRmScene();
+        const double rho = uniform(0.2, 2.0);
+        const Vec4 centre = sc.perspective.m * origin();
+        // Un raggio verso un punto vicino al centro, cosi' che spesso la incontri.
+        const Vec3 towards = logAtOrigin(translationTo(centre) * expAtOrigin(randomVec(2.0 * rho)));
+        if (len3(towards) < 1e-6) continue;
+        const Vec3 d = normalized(towards);
+        {
+            const RmPose &pose = sc.perspective;
+            const F3 dk = fapplyT(pose.K, f3(d));
+            const float lateral = dk.x * dk.x + dk.y * dk.y;
+            const float oneMinusDz = dk.z > 0.0f ? lateral / (1.0f + dk.z) : 1.0f - dk.z;
+            const float onePlusDz = dk.z < 0.0f ? lateral / (1.0f - dk.z) : 1.0f + dk.z;
+            const float eR = std::exp(-pose.R), shR = std::sinh(pose.R);
+            const float aMinusB = eR + shR * oneMinusDz, aPlusB = eR + shR * onePlusDz;
+            const float q = std::cosh(float(rho)) / std::sqrt(aMinusB * aPlusB);
+            if (q > 1.0f) {
+                const float s0 = 0.5f * std::log(aPlusB / aMinusB), h = std::acosh(q);
+                for (float s : {s0 - h, s0 + h}) {
+                    const Vec4 at = add4(scale4(origin(), std::cosh(double(s))), scale4({d.x, d.y, d.z, 0.0}, std::sinh(double(s))));
+                    perspBound = std::max(perspBound, std::abs(distance(at, centre) - rho));
+                }
+                ++perspHits;
+            }
+        }
+        {
+            const RmPose &pose = sc.outside;
+            const Vec4 centreOut = pose.m * origin();
+            const Vec3 bc = toPoincare(centreOut);
+            // Un pixel attorno all'immagine del centro.
+            const float bx = float(bc.x + uniform(-0.3, 0.3) * (1.0 - dot3(bc, bc)));
+            const float by = float(bc.y + uniform(-0.3, 0.3) * (1.0 - dot3(bc, bc)));
+            const float lateral = bx * bx + by * by;
+            if (lateral >= 0.999f) continue;
+            const float R = pose.R;
+            const float z1 = std::tanh(0.5f * (R - float(rho))), z2 = std::tanh(0.5f * (R + float(rho)));
+            const F3 q = fsub({bx, by, 0.0f}, fmul(fcol(pose.K, 2), 0.5f * (z1 + z2)));
+            const float rb = 0.5f * (z2 - z1);
+            const float disc = q.z * q.z - fdot(q, q) + rb * rb;
+            if (disc > 0.0f) {
+                for (float u : {q.z - std::sqrt(disc), q.z + std::sqrt(disc)}) {
+                    const Vec4 at = fromPoincare({bx, by, -double(u)});
+                    outsideBound = std::max(outsideBound, std::abs(distance(at, centreOut) - rho));
+                }
+                ++outsideHits;
+            }
+        }
+    }
+    check(perspBound < 1e-3 && outsideBound < 1e-3 && perspHits > 100 && outsideHits > 100,
+          format("la sfera dell'oggetto lungo il raggio: agli estremi dell'intervallo la distanza dal centro e' "
+                 "il raggio della sfera (prospettiva %.1e su %d raggi, vista da fuori %.1e su %d)",
+                 perspBound, perspHits, outsideBound, outsideHits));
+
+    // 5. LA LUCE: il prodotto con n_model (il gradiente nel modello) dei vettori
+    // di h3ShadingVectors e' il coseno vero di H3 fra la normale della
+    // superficie e la luce della camera trasportata lungo il raggio (in
+    // prospettiva), o la luce euclidea sulla palla (vista da fuori). La normale
+    // vera: perpendicolare alle immagini delle tangenti, con le differenze finite.
+    double perspLight = 0.0, outsideLight = 0.0;
+    const Vec3 lightCam = normalized({1.0, 1.5, 1.0});
+    for (int i = 0; i < 300; ++i) {
+        const RmScene sc = randomRmScene();
+        const Vec3 p = randomVec(2.0);
+        const Vec3 n = randomDir();
+        Vec3 t1 = cross(n, randomDir());
+        t1 = normalized(t1);
+        const Vec3 t2 = cross(n, t1);
+        for (int view = 0; view < 2; ++view) {
+            const RmPose &pose = view == 0 ? sc.perspective : sc.outside;
+            const Vec4 Q = rmExact(pose, p);
+            constexpr double eps = 1e-5;
+            const auto image = [&](const Vec3 &t) {
+                return scale4(add4(rmExact(pose, add3(p, mul(t, eps))), scale4(rmExact(pose, sub(p, mul(t, eps))), -1.0)),
+                              0.5 / eps);
+            };
+            const Vec4 a1 = image(t1), a2 = image(t2), an = image(n);
+            // La normale vera: an reso tangente in Q e perpendicolare a a1, a2 (Gram-Schmidt di Minkowski).
+            Vec4 N = add4(an, scale4(Q, dot(an, Q)));
+            const Vec4 b1 = scale4(a1, 1.0 / std::sqrt(dot(a1, a1)));
+            Vec4 b2 = add4(a2, scale4(b1, -dot(a2, b1)));
+            b2 = scale4(b2, 1.0 / std::sqrt(dot(b2, b2)));
+            N = add4(N, scale4(b1, -dot(N, b1)));
+            N = add4(N, scale4(b2, -dot(N, b2)));
+            N = scale4(N, 1.0 / std::sqrt(dot(N, N)));
+            double cosLight, cosView;
+            const Vec3 qx = {Q.x, Q.y, Q.z};
+            if (view == 0) {
+                const double sh = len3(qx), ch = Q.w;
+                const Vec3 d = mul(qx, 1.0 / sh);
+                const double ld = dot3(lightCam, d);
+                const Vec3 lperp = sub(lightCam, mul(d, ld));
+                const Vec4 L = {ld * ch * d.x + lperp.x, ld * ch * d.y + lperp.y, ld * ch * d.z + lperp.z, ld * sh};
+                cosLight = dot(N, L);
+                cosView = -dot(N, {ch * d.x, ch * d.y, ch * d.z, sh});
+            } else {
+                const Vec3 nm = normalized(sub({N.x, N.y, N.z}, mul(qx, N.w / (1.0 + Q.w))));
+                cosLight = dot3(nm, lightCam);
+                cosView = nm.z;
+            }
+            F3 viewM, lightM;
+            rmShading(pose, view == 1, f3(p), f3(n), f3(lightCam), viewM, lightM);
+            const double err = std::max(std::abs(fdot(f3(n), lightM) - cosLight), std::abs(fdot(f3(n), viewM) - cosView));
+            (view == 0 ? perspLight : outsideLight) = std::max(view == 0 ? perspLight : outsideLight, err);
+        }
+    }
+    check(perspLight < 1e-3 && outsideLight < 1e-3,
+          format("luce del ray marching in H3: i coseni con n_model sono quelli veri (prospettiva %.1e, "
+                 "vista da fuori %.1e)", perspLight, outsideLight));
+}
+
 void testHoneycomb()
 {
     // Il cubo centrale: angolo diedro di 72 gradi (fra le facce x = a e y = a,
@@ -571,6 +932,7 @@ int main()
     testSplitAlongZ();
     testShaderPrecision();
     testLightCosines();
+    testRayMarching();
     testHoneycomb();
     testRenormalization();
     std::printf("\nesito: %s\n", g_failures == 0 ? "tutte le verifiche passate"

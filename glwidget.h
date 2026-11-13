@@ -1255,10 +1255,11 @@ public:
     // parte della camera iperbolica (drag, zoom e path la muovono come in
     // prospettiva). La luce e' euclidea, sul modello.
     bool hyperbolicOutsideView() const { return m_hyperbolic && projectionMode == Ortho4D; }
-    // L'oggetto e' disegnato in H3 (vertex shader con HYPERBOLIC, posa di
-    // hyperbolicObjectMatrices). Solo le mesh: il ray marching resta fuori dal livello 1.
+    // L'oggetto e' disegnato in H3 (shader con HYPERBOLIC, posa di
+    // hyperbolicObjectMatrices): le mesh nel vertex shader, il ray marching nel
+    // suo fragment (raymarch_template.txt, h3RayAt), con le stesse matrici.
     bool hyperbolicObject(const SurfaceObject &o) const {
-        return m_hyperbolic && o.engineMode == ModeParametric;
+        return m_hyperbolic && (o.engineMode == ModeParametric || o.engineMode == ModeImplicit);
     }
     // Il trascinamento col mouse o col dito gira il mondo (non un oggetto).
     bool dragOrbitsHyperbolicCamera() const { return m_hyperbolic && isEnvironment(*m_obj); }

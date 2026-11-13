@@ -38,6 +38,281 @@ layout(std140, binding=0) uniform SceneUBO {
 
 layout(binding=1) uniform sampler2D tex;
 
+#ifdef HYPERBOLIC
+// =====================================================================
+// RAY MARCHING IN UNA SCENA H3 (GLWidget::hyperbolicObject).
+// La superficie e' quella delle mesh in H3: il disegno euclideo dell'oggetto
+// portato in H3 con la mappa esponenziale nel suo centro (surface.vert,
+// hyperbolicPoint). Le matrici sono quelle delle mesh
+// (GLWidget::hyperbolicObjectMatrices): u_mMatrix = kp * rotazione * scala, in
+// raggi di curvatura; u_mvMatrix = k nel 3x3 e la distanza R del centro dalla
+// camera in [3][3]; u_mvpMatrix = la sola proiezione. Il punto del modello p va
+// nella camera come k * spinta lungo z di R * exp(u_mMatrix * p).
+//
+// Il campo resta nelle coordinate del modello: cambia solo il raggio. Il
+// marcher cammina su un parametro t in unita' del modello e chiede a RAY_AT(t)
+// il punto del modello; in euclideo e' la retta rayPos + rayDir * t di sempre,
+// qui l'immagine del raggio di H3 nel modello (h3RayAt), che non e' una retta.
+//   prospettiva: la geodetica dalla camera, t = distanza iperbolica / sigma
+//                (sigma = raggi per unita' del modello);
+//   vista da fuori (ortogonale): la retta del pixel nella palla di
+//                Poincare', t = la sua lunghezza iperbolica / sigma.
+// I passi restano sicuri: il logaritmo di H3 (curvatura negativa) non allunga
+// le distanze, quindi spostarsi di t lungo il raggio sposta il punto del
+// modello di al piu' t, come in euclideo.
+// Inversa della posa: in prospettiva la spinta all'indietro scritta con
+// sinh(s - R), come il vertex shader (precisa anche lontano); nella vista da
+// fuori la traslazione di Moebius nella palla, gia' nelle sue coordinate.
+// Formule verificate in float contro il nucleo (hyperbolic-test).
+// =====================================================================
+
+// Fin dove si marcia: in prospettiva entro questa distanza dalla camera, nella
+// vista da fuori entro questa distanza dal centro della scena (in raggi). Oltre,
+// tutto e' ben sotto il pixel (in prospettiva le cose si rimpiccioliscono come
+// e^-d; nella vista da fuori 12 raggi sono l'ultimo 1e-5 della palla).
+const float H3_RM_REACH = 30.0;
+const float H3_RM_REACH_OUTSIDE = 12.0;
+// Oltre questa distanza dalla camera il centro dell'oggetto non si rappresenta
+// in float (cosh(R) * sinh(s) supererebbe il float): il pixel resta vuoto.
+const float H3_RM_MAX_CENTRE = 40.0;
+
+bool  g_h3Outside;        // vista da fuori: u_projMode == 0
+float g_h3Sigma;          // raggi di curvatura per unita' del modello
+mat3  g_h3ModelInv;       // inversa di mat3(u_mMatrix)
+float g_h3R, g_h3CoshR, g_h3SinhR;
+// Prospettiva: la direzione del raggio nel riferimento di k (k^T d) e
+// 1 - g_h3Dir.z senza cancellazione (il raggio che punta al centro ha z ~ 1).
+vec3  g_h3Dir;
+float g_h3OneMinusDz;
+// Vista da fuori: il pixel e' la retta (x, y, -u) della palla; nel riferimento
+// di k, base + (-u) * dir. Mezza corda c = sqrt(1 - x^2 - y^2); u = c tanh(c a / 2)
+// con a la lunghezza iperbolica dal punto di mezzo (la metrica della palla e'
+// 2 / (1 - |b|^2)).
+vec3  g_h3LineBase;
+vec3  g_h3LineDir;
+float g_h3LineHalf;
+// Il centro dell'oggetto nella palla, nel riferimento di k: (0, 0, tanh(R/2)), e 1 - tanh^2(R/2).
+float g_h3TanhHalfR, g_h3Sech2HalfR;
+// Dove il raggio esce dalla sfera che contiene il cubo di taglio (o dalla portata).
+float g_h3TFar;
+// Le luci di setupLights, nel riferimento della camera.
+vec3  g_h3MainLight, g_h3BackLight;
+
+// asinh(|y|) e la direzione di y, senza traboccare: |y| = sinh della distanza
+// dal centro dell'oggetto, che per un oggetto lontano supera 1e19.
+float h3LogLength(vec3 y, out vec3 dir) {
+    float m = max(abs(y.x), max(abs(y.y), abs(y.z)));
+    if (m < 1.0e-30) { dir = vec3(0.0, 0.0, 1.0); return 0.0; }
+    vec3 yn = y / m;
+    float ln = length(yn);
+    dir = yn / ln;
+    return log(m) + log(ln + sqrt(ln * ln + 1.0 / (m * m)));
+}
+
+// Il punto del modello al parametro t del raggio del pixel.
+vec3 h3RayAt(float t) {
+    float s = t * g_h3Sigma;
+    vec3 dir;
+    float rho;
+    if (!g_h3Outside) {
+        // Il punto del raggio, (sinh s d, cosh s), riportato nel riferimento del
+        // centro dell'oggetto: k^T, poi la spinta di -R. La z come differenza
+        // esatta: sinh(s - R) - (1 - d.z) sinh s cosh R.
+        float sh = sinh(s);
+        vec3 y = vec3(sh * g_h3Dir.x, sh * g_h3Dir.y, sinh(s - g_h3R) - g_h3OneMinusDz * sh * g_h3CoshR);
+        rho = h3LogLength(y, dir);
+    } else {
+        // Il punto della retta nella palla, portato nel centro dell'oggetto con
+        // la traslazione di Moebius che manda (0, 0, tanh(R/2)) in 0, scritta con
+        // la differenza dal centro (nessuna cancellazione vicino al bordo):
+        // ((1 - |c|^2) (b - c) - |b - c|^2 c) / (|b - c|^2 + (1 - |b|^2)(1 - |c|^2)).
+        float c = g_h3LineHalf;
+        float a = 0.5 * c * s;
+        float u = c * tanh(a);
+        float ch = cosh(a);
+        float oneMinusB2 = c * c / (ch * ch);
+        vec3 centre = vec3(0.0, 0.0, g_h3TanhHalfR);
+        vec3 dl = (g_h3LineBase - u * g_h3LineDir) - centre;
+        float dl2 = dot(dl, dl);
+        vec3 x = (g_h3Sech2HalfR * dl - dl2 * centre) / max(dl2 + oneMinusB2 * g_h3Sech2HalfR, 1.0e-30);
+        float lx = length(x);
+        dir = (lx > 1.0e-30) ? x / lx : vec3(0.0, 0.0, 1.0);
+        rho = 2.0 * atanh(min(lx, 0.9999999));
+    }
+    return g_h3ModelInv * (rho * dir);
+}
+
+// Il punto del modello nella camera, sull'iperboloide: la STESSA formula del
+// vertex shader (surface.vert, hyperbolicPoint), da cambiare insieme. Da qui la
+// profondita' del punto colpito, che cosi' si confronta con quella delle mesh.
+vec4 h3Point(vec3 p) {
+    vec3 v = mat3(ubuf.u_mMatrix) * p;
+    float r = length(v);
+    vec3 w = (r > 1.0e-6) ? v / r : vec3(0.0, 0.0, 1.0);
+    float R = ubuf.u_mvMatrix[3][3];
+    float ez = (w.z < 0.0) ? (w.x * w.x + w.y * w.y) / (1.0 - w.z) : 1.0 + w.z;
+    float sr = sinh(r);
+    vec4 z = vec4(sr * w.x, sr * w.y, sinh(R - r) + ez * cosh(R) * sr, cosh(R - r) + ez * sinh(R) * sr);
+    return vec4(mat3(ubuf.u_mvMatrix) * z.xyz, z.w);
+}
+
+// LA LUCE IN H3. In euclideo shadeSurface lavora nel modello con le luci della
+// camera ruotate nel modello. In H3 non ci sono direzioni parallele: le luci
+// della camera sono trasportate lungo il raggio fino al punto colpito (in
+// prospettiva; nella vista da fuori la luce e' euclidea sulla palla, come per le
+// mesh), e da li' riportate negli assi del modello con l'isometria O = trasporto
+// del riferimento del modello lungo la mappa esponenziale. La normale vera di H3
+// non e' quella del modello (la mappa esponenziale allunga di sinh(r)/r le
+// direzioni perpendicolari al raggio dal centro): negli assi del modello e'
+// nVera. Per lasciare a n_model il gradiente del campo (le texture lo usano per
+// le proiezioni sugli assi) i tre vettori si girano ancora della rotazione che
+// porta nVera in n: cosi' ogni prodotto scalare con n_model e' quello vero di H3.
+vec3 h3RotateTo(vec3 x, vec3 axis, float c) {
+    return x * c + cross(axis, x) + axis * (dot(axis, x) / (1.0 + c));
+}
+
+void h3ShadingVectors(vec3 p, vec3 n, out vec3 viewM, out vec3 mainM, out vec3 backM) {
+    mat3 M = mat3(ubuf.u_mMatrix);
+    mat3 K = mat3(ubuf.u_mvMatrix);
+    float R = g_h3R, chR = g_h3CoshR, shR = g_h3SinhR;
+    vec3 v = M * p;
+    float r = length(v);
+    vec3 w = (r > 1.0e-6) ? v / r : vec3(0.0, 0.0, 1.0);
+    float ez = (w.z < 0.0) ? (w.x * w.x + w.y * w.y) / (1.0 - w.z) : 1.0 + w.z;
+    float sr = sinh(r), cr = cosh(r);
+    float cRr = cosh(R - r), sRr = sinh(R - r);
+    // Il punto (come h3Point) e la tangente unitaria della geodetica dal centro
+    // dell'oggetto, nella camera (come sceneViewNormal in surface.vert).
+    vec4 P = vec4(K * vec3(sr * w.x, sr * w.y, sRr + ez * chR * sr), cRr + ez * shR * sr);
+    vec4 radial = vec4(K * vec3(cr * w.x, cr * w.y, ez * chR * cr - cRr), ez * shR * cr - sRr);
+    float lp = length(P.xyz);
+    vec3 dHat = (lp > 1.0e-12) ? P.xyz / lp : vec3(0.0, 0.0, -1.0);
+    // Le colonne di O: gli assi del modello trasportati nel punto e riportati
+    // al riferimento della camera. In prospettiva il trasporto inverso lungo
+    // il raggio: la componente lungo il raggio si divide per cosh s = P.w, le
+    // altre restano. Nella vista da fuori il differenziale della carta
+    // x / (1 + w), conforme: basta normalizzare.
+    vec3 cols[3];
+    for (int i = 0; i < 3; ++i) {
+        vec3 u = normalize(M[i]);
+        float a = dot(u, w);
+        vec3 up = u - a * w;
+        vec4 X = a * radial + vec4(K * vec3(up.x, up.y, chR * up.z), shR * up.z);
+        cols[i] = g_h3Outside ? normalize(X.xyz - P.xyz * (X.w / (1.0 + P.w)))
+                              : X.xyz - dot(X.xyz, dHat) * (1.0 - 1.0 / P.w) * dHat;
+    }
+    // La normale vera negli assi del modello (sceneViewNormal prima della spinta).
+    vec3 nl = normalize(M * n);
+    float nr = dot(nl, w);
+    vec3 nt = nl - nr * w;
+    float k = (r > 1.0e-6) ? r / sr : 1.0;
+    vec3 nTrue = normalize(transpose(M) * (nr * w + k * nt));
+    vec3 axis = cross(nTrue, n);
+    float c = dot(nTrue, n);
+    vec3 viewV = g_h3Outside ? vec3(0.0, 0.0, 1.0) : -dHat;
+    viewM = h3RotateTo(vec3(dot(cols[0], viewV), dot(cols[1], viewV), dot(cols[2], viewV)), axis, c);
+    mainM = h3RotateTo(vec3(dot(cols[0], g_h3MainLight), dot(cols[1], g_h3MainLight), dot(cols[2], g_h3MainLight)), axis, c);
+    backM = h3RotateTo(vec3(dot(cols[0], g_h3BackLight), dot(cols[1], g_h3BackLight), dot(cols[2], g_h3BackLight)), axis, c);
+}
+
+// Il raggio del pixel: lo stato di h3RayAt, e l'intervallo di t da marciare,
+// [tStart, g_h3TFar]. tStart entra col near del marcher (prospettiva) e ne esce
+// spostato all'ingresso della sfera che contiene il cubo di taglio: e' una sfera
+// di H3 attorno al centro dell'oggetto (la mappa esponenziale conserva le
+// distanze dal centro). false = il raggio non la incontra.
+bool h3SetupRay(vec2 ndc, inout float tStart) {
+    mat3 M = mat3(ubuf.u_mMatrix);
+    mat3 K = mat3(ubuf.u_mvMatrix);
+    g_h3Sigma = length(M[0]);
+    if (!(g_h3Sigma > 1.0e-8)) return false;
+    g_h3ModelInv = inverse(M);
+    g_h3R = ubuf.u_mvMatrix[3][3];
+    if (g_h3R > H3_RM_MAX_CENTRE) return false;
+    g_h3CoshR = cosh(g_h3R);
+    g_h3SinhR = sinh(g_h3R);
+    g_h3Outside = (ubuf.u_projMode == 0);
+    g_h3MainLight = normalize(vec3(1.0, 1.5, 1.0));
+    g_h3BackLight = normalize(vec3(-1.0, -0.5, -2.0));
+    // La sfera del cubo di taglio, in raggi (con il margine dello smax di map()).
+    // Un cubo enorme (i +/-1000 di default: superfici infinite) non limita nulla.
+    vec3 bMin = vec3(ubuf.x_min, ubuf.y_min, ubuf.z_min);
+    vec3 bMax = vec3(ubuf.x_max, ubuf.y_max, ubuf.z_max);
+    float rhoB = g_h3Sigma * (length(max(abs(bMin), abs(bMax))) + 0.05);
+    bool bounded = rhoB < H3_RM_REACH;
+    mat4 invP = inverse(ubuf.u_mvpMatrix);
+    if (!g_h3Outside) {
+        vec4 mid = invP * vec4(ndc, 0.5, 1.0);
+        vec3 dk = transpose(K) * normalize(mid.xyz / mid.w);
+        float lateral = dk.x * dk.x + dk.y * dk.y;
+        g_h3Dir = dk;
+        g_h3OneMinusDz = (dk.z > 0.0) ? lateral / (1.0 + dk.z) : 1.0 - dk.z;
+        float onePlusDz = (dk.z < 0.0) ? lateral / (1.0 - dk.z) : 1.0 + dk.z;
+        float sIn = 0.0, sOut = H3_RM_REACH;
+        if (bounded) {
+            // Lungo il raggio cosh(distanza dal centro) = A cosh s - B sinh s,
+            // A = cosh R, B = sinh R d.z, cioe' sqrt(A^2 - B^2) cosh(s - s0) con
+            // tanh s0 = B / A. A - B e A + B senza cancellazione.
+            if (g_h3R - rhoB > H3_RM_REACH) return false;
+            float eR = exp(-g_h3R);
+            float aMinusB = eR + g_h3SinhR * g_h3OneMinusDz;
+            float aPlusB = eR + g_h3SinhR * onePlusDz;
+            float q = cosh(rhoB) / sqrt(aMinusB * aPlusB);
+            if (q <= 1.0) return false;
+            float s0 = 0.5 * log(aPlusB / aMinusB);
+            float h = acosh(q);
+            sIn = s0 - h;
+            sOut = min(sOut, s0 + h);
+        }
+        tStart = max(tStart, sIn / g_h3Sigma);
+        // Come in euclideo, non oltre 50 unita' del modello.
+        g_h3TFar = min(50.0, sOut / g_h3Sigma);
+    } else {
+        vec4 mid = invP * vec4(ndc, 0.0, 1.0);
+        vec2 bxy = mid.xy / mid.w;
+        float lateral = dot(bxy, bxy);
+        float cap = tanh(0.5 * H3_RM_REACH_OUTSIDE);
+        if (lateral >= cap * cap) return false;
+        float c = sqrt(1.0 - lateral);
+        g_h3LineHalf = c;
+        g_h3LineBase = transpose(K) * vec3(bxy, 0.0);
+        g_h3LineDir = transpose(K) * vec3(0.0, 0.0, 1.0);
+        g_h3TanhHalfR = tanh(0.5 * g_h3R);
+        float chh = cosh(0.5 * g_h3R);
+        g_h3Sech2HalfR = 1.0 / (chh * chh);
+        // In u (u = -z, da davanti a dietro): la palla della portata, poi la
+        // sfera dell'oggetto, che nella palla e' una sfera euclidea col diametro
+        // da tanh((R - rho)/2) a tanh((R + rho)/2) lungo la direzione del centro.
+        float uCap = sqrt(cap * cap - lateral);
+        float u0 = -uCap, u1 = uCap;
+        if (bounded) {
+            float z1 = tanh(0.5 * (g_h3R - rhoB)), z2 = tanh(0.5 * (g_h3R + rhoB));
+            vec3 q = vec3(bxy, 0.0) - 0.5 * (z1 + z2) * K[2];
+            float rb = 0.5 * (z2 - z1);
+            float disc = q.z * q.z - dot(q, q) + rb * rb;
+            if (disc <= 0.0) return false;
+            float sq = sqrt(disc);
+            u0 = max(u0, q.z - sq);
+            u1 = min(u1, q.z + sq);
+            if (u1 <= u0) return false;
+        }
+        // Dalla corda alla lunghezza iperbolica: a = (2 / c) atanh(u / c).
+        tStart = 2.0 / c * atanh(clamp(u0 / c, -0.9999999, 0.9999999)) / g_h3Sigma;
+        g_h3TFar = 2.0 / c * atanh(clamp(u1 / c, -0.9999999, 0.9999999)) / g_h3Sigma;
+    }
+    return tStart < g_h3TFar;
+}
+
+#define RAY_AT(t) h3RayAt(t)
+#define RAY_T_FAR g_h3TFar
+#define RAY_T(p, tHit) (tHit)
+#else
+// In euclideo il raggio e' la retta di sempre: le macro sono le espressioni di
+// prima, testo per testo (l'immagine non cambia di un bit).
+#define RAY_AT(t) (rayPos + rayDir * (t))
+#define RAY_T_FAR 50.0
+#define RAY_T(p, tHit) dot((p) - rayPos, rayDir)
+#endif
+
 // Semi-spessore del guscio (modalita' Shell), in unita' di scena: la banda va da
 // -SHELL_THICKNESS a +SHELL_THICKNESS attorno alla superficie, quindi il guscio e'
 // spesso 0.01. E' una DISTANZA vera, non un valore di campo: vedi la
@@ -331,13 +606,13 @@ bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 
     // valore e t del passo precedente, per rilevare lo scavalcamento
     float valPrev = 0.0;
     float tPrev = tStart;
-    vec3 pModel = rayPos + rayDir * t_dist;
+    vec3 pModel = RAY_AT(t_dist);
 
     float stepRelax = (ubuf.u_mathParams.w > 0.001) ? ubuf.u_mathParams.w : 0.4;
 
     for(int i = 0; i < %MAX_RAY_STEPS%; i++) {
         if (i >= ubuf.u_raySteps) break;
-        pModel = rayPos + rayDir * t_dist;
+        pModel = RAY_AT(t_dist);
 
         // GUSCIO: un solo gradiente del campo grezzo per passo, condiviso dalle 4
         // map() qui sotto (vedi g_shellGradLen). Costa 3 rawField, cioe' quanto
@@ -416,7 +691,7 @@ bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 
 
         float hitThreshold = max(0.0005, 0.001 * t_dist);
         if(abs(d) < hitThreshold) { hit = true; break; }
-        if(t_dist > 50.0) { leftScene = true; break; }
+        if(t_dist > RAY_T_FAR) { leftScene = true; break; }
         tPrev = t_dist;
         valPrev = val;
         t_dist += clamp(abs(d) * stepRelax, 0.0001, 0.5);
@@ -444,7 +719,9 @@ bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 
 // map() cambia segno (attraversamento di superficie), immune all'anisotropia, poi
 // raffiniamo con bisezione per un hit preciso. Robustezza > velocita': serve solo
 // per i pochi strati interni di una superficie trasparente.
-bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
+// tHit (out) = il t di pHit lungo il raggio: in H3 il raggio non e' una retta
+// del modello e non lo si ricava da pHit (vedi RAY_T).
+bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit, out float tHit) {
     // Passo ADATTIVO guidato dalla distanza stimata |map|/|grad|: si accorcia
     // automaticamente vicino alla superficie e non salta MAI un attraversamento.
     // Un passo fisso (STEP costante) aliasava: lungo i raggi quasi-tangenti
@@ -454,7 +731,7 @@ bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
     const float CAP    = 0.05;         // passo massimo
     const float FLOOR  = 0.0008;       // passo minimo (progresso garantito)
     float tPrev = tStart;
-    float vPrev = map(rayPos + rayDir * tPrev);
+    float vPrev = map(RAY_AT(tPrev));
     float t = tStart;
 
     // Tetto di iterazioni iniettato dal C++: 2000 su desktop (robustezza piena),
@@ -476,7 +753,7 @@ bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
         // l'attraversamento di segno: quello e' poi raffinato da bisezione a
         // precisione sub-pixel, percio' il punto d'intersezione finale e' invariato.
         vec2 e = vec2(0.002, 0.0);
-        vec3 pp = rayPos + rayDir * t;
+        vec3 pp = RAY_AT(t);
         // GUSCIO: stesso gradiente condiviso di marchField, e qui pesa di piu' --
         // questo loop e' chiamato MAX_FACES x 3 volte per pixel nel ramo
         // trasparente, ed e' il moltiplicatore di costo dominante dello shader.
@@ -497,8 +774,8 @@ bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
         float step = clamp(abs(vPrev) / gradLen, FLOOR, CAP);
 
         float tNextS = t + step;
-        if (tNextS > 50.0) break;
-        float v = map(rayPos + rayDir * tNextS);
+        if (tNextS > RAY_T_FAR) break;
+        float v = map(RAY_AT(tNextS));
 
         // Attraversamento di superficie: il campo cambia segno tra t e tNextS.
         if (v * vPrev <= 0.0 && v != vPrev) {
@@ -517,10 +794,11 @@ bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
             // ampiamente sotto il pixel -> nessuna differenza visibile.
             for (int k = 0; k < %BISECT_ITERS%; k++) {
                 float m  = 0.5 * (a + b);
-                float vm = map(rayPos + rayDir * m);
+                float vm = map(RAY_AT(m));
                 if (sign(vm) == sPrev) a = m; else b = m;
             }
-            pHit = rayPos + rayDir * (0.5 * (a + b));
+            tHit = 0.5 * (a + b);
+            pHit = RAY_AT(tHit);
             return true;
         }
         t     = tNextS;
@@ -528,7 +806,8 @@ bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
     }
     g_shellGradLen = 0.0;   // vedi marchField: vale solo dentro il loop
     g_shellBasePos = vec3(1e30);
-    pHit = rayPos + rayDir * tStart;
+    tHit = tStart;
+    pHit = RAY_AT(tStart);
     return false;
 }
 
@@ -572,12 +851,20 @@ void setupLights() {
 // trasparente dopo marchNextLayer.
 vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner, bool withAO) {
     vec3 n_model = useInner ? calcNormalInner(pModel) : calcNormal(pModel);
+#ifdef HYPERBOLIC
+    // In H3 vista e luci dipendono dal punto (h3ShadingVectors); rayDir non serve.
+    vec3 viewDir_model, mainLight_model, backLight_model;
+    h3ShadingVectors(pModel, n_model, viewDir_model, mainLight_model, backLight_model);
+
+    float ao = withAO ? calcAO(pModel, n_model) : 1.0;
+#else
     vec3 viewDir_model = -rayDir;
 
     float ao = withAO ? calcAO(pModel, n_model) : 1.0;
 
     vec3 mainLight_model = g_mainLight_model;
     vec3 backLight_model = g_backLight_model;
+#endif
 
     float diffMain = max(dot(n_model, mainLight_model), 0.0);
     float diffBack = max(dot(n_model, backLight_model), 0.0) * 0.4;
@@ -652,7 +939,15 @@ vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner) {
 // quella di prima. Chi non scarta il frammento DEVE passare di qui: una
 // gl_FragDepth scritta solo in qualche ramo e' indefinita negli altri.
 float hitDepth(vec3 pModel) {
+#ifdef HYPERBOLIC
+    // In H3 il punto passa dalla stessa carta delle mesh (surface.vert,
+    // hyperbolicChart): Klein in prospettiva, la palla di Poincare' (x / (1 + w))
+    // nella vista da fuori.
+    vec4 P = h3Point(pModel);
+    vec4 clip = ubuf.u_mvpMatrix * ((ubuf.u_projMode == 0) ? vec4(P.xyz, 1.0 + P.w) : P);
+#else
     vec4 clip = ubuf.u_mvpMatrix * vec4(pModel, 1.0);
+#endif
     float z = (abs(clip.w) > 1e-6) ? clip.z / clip.w : 1.0;
     // NDC da [-1, 1] (OpenGL) a [0, 1]; gli altri backend sono gia' li'.
     if (%CLIP_Z_ZERO_TO_ONE% == 0) z = z * 0.5 + 0.5;
@@ -678,11 +973,23 @@ void main() {
     vec2 ndc = fragCoord * 2.0 - 1.0;
     ndc.y = -ndc.y;
 
-    // Direzioni luce in spazio modello: calcolate una volta sola per pixel.
-    setupLights();
-
     vec3 rayPos;
     vec3 rayDir;
+
+#ifdef HYPERBOLIC
+    // IN H3 il raggio e' quello di h3RayAt (RAY_AT): rayPos e rayDir non
+    // servono, ma i marcher li ricevono. Le luci le trasporta shadeSurface
+    // (h3ShadingVectors) punto per punto: niente setupLights, che legge
+    // u_mvMatrix come una vista euclidea. Il near del marcher come in
+    // euclideo; h3SetupRay lo porta all'ingresso nella sfera dell'oggetto, e un
+    // raggio che non la incontra non marcia affatto.
+    rayPos = vec3(0.0);
+    rayDir = vec3(0.0, 0.0, -1.0);
+    float tNear = 0.3;
+    if (!h3SetupRay(ndc, tNear)) { discard; return; }
+#else
+    // Direzioni luce in spazio modello: calcolate una volta sola per pixel.
+    setupLights();
 
 // --- SETUP DEL RAGGIO BASATO SULLA PROIEZIONE ---
     if (ubuf.u_projMode == 2) {
@@ -762,6 +1069,7 @@ void main() {
 
     // NEAR CLIPPING PLANE: Ignora i primissimi istanti del raggio
     float tNear = 0.3;
+#endif
 
     // === PASSATA 1: superficie principale (map) — MARCHER IBRIDO ===
     //
@@ -855,20 +1163,23 @@ void main() {
     bool rayEscaped = (!approached && leftScene && !crossedSign);
 
     bool hit;
+    // Il t di pModel lungo il raggio (RAY_T: in H3 non si ricava da pModel).
+    float tModel = tApproach;
     if (!useHybrid) {
         // --- CAMMINO STORICO: l'hit e' quello di marchField, come sempre. ---
         // pModel e' gia' il punto di stop del marcher: nessuna seconda passata.
         hit = approached;
     } else if (rayEscaped) {
         hit = false;
-        pModel = rayPos + rayDir * tNear;   // valore definito per i rami sotto
+        tModel = tNear;
+        pModel = RAY_AT(tNear);   // valore definito per i rami sotto
     } else {
         // L'hit lo dichiara la ricerca a cambio di segno: e' l'unica immune ai
         // falsi hit del clamp (vedi sopra).
         float tRestart = tNear;
         if (approached)        tRestart = tApproach;
         else if (crossedSign)  tRestart = tBeforeCross;
-        hit = marchNextLayer(rayPos, rayDir, tRestart, pModel);
+        hit = marchNextLayer(rayPos, rayDir, tRestart, pModel, tModel);
     }
 
     bool hasInner = (ubuf.u_dummyZero.y > 0.5);
@@ -927,7 +1238,8 @@ void main() {
         // Per la trasparenza ricostruiamo TUTTE le facce da zero con la ricerca a
         // cambio-segno (marchNextLayer), affidabile a prescindere dall'anisotropia.
         vec3  pEnter;
-        bool  more = marchNextLayer(rayPos, rayDir, tNear, pEnter);
+        float tEnterHit;
+        bool  more = marchNextLayer(rayPos, rayDir, tNear, pEnter, tEnterHit);
         // Nessuna faccia: niente da comporre. Prima usciva un colore ad alpha 0,
         // che col blend lascia il pixel com'e' -- lo stesso che scartarlo; qui
         // si scarta, perche' un colore senza superficie non ha una profondita'.
@@ -991,8 +1303,9 @@ void main() {
 
             // --- USCITA: prossimo crossing = faccia posteriore di questo guscio.
             vec3 pExit;
-            float tEnter = dot(pEnter - rayPos, rayDir);
-            bool gotExit = marchNextLayer(rayPos, rayDir, tEnter + 0.005, pExit);
+            float tExitHit;
+            float tEnter = RAY_T(pEnter, tEnterHit);
+            bool gotExit = marchNextLayer(rayPos, rayDir, tEnter + 0.005, pExit, tExitHit);
             if (!gotExit) { more = false; break; }
 #if defined(RM_SPLIT_PASS) && RM_SPLIT_PASS == 2
             pLast = pExit;
@@ -1001,7 +1314,7 @@ void main() {
             // --- ASSORBIMENTO DEL VOLUME tra entrata e uscita (Beer-Lambert) ---
             // dipende SOLO dalla lunghezza del cammino interno -> continuo,
             // niente banding; e il centro (cammino lungo) e' piu' opaco dei bordi.
-            float pathLen = dot(pExit - rayPos, rayDir) - tEnter;
+            float pathLen = RAY_T(pExit, tExitHit) - tEnter;
             float aVol    = 1.0 - exp(-sigma * max(pathLen, 0.0));
             // il "colore" del volume e' lo shading della faccia di uscita
             // (withAO=false: vale lo stesso ragionamento della faccia di entrata)
@@ -1011,8 +1324,8 @@ void main() {
 
             // --- prossimo guscio (geometrie concave): cerca la prossima ENTRATA
             vec3 pNext;
-            float tExit = dot(pExit - rayPos, rayDir);
-            more = marchNextLayer(rayPos, rayDir, tExit + 0.005, pNext);
+            float tExit = RAY_T(pExit, tExitHit);
+            more = marchNextLayer(rayPos, rayDir, tExit + 0.005, pNext, tEnterHit);
             pEnter = pNext;
 #if defined(RM_SPLIT_PASS) && RM_SPLIT_PASS == 2
             if (more) pLast = pNext;
@@ -1051,7 +1364,7 @@ void main() {
         outerRGB   = shadeSurface(pModel, rayDir, false);
         outerAlpha = clamp(ubuf.alpha, 0.0, 1.0);
         // riprendi l'interna appena oltre il guscio esterno colpito
-        tInnerStart = dot(pModel - rayPos, rayDir) + 0.02;
+        tInnerStart = RAY_T(pModel, tModel) + 0.02;
     }
 
     // === PASSATA 2: campo interno (mapInner) — opaco, sullo sfondo ===

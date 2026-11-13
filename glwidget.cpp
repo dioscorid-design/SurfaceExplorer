@@ -5753,6 +5753,11 @@ void GLWidget::setHyperbolicSpace(bool on)
         delete m_bgPipeline;
         m_bgPipeline = nullptr;
     }
+    // Un ray marching gia' compilato (una scena H3 riaperta da file: gli
+    // oggetti entrano prima che lo spazio diventi H3) si ricompila col ramo
+    // dello spazio nuovo (HYPERBOLIC, createImplicitFragmentShader).
+    for (const auto &obj : m_objects)
+        if (obj->engineMode == ModeImplicit && obj->pipelineImplicit) rebuildShader(*obj);
     // Ogni scena H3 parte senza reticolo (la camera e' nella cella centrale o vicino).
     m_h3Lattice = false;
     m_h3LatticeCell = H3::Matrix::identity();
@@ -7979,7 +7984,10 @@ QString GLWidget::createImplicitFragmentShader(SurfaceObject &o, int splitPass)
     const QString splitDefine = splitPass == 3 ? QStringLiteral("#define PEEL\n#define RM_SPLIT_PASS 2\n")
                               : splitPass > 0 ? QStringLiteral("#define RM_SPLIT_PASS %1\n").arg(splitPass)
                                               : QString();
-    QString finalSource = "#version 450\n" + splitDefine + "\n" + commonCode + "\n"
+    // Scena in H3: il raggio e la luce di H3 (raymarch_template.txt, ramo
+    // HYPERBOLIC), con la posa delle mesh (hyperbolicObjectMatrices).
+    const QString hyperbolicDefine = hyperbolicObject(o) ? QStringLiteral("#define HYPERBOLIC\n") : QString();
+    QString finalSource = "#version 450\n" + splitDefine + hyperbolicDefine + "\n" + commonCode + "\n"
                           + implicitLib + "\n" + templateSource;
 
     // Variabili iniettate, condivise tra superficie esterna e interna.
