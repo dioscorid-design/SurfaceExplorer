@@ -2193,6 +2193,14 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 m_projection.perspective(effectiveCameraFov(), aspect, float(std::min(0.0025 * d, 0.01)), far);
             }
         }
+        // IL RIQUADRO SPOSTATO di una cattura d'immagine (setCaptureShift): la
+        // stessa proiezione, traslata nel clip space. A zero niente cambia.
+        if (!m_captureShift.isNull()) {
+            QMatrix4x4 shift;
+            shift(0, 3) = m_captureShift.x();
+            shift(1, 3) = m_captureShift.y();
+            m_projection = shift * m_projection;
+        }
 
         m_view.setToIdentity();
         if (m_isPathFollowing) {
@@ -2334,6 +2342,12 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 eyeFromNdc(0, 0) = tanHalf * aspect;
                 eyeFromNdc(1, 1) = tanHalf;
                 eyeFromNdc(2, 2) = -1.0f;               // la camera guarda verso -Z
+                // Il riquadro spostato (setCaptureShift): il pixel guarda dove
+                // guarderebbe ndc - spostamento senza la traslazione.
+                if (!m_captureShift.isNull()) {
+                    eyeFromNdc(0, 2) = -tanHalf * aspect * m_captureShift.x();
+                    eyeFromNdc(1, 2) = -tanHalf * m_captureShift.y();
+                }
                 skyRay = viewRotInv * eyeFromNdc;
                 // ORTOGONALE IN H3 (vista da fuori): il pixel e' un punto (kx, ky)
                 // della palla di Poincare' vista in parallelo (la finestra della
@@ -2377,7 +2391,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // Nella vista da fuori l'osservatore e' il centro, e la riga 3 porta
             // invece lo spostamento laterale della camera euclidea.
             if (hyperbolicOutsideView() && !m_isFlatView) {
-                const QVector2D q = hyperbolicOutsideOffset();
+                // Col riquadro spostato (setCaptureShift) il pixel e' il punto
+                // della palla di ndc - spostamento: la finestra si sposta con lui.
+                const QVector2D q = hyperbolicOutsideOffset()
+                                  - m_captureShift * hyperbolicOrthoHalfHeight() * QVector2D(aspect, 1.0f);
                 skyRay(3, 0) = q.x();
                 skyRay(3, 1) = q.y();
                 skyRay(3, 2) = 0.0f;
@@ -5878,9 +5895,14 @@ float GLWidget::hyperbolicOrthoHalfHeight() const
     constexpr double kMargin = 1.05;
     double d = H3::distance(H3::origin(), m_h3Camera * H3::origin());
     if (d < 0.1 * m_h3RadiiPerSceneUnit) d = 4.0 * m_h3RadiiPerSceneUnit;   // come camDist in render()
-    const double x = std::sinh(d) * std::tan(double(effectiveCameraFov()) * 0.5 * M_PI / 180.0);
+    const double x = std::sinh(d) * std::tan(double(m_cameraFov) * 0.5 * M_PI / 180.0);
     const double ball = x < 1.0 ? x / (1.0 + std::sqrt(1.0 - x * x)) : 1.0;
-    return float(kMargin * ball);
+    // Un'immagine PIU' LARGA della vista (setCaptureVerticalScale) e' la fascia
+    // della vista sotto il riquadro guida: la stessa finestra, scalata in
+    // altezza. Il campo visivo ridotto dentro la formula non bastava (con la
+    // palla intera in vista non cambiava niente: l'immagine mostrava tutta la
+    // palla schiacciata, non la fascia). A schermo la scala e' 1.
+    return float(kMargin * ball * double(m_captureVerticalScale));
 }
 
 QVector2D GLWidget::hyperbolicOutsideOffset() const
