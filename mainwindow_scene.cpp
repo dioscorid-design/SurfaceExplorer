@@ -3159,8 +3159,8 @@ void MainWindow::applyMotionExample(LibraryItem data, bool asObject)
         m_sceneHintFromSurfacePreset = false;
         showSceneHint(data.hintText, data.hintSeconds);
     } else {
-        // Il messaggio e' dell'oggetto: lo mostra la selezione, o il messaggio
-        // composto della scena.
+        // Il messaggio e' dell'oggetto: lo mostra Add to Scene al suo ingresso,
+        // o il messaggio composto della scena aperta da file.
         m_currentHintText = data.hintText.trimmed();
         m_currentHintSeconds = data.hintSeconds;
     }

@@ -7932,6 +7932,44 @@ void ScenarioTest::runSceneDepthScenarios()
                   .arg(m_mw->m_objectList->count() ? m_mw->m_objectList->item(0)->text() : QString()));
     }
 
+    // IL MESSAGGIO DI UN OGGETTO SOLO AL SUO INGRESSO (decisione dell'utente,
+    // 2026-11-13): Add to Scene lo mostra; spostare la selezione su un altro
+    // oggetto o sull'ambiente (dock Objects, selettore della barra) no.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Messaggi: all'ingresso dell'oggetto, non alla selezione =="));
+    {
+        const QString kBitorus = QStringLiteral("surfaces/Implicit/3D/Bitorus.json");
+        const QString bitorusPath = shapePath(kBitorus);
+        const LibraryItem *bitorus = bitorusPath.isEmpty() ? nullptr : m_mw->m_libraryManager.getSurfaceByPath(bitorusPath);
+        const QString hintText = bitorus ? bitorus->hintText.trimmed() : QString();
+        const auto shownHint = [gl]() {
+            const QLabel *label = gl->findChild<QLabel *>(QStringLiteral("sceneHintOverlay"));
+            return (label && label->isVisible()) ? label->text() : QString();
+        };
+        if (!hintText.isEmpty() && buildScene(false, { kParam })) {
+            m_mw->hideSceneHint();
+            m_mw->addShapeToScene(bitorusPath);
+            wait(500);
+            const QString atAdd = shownHint();
+            m_mw->hideSceneHint();
+            QStringList shownOnSelect;
+            for (int k : { 0, 1, 2, 0 }) {
+                m_mw->selectSceneObjectFromUi(k);
+                wait(200);
+                if (!shownHint().isEmpty()) shownOnSelect << QString::number(k);
+            }
+            // L'ultima riga: la prima ("Sliders") l'overlay la riscrive come intestazione.
+            check(atAdd.contains(hintText.section(QLatin1Char('\n'), -1)) && shownOnSelect.isEmpty(),
+                  QStringLiteral("Add to Scene di Bitorus: il suo messaggio compare (\"%1\"); selezionando ambiente e "
+                                 "oggetti nessun messaggio (comparso su: %2)")
+                      .arg(atAdd.simplified().left(60), shownOnSelect.isEmpty() ? QStringLiteral("nessuno")
+                                                                                  : shownOnSelect.join(QStringLiteral(", "))));
+            pressNew();
+        } else {
+            check(false, QStringLiteral("Bitorus col suo messaggio nella libreria, scena 3D col toro"));
+        }
+    }
+
     // IL PATH DELL'AMBIENTE RESTA SUO: un oggetto RM selezionato non lo spegne.
     // Il ray marching sta nelle scene 3D: il path 3D della camera.
     m_lines.append(QString());

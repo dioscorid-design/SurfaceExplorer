@@ -756,6 +756,11 @@ void MainWindow::addShapeToScene(const QString &shapePath)
     const int index = addShapeObject(*d, uniqueObjectName(d->name), sceneFitScale(*d));
     m_objectSessions[index].libraryPath = shapePath;
     focusLibraryPath(m_objectSessions[index].libraryPath);
+    // Il messaggio della Shape (quali slider usa), una volta, al suo ingresso:
+    // e' il suo caricamento. Selezionarla dopo non lo ripete (selectSceneObjectFromUi),
+    // e un duplicato non e' un caricamento (duplicateSceneObject). L'oggetto
+    // nuovo e' il selezionato: m_currentHintText e' gia' il suo.
+    if (!m_currentHintText.isEmpty()) showSceneHint(m_currentHintText, m_currentHintSeconds);
 }
 
 int MainWindow::addShapeObject(const LibraryItem &shape, const QString &name, float scale)
@@ -1727,9 +1732,9 @@ void MainWindow::selectSceneObjectFromUi(int index)
 {
     selectSceneObject(index);
     refreshObjectsUi();
-    // Il suo messaggio (quali slider usa); l'ambiente quello della scena intera.
-    if (index == 0) showComposedObjectsHint();
-    else if (!m_currentHintText.isEmpty()) showSceneHint(m_currentHintText, m_currentHintSeconds);
+    // Nessun messaggio (decisione dell'utente, 2026-11-13): quello di un
+    // oggetto compare quando entra (addShapeToScene), quello della scena quando
+    // la si apre (loadSceneFile); cambiare selezione non lo ripete.
 }
 
 void MainWindow::showObjectSelectorMenu()
