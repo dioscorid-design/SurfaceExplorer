@@ -1999,6 +1999,18 @@ void ScenarioTest::run()
     // l'avviso su un'app appena aperta.
     m_lines.append(QStringLiteral("== Avvio =="));
     checkDirty(QStringLiteral("app appena aperta"), false, false, false);
+    // Le icone del foglio di stile (frecce degli spinbox, spunta delle
+    // checkbox): se mancano dal .qrc il foglio di stile non dice nulla e le
+    // frecce e la spunta semplicemente non si vedono (ui/make_icons.py).
+    {
+        QStringList missing;
+        for (const char *name : { "spin-up", "spin-down", "spin-up-off", "spin-down-off", "check" })
+            if (QPixmap(QStringLiteral(":/ui/%1.png").arg(QLatin1String(name))).isNull())
+                missing << QLatin1String(name);
+        check(missing.isEmpty(),
+              QStringLiteral("icone del foglio di stile nelle risorse (mancano: %1)")
+                  .arg(missing.isEmpty() ? QStringLiteral("nessuna") : missing.join(QStringLiteral(", "))));
+    }
     m_discardOnPrompt = true;
     ui->tabModeSelector->setCurrentIndex(1);  wait(1500);
     checkDirty(QStringLiteral("linguetta Ray Marching (superficie di default)"), false, false, false);
