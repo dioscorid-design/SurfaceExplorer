@@ -66,6 +66,7 @@
 #include <rhi/qrhi.h>
 #include <QPlainTextEdit>
 #include <QWindow>
+#include <QMenuBar>
 #include <QBackingStore>
 #include <qpa/qwindowsysteminterface.h>
 #include <QtGui/private/qeventpoint_p.h>
@@ -7439,6 +7440,70 @@ void ScenarioTest::runImageCaptureScenarios()
                       .arg(dialogClosed).arg(guideGone).arg(veilGone)
                       .arg(alphaDuring, 0, 'f', 1).arg(alphaAfter, 0, 'f', 1));
         }
+        // DOPO IL DIALOGO, con Capture e con Cancel: la sessione non resta
+        // addosso all'app. Le voci della barra dei menu tornano come prima
+        // (la sessione le spegne) e la finestra principale riceve di nuovo i
+        // clic (la sessione li tiene per il riquadro): un clic vero sulla vista
+        // (QWindowSystemInterface) deve arrivarle.
+        {
+            QMenuBar *bar = m_mw->findChild<QMenuBar *>();
+            auto menuStates = [&]() {
+                QList<bool> states;
+                std::function<void(const QList<QAction *> &)> walk = [&](const QList<QAction *> &acts) {
+                    for (QAction *a : acts) {
+                        if (!a || a->isSeparator()) continue;
+                        states << a->isEnabled();
+                        if (a->menu()) walk(a->menu()->actions());
+                    }
+                };
+                if (bar) walk(bar->actions());
+                return states;
+            };
+            struct PressCounter : QObject {
+                int presses = 0;
+                bool eventFilter(QObject *, QEvent *e) override {
+                    // Anche il doppio clic: due giri ravvicinati nello stesso
+                    // punto (Cancel e' rapido) Qt li consegna cosi'.
+                    if (e->type() == QEvent::MouseButtonPress || e->type() == QEvent::MouseButtonDblClick) ++presses;
+                    return false;
+                }
+            };
+            const QString out = m_outDir + QStringLiteral("/image-capture-after.png");
+            for (const bool capture : { true, false }) {
+                const QList<bool> before = menuStates();
+                bool menusOffDuring = true;
+                ImageCapture::setTestSavePath(out);
+                ImageCapture::setTestDialogHandler([&](QDialog *d) {
+                    for (QAction *a : bar ? bar->actions() : QList<QAction *>())
+                        if (a && !a->isSeparator() && a->isEnabled()) menusOffDuring = false;
+                    setSizeMode(d, QStringLiteral("Long side (px)"));
+                    for (QSpinBox *sb : d->findChildren<QSpinBox *>())
+                        if (sb->maximum() > 2000 && sb->singleStep() == 256) sb->setValue(800);
+                    QCoreApplication::processEvents();
+                    if (capture) d->accept(); else d->reject();
+                });
+                const bool done = ImageCapture::run(gl, m_mw, m_outDir);
+                ImageCapture::setTestDialogHandler(nullptr);
+                ImageCapture::setTestSavePath(QString());
+                wait(300);
+                const QList<bool> after = menuStates();
+                PressCounter counter;
+                gl->installEventFilter(&counter);
+                if (QWindow *win = m_mw->window()->windowHandle()) {
+                    const QPointF at(gl->mapTo(m_mw->window(), QPoint(gl->width() / 2, gl->height() / 2)));
+                    using WSI = QWindowSystemInterface;
+                    WSI::handleMouseEvent<WSI::SynchronousDelivery>(win, at, win->mapToGlobal(at), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+                    WSI::handleMouseEvent<WSI::SynchronousDelivery>(win, at, win->mapToGlobal(at), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+                }
+                wait(100);
+                gl->removeEventFilter(&counter);
+                check(done == capture && menusOffDuring && !before.isEmpty() && after == before && counter.presses > 0,
+                      QStringLiteral("dopo %1: menu spenti durante %2, poi come prima %3 (%4 voci); la vista riceve di nuovo i clic %5")
+                          .arg(capture ? QStringLiteral("Capture") : QStringLiteral("Cancel"))
+                          .arg(menusOffDuring).arg(after == before).arg(before.size()).arg(counter.presses > 0));
+            }
+            QFile::remove(out);
+        }
         clearImageSettings();
         // A misura di stampa i dpi vanno nel file: 10 cm a 300 dpi.
         const QString outPrint = m_outDir + QStringLiteral("/image-capture-print.png");
@@ -7620,6 +7685,50 @@ void ScenarioTest::runImageCaptureScenarios()
         }
     }
 
+    // STEREOGRAFICA, LE CORDE OLTRE IL TETTO (14a2a91): oltre il raggio
+    // proiettato 12 r ogni punto finisce sulla sfera del tetto, e un triangolo coi
+    // vertici li' in direzioni lontane diventava una lastra piatta attraverso la
+    // sfera (Clifford Tori Labirinth). Il fragment la scarta. Una mesh fatta
+    // apposta (setCustomMesh, punti 4D): un quadrato coi vertici oltre il tetto
+    // in direzioni opposte (w = 50) deve sparire; lo stesso quadrato dentro il
+    // tetto (w = 0) deve vedersi.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Stereografica: le corde oltre il tetto non si disegnano =="));
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))) {
+        gl->stopAllTimers();
+        gl->setProjectionMode(2);
+        wait(300);
+        const double vr = double(gl->width()) / double(std::max(1, gl->height()));
+        int h = int(std::lround(gl->height() * gl->devicePixelRatioF()));
+        h -= h % 2;
+        const QSize sz(int(std::lround(h * vr)) & ~1, h);
+        auto inkWith = [&](float w, const QString &tag) {
+            const QVector<QVector<QVector4D>> grid = {
+                { QVector4D(1.0f, 0.0f, 0.0f, w), QVector4D(0.0f, 1.0f, 0.0f, w) },
+                { QVector4D(0.0f, -1.0f, 0.0f, w), QVector4D(-1.0f, 0.0f, 0.0f, w) } };
+            gl->setCustomMesh(grid);
+            wait(400);
+            QString e;
+            const QImage im = ImageCapture::render(gl, sz, vr, &e);
+            im.save(m_outDir + QStringLiteral("/stereo-chord-%1.png").arg(tag));
+            if (im.isNull()) return qint64(-1);
+            const QRgb bg = im.pixel(1, 1);
+            qint64 n = 0;
+            for (int y = 0; y < im.height(); y += 2)
+                for (int x = 0; x < im.width(); x += 2) {
+                    const QRgb q = im.pixel(x, y);
+                    if (std::abs(qRed(q) - qRed(bg)) + std::abs(qGreen(q) - qGreen(bg)) + std::abs(qBlue(q) - qBlue(bg)) > 30) ++n;
+                }
+            return n;
+        };
+        const qint64 inside = inkWith(0.0f, QStringLiteral("inside"));
+        const qint64 beyond = inkWith(50.0f, QStringLiteral("beyond"));
+        const qint64 total = qint64(sz.width() / 2) * (sz.height() / 2);
+        check(inside > total / 100 && beyond >= 0 && beyond < total / 1000,
+              QStringLiteral("quadrato dentro il tetto: %1 pixel disegnati; coi vertici oltre il tetto in direzioni opposte: "
+                             "%2 (la corda non si disegna)").arg(inside).arg(beyond));
+        gl->setProjectionMode(1);
+    }
     // IL RIQUADRO TRASCINATO (FrameGuide, GLWidget::setCaptureShift): l'immagine
     // e' la parte della vista sotto il riquadro. Prima la logica pura; poi, su
     // ogni scena, lo stesso pezzo di un'immagine col rapporto della vista: larga
