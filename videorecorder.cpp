@@ -9,7 +9,6 @@
 #include "audiocontroller.h"
 #include "nativevideoencoder.h"
 
-#include <QInputDialog>
 #include <QFileDialog>
 #include <QFile>
 #include <QSettings>
@@ -23,6 +22,15 @@
 #include <QApplication>
 #include <QMediaPlayer>
 #include <QDebug>
+#include <QFormLayout>
+#include <QVBoxLayout>
+#include <QSpinBox>
+#include <QComboBox>
+#include <QLabel>
+#include <QDialogButtonBox>
+#include <QShowEvent>
+#include <algorithm>
+#include <functional>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -303,7 +311,165 @@ private:
     QLabel* pathLabel;
     QListWidget* listWidget;
 };
+#else
+// IL DIALOGO DEL VIDEO SUL DESKTOP: tutte le impostazioni in una finestra, come
+// il dialogo Image e il MobileVideoSaveDialog (prima erano fino a sei
+// QInputDialog in fila). Il file si sceglie dopo, col selettore di sempre, che
+// fa il controllo di sovrascrittura. Riparte dalle scelte dell'ultima volta.
+class DesktopVideoDialog : public QDialog {
+public:
+    QSpinBox* spinDuration;
+    QSpinBox* spinFps;
+    QComboBox* comboRes;
+    QComboBox* comboFormat;
+    QComboBox* comboEngine;
+    QCheckBox* chkResample;
+    QLabel* resampleHint;
+
+    DesktopVideoDialog(GLWidget* gl, int maxFps, QWidget* parent)
+        : QDialog(parent), m_gl(gl)
+    {
+        setWindowTitle("Capture Video");
+        QSettings st;
+        auto* form = new QFormLayout;
+
+        spinDuration = new QSpinBox;
+        spinDuration->setRange(1, 86400);
+        spinDuration->setSuffix(" s");
+        spinDuration->setValue(st.value("lastRecDuration", 10).toInt());
+        form->addRow("Duration:", spinDuration);
+
+        spinFps = new QSpinBox;
+        spinFps->setRange(24, maxFps);
+        spinFps->setValue(std::min(st.value("lastRecFPS", 60).toInt(), maxFps));
+        form->addRow(QString("Frame rate (24-%1 fps):").arg(maxFps), spinFps);
+#if defined(Q_OS_MACOS)
+        spinFps->setToolTip("84 fps is the QuickTime slow-motion limit.");
 #endif
+
+        // "Current View Size": la sola vista 3D, non il monitor ne' la finestra.
+        comboRes = new QComboBox;
+        comboRes->addItems({
+            "Current View Size",
+            "1080p Full HD (1920x1080)",
+            "1440p 2K (2560x1440)",
+            "2160p 4K (3840x2160)"
+        });
+        comboRes->setCurrentIndex(std::clamp(st.value("lastRecResIndex", 1).toInt(), 0, comboRes->count() - 1));
+        form->addRow("Resolution:", comboRes);
+
+        // BMP per primo = default (PNG a 4K e' proibitivo: ~2.1 s/frame).
+        comboFormat = new QComboBox;
+        comboFormat->addItems({
+            "BMP (Uncompressed - Faster)",
+            "PNG (Lossless - Saves Disk Space)"
+        });
+        comboFormat->setCurrentIndex(std::clamp(st.value("lastRecFormat", 0).toInt(), 0, comboFormat->count() - 1));
+        form->addRow("Frame format:", comboFormat);
+
+        comboEngine = new QComboBox;
+        comboEngine->addItems({
+            "Native Resolution (FBO - Max Quality, Slower)",
+            "Screen Upscale (Standard, Faster)"
+        });
+        comboEngine->setCurrentIndex(std::clamp(st.value("lastRecEngine", 0).toInt(), 0, comboEngine->count() - 1));
+        form->addRow("Render engine:", comboEngine);
+
+        // RICAMPIONAMENTO (GLWidget::captureRenderSize): conta solo col motore a
+        // risoluzione nativa e un video piu' piccolo della vista. Li' le texture
+        // che misurano in pixel (linee del Wireframe, frattali) uscirebbero larghe
+        // una frazione di pixel, spezzate e granulose; disegnate alla scala della
+        // vista e ridotte sono la vista rimpicciolita, ma l'esportazione e' piu'
+        // lenta (circa 1,5 volte, misurato). Spento di default. Quando non conta
+        // la casella e' spenta e la riga sotto dice perche'.
+        chkResample = new QCheckBox("Draw at view size and downscale");
+        chkResample->setChecked(st.value("lastRecResample", false).toBool());
+        form->addRow("Downscaling:", chkResample);
+        resampleHint = new QLabel;
+        resampleHint->setObjectName("videoResampleHint");
+        resampleHint->setWordWrap(true);
+        form->addRow(resampleHint);
+
+        auto* buttons = new QDialogButtonBox;
+        buttons->addButton("Capture…", QDialogButtonBox::AcceptRole);
+        buttons->addButton(QDialogButtonBox::Cancel);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+        auto* lay = new QVBoxLayout(this);
+        lay->addLayout(form);
+        lay->addWidget(buttons);
+        setMinimumWidth(460);
+
+        auto refresh = [this]() { refreshResample(); };
+        connect(comboRes, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refresh);
+        connect(comboEngine, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refresh);
+        refreshResample();
+    }
+
+protected:
+    void showEvent(QShowEvent* e) override
+    {
+        QDialog::showEvent(e);
+        QTimer::singleShot(0, this, [this]() { fitToText(); });
+    }
+
+public:
+
+    // L'uscita della voce di risoluzione; vuota = la vista.
+    static QSize resolutionSize(int index)
+    {
+        static const QSize sizes[] = { QSize(), QSize(1920, 1080), QSize(2560, 1440), QSize(3840, 2160) };
+        return (index >= 1 && index <= 3) ? sizes[index] : QSize();
+    }
+    bool resample() const { return chkResample->isEnabled() && chkResample->isChecked(); }
+
+    // Le scelte per la prossima volta. La casella si ricorda anche quando e'
+    // spenta: e' la preferenza, vale quando torna a contare.
+    void saveSettings() const
+    {
+        QSettings st;
+        st.setValue("lastRecDuration", spinDuration->value());
+        st.setValue("lastRecFPS", spinFps->value());
+        st.setValue("lastRecResIndex", comboRes->currentIndex());
+        st.setValue("lastRecFormat", comboFormat->currentIndex());
+        st.setValue("lastRecEngine", comboEngine->currentIndex());
+        st.setValue("lastRecResample", chkResample->isChecked());
+    }
+
+private:
+    void refreshResample()
+    {
+        const QSize wanted = resolutionSize(comboRes->currentIndex());
+        const bool native = comboEngine->currentIndex() == 0;
+        const bool smaller = !wanted.isEmpty() && m_gl->captureRenderSize(wanted, 1.0f) != wanted;
+        chkResample->setEnabled(native && smaller);
+        resampleHint->setText(!native ? "Only with the Native Resolution engine."
+                              : !smaller ? "Not needed: the video is not smaller than the view."
+                              : "The video is smaller than the view: fine textures (wireframe lines, fractals) "
+                                "can be drawn at the view's resolution and scaled down. Export about 1.5x slower.");
+        QTimer::singleShot(0, this, [this]() { fitToText(); });
+    }
+
+    // L'ALTEZZA SEGUE IL TESTO, come nel dialogo Image (ImageDialog::fitToText):
+    // la riga sotto il Downscaling va da una a tre righe secondo le scelte, e
+    // con l'altezza dell'apertura l'ultima usciva tagliata.
+    void fitToText()
+    {
+        if (!isVisible() || !layout()) return;
+        layout()->activate();
+        int need = layout()->totalHeightForWidth(width());
+        if (need <= 0) need = sizeHint().height();
+        need = std::max(need, minimumSizeHint().height());
+        if (need != height()) resize(width(), need);
+    }
+
+    GLWidget* m_gl;
+};
+#endif
+
+static std::function<void(QDialog*)> s_testVideoDialogHandler;
+void VideoRecorder::setTestDialogHandler(std::function<void(QDialog*)> handler) { s_testVideoDialogHandler = std::move(handler); }
 
 #if defined(Q_OS_IOS)
 // Rileva un frame di RUMORE (grabFramebuffer che a volte, su iOS, restituisce il
@@ -488,6 +654,7 @@ void VideoRecorder::toggleRecord()
 
     MobileVideoSaveDialog pathDialog(defaultVideoDir, defDur, defFps, defRes, m_mainWindow);
     pathDialog.chkResample->setChecked(settings.value("lastRecResample", false).toBool());
+    if (s_testVideoDialogHandler) QTimer::singleShot(0, &pathDialog, [&pathDialog]() { s_testVideoDialogHandler(&pathDialog); });
     if (pathDialog.exec() != QDialog::Accepted) {
         restoreState();
         return;
@@ -510,86 +677,23 @@ void VideoRecorder::toggleRecord()
 #endif
 
 #else
-    // --- DESKTOP (Mac, Windows, Linux): FINESTRE CLASSICHE ---
-    int defaultDuration = settings.value("lastRecDuration", 10).toInt();
-    bool ok;
-    seconds = QInputDialog::getInt(m_mainWindow, "Render Video", "Video duration (seconds):", defaultDuration, 1, 86400, 1, &ok);
-    if (!ok) { restoreState(); return; }
-
-    int defaultFPS = settings.value("lastRecFPS", 60).toInt();
-
+    // --- DESKTOP (Mac, Windows, Linux): UN DIALOGO SOLO, POI IL FILE ---
 #if defined(Q_OS_MACOS)
-    int maxFps = 84;
-    QString fpsPrompt = "FPS (24-84) [QuickTime slo-mo limit]:";
+    const int maxFps = 84;    // limite slow-motion di QuickTime
 #else
-    int maxFps = 120;
-    QString fpsPrompt = "FPS (24-120):";
+    const int maxFps = 120;
 #endif
-
-    if (defaultFPS > maxFps) defaultFPS = maxFps;
-
-    fps = QInputDialog::getInt(m_mainWindow, "Frame Rate", fpsPrompt, defaultFPS, 24, maxFps, 1, &ok);
-    if (!ok) { restoreState(); return; }
-
-    // "Current View Size" come nel dialogo mobile: e' la sola vista 3D, non il
-    // monitor ne' la finestra (era "Monitor Default (Current Window Size)").
-    QStringList resolutions = {
-        "Current View Size",
-        "1080p Full HD (1920x1080)",
-        "1440p 2K (2560x1440)",
-        "2160p 4K (3840x2160)"
-    };
-    int defaultResIndex = settings.value("lastRecResIndex", 1).toInt();
-    QString selectedRes = QInputDialog::getItem(m_mainWindow, "Video Resolution", "Select export resolution:", resolutions, defaultResIndex, false, &ok);
-    if (!ok) { restoreState(); return; }
-    resIndex = resolutions.indexOf(selectedRes);
-
-    // Formato — BMP per primo = default (PNG a 4K è proibitivo: ~2.1s/frame).
-    QStringList formats = {
-        "BMP (Uncompressed - Faster)",
-        "PNG (Lossless - Saves Disk Space)"
-    };
-    int defaultFormatIndex = settings.value("lastRecFormat", 0).toInt();
-    QString selectedFormat = QInputDialog::getItem(m_mainWindow, "Frame Format", "Select temporary frame format:", formats, defaultFormatIndex, false, &ok);
-    if (!ok) { restoreState(); return; }
-    int formatIndex = formats.indexOf(selectedFormat);
-    settings.setValue("lastRecFormat", formatIndex);
-    usePng = (formatIndex == 1); // idx 0 = BMP (default), 1 = PNG
-
-    // FBO
-    QStringList engineModes = {
-        "Native Resolution (FBO - Max Quality, Slower)",
-        "Screen Upscale (Standard, Faster)"
-    };
-    int defaultEngineIndex = settings.value("lastRecEngine", 0).toInt();
-    QString selectedEngine = QInputDialog::getItem(m_mainWindow, "Render Engine", "Select rendering engine:", engineModes, defaultEngineIndex, false, &ok);
-    if (!ok) { restoreState(); return; }
-    int engineIndex = engineModes.indexOf(selectedEngine);
-    settings.setValue("lastRecEngine", engineIndex);
-    useFBO = (engineIndex == 0);
-
-    // RICAMPIONAMENTO: chiesto solo quando conta, cioe' col motore a risoluzione
-    // nativa e un video piu' piccolo della vista (GLWidget::captureRenderSize).
-    // Li' le texture che misurano in pixel (linee del Wireframe, frattali)
-    // uscirebbero larghe una frazione di pixel, spezzate e granulose; disegnate
-    // alla scala della vista e ridotte sono la vista rimpicciolita, ma
-    // l'esportazione e' piu' lenta (circa 1,5 volte, misurato). Spento di default.
     {
-        static const QSize kResSizes[] = { QSize(), QSize(1920, 1080), QSize(2560, 1440), QSize(3840, 2160) };
-        const QSize wanted = (resIndex >= 1 && resIndex <= 3) ? kResSizes[resIndex] : QSize();
-        if (useFBO && !wanted.isEmpty() && m_mainWindow->ui->glWidget->captureRenderSize(wanted, 1.0f) != wanted) {
-            QStringList modes = {
-                "Draw at video size (Faster)",
-                "Draw at view size and downscale (Matches the screen, Slower)"
-            };
-            const int defMode = settings.value("lastRecResample", false).toBool() ? 1 : 0;
-            QString selectedMode = QInputDialog::getItem(m_mainWindow, "Downscaling",
-                "The video is smaller than the view: fine textures (wireframe lines, fractals)\n"
-                "can be drawn at the view's resolution and scaled down.", modes, defMode, false, &ok);
-            if (!ok) { restoreState(); return; }
-            resample = (modes.indexOf(selectedMode) == 1);
-            settings.setValue("lastRecResample", resample);
-        }
+        DesktopVideoDialog dlg(m_mainWindow->ui->glWidget, maxFps, m_mainWindow);
+        if (s_testVideoDialogHandler) QTimer::singleShot(0, &dlg, [&dlg]() { s_testVideoDialogHandler(&dlg); });
+        if (dlg.exec() != QDialog::Accepted) { restoreState(); return; }
+        dlg.saveSettings();
+        seconds = dlg.spinDuration->value();
+        fps = dlg.spinFps->value();
+        resIndex = dlg.comboRes->currentIndex();
+        usePng = (dlg.comboFormat->currentIndex() == 1); // idx 0 = BMP (default), 1 = PNG
+        useFBO = (dlg.comboEngine->currentIndex() == 0);
+        resample = dlg.resample();
     }
 
     // Salvataggio File

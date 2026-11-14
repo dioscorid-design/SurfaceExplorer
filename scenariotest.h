@@ -1,6 +1,7 @@
 #ifndef SCENARIOTEST_H
 #define SCENARIOTEST_H
 
+#include <QPointer>
 #include <QColor>
 #include <functional>
 #include <QMap>
@@ -444,6 +445,9 @@ private:
     // Se vero, il prossimo DIALOGO (non QMessageBox: per esempio la domanda sul
     // messaggio di una texture al Save) si conferma invece di annullarlo.
     bool m_acceptNextDialog = false;
+    // Dialogo modale che il watcher lascia aperto: lo pilota e lo chiude un
+    // handler del test (il dialogo del video), che intanto aspetta con wait().
+    QPointer<QWidget> m_leaveOpen;
 };
 
 #endif // SCENARIOTEST_H

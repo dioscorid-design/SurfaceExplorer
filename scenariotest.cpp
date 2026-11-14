@@ -1,6 +1,11 @@
 #include "scenariotest.h"
 
 #include "mainwindow.h"
+#include "videorecorder.h"
+#include <QFileDialog>
+#include <QCheckBox>
+#include <QSpinBox>
+#include <QDialogButtonBox>
 #include "mainwindow_p.h"
 #include "ui_mainwindow.h"
 #include "camerapaths.h"
@@ -137,7 +142,7 @@ ScenarioTest::ScenarioTest(MainWindow *mw, const QString &root, const QString &o
     auto *watcher = new QTimer(this);
     connect(watcher, &QTimer::timeout, this, [this] {
         QWidget *w = QApplication::activeModalWidget();
-        if (!w) return;
+        if (!w || w == m_leaveOpen) return;
         QString desc = w->windowTitle();
         if (auto *mb = qobject_cast<QMessageBox *>(w)) desc += QStringLiteral(": ") + mb->text();
         if (m_acceptNextDialog && !qobject_cast<QMessageBox *>(w)) {
@@ -7830,6 +7835,112 @@ void ScenarioTest::runImageCaptureScenarios()
         pressNew();
     }
     gl->setClocksDrivenByRecorder(false);
+
+#if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
+    // IL DIALOGO DEL VIDEO SUL DESKTOP: un dialogo solo con tutte le impostazioni
+    // (prima fino a sei QInputDialog in fila), che riparte dalle scelte
+    // dell'ultima volta; il Downscaling si accende solo quando conta. Dopo,
+    // il selettore del file. Il REC vero: la scelta Video/Image e il selettore
+    // del file li chiude il watcher dei popup (Video, poi Annulla), il dialogo
+    // l'handler.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Video: un dialogo solo per le impostazioni (desktop) =="));
+    {
+        QSettings st;
+        st.setValue("lastRecDuration", 7);
+        st.setValue("lastRecFPS", 30);
+        st.setValue("lastRecResIndex", 0);   // la vista: la riga del Downscaling corta
+        st.setValue("lastRecFormat", 1);
+        st.setValue("lastRecEngine", 0);
+        st.setValue("lastRecResample", true);
+    }
+    // Le finestre modali le chiude il watcher dei popup (Annulla), la scelta
+    // Video/Image con m_popupAnswer; questo timer, piu' svelto, le annota soltanto.
+    QStringList modalsSeen;
+    bool fileDialogSeen = false;
+    QTimer observer;
+    observer.setInterval(20);
+    QObject::connect(&observer, &QTimer::timeout, [&]() {
+        QWidget *m = QApplication::activeModalWidget();
+        if (!m) return;
+        const QString cls = QString::fromLatin1(m->metaObject()->className());
+        if (modalsSeen.isEmpty() || modalsSeen.last() != cls) modalsSeen << cls;
+        if (qobject_cast<QFileDialog *>(m)) fileDialogSeen = true;
+    });
+    for (const bool accept : { false, true }) {
+        modalsSeen.clear();
+        fileDialogSeen = false;
+        bool restored = false, gateOk = false, hintVisible = false;
+        QString title, gateText, hintText;
+        VideoRecorder::setTestDialogHandler([&](QDialog *d) {
+            m_leaveOpen = d;
+            title = d->windowTitle();
+            const QList<QSpinBox *> spins = d->findChildren<QSpinBox *>();
+            const QList<QComboBox *> combos = d->findChildren<QComboBox *>();
+            QCheckBox *chk = d->findChild<QCheckBox *>();
+            if (spins.size() != 2 || combos.size() != 3 || !chk) { m_leaveOpen = nullptr; d->reject(); return; }
+            QComboBox *res = combos[0], *format = combos[1], *engine = combos[2];
+            restored = spins[0]->value() == 7 && spins[1]->value() == 30 && res->currentIndex() == 0
+                       && format->currentIndex() == 1 && engine->currentIndex() == 0 && chk->isChecked();
+            // La casella si accende solo col motore nativo e un video piu' piccolo della vista.
+            // Si apre sulla vista (riga corta); 1080p la allunga se il video e'
+            // piu' piccolo della vista.
+            const bool smaller1080 = gl->captureRenderSize(QSize(1920, 1080), 1.0f) != QSize(1920, 1080);
+            wait(300);
+            const bool onView = chk->isEnabled();
+            res->setCurrentIndex(1);
+            engine->setCurrentIndex(1);
+            const bool onUpscale = chk->isEnabled();
+            engine->setCurrentIndex(0);
+            const bool on1080 = chk->isEnabled();
+            gateOk = on1080 == smaller1080 && !onView && !onUpscale;
+            // Dalla riga corta a quella lunga: il dialogo cresce e la riga si
+            // legge tutta (alta quanto chiede alla sua larghezza, sopra i tasti).
+            wait(300);
+            QLabel *hint = d->findChild<QLabel *>(QStringLiteral("videoResampleHint"));
+            QDialogButtonBox *box = d->findChild<QDialogButtonBox *>();
+            hintVisible = hint && box && hint->height() >= hint->heightForWidth(hint->width())
+                          && hint->geometry().bottom() < box->geometry().top();
+            hintText = hint && box ? QStringLiteral("alta %1 su %2, fondo %3, tasti da %4")
+                                         .arg(hint->height()).arg(hint->heightForWidth(hint->width()))
+                                         .arg(hint->geometry().bottom()).arg(box->geometry().top())
+                                   : QStringLiteral("riga o tasti non trovati");
+            gateText = QStringLiteral("1080p %1 (piu' piccolo della vista %2), vista %3, Screen Upscale %4")
+                           .arg(on1080).arg(smaller1080).arg(onView).arg(onUpscale);
+            m_leaveOpen = nullptr;
+            if (accept) {
+                spins[0]->setValue(9);
+                d->accept();
+            } else {
+                d->reject();
+            }
+        });
+        m_popupAnswer = QStringLiteral("Video");
+        observer.start();
+        m_mw->m_videoRecorder->toggleRecord();
+        observer.stop();
+        m_popupAnswer.clear();
+        VideoRecorder::setTestDialogHandler(nullptr);
+        wait(200);
+        const bool noInputDialog = !modalsSeen.contains(QStringLiteral("QInputDialog"));
+        const bool recording = m_mw->m_isRecording;
+        check(title == QStringLiteral("Capture Video") && restored && noInputDialog,
+              QStringLiteral("%1: un dialogo solo (\"%2\"), finestre modali %3; riparte dalle scelte salvate %4")
+                  .arg(accept ? QStringLiteral("Capture") : QStringLiteral("Cancel"), title, modalsSeen.join(QStringLiteral(" > ")))
+                  .arg(restored));
+        check(gateOk, QStringLiteral("Downscaling acceso solo quando conta: %1").arg(gateText));
+        check(hintVisible, QStringLiteral("la riga del Downscaling si legge tutta quando si allunga (%1)").arg(hintText));
+        if (accept) {
+            const int saved = QSettings().value("lastRecDuration").toInt();
+            check(fileDialogSeen && saved == 9 && !recording,
+                  QStringLiteral("Capture apre il selettore del file %1 e salva le scelte (durata %2); Annulla li' non registra %3")
+                      .arg(fileDialogSeen).arg(saved).arg(!recording));
+        } else {
+            check(!fileDialogSeen && !recording,
+                  QStringLiteral("Cancel: niente selettore del file %1, nessuna registrazione %2").arg(!fileDialogSeen).arg(!recording));
+        }
+    }
+#endif
 }
 
 void ScenarioTest::runHiResProbeScenarios()
