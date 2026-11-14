@@ -201,7 +201,7 @@ LibraryTreeFocus::Highlight LibraryTreeFocus::resting(const Highlight &h)
     if (h.current.isEmpty()) return h;
     Highlight r;
     r.current = h.current;
-    if (!h.current.isEmpty()) r.paths << h.current;
+    r.paths << h.current;
     return r;
 }
 
