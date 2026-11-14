@@ -1510,10 +1510,14 @@ void MainWindow::setupDefaultFolders()
     QDir().mkpath(sndDirUser);
 
     // --- ESTRAZIONE RISORSE ---
-    LibraryFolders::syncResources(":/library/presets/surfaces", surfDirUser, false, nullptr, this);
-    LibraryFolders::syncResources(":/library/presets/textures", texDirUser, false, nullptr, this);
-    LibraryFolders::syncResources(":/library/presets/records", recDirUser, false, nullptr, this);
-    LibraryFolders::syncResources(":/library/presets/sounds", sndDirUser, false, nullptr, this);
+    // Non durante un test (main.cpp, SE_SELF_TESTS): la libreria e' quella
+    // passata al test, e i test non ci scrivono.
+    if (!qApp->property("seTestRun").toBool()) {
+        LibraryFolders::syncResources(":/library/presets/surfaces", surfDirUser, false, nullptr, this);
+        LibraryFolders::syncResources(":/library/presets/textures", texDirUser, false, nullptr, this);
+        LibraryFolders::syncResources(":/library/presets/records", recDirUser, false, nullptr, this);
+        LibraryFolders::syncResources(":/library/presets/sounds", sndDirUser, false, nullptr, this);
+    }
 
     // --- AMNESIA FORZATA: PULIZIA VECCHIA MEMORIA ---
     settings.remove("pathSurfaces");

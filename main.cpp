@@ -12,6 +12,7 @@
 #include "imagetest.h"
 #include "testactivity.h"
 #include <QWindow>
+#include <QDir>
 #include <QScreen>
 #endif
 
@@ -111,6 +112,32 @@ int main(int argc, char *argv[])
     }
 #else
     QCoreApplication::setApplicationName("SurfaceExplorer");
+#endif
+
+#ifdef SE_SELF_TESTS
+    // I TEST HANNO IMPOSTAZIONI PROPRIE. La build dei test non e' compilata con
+    // Xcode, quindi ha l'id del DMG e leggeva e scriveva le preferenze dell'app
+    // DMG installata: la libreria era quella dell'app (dal 2026-11-13 ~/presets,
+    // la libreria pulita della 1.5) e non quella passata al test, e un record con
+    // un'immagine di un altro dispositivo la cercava li' (mesh-image: la stessa
+    // immagine caricata due volte). Con un test in corso: un dominio a parte,
+    // la libreria = la radice del test (scritta prima che MainWindow la legga,
+    // cosi' non compare nemmeno il benvenuto) e niente copia dei preset di
+    // fabbrica all'avvio, perche' i test non scrivano nella libreria che usano.
+    {
+        const QStringList args = app.arguments();
+        for (const char *flag : { "--scenario-test", "--image-test", "--roundtrip-test", "--clock-test" }) {
+            const int i = args.indexOf(QLatin1String(flag));
+            if (i < 0 || i + 1 >= args.size()) continue;
+            QCoreApplication::setApplicationName(QStringLiteral("SurfaceExplorer-tests"));
+            const QString root = QDir(args.at(i + 1)).absolutePath();
+            QSettings settings;
+            settings.setValue(QStringLiteral("libraryRootPath"), root);
+            settings.sync();
+            app.setProperty("seTestRun", true);
+            break;
+        }
+    }
 #endif
 
     MainWindow w;
