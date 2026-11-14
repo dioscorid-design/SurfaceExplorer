@@ -7434,6 +7434,42 @@ void ScenarioTest::runImageCaptureScenarios()
                       .arg(dialogClosed).arg(guideGone).arg(veilGone)
                       .arg(alphaDuring, 0, 'f', 1).arg(alphaAfter, 0, 'f', 1));
         }
+        // TASTI NELLA TENDINA DI UN MENU DEL DIALOGO: la tendina aperta e' una
+        // finestra a se' (popup), figlia del menu che sta nel dialogo. La
+        // sessione guardava solo la finestra del widget e bloccava frecce e
+        // Invio li' dentro: scegliere una voce da tastiera non funzionava.
+        {
+            int before = -1, after = -1;
+            bool popupOpen = false;
+            ImageCapture::setTestDialogHandler([&](QDialog *d) {
+                QComboBox *combo = nullptr;
+                for (QComboBox *c : d->findChildren<QComboBox *>())
+                    if (c->findText(QStringLiteral("1:1")) >= 0) combo = c;
+                if (combo) {
+                    combo->setCurrentIndex(0);
+                    before = combo->currentIndex();
+                    combo->showPopup();
+                    wait(300);
+                    QWidget *list = combo->view();
+                    popupOpen = list && list->isVisible() && list->window() != d;
+                    for (const int key : { int(Qt::Key_Down), int(Qt::Key_Return) }) {
+                        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+                        QCoreApplication::sendEvent(list, &press);
+                        QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
+                        QCoreApplication::sendEvent(list, &release);
+                        wait(100);
+                    }
+                    after = combo->currentIndex();
+                    combo->hidePopup();
+                }
+                d->reject();
+            });
+            ImageCapture::run(gl, m_mw, m_outDir);
+            ImageCapture::setTestDialogHandler(nullptr);
+            check(popupOpen && before == 0 && after == 1,
+                  QStringLiteral("tendina del rapporto aperta (finestra a se' %1): freccia giu' e Invio scelgono la voce dopo "
+                                 "(da %2 a %3)").arg(popupOpen).arg(before).arg(after));
+        }
         clearImageSettings();
         // A misura di stampa i dpi vanno nel file: 10 cm a 300 dpi.
         const QString outPrint = m_outDir + QStringLiteral("/image-capture-print.png");
