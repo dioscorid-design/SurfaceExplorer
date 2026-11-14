@@ -2420,8 +2420,19 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // setFullViewAspect), quindi coi dock aperti si stringe come
             // l'immagine. Lo script che disegna con la sua void main() legge
             // v_texCoord da se' e resta com'era.
-            if (effectiveBackgroundSkyMode() == BgFixed || m_isFlatView)
+            // Nelle catture, la parte della vista che entra nell'immagine
+            // (captureViewWindow): k in (0,1)/(1,1), lo spostamento in
+            // (0,2)/(1,2) -- in GLSL [1][0], [1][1], [2][0], [2][1]. Senza,
+            // un'immagine col rapporto diverso dalla vista mostrava lo sfondo
+            // intero stirato su di se', e non seguiva il riquadro trascinato.
+            if (effectiveBackgroundSkyMode() == BgFixed || m_isFlatView) {
                 skyRay(0, 0) = m_bgIsScript ? fullViewTextureWidth() : 1.0f;
+                const QVector4D win = captureViewWindow();
+                skyRay(0, 1) = win.x();
+                skyRay(1, 1) = win.y();
+                skyRay(0, 2) = win.z();
+                skyRay(1, 2) = win.w();
+            }
             memcpy(bgUboData.mvpMatrix, skyRay.constData(), 64);
 
             resourceUpdates->updateDynamicBuffer(m_bgUbo, 0, sizeof(UboData), &bgUboData);
@@ -7410,6 +7421,20 @@ int GLWidget::maxTextureSize()
     return rhi() ? rhi()->resourceLimit(QRhi::TextureSizeMax) : 4096;
 }
 
+QVector4D GLWidget::captureViewWindow() const
+{
+    if (!m_hiResCapture) return QVector4D(1.0f, 1.0f, 0.0f, 0.0f);
+    const QSize out = renderTarget() ? renderTarget()->pixelSize() : QSize();
+    const float imageAspect = out.height() > 0 ? float(out.width()) / float(out.height()) : 1.0f;
+    const float viewAspect = height() > 0 ? float(width()) / float(height()) : imageAspect;
+    // Il campo orizzontale dell'immagine, in frazioni di quello della vista:
+    // rapporto dell'immagine per la scala verticale, diviso il rapporto della
+    // vista (1 per un'immagine piu' larga, che riduce il campo verticale).
+    const float kx = std::min(1.0f, imageAspect * m_captureVerticalScale / viewAspect);
+    const float ky = std::min(1.0f, m_captureVerticalScale);
+    return QVector4D(kx, ky, m_captureShift.x(), m_captureShift.y());
+}
+
 float GLWidget::effectiveCameraFov() const
 {
     if (m_captureVerticalScale >= 0.9999f) return m_cameraFov;
@@ -8315,7 +8340,11 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
         "}\n"
         "vec2 bgBaseUV() {\n"
         "    float _mode = ubuf.u_mvpMatrix[3][3];\n"
-        "    if (_mode < 0.5) return vec2((v_texCoord.x - 0.5) * ubuf.u_mvpMatrix[0][0] + 0.5, v_texCoord.y);\n"
+        "    if (_mode < 0.5) {\n"
+        "        vec2 _v = ((v_texCoord * 2.0 - 1.0) - vec2(ubuf.u_mvpMatrix[2][0], ubuf.u_mvpMatrix[2][1]))\n"
+        "                  * vec2(ubuf.u_mvpMatrix[1][0], ubuf.u_mvpMatrix[1][1]) * 0.5 + 0.5;\n"
+        "        return vec2((_v.x - 0.5) * ubuf.u_mvpMatrix[0][0] + 0.5, _v.y);\n"
+        "    }\n"
         "    vec2 _ndc = v_texCoord * 2.0 - 1.0;\n"
         "#ifdef HYPERBOLIC_SKY\n"
         "    if (ubuf.u_mvpMatrix[3][0] > 0.0) {\n"

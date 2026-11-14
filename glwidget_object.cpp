@@ -62,6 +62,19 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
     if (m_isFlatView) {
         o.model.setToIdentity();
         mvp = rhi()->clipSpaceCorrMatrix();
+        // In una cattura d'immagine il quad a schermo intero si allarga e si
+        // sposta: nell'immagine entra la parte della vista sotto il riquadro
+        // guida, come per le mesh (captureViewWindow). Prima l'immagine
+        // mostrava tutto il quad, stirato sul suo rapporto.
+        {
+            const QVector4D win = captureViewWindow();
+            QMatrix4x4 window;
+            window(0, 0) = 1.0f / win.x();
+            window(1, 1) = 1.0f / win.y();
+            window(0, 3) = win.z();
+            window(1, 3) = win.w();
+            mvp = mvp * window;
+        }
         mv.setToIdentity();
         // VISTA 2D: il quad a schermo intero non usa u_mvMatrix, che porta
         // invece in [0][0] la LARGHEZZA del dominio di una texture procedurale
