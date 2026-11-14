@@ -5016,7 +5016,16 @@ QImage GLWidget::readTextureImage(const QString &path, QString *reason)
                 decoded = QSize((full.width() + denom - 1) / denom, (full.height() + denom - 1) / denom);
             }
         }
-        const qint64 mb = qint64(decoded.width()) * decoded.height() * 4 / (1024 * 1024) + 1;
+        // I byte per pixel della DECODIFICA, letti dal file senza decodificarlo:
+        // un PNG a 16 bit per canale si decodifica in RGBA64, 8 byte per pixel.
+        // Contandone sempre 4, fra circa 5800x5800 e il doppio la stima restava
+        // sotto la soglia di Qt (256 MB), la soglia non si alzava, Qt rifiutava
+        // la lettura e l'avviso parlava di file corrotto.
+        const QImage::Format decodedFormat = reader.imageFormat();
+        const int bitsPerPixel = decodedFormat != QImage::Format_Invalid
+                                     ? QImage::toPixelFormat(decodedFormat).bitsPerPixel() : 32;
+        const qint64 bytesPerPixel = std::max<qint64>(4, (bitsPerPixel + 7) / 8);
+        const qint64 mb = qint64(decoded.width()) * decoded.height() * bytesPerPixel / (1024 * 1024) + 1;
         if (mb > kTextureImageMaxDecodeMB) {
             if (reason)
                 *reason = QStringLiteral("The image is too large: %1 x %2 pixels would need %3 MB of "

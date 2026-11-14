@@ -34,6 +34,7 @@
 #include "nativevideoencoder.h"
 #endif
 #include <QImageReader>
+#include <QImageWriter>
 #include <QComboBox>
 #include <QTimer>
 #include <sys/resource.h>
@@ -13831,6 +13832,34 @@ void ScenarioTest::runMeshImageScenarios()
 {
     Ui::MainWindow *ui = m_mw->ui;
     GLWidget *gl = ui->glWidget;
+
+    // UN PNG A 16 BIT PER CANALE si decodifica in RGBA64, 8 byte per pixel.
+    // readTextureImage ne contava 4: a 6000x6000 (288 MB veri, 144 stimati) la
+    // soglia di Qt (256 MB) non si alzava, la lettura falliva e l'avviso diceva
+    // "file corrotto". Ora si legge, come un PNG a 8 bit della stessa misura.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Immagini delle texture: PNG a 16 bit per canale, grande =="));
+    {
+        const QString path = m_outDir + QStringLiteral("/texture-16bit-6000.png");
+        {
+            QImage big(6000, 6000, QImage::Format_RGBA64);
+            big.fill(QColor::fromRgba64(40000, 20000, 60000, 65535));
+            // Un dettaglio, perche' il file non sia di un colore solo.
+            QPainter(&big).fillRect(1000, 1000, 2000, 500, QColor::fromRgba64(65535, 65535, 0, 65535));
+            QImageWriter writer(path, "png");
+            writer.setCompression(9);
+            writer.write(big);
+        }
+        const QImageReader probe(path);
+        QString reason;
+        const QImage read = GLWidget::readTextureImage(path, &reason);
+        check(probe.imageFormat() == QImage::Format_RGBA64 && !read.isNull() && read.size() == QSize(6000, 6000)
+                  && reason.isEmpty(),
+              QStringLiteral("PNG 6000x6000 a 16 bit (formato del file %1): letto %2x%3%4")
+                  .arg(int(probe.imageFormat())).arg(read.width()).arg(read.height())
+                  .arg(reason.isEmpty() ? QString() : QStringLiteral(", motivo: ") + reason));
+        QFile::remove(path);
+    }
     auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
     auto part = [gl](int n) -> const MeshPart * {   // n = numero della fascia, da 1
         const auto &parts = gl->getEngine()->getMeshParts();
