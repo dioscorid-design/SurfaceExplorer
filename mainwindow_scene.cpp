@@ -251,7 +251,7 @@ void MainWindow::markTextureSaved()
     const QString owner = targetTextureOwner();
     const SceneFingerprint now = fingerprintSlice(sceneFingerprint(), PartTexture);
     for (auto it = m_cleanTexture.begin(); it != m_cleanTexture.end(); )
-        it = (textureOwnerOfKey(it.key()) == owner) ? m_cleanTexture.erase(it) : it + 1;
+        it = (textureOwnerOfKey(it.key()) == owner) ? m_cleanTexture.erase(it) : std::next(it);
     for (auto it = now.constBegin(); it != now.constEnd(); ++it)
         if (textureOwnerOfKey(it.key()) == owner) m_cleanTexture.insert(it.key(), it.value());
     m_textureViewTouched.remove(owner);
@@ -278,7 +278,7 @@ void MainWindow::noteSurfaceApplied(const QStringList &prefixes)
         return false;
     };
     for (auto it = m_appliedSurface.begin(); it != m_appliedSurface.end(); )
-        it = matches(it.key()) ? m_appliedSurface.erase(it) : it + 1;
+        it = matches(it.key()) ? m_appliedSurface.erase(it) : std::next(it);
     for (auto it = now.constBegin(); it != now.constEnd(); ++it)
         if (matches(it.key())) m_appliedSurface.insert(it.key(), it.value());
 }

@@ -145,6 +145,25 @@ static double wireScaleFor(GLWidget *gl, const QSize &size, double ratio)
                                 : size.width() / std::max(1.0, gl->width() * dpr);
 }
 
+// UNO SCATTO a `size` con la finestra della cattura: scala verticale, spostamento
+// del riquadro, spessore del wireframe. I valori tornano normali PRIMA di chiudere
+// la cattura: endHiResCapture ridisegna subito la vista, e con i valori della
+// cattura restava a schermo un wireframe fitto fino al primo clic.
+static QImage grabCapture(GLWidget *gl, const QSize &size, float verticalScale, const QVector2D &shift,
+                          int lineWidth)
+{
+    gl->setCaptureVerticalScale(verticalScale);
+    gl->setCaptureShift(shift);
+    gl->setCaptureLineWidth(lineWidth);
+    gl->beginHiResCapture(size.width(), size.height());
+    QImage img = gl->getFrameForVideo(size.width(), size.height(), true);
+    gl->setCaptureVerticalScale(1.0f);
+    gl->setCaptureShift(QVector2D());
+    gl->setCaptureLineWidth(1);
+    gl->endHiResCapture();
+    return img;
+}
+
 QImage ImageCapture::render(GLWidget *gl, const QSize &size, double ratio, QString *error, double wireFactor,
                             const QPointF &position)
 {
@@ -185,18 +204,7 @@ QImage ImageCapture::render(GLWidget *gl, const QSize &size, double ratio, QStri
     QImage img;
     bool singleColor = false;
     for (;;) {
-        gl->setCaptureVerticalScale(verticalScale);
-        gl->setCaptureShift(shift);
-        gl->setCaptureLineWidth(lineWidth);
-        gl->beginHiResCapture(size.width(), size.height());
-        img = gl->getFrameForVideo(size.width(), size.height(), true);
-        // Campo visivo, spostamento e spessore tornano normali PRIMA di chiudere
-        // la cattura: endHiResCapture ridisegna subito la vista, e con i valori
-        // della cattura restava a schermo un wireframe fitto fino al primo click.
-        gl->setCaptureVerticalScale(1.0f);
-        gl->setCaptureShift(QVector2D());
-        gl->setCaptureLineWidth(1);
-        gl->endHiResCapture();
+        img = grabCapture(gl, size, verticalScale, shift, lineWidth);
         if (s_testBlankFrames > 0) {
             --s_testBlankFrames;
             img.fill(Qt::magenta);
@@ -209,14 +217,7 @@ QImage ImageCapture::render(GLWidget *gl, const QSize &size, double ratio, QStri
     // Ancora di un solo colore: un fotogramma fallito, o una scena davvero uniforme (il
     // solo sfondo). Lo dice un fotogramma piccolo, che la GPU non ha motivo di rifiutare.
     if (singleColor) {
-        const QSize probe = sizeFor(ratio, 320);
-        gl->setCaptureVerticalScale(verticalScale);
-        gl->setCaptureShift(shift);
-        gl->beginHiResCapture(probe.width(), probe.height());
-        const QImage small = gl->getFrameForVideo(probe.width(), probe.height(), true);
-        gl->setCaptureVerticalScale(1.0f);
-        gl->setCaptureShift(QVector2D());
-        gl->endHiResCapture();
+        const QImage small = grabCapture(gl, sizeFor(ratio, 320), verticalScale, shift, 1);
         if (!small.isNull() && !isSingleColor(small)) img = QImage();
     }
     gl->update();
@@ -226,7 +227,9 @@ QImage ImageCapture::render(GLWidget *gl, const QSize &size, double ratio, QStri
         return QImage();
     }
     img.setDevicePixelRatio(1.0);
-    if (img.format() != QImage::Format_RGB32) img = img.convertToFormat(QImage::Format_RGB32);
+    // Sul posto (convertTo): convertToFormat ne faceva una seconda copia, circa
+    // 1 GB per un'immagine di 16384 px di lato.
+    if (img.format() != QImage::Format_RGB32) img.convertTo(QImage::Format_RGB32);
     return img;
 }
 
@@ -243,9 +246,7 @@ double ImageCapture::secondsPerMegapixel(GLWidget *gl)
     for (int i = 0; i < 2; ++i) {
         QElapsedTimer t;
         t.start();
-        gl->beginHiResCapture(probe.width(), probe.height());
-        const QImage img = gl->getFrameForVideo(probe.width(), probe.height(), true);
-        gl->endHiResCapture();
+        const QImage img = grabCapture(gl, probe, 1.0f, QVector2D(), 1);
         seconds = double(t.nsecsElapsed()) * 1e-9;
         if (img.isNull()) return 0.0;
     }
@@ -795,12 +796,18 @@ private:
         // di un pixel. (I campi non superano il limite della GPU.)
         m_size = exact ? QSize(m_exactW->value(), m_exactH->value())
                        : ImageCapture::sizeFor(m_ratio, int(longSide));
-        bool memLimited = false;
-        while (qint64(m_size.width()) * m_size.height() > maxPixels() && longSide > 16) {
-            longSide = longSide * 95 / 100;
-            m_size = ImageCapture::sizeFor(m_ratio, int(longSide));
-            memLimited = true;
-        }
+        // Riduce del 5% per volta finche' `fits` e' vero (o si arriva a 16 px);
+        // true se ha ridotto.
+        auto shrinkUntil = [&](const std::function<bool()> &fits) {
+            bool shrunk = false;
+            while (!fits() && longSide > 16) {
+                longSide = longSide * 95 / 100;
+                m_size = ImageCapture::sizeFor(m_ratio, int(longSide));
+                shrunk = true;
+            }
+            return shrunk;
+        };
+        const bool memLimited = shrinkUntil([&] { return qint64(m_size.width()) * m_size.height() <= maxPixels(); });
         // Wireframe sul telefono/tablet: si riduce la dimensione, non lo spessore.
         bool wireLimited = false;
         const WireLimits wl = wireLimitsForDevice();
@@ -812,11 +819,7 @@ private:
                 const int w = int(std::lround(wireScaleFor(m_gl, drawn, m_ratio) * factor));
                 return ImageCapture::wireFits(wl.maxWidth, wl.budget, segments, w);
             };
-            while (!fits() && longSide > 16) {
-                longSide = longSide * 95 / 100;
-                m_size = ImageCapture::sizeFor(m_ratio, int(longSide));
-                wireLimited = true;
-            }
+            wireLimited = shrinkUntil(fits);
         }
         if (m_guide) m_guide->setRatio(m_ratio);
 

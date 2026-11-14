@@ -533,7 +533,7 @@ void MainWindow::restartActiveLibraryTexture(const LibraryItem &data)
 //    selezione singola di mobile.
 static bool multiSelectionClick(QObject *sender, QTreeWidgetItem *item)
 {
-    if (QGuiApplication::keyboardModifiers() & (Qt::ControlModifier | Qt::ShiftModifier | Qt::MetaModifier))
+    if (QGuiApplication::keyboardModifiers() & LibraryTreeWidget::kMultiSelection)
         return true;
     if (const auto *tree = qobject_cast<const LibraryTreeWidget *>(sender); tree && tree->multiSelectionClick())
         return true;

@@ -20,10 +20,7 @@
 // Finito il trascinamento l'evidenziazione torna sul preset a schermo, come
 // dopo un comando del menu contestuale (startDrag).
 
-// I modificatori della selezione multipla: Cmd su macOS e Ctrl altrove
-// (ControlModifier), Shift, e Ctrl su macOS (MetaModifier: li' e' il tasto
-// destro, che apre il menu).
-static constexpr Qt::KeyboardModifiers kMultiSelection = Qt::ControlModifier | Qt::ShiftModifier | Qt::MetaModifier;
+// I modificatori della selezione multipla: LibraryTreeWidget::kMultiSelection.
 
 bool LibraryTreeWidget::isFolder(const QModelIndex &index) const
 {

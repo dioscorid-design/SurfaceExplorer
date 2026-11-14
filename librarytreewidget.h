@@ -18,6 +18,12 @@ public:
     // (Cmd/Ctrl o Shift premuti al rilascio): chi carica il preset lo salta
     // (MainWindow::onExampleItemClicked, onSoundItemClicked).
     bool multiSelectionClick() const { return m_multiSelectionRelease; }
+    // I modificatori della selezione multipla: Cmd su macOS e Ctrl altrove
+    // (ControlModifier), Shift, e Ctrl su macOS (MetaModifier: li' e' il tasto
+    // destro, che apre il menu). Li usano anche MainWindow::onExampleItemClicked
+    // e onSoundItemClicked (multiSelectionClick in mainwindow_library.cpp).
+    static constexpr Qt::KeyboardModifiers kMultiSelection =
+        Qt::ControlModifier | Qt::ShiftModifier | Qt::MetaModifier;
 
 protected:
     // Durante un clic semplice su una cartella: nessuna selezione, ne' alla
