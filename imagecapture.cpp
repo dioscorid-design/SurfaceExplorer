@@ -1038,16 +1038,10 @@ private:
         QWidget *w = widgetOf(obj);
         return m_guide && w && (w == m_guide || m_guide->isAncestorOf(w));
     }
-    // Del dialogo anche cio' che ne discende passando per un'ALTRA finestra: la
-    // tendina aperta di un menu a tendina, il menu contestuale di un campo.
-    // Sono popup, finestre a se', e guardando solo window() la sessione ci
-    // bloccava frecce, Invio ed Esc.
     bool inDialog(QObject *obj) const
     {
-        if (!m_dialog) return false;
-        for (QWidget *w = widgetOf(obj); w; w = w->parentWidget())
-            if (w == m_dialog) return true;
-        return false;
+        QWidget *w = widgetOf(obj);
+        return m_dialog && w && w->window() == m_dialog;
     }
     void disableActions(const QList<QAction *> &actions)
     {
