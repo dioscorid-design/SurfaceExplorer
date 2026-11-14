@@ -122,7 +122,13 @@ int main(int argc, char *argv[])
         // separate: resta in comune solo la cartella della libreria, finche' si sceglie
         // la stessa. La 2.0 parte dalla 1.x; dalla 2.1 in poi si parte dalla 2.0, o
         // dalla 1.x se la 2.0 non e' mai stata installata.
-        if (isDmg && !series.isEmpty()) {
+        // Non durante un test: i test hanno un dominio proprio (vedi sotto).
+        bool testRun = false;
+#ifdef SE_SELF_TESTS
+        for (const char *flag : { "--scenario-test", "--image-test", "--roundtrip-test", "--clock-test" })
+            testRun = testRun || app.arguments().contains(QLatin1String(flag));
+#endif
+        if (isDmg && !series.isEmpty() && !testRun) {
             const QString prefs = QDir::homePath() + QStringLiteral("/Library/Preferences/");
             const QString from1x = prefs + QStringLiteral("com.dioscorid.SurfaceExplorer-dmg.plist");
             const QString from20 = prefs + QStringLiteral("com.dioscorid.SurfaceExplorer2-dmg.plist");
@@ -157,6 +163,32 @@ int main(int argc, char *argv[])
     }
 #else
     QCoreApplication::setApplicationName("SurfaceExplorer");
+#endif
+
+#ifdef SE_SELF_TESTS
+    // I TEST HANNO IMPOSTAZIONI PROPRIE. La build dei test non e' compilata con
+    // Xcode, quindi ha l'id del DMG e leggeva e scriveva le preferenze dell'app
+    // DMG installata: la libreria era quella dell'app e non quella passata al
+    // test, e un record con un'immagine di un altro dispositivo la cercava li'
+    // (mesh-image: la stessa immagine caricata due volte). Con un test in corso:
+    // un dominio a parte, la libreria = la radice del test (scritta prima che
+    // MainWindow la legga, cosi' non compare nemmeno il benvenuto) e niente
+    // copia dei preset di fabbrica all'avvio, perche' i test non scrivano nella
+    // libreria che usano.
+    {
+        const QStringList args = app.arguments();
+        for (const char *flag : { "--scenario-test", "--image-test", "--roundtrip-test", "--clock-test" }) {
+            const int i = args.indexOf(QLatin1String(flag));
+            if (i < 0 || i + 1 >= args.size()) continue;
+            QCoreApplication::setApplicationName(QStringLiteral("SurfaceExplorer-tests"));
+            const QString root = QDir(args.at(i + 1)).absolutePath();
+            QSettings settings;
+            settings.setValue(QStringLiteral("libraryRootPath"), root);
+            settings.sync();
+            app.setProperty("seTestRun", true);
+            break;
+        }
+    }
 #endif
 
     MainWindow w;

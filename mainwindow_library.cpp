@@ -1483,11 +1483,15 @@ void MainWindow::setupDefaultFolders()
 
     // --- I RAMI (LibraryFolders::branches, scene comprese): cartella fissa ed
     // estrazione dei preset di fabbrica ---
+    // Durante un test (main.cpp, SE_SELF_TESTS) niente estrazione: la libreria e'
+    // quella passata al test, e i test non ci scrivono.
+    const bool testRun = qApp->property("seTestRun").toBool();
     for (const LibraryFolders::BranchInfo &b : LibraryFolders::branches()) {
         const QString dir = rootPath + QLatin1Char('/') + QLatin1String(b.folder);
         QDir().mkpath(dir);
-        LibraryFolders::syncResources(QStringLiteral(":/library/presets/") + QLatin1String(b.folder),
-                                      dir, false, nullptr, this);
+        if (!testRun)
+            LibraryFolders::syncResources(QStringLiteral(":/library/presets/") + QLatin1String(b.folder),
+                                          dir, false, nullptr, this);
     }
 
     // --- AMNESIA FORZATA: PULIZIA VECCHIA MEMORIA ---
