@@ -68,7 +68,7 @@
             <p>Sphere, Cylinder and Cube turn with the view &mdash; when the camera rotates, by hand or along a 3D or 4D path &mdash; but not with the object or its 4D rotations, as a distant sky would. The Poincar&eacute; Ball does the same, and changes also when the camera moves.</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Procedural Textures (GLSL)</b></p></td></tr></table>
-            <p>Besides loading images (PNG/JPG), you can write custom GLSL scripts to generate mathematical textures in real-time.</p>
+            <p>Besides loading images (PNG, also with 16 bits per channel, and JPG; an image with a side longer than 8192 pixels is reduced to 8192 when it is loaded), you can write custom GLSL scripts to generate mathematical textures in real-time.</p>
             <pre>
 // Example Texture Script
 float r = sin(u * 10.0);
