@@ -2126,11 +2126,12 @@ private:
     // Colore base delle pareti (prima della luce): nel LatticeUbo, color.
     QColor m_h3LatticeColor = defaultHyperbolicLatticeColor();
     double m_h3LatticeThickness = kH3LatticeDefaultThickness;
-    // Del fotogramma: spigoli disegnati, di cui col tubo intero, e da quale
-    // pezzo; le sfere dei vertici, di cui intere, e dove cominciano le loro
-    // istanze nel buffer.
+    // Del fotogramma: spigoli disegnati, dove finisce ciascuna delle quattro
+    // fasce della vista da fuori (in prospettiva tutte a m_h3LatticeDrawn), e da
+    // quale pezzo; le sfere dei vertici, di cui intere, e dove cominciano le
+    // loro istanze nel buffer.
     int m_h3LatticeDrawn = 0;
-    int m_h3LatticeFine = 0;
+    int m_h3LatticeTierEnd[4] = { 0, 0, 0, 0 };
     int m_h3LatticeVerticesDrawn = 0;
     int m_h3LatticeVerticesFine = 0;
     int m_h3LatticeVertexInstance = 0;
@@ -2141,15 +2142,17 @@ private:
     QRhiBuffer *m_latticeVbo = nullptr;
     QRhiBuffer *m_latticeInstances = nullptr;        // prospettiva: a ogni fotogramma
     QRhiBuffer *m_latticeWholeInstances = nullptr;   // vista da fuori: caricate una volta
-    // Le maglie canoniche nel VBO, in quest'ordine: il tubo intero, il
-    // semplice, la sfera intera, la semplice (primo vertice e quanti).
-    enum LatticeMeshKind { LatticeTubeFine, LatticeTubeCoarse, LatticeSphereFine, LatticeSphereCoarse, LatticeMeshCount };
+    // Le maglie canoniche nel VBO, in quest'ordine: il tubo della prospettiva,
+    // i quattro della vista da fuori (dal piu' fitto), la sfera intera, la
+    // semplice (primo vertice e quanti).
+    enum LatticeMeshKind { LatticeTubePerspective, LatticeTubeArc0, LatticeTubeArc1, LatticeTubeArc2, LatticeTubeArc3,
+                           LatticeSphereFine, LatticeSphereCoarse, LatticeMeshCount };
     struct LatticeMesh { int first = 0; int count = 0; };
     LatticeMesh m_latticeMesh[LatticeMeshCount];
     std::vector<float> m_latticeVertices;   // le maglie canoniche, fino al caricamento nel VBO
-    // Oltre quale distanza (in raggi) un tubo o una sfera usa la maglia semplice
-    // nella vista da fuori: kLatticeFineReach al raggio di sempre, piu' in la'
-    // per i tubi piu' spessi (stessa larghezza sullo schermo).
+    // Nella vista da fuori, la fine della seconda fascia di tubi e delle sfere
+    // intere (in raggi): kLatticeFineReach al raggio di sempre, piu' in la' per
+    // i tubi piu' spessi (stessa larghezza sullo schermo).
     double hyperbolicLatticeFineReach() const;
     bool m_latticeVboUploaded = false;
     // Prima del render pass: cella della camera, istanze, uniform (e la

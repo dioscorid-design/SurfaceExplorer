@@ -11154,7 +11154,13 @@ void ScenarioTest::runSceneH3Scenarios()
         const int wholeEdges = gl->hyperbolicLatticeEdgeCount();
         const bool latticeFull = latticeDensity->isEnabled() && latticeDensity->value() == 100
                                  && gl->hyperbolicLatticeDrawnEdges() == wholeEdges
-                                 && gl->m_h3LatticeFine > 0 && gl->m_h3LatticeFine < gl->m_h3LatticeDrawn;
+                                 && 0 < gl->m_h3LatticeTierEnd[0] && gl->m_h3LatticeTierEnd[0] < gl->m_h3LatticeTierEnd[1]
+                                 && gl->m_h3LatticeTierEnd[1] < gl->m_h3LatticeTierEnd[2]
+                                 && gl->m_h3LatticeTierEnd[2] < gl->m_h3LatticeDrawn;
+        const QString tiers = QStringLiteral("%1/%2/%3/%4").arg(gl->m_h3LatticeTierEnd[0])
+                                  .arg(gl->m_h3LatticeTierEnd[1] - gl->m_h3LatticeTierEnd[0])
+                                  .arg(gl->m_h3LatticeTierEnd[2] - gl->m_h3LatticeTierEnd[1])
+                                  .arg(gl->m_h3LatticeDrawn - gl->m_h3LatticeTierEnd[2]);
         int farRing = 0;
         for (int x = int(cx + 0.95 * cy / halfH); x < int(cx + 0.985 * cy / halfH); ++x)
             for (int y = int(cy) - 40; y <= int(cy) + 40; ++y)
@@ -11179,8 +11185,9 @@ void ScenarioTest::runSceneH3Scenarios()
                   && wholeEdges > 4 * aroundEdges && farRing > 20,
               QStringLiteral("vista da fuori: il reticolo ha il suo pezzo (%1 spigoli, in prospettiva %2), arriva "
                              "oltre il 95% della palla (%3 punti fra 95 e 98.5%); densita' spenta col reticolo "
-                             "spento, 0 il solo cubo centrale (%4 spigoli), 50 %5 (scene-h3-outside-lattice-*.png)")
-                  .arg(wholeEdges).arg(aroundEdges).arg(farRing).arg(cubeEdges).arg(halfEdges));
+                             "spento, 0 il solo cubo centrale (%4 spigoli), 50 %5; quattro fasce di anelli, dal "
+                             "centro al bordo %6 spigoli (scene-h3-outside-lattice-*.png)")
+                  .arg(wholeEdges).arg(aroundEdges).arg(farRing).arg(cubeEdges).arg(halfEdges).arg(tiers));
         newScene();
     }
 

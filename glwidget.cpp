@@ -6065,9 +6065,16 @@ void GLWidget::hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMa
 //   ~46600 spigoli: pieno fino al 97.8% del raggio della palla, i piu' lontani
 //   al 99.3% (con 3.5, 94% e 98%: si vedeva l'anello vuoto). Ogni mezzo raggio
 //   in piu' moltiplica gli spigoli per ~2.7.
-// Gli spigoli oltre kLatticeFineReach (nella palla oltre il 90.5% del raggio,
-// tubi larghi meno di ~2 pixel) usano un tubo semplice (4 anelli, sezione
-// triangolare: 72 vertici invece di 384): ~3.4 milioni di vertici invece di 18.
+// GLI ANELLI LUNGO LO SPIGOLO. In prospettiva gli spigoli sono segmenti dritti
+// sullo schermo (la carta di Klein): bastano 8 anelli. Nella vista da fuori
+// sono archi di cerchio, e con pochi anelli si vedevano spezzate (segnalato
+// dall'utente, 2026-11-15). Li' gli anelli vanno a fasce di distanza dal
+// centro della palla (dell'estremo piu' lontano), perche' un arco a distanza d
+// e' lungo circa 3.2 e^-d raggi della palla: entro 2 raggi 32 anelli, fino a
+// kLatticeFineReach 16, un raggio oltre 8 a sezione quadrata, poi 8 a sezione
+// triangolare (con 4 gli archi piccoli verso il bordo restavano a faccette).
+// Spigoli per fascia, col pezzo intero: 12, 228, 1944, 44412; ~7 milioni di
+// vertici (prima ~3.4, con le spezzate). Solo nella vista da fuori.
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
 static constexpr double kLatticePatchRadius = 3.0;
 #else
@@ -6076,10 +6083,12 @@ static constexpr double kLatticePatchRadius = 3.5;
 static constexpr double kLatticeWholeRadius = 4.5;
 static constexpr double kLatticeFineReach = 3.0;
 static constexpr double kLatticeTubeRadius = GLWidget::kH3LatticeTubeRadius;   // in raggi: ~1/65 del lato
-static constexpr int kLatticeAlong = 8;                // anelli lungo lo spigolo
+static constexpr int kLatticeAlong = 8;                // prospettiva: anelli lungo lo spigolo
 static constexpr int kLatticeAround = 8;               // lati del tubo
-static constexpr int kLatticeCoarseAlong = 4;          // il tubo semplice
-static constexpr int kLatticeCoarseAround = 3;
+static constexpr double kLatticeArcReach0 = 2.0;       // vista da fuori: fine della prima fascia
+// Le fasce della vista da fuori: anelli lungo lo spigolo e lati del tubo.
+static constexpr int kLatticeArcAlong[4] = { 32, 16, 8, 8 };
+static constexpr int kLatticeArcAround[4] = { 8, 8, 4, 3 };
 // IL TUBO PIU' SOTTILE SULLO SCHERMO: lontano un tubo scende sotto il pixel e
 // il rasterizzatore ne accende solo dei pezzi (le linee tratteggiate in fondo,
 // soprattutto nella vista da fuori). Sotto questo raggio in pixel il tubo si
@@ -6266,9 +6275,9 @@ bool GLWidget::createLatticePipeline()
         endMesh();
     };
     addTube(kLatticeAlong, kLatticeAround);
-    addTube(kLatticeCoarseAlong, kLatticeCoarseAround);
+    for (int tier = 0; tier < 4; ++tier) addTube(kLatticeArcAlong[tier], kLatticeArcAround[tier]);
     addSphere(kLatticeAround / 2 + 1, kLatticeAround);
-    addSphere(2, kLatticeCoarseAround + 1);
+    addSphere(2, kLatticeArcAround[3] + 1);
     m_latticeVbo = rhi()->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, quint32(verts.size() * sizeof(float)));
     m_latticeUbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(LatticeUbo));
     if (!m_latticeVbo->create() || !m_latticeUbo->create()) return false;
@@ -6402,15 +6411,20 @@ void GLWidget::prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates, const 
         m_latticeVboUploaded = true;
     }
     // Solo gli spigoli entro la densita' scelta: i primi, sono in ordine di
-    // distanza. Il tubo intero ai vicini: tutti in prospettiva, nella vista da
-    // fuori quelli entro hyperbolicLatticeFineReach. Le sfere dei vertici con
-    // la stessa soglia.
+    // distanza. In prospettiva tutti col tubo di 8 anelli; nella vista da fuori
+    // le quattro fasce (kLatticeArcAlong), fino a 2 raggi, a
+    // hyperbolicLatticeFineReach, un raggio oltre, e il resto. Le sfere dei
+    // vertici intere fino a hyperbolicLatticeFineReach.
     m_h3LatticeDrawn = hyperbolicLatticeDrawnEdges();
     const double fineReach = hyperbolicLatticeFineReach();
     const auto countWithin = [](const std::vector<double> &reach, double limit) {
         return int(std::upper_bound(reach.begin(), reach.end(), limit) - reach.begin());
     };
-    m_h3LatticeFine = whole ? std::min(countWithin(piece.reach, fineReach), m_h3LatticeDrawn) : m_h3LatticeDrawn;
+    const double tierLimit[3] = { kLatticeArcReach0, fineReach, fineReach + 1.0 };
+    for (int tier = 0; tier < 3; ++tier)
+        m_h3LatticeTierEnd[tier] = whole ? std::min(countWithin(piece.reach, tierLimit[tier]), m_h3LatticeDrawn)
+                                         : m_h3LatticeDrawn;
+    m_h3LatticeTierEnd[3] = m_h3LatticeDrawn;
     m_h3LatticeVerticesDrawn = 0;
     m_h3LatticeVerticesFine = 0;
     if (m_h3LatticeDrawn > 0) {
@@ -6500,9 +6514,10 @@ void GLWidget::drawHyperbolicLattice(QRhiCommandBuffer *cb, const QSize &outputS
     cb->setGraphicsPipeline(m_latticePipeline);
     cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
     cb->setShaderResources(m_latticeSrb);
-    // I vicini con la maglia intera, i lontani (solo nella vista da fuori) con
-    // la semplice: ogni maglia comincia al suo posto nel VBO, le sue istanze al
-    // loro nel buffer delle istanze. Prima i tubi, poi le sfere dei vertici.
+    // In prospettiva un tubo solo; nella vista da fuori una maglia per fascia,
+    // con meno anelli verso il bordo. Ogni maglia comincia al suo posto nel
+    // VBO, le sue istanze al loro nel buffer delle istanze (in ordine di
+    // distanza). Prima i tubi, poi le sfere dei vertici.
     const auto drawMesh = [&](LatticeMeshKind kind, int firstInstance, int count) {
         if (count <= 0) return;
         const QRhiCommandBuffer::VertexInput inputs[] = {
@@ -6511,8 +6526,15 @@ void GLWidget::drawHyperbolicLattice(QRhiCommandBuffer *cb, const QSize &outputS
         cb->setVertexInput(0, 2, inputs);
         cb->draw(quint32(m_latticeMesh[kind].count), quint32(count));
     };
-    drawMesh(LatticeTubeFine, 0, m_h3LatticeFine);
-    drawMesh(LatticeTubeCoarse, m_h3LatticeFine, m_h3LatticeDrawn - m_h3LatticeFine);
+    if (m_h3LatticeWholeDraw) {
+        int begin = 0;
+        for (int tier = 0; tier < 4; ++tier) {
+            drawMesh(LatticeMeshKind(LatticeTubeArc0 + tier), begin, m_h3LatticeTierEnd[tier] - begin);
+            begin = m_h3LatticeTierEnd[tier];
+        }
+    } else {
+        drawMesh(LatticeTubePerspective, 0, m_h3LatticeDrawn);
+    }
     drawMesh(LatticeSphereFine, m_h3LatticeVertexInstance, m_h3LatticeVerticesFine);
     drawMesh(LatticeSphereCoarse, m_h3LatticeVertexInstance + m_h3LatticeVerticesFine,
              m_h3LatticeVerticesDrawn - m_h3LatticeVerticesFine);
