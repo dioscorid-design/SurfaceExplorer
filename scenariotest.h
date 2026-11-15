@@ -289,6 +289,11 @@ private:
     // fotogramma fuori schermo, in quanto tempo e con quanta memoria. Da sola:
     // --scenario-only hires-probe.
     void runHiResProbeScenarios();
+    // Il fotogramma del video con Screen Upscale e una risoluzione fissa
+    // (getFrameForVideo, senza FBO): dimensione del video, vista INTERA con fasce
+    // nere (non stirata, non a meta' misura su Retina). Da sola: --scenario-only
+    // video-frame.
+    void runVideoFrameScenarios();
     // Lo scatto di un'immagine a risoluzione libera (ImageCapture): dimensioni dal
     // rapporto, riquadro guida, e che il riquadro dica la verita' (un'immagine piu'
     // larga della vista mostra il soggetto alla stessa frazione di larghezza: il

@@ -2119,6 +2119,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("video-frame")) {
+        runVideoFrameScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("shape-background")) {
         runShapeBackgroundScenarios();
         finish();
@@ -4068,6 +4073,7 @@ void ScenarioTest::run()
     runSceneH3Scenarios();
     runScenePathScenarios();
     runSceneSeekScenarios();
+    runVideoFrameScenarios();
     runImageCaptureScenarios();
     runAnimatedLoadScenarios();
     runLoadOrderScenarios();
@@ -6768,6 +6774,161 @@ void ScenarioTest::runSceneMotionScenarios()
     }
 }
 
+void ScenarioTest::runVideoFrameScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Video: fotogramma con Screen Upscale e risoluzione fissa =="));
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    gl->stopAllTimers();
+    gl->setClocksDrivenByRecorder(true);
+    wait(500);
+    const double viewAspect = double(gl->width()) / double(std::max(1, gl->height()));
+    auto isBlack = [](const QImage &img, int x, int y) { return (img.pixel(x, y) & 0x00ffffff) == 0; };
+    // Due formati: 16:9 e quasi quadrato. Il fotogramma deve avere la dimensione
+    // chiesta, la vista intera nel mezzo (non a meta' misura: su Retina
+    // grabFramebuffer porta devicePixelRatio 2) e le fasce nere dalla parte in cui
+    // la vista e' piu' stretta del formato.
+    for (const QSize &target : { QSize(1920, 1080), QSize(1200, 1000) }) {
+        const QImage img = gl->getFrameForVideo(target.width(), target.height(), false);
+        const QString label = QStringLiteral("%1x%2").arg(target.width()).arg(target.height());
+        check(img.size() == target && qFuzzyCompare(img.devicePixelRatio(), 1.0),
+              QStringLiteral("%1: dimensione del video, devicePixelRatio 1 (%2x%3, dpr %4)")
+                  .arg(label).arg(img.width()).arg(img.height()).arg(img.devicePixelRatio()));
+        if (img.size() != target) continue;
+        const double targetAspect = double(target.width()) / double(target.height());
+        const int w = img.width(), h = img.height();
+        // La vista intera riempie il lato in cui entra tutta: al centro non e' nero
+        // e, dal lato pieno, arriva ai bordi (con la vista a meta' misura no).
+        check(!isBlack(img, w / 2, h / 2), QStringLiteral("%1: il centro non e' nero").arg(label));
+        if (viewAspect < targetAspect - 0.02) {
+            check(isBlack(img, 2, h / 2) && isBlack(img, w - 3, h / 2)
+                      && !isBlack(img, w / 2, 2) && !isBlack(img, w / 2, h - 3),
+                  QStringLiteral("%1: vista piu' stretta del formato -> fasce nere ai lati, piena in altezza").arg(label));
+        } else if (viewAspect > targetAspect + 0.02) {
+            check(isBlack(img, w / 2, 2) && isBlack(img, w / 2, h - 3)
+                      && !isBlack(img, 2, h / 2) && !isBlack(img, w - 3, h / 2),
+                  QStringLiteral("%1: vista piu' larga del formato -> fasce nere sopra e sotto, piena in larghezza").arg(label));
+        } else {
+            check(!isBlack(img, 2, h / 2) && !isBlack(img, w / 2, 2),
+                  QStringLiteral("%1: stesso formato della vista -> nessuna fascia").arg(label));
+        }
+    }
+    // Risoluzione nativa (target non positivo): nessun adattamento, immagine intera.
+    {
+        const QImage img = gl->getFrameForVideo(-1, -1, false);
+        check(!img.isNull() && !isBlack(img, img.width() / 2, img.height() / 2),
+              QStringLiteral("dimensione nativa: immagine intera (%1x%2)").arg(img.width()).arg(img.height()));
+    }
+    gl->setClocksDrivenByRecorder(false);
+
+#if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
+    // IL DIALOGO DEL VIDEO SUL DESKTOP: un dialogo solo con tutte le impostazioni
+    // (prima fino a sei QInputDialog in fila), che riparte dalle scelte
+    // dell'ultima volta; il Downscaling si accende solo quando conta. Dopo,
+    // il selettore del file. Il REC vero: la scelta Video/Image e il selettore
+    // del file li chiude il watcher dei popup (Video, poi Annulla), il dialogo
+    // l'handler.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Video: un dialogo solo per le impostazioni (desktop) =="));
+    {
+        QSettings st;
+        st.setValue("lastRecDuration", 7);
+        st.setValue("lastRecFPS", 30);
+        st.setValue("lastRecResIndex", 0);   // la vista: la riga del Downscaling corta
+        st.setValue("lastRecFormat", 1);
+        st.setValue("lastRecEngine", 0);
+        st.setValue("lastRecResample", true);
+    }
+    // Le finestre modali le chiude il watcher dei popup (Annulla), la scelta
+    // Video/Image con m_popupAnswer; questo timer, piu' svelto, le annota soltanto.
+    QStringList modalsSeen;
+    bool fileDialogSeen = false;
+    QTimer observer;
+    observer.setInterval(20);
+    QObject::connect(&observer, &QTimer::timeout, [&]() {
+        QWidget *m = QApplication::activeModalWidget();
+        if (!m) return;
+        const QString cls = QString::fromLatin1(m->metaObject()->className());
+        if (modalsSeen.isEmpty() || modalsSeen.last() != cls) modalsSeen << cls;
+        if (qobject_cast<QFileDialog *>(m)) fileDialogSeen = true;
+    });
+    for (const bool accept : { false, true }) {
+        modalsSeen.clear();
+        fileDialogSeen = false;
+        bool restored = false, gateOk = false, hintVisible = false;
+        QString title, gateText, hintText;
+        VideoRecorder::setTestDialogHandler([&](QDialog *d) {
+            m_leaveOpen = d;
+            title = d->windowTitle();
+            const QList<QSpinBox *> spins = d->findChildren<QSpinBox *>();
+            const QList<QComboBox *> combos = d->findChildren<QComboBox *>();
+            QCheckBox *chk = d->findChild<QCheckBox *>();
+            if (spins.size() != 2 || combos.size() != 3 || !chk) { m_leaveOpen = nullptr; d->reject(); return; }
+            QComboBox *res = combos[0], *format = combos[1], *engine = combos[2];
+            restored = spins[0]->value() == 7 && spins[1]->value() == 30 && res->currentIndex() == 0
+                       && format->currentIndex() == 1 && engine->currentIndex() == 0 && chk->isChecked();
+            // La casella si accende solo col motore nativo e un video piu' piccolo della vista.
+            // Si apre sulla vista (riga corta); 1080p la allunga se il video e'
+            // piu' piccolo della vista.
+            const bool smaller1080 = gl->captureRenderSize(QSize(1920, 1080), 1.0f) != QSize(1920, 1080);
+            wait(300);
+            const bool onView = chk->isEnabled();
+            res->setCurrentIndex(1);
+            engine->setCurrentIndex(1);
+            const bool onUpscale = chk->isEnabled();
+            engine->setCurrentIndex(0);
+            const bool on1080 = chk->isEnabled();
+            gateOk = on1080 == smaller1080 && !onView && !onUpscale;
+            // Dalla riga corta a quella lunga: il dialogo cresce e la riga si
+            // legge tutta (alta quanto chiede alla sua larghezza, sopra i tasti).
+            wait(300);
+            QLabel *hint = d->findChild<QLabel *>(QStringLiteral("videoResampleHint"));
+            QDialogButtonBox *box = d->findChild<QDialogButtonBox *>();
+            hintVisible = hint && box && hint->height() >= hint->heightForWidth(hint->width())
+                          && hint->geometry().bottom() < box->geometry().top();
+            hintText = hint && box ? QStringLiteral("alta %1 su %2, fondo %3, tasti da %4")
+                                         .arg(hint->height()).arg(hint->heightForWidth(hint->width()))
+                                         .arg(hint->geometry().bottom()).arg(box->geometry().top())
+                                   : QStringLiteral("riga o tasti non trovati");
+            gateText = QStringLiteral("1080p %1 (piu' piccolo della vista %2), vista %3, Screen Upscale %4")
+                           .arg(on1080).arg(smaller1080).arg(onView).arg(onUpscale);
+            m_leaveOpen = nullptr;
+            if (accept) {
+                spins[0]->setValue(9);
+                d->accept();
+            } else {
+                d->reject();
+            }
+        });
+        m_popupAnswer = QStringLiteral("Video");
+        observer.start();
+        m_mw->m_videoRecorder->toggleRecord();
+        observer.stop();
+        m_popupAnswer.clear();
+        VideoRecorder::setTestDialogHandler(nullptr);
+        wait(200);
+        const bool noInputDialog = !modalsSeen.contains(QStringLiteral("QInputDialog"));
+        const bool recording = m_mw->m_isRecording;
+        check(title == QStringLiteral("Capture Video") && restored && noInputDialog,
+              QStringLiteral("%1: un dialogo solo (\"%2\"), finestre modali %3; riparte dalle scelte salvate %4")
+                  .arg(accept ? QStringLiteral("Capture") : QStringLiteral("Cancel"), title, modalsSeen.join(QStringLiteral(" > ")))
+                  .arg(restored));
+        check(gateOk, QStringLiteral("Downscaling acceso solo quando conta: %1").arg(gateText));
+        check(hintVisible, QStringLiteral("la riga del Downscaling si legge tutta quando si allunga (%1)").arg(hintText));
+        if (accept) {
+            const int saved = QSettings().value("lastRecDuration").toInt();
+            check(fileDialogSeen && saved == 9 && !recording,
+                  QStringLiteral("Capture apre il selettore del file %1 e salva le scelte (durata %2); Annulla li' non registra %3")
+                      .arg(fileDialogSeen).arg(saved).arg(!recording));
+        } else {
+            check(!fileDialogSeen && !recording,
+                  QStringLiteral("Cancel: niente selettore del file %1, nessuna registrazione %2").arg(!fileDialogSeen).arg(!recording));
+        }
+    }
+#endif
+}
+
 void ScenarioTest::runImageCaptureScenarios()
 {
     GLWidget *gl = m_mw->ui->glWidget;
@@ -7944,112 +8105,6 @@ void ScenarioTest::runImageCaptureScenarios()
         pressNew();
     }
     gl->setClocksDrivenByRecorder(false);
-
-#if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
-    // IL DIALOGO DEL VIDEO SUL DESKTOP: un dialogo solo con tutte le impostazioni
-    // (prima fino a sei QInputDialog in fila), che riparte dalle scelte
-    // dell'ultima volta; il Downscaling si accende solo quando conta. Dopo,
-    // il selettore del file. Il REC vero: la scelta Video/Image e il selettore
-    // del file li chiude il watcher dei popup (Video, poi Annulla), il dialogo
-    // l'handler.
-    m_lines.append(QString());
-    m_lines.append(QStringLiteral("== Video: un dialogo solo per le impostazioni (desktop) =="));
-    {
-        QSettings st;
-        st.setValue("lastRecDuration", 7);
-        st.setValue("lastRecFPS", 30);
-        st.setValue("lastRecResIndex", 0);   // la vista: la riga del Downscaling corta
-        st.setValue("lastRecFormat", 1);
-        st.setValue("lastRecEngine", 0);
-        st.setValue("lastRecResample", true);
-    }
-    // Le finestre modali le chiude il watcher dei popup (Annulla), la scelta
-    // Video/Image con m_popupAnswer; questo timer, piu' svelto, le annota soltanto.
-    QStringList modalsSeen;
-    bool fileDialogSeen = false;
-    QTimer observer;
-    observer.setInterval(20);
-    QObject::connect(&observer, &QTimer::timeout, [&]() {
-        QWidget *m = QApplication::activeModalWidget();
-        if (!m) return;
-        const QString cls = QString::fromLatin1(m->metaObject()->className());
-        if (modalsSeen.isEmpty() || modalsSeen.last() != cls) modalsSeen << cls;
-        if (qobject_cast<QFileDialog *>(m)) fileDialogSeen = true;
-    });
-    for (const bool accept : { false, true }) {
-        modalsSeen.clear();
-        fileDialogSeen = false;
-        bool restored = false, gateOk = false, hintVisible = false;
-        QString title, gateText, hintText;
-        VideoRecorder::setTestDialogHandler([&](QDialog *d) {
-            m_leaveOpen = d;
-            title = d->windowTitle();
-            const QList<QSpinBox *> spins = d->findChildren<QSpinBox *>();
-            const QList<QComboBox *> combos = d->findChildren<QComboBox *>();
-            QCheckBox *chk = d->findChild<QCheckBox *>();
-            if (spins.size() != 2 || combos.size() != 3 || !chk) { m_leaveOpen = nullptr; d->reject(); return; }
-            QComboBox *res = combos[0], *format = combos[1], *engine = combos[2];
-            restored = spins[0]->value() == 7 && spins[1]->value() == 30 && res->currentIndex() == 0
-                       && format->currentIndex() == 1 && engine->currentIndex() == 0 && chk->isChecked();
-            // La casella si accende solo col motore nativo e un video piu' piccolo della vista.
-            // Si apre sulla vista (riga corta); 1080p la allunga se il video e'
-            // piu' piccolo della vista.
-            const bool smaller1080 = gl->captureRenderSize(QSize(1920, 1080), 1.0f) != QSize(1920, 1080);
-            wait(300);
-            const bool onView = chk->isEnabled();
-            res->setCurrentIndex(1);
-            engine->setCurrentIndex(1);
-            const bool onUpscale = chk->isEnabled();
-            engine->setCurrentIndex(0);
-            const bool on1080 = chk->isEnabled();
-            gateOk = on1080 == smaller1080 && !onView && !onUpscale;
-            // Dalla riga corta a quella lunga: il dialogo cresce e la riga si
-            // legge tutta (alta quanto chiede alla sua larghezza, sopra i tasti).
-            wait(300);
-            QLabel *hint = d->findChild<QLabel *>(QStringLiteral("videoResampleHint"));
-            QDialogButtonBox *box = d->findChild<QDialogButtonBox *>();
-            hintVisible = hint && box && hint->height() >= hint->heightForWidth(hint->width())
-                          && hint->geometry().bottom() < box->geometry().top();
-            hintText = hint && box ? QStringLiteral("alta %1 su %2, fondo %3, tasti da %4")
-                                         .arg(hint->height()).arg(hint->heightForWidth(hint->width()))
-                                         .arg(hint->geometry().bottom()).arg(box->geometry().top())
-                                   : QStringLiteral("riga o tasti non trovati");
-            gateText = QStringLiteral("1080p %1 (piu' piccolo della vista %2), vista %3, Screen Upscale %4")
-                           .arg(on1080).arg(smaller1080).arg(onView).arg(onUpscale);
-            m_leaveOpen = nullptr;
-            if (accept) {
-                spins[0]->setValue(9);
-                d->accept();
-            } else {
-                d->reject();
-            }
-        });
-        m_popupAnswer = QStringLiteral("Video");
-        observer.start();
-        m_mw->m_videoRecorder->toggleRecord();
-        observer.stop();
-        m_popupAnswer.clear();
-        VideoRecorder::setTestDialogHandler(nullptr);
-        wait(200);
-        const bool noInputDialog = !modalsSeen.contains(QStringLiteral("QInputDialog"));
-        const bool recording = m_mw->m_isRecording;
-        check(title == QStringLiteral("Capture Video") && restored && noInputDialog,
-              QStringLiteral("%1: un dialogo solo (\"%2\"), finestre modali %3; riparte dalle scelte salvate %4")
-                  .arg(accept ? QStringLiteral("Capture") : QStringLiteral("Cancel"), title, modalsSeen.join(QStringLiteral(" > ")))
-                  .arg(restored));
-        check(gateOk, QStringLiteral("Downscaling acceso solo quando conta: %1").arg(gateText));
-        check(hintVisible, QStringLiteral("la riga del Downscaling si legge tutta quando si allunga (%1)").arg(hintText));
-        if (accept) {
-            const int saved = QSettings().value("lastRecDuration").toInt();
-            check(fileDialogSeen && saved == 9 && !recording,
-                  QStringLiteral("Capture apre il selettore del file %1 e salva le scelte (durata %2); Annulla li' non registra %3")
-                      .arg(fileDialogSeen).arg(saved).arg(!recording));
-        } else {
-            check(!fileDialogSeen && !recording,
-                  QStringLiteral("Cancel: niente selettore del file %1, nessuna registrazione %2").arg(!fileDialogSeen).arg(!recording));
-        }
-    }
-#endif
 }
 
 void ScenarioTest::runHiResProbeScenarios()
@@ -12639,21 +12694,50 @@ void ScenarioTest::runLibraryPasteScenarios()
 
     m_mw->m_cutFilePaths.clear();
 
-    // L'INCOLLA DA TASTIERA senza voce selezionata va nel ramo del file per
-    // POSIZIONE, non per le parole del percorso; con un suono selezionato va
-    // accanto a lui. Le due letture di performPasteExample, a libreria intatta:
-    // i percorsi non devono esistere.
+    // L'INCOLLA DA TASTIERA, senza cartella esplicita: accanto alla voce
+    // selezionata, o nella radice del ramo del file per POSIZIONE. Si guarda
+    // solo la destinazione: i percorsi non devono esistere e la libreria non si
+    // tocca. Prima il ramo si indovinava cercando "record", "motion", "sound"
+    // nel percorso, e accanto a un suono non si incollava.
+    Ui::MainWindow *ui = m_mw->ui;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Library: dove va l'Incolla da tastiera =="));
     const QString shapes = LibraryFolders::branchDir(LibraryFolders::Branch::Surfaces);
     const QString records = LibraryFolders::branchDir(LibraryFolders::Branch::Records);
-    check(LibraryFolders::branchOf(shapes + QStringLiteral("/Sound Records/a.json")) == LibraryFolders::Branch::Surfaces
-              && LibraryFolders::branchOf(records + QStringLiteral("/Sounds/a.json")) == LibraryFolders::Branch::Records,
-          QStringLiteral("Incolla: il ramo di un file non dipende dalle parole del percorso"));
+    const QString textures = LibraryFolders::branchDir(LibraryFolders::Branch::Textures);
+    ui->tabWidget->setCurrentWidget(ui->Surface);
+    ui->treeSurfaces->clearSelection();
+    wait(100);
+    auto destOf = [this](const QString &copied) {
+        m_mw->m_cutFilePaths = { copied };
+        const QString dest = m_mw->m_fileOps->pasteDestination();
+        m_mw->m_cutFilePaths.clear();
+        return dest;
+    };
+    QString dest = destOf(shapes + QStringLiteral("/Sound Records/a.json"));
+    check(dest == shapes, QStringLiteral("Shape in una cartella col nome di un altro ramo -> radice delle Shapes (%1)").arg(dest));
+    dest = destOf(records + QStringLiteral("/Sounds/a.json"));
+    check(dest == records, QStringLiteral("Record in una cartella Sounds -> radice dei Record (%1)").arg(dest));
+    dest = destOf(textures + QStringLiteral("/Images"));
+    check(dest == textures, QStringLiteral("cartella delle Texture -> radice delle Texture (%1)").arg(dest));
+
     QTreeWidgetItem *sound = nullptr;
-    for (QTreeWidgetItemIterator it(m_mw->ui->treeSounds); *it && !sound; ++it)
+    for (QTreeWidgetItemIterator it(ui->treeSounds); *it && !sound; ++it)
         if ((*it)->parent() && (*it)->data(0, LibraryManager::itemRole(LibraryType::Sound)).isValid()) sound = *it;
-    check(sound && QFileInfo::exists(m_mw->m_libraryManager.itemFilePath(sound)),
-          QStringLiteral("Incolla: la voce di un suono da' il suo file (%1)")
-              .arg(sound ? m_mw->m_libraryManager.itemFilePath(sound) : QString()));
+    check(sound != nullptr, QStringLiteral("un suono dentro una cartella della Library"));
+    if (sound) {
+        const QString soundDir = QFileInfo(m_mw->m_libraryManager.itemFilePath(sound)).absolutePath();
+        QWidget *soundsTab = nullptr;
+        for (int i = 0; i < ui->tabWidget->count() && !soundsTab; ++i)
+            if (ui->tabWidget->widget(i)->isAncestorOf(ui->treeSounds)) soundsTab = ui->tabWidget->widget(i);
+        ui->tabWidget->setCurrentWidget(soundsTab);
+        ui->treeSounds->setCurrentItem(sound);
+        wait(100);
+        dest = destOf(shapes + QStringLiteral("/a.json"));
+        check(dest == soundDir, QStringLiteral("con un suono selezionato -> accanto al suono (%1)").arg(dest));
+        ui->treeSounds->clearSelection();
+        ui->tabWidget->setCurrentWidget(ui->Surface);
+    }
 
     // I PRESET DI FABBRICA di ogni ramo stanno nelle risorse, dove Restore
     // Factory li cerca (:/library/presets/<cartella>): le scene mancavano.

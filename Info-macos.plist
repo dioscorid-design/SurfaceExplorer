@@ -13,6 +13,9 @@
 -->
 <plist version="1.0">
 <dict>
+	<!-- Nome: "Surface Explorer" per l'App Store; nel DMG "Surface Explorer v2" per la
+	     x.0 e "Surface Explorer v2.1" dalla x.1 (MACOSX_BUNDLE_BUNDLE_NAME, CMakeLists.txt
+	     blocco elseif(APPLE), SE_MACOS_BUNDLE_NAME). -->
 	<key>CFBundleDisplayName</key>
 	<string>${MACOSX_BUNDLE_BUNDLE_NAME}</string>
 	<key>CFBundleExecutable</key>

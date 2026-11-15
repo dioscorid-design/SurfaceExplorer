@@ -41,13 +41,31 @@ BUILD_DIR="$PROJECT_DIR/build/ios-appstore"
 XCODEPROJ="$BUILD_DIR/SurfaceExplorer.xcodeproj"
 SCHEME="SurfaceExplorer"
 QT_CMAKE="$HOME/Qt/6.12.0/ios_device/bin/qt-cmake"
-GIT_BRANCH="v1"
 # Cartella dove xcodebuild deposita l'archivio (poi visibile anche nell'Organizer).
 ARCHIVE_DIR="$HOME/Library/Developer/Xcode/Archives"
 
 err()  { printf '\033[31mERRORE:\033[0m %s\n' "$*" >&2; exit 1; }
 info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 ok()   { printf '\033[32m✓\033[0m %s\n' "$*"; }
+
+# Il comando che pusha il ramo corrente sul suo remoto, per il promemoria dopo il
+# commit del bump. Letto da git: prima era scritto a mano ("git push origin v1") e
+# indicava un ramo che questo repo non ha. Coi nomi completi (refs/heads/...):
+# dove un tag ha lo stesso nome del ramo (v1.5) "git push <remoto> v1.5" e' ambiguo.
+push_hint() {
+  local ref branch remote merge
+  # Il ref intero, non --short: col tag omonimo --short risponde "heads/v1.5",
+  # che non e' il nome sotto cui git tiene il remoto del ramo.
+  ref="$(git symbolic-ref --quiet HEAD 2>/dev/null || true)"
+  branch="${ref#refs/heads/}"
+  remote="$(git config --get "branch.$branch.remote" 2>/dev/null || true)"
+  merge="$(git config --get "branch.$branch.merge" 2>/dev/null || true)"
+  if [ -n "$branch" ] && [ -n "$remote" ] && [ -n "$merge" ]; then
+    printf 'git push %s %s:%s' "$remote" "$ref" "$merge"
+  else
+    printf 'git push'
+  fi
+}
 
 # ---------------------------------------------------------------------------
 # Argomenti
@@ -101,7 +119,7 @@ sed -E \
   "$CMAKE" > "$tmp" && mv "$tmp" "$CMAKE"
 
 # --- Info.plist: nessun numero da scrivere ---
-# Dal 40a02ee CFBundleVersion vale ${MACOSX_BUNDLE_BUNDLE_VERSION}, che CMake
+# Dal 2026-11-06 CFBundleVersion vale ${MACOSX_BUNDLE_BUNDLE_VERSION}, che CMake
 # riempie dal campo qui sopra (anche col generatore Xcode). Prima lo script vi
 # scriveva il numero; ora verifica solo che nessuno ce ne abbia rimesso uno.
 
@@ -124,7 +142,7 @@ if [ "$DO_COMMIT" -eq 1 ]; then
   git add "$CMAKE" "$PLIST"
   git commit -m "iOS: build number -> $NEW_BUILD (TestFlight)" >/dev/null
   ok "Commit del bump creato."
-  info "Ricorda di fare 'git push origin $GIT_BRANCH' quando vuoi."
+  info "Ricorda di fare '$(push_hint)' quando vuoi."
 else
   info "--no-commit: bump applicato ai file ma NON committato."
 fi

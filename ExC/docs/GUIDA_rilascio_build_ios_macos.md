@@ -364,6 +364,20 @@ decine di framework Qt e per ognuno manca il dSYM. Le voci `for the A` sono i bi
 framework Qt* non saranno simbolicati — non il codice dell'app, e non qualcosa che si
 debugghi da un crash report. Ignorabile.
 
+### macOS: Distribute App dice che nell'archivio non c'e' il team
+L'archivio non e' firmato: nel suo `Info.plist` `ApplicationProperties.Team` e' vuoto, ed
+e' li' che l'Organizer cerca il team. Succedeva con lo script fino al 2026-11-13, che
+archiviava senza firma e rifirmava solo se trovava "Apple Distribution" nel portachiavi.
+Ora `release_testflight_mac.sh` archivia firmato come l'iOS (Apple Development, firma
+automatica) e si ferma se il team manca. Verifica:
+```bash
+A=<archivio>.xcarchive
+plutil -extract ApplicationProperties.Team raw "$A/Info.plist"                # BAPKX72394
+codesign -dv "$A/Products/Applications/SurfaceExplorer.app" 2>&1 | grep Team  # stesso team
+```
+Un archivio mai caricato si rifa' con lo stesso build number:
+`./ExC/Mac/release_testflight_mac.sh --no-bump`.
+
 ### macOS: "No signing certificate 'Mac App Distribution' found"
 Mancano i certificati del canale App Store: quelli di iOS e del DMG **non valgono**.
 Verifica cosa hai:

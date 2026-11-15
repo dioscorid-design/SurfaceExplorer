@@ -170,6 +170,30 @@ LibraryFileOperations::resolveMoveCollision(const QString &fileName, QString &de
     return choice;
 }
 
+QString LibraryFileOperations::pasteDestination()
+{
+    QTreeWidgetItem *currentItem = m_mainWindow->getCurrentLibraryItem();
+
+    if (currentItem && currentItem->data(0, Qt::UserRole + 10).isValid()) {
+        return currentItem->data(0, Qt::UserRole + 10).toString();
+    }
+    // Accanto alla voce selezionata (i suoni mancavano, e si finiva nella
+    // radice). Una texture no: le texture hanno il loro Incolla, e un
+    // preset incollato su una texture va nel suo ramo, qui sotto.
+    if (currentItem && !currentItem->data(0, LibraryManager::itemRole(LibraryType::Texture)).isValid()) {
+        const QString filePath = m_mainWindow->m_libraryManager.itemFilePath(currentItem);
+        if (!filePath.isEmpty()) return QFileInfo(filePath).absolutePath();
+    }
+
+    // Nessuna voce: la radice del ramo da cui viene il primo file, per
+    // POSIZIONE (LibraryFolders::branchOf). Prima lo si indovinava cercando
+    // "record", "motion", "sound" nel percorso: una Shape con una di quelle
+    // parole nel nome o nelle cartelle finiva in un altro ramo.
+    const LibraryFolders::Branch branch = LibraryFolders::branchOf(m_mainWindow->m_cutFilePaths.first());
+    return LibraryFolders::branchDir(branch == LibraryFolders::Branch::None
+                                     ? LibraryFolders::Branch::Surfaces : branch);
+}
+
 void LibraryFileOperations::performPasteExample(const QString &destDirOverride)
 {
     static bool isPasting = false;
@@ -183,32 +207,7 @@ void LibraryFileOperations::performPasteExample(const QString &destDirOverride)
 
     // Destinazione esplicita (ramo principale): il menu ci passa gia' la root della
     // categoria, quindi saltiamo del tutto la deduzione da item selezionato/euristica.
-    QString destDir = destDirOverride;
-
-    if (destDir.isEmpty()) {
-        QTreeWidgetItem *currentItem = m_mainWindow->getCurrentLibraryItem();
-
-        if (currentItem && currentItem->data(0, Qt::UserRole + 10).isValid()) {
-            destDir = currentItem->data(0, Qt::UserRole + 10).toString();
-        }
-        // Accanto alla voce selezionata (i suoni mancavano, e si finiva nella
-        // radice). Una texture no: le texture hanno il loro Incolla, e un
-        // preset incollato su una texture va nel suo ramo, qui sotto.
-        else if (currentItem && !currentItem->data(0, LibraryManager::itemRole(LibraryType::Texture)).isValid()) {
-            const QString filePath = m_mainWindow->m_libraryManager.itemFilePath(currentItem);
-            if (!filePath.isEmpty()) destDir = QFileInfo(filePath).absolutePath();
-        }
-    }
-
-    if (destDir.isEmpty()) {
-        // Nessuna voce: la radice del ramo da cui viene il primo file, per
-        // POSIZIONE (LibraryFolders::branchOf). Prima lo si indovinava cercando
-        // "record", "motion", "sound" nel percorso: una Shape con una di quelle
-        // parole nel nome o nelle cartelle finiva in un altro ramo.
-        const LibraryFolders::Branch branch = LibraryFolders::branchOf(m_mainWindow->m_cutFilePaths.first());
-        destDir = LibraryFolders::branchDir(branch == LibraryFolders::Branch::None
-                                            ? LibraryFolders::Branch::Surfaces : branch);
-    }
+    const QString destDir = destDirOverride.isEmpty() ? pasteDestination() : destDirOverride;
 
     // Su iOS/Android la sottocartella di destinazione puo' non esistere ancora nel
     // container (prima scrittura): senza questo mkpath sia QFile::rename che
