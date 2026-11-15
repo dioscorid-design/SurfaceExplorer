@@ -2189,6 +2189,21 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-fixed")) {
+        runSceneFixedScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("pole-normal")) {
+        runPoleNormalScenario();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("path-frame")) {
+        runPathFrameScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-space")) {
         runSceneSpaceScenarios();
         finish();
@@ -4074,6 +4089,9 @@ void ScenarioTest::run()
     runSceneSaveLoadScenarios();
     runSceneResetScenarios();
     runSceneTimelineScenarios();
+    runSceneFixedScenarios();
+    runPoleNormalScenario();
+    runPathFrameScenarios();
     runSceneSpaceScenarios();
     runSceneH3Scenarios();
     runDisabledLookScenarios();
@@ -9614,6 +9632,380 @@ void ScenarioTest::runSceneTimelineScenarios()
         check(gl->objectCount() == 2 && gl->objectWindowIn(1) == 1.0f && gl->objectWindowOut(1) == 2.0f
                   && gl->sceneTime() < 1.0f,
               QStringLiteral("Save/Load: finestra 1-2 s, T da capo (%1)").arg(gl->sceneTime()));
+    }
+}
+
+// OGGETTO FISSO (SurfaceObject::fixed): parte dell'ambiente. Il blocco ferma i
+// moti e toglie la finestra; i dock lo mostrano spento come l'ambiente; rotella
+// e trascinamento vanno al mondo; Remove non lo toglie; Save e Load lo portano;
+// sbloccato torna un oggetto normale. In coda la scena d'esempio della Library.
+void ScenarioTest::runSceneFixedScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Oggetto fisso: parte dell'ambiente, comandi spenti, non si toglie, Save/Load, sblocco =="));
+    const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
+    const QString kSphere = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
+    if (!buildScene(false, { kTorus, kSphere })) return;
+    const int sphere = gl->selectedObject();
+    check(sphere == 2 && m_mw->m_objectFixed && m_mw->m_objectFixed->isEnabled() && !m_mw->m_objectFixed->isChecked(),
+          QStringLiteral("sfera selezionata, casella Fixed attiva e spenta"));
+    if (sphere != 2 || !m_mw->m_objectFixed) return;
+
+    // Moti e finestra prima del blocco.
+    gl->setSpinSpeed(0.6f);
+    if (!gl->isObjectRotating(sphere)) m_mw->onStopClicked();   // GO
+    gl->setObjectWindow(sphere, 2.0f, 0.0f);
+    wait(100);
+    check(gl->isObjectRotating(sphere) && gl->objectWindowIn(sphere) == 2.0f,
+          QStringLiteral("prima del blocco: la sfera ruota e ha una finestra"));
+
+    // Il blocco dalla casella.
+    m_mw->m_objectFixed->setChecked(true);
+    wait(300);
+    check(gl->objectFixed(sphere) && !gl->isObjectRotating(sphere) && gl->getSpinSpeed() == 0.0f
+              && gl->objectWindowIn(sphere) == 0.0f && gl->isObjectOnStage(sphere),
+          QStringLiteral("bloccata: GO fermo, velocita' a zero, finestra via, in scena"));
+    check(!m_mw->ui->panelEquations->isEnabled() && !m_mw->m_objectPos[0]->isEnabled()
+              && !m_mw->m_objectWindowIn->isEnabled() && !m_mw->m_btnObjectRemove->isEnabled()
+              && m_mw->m_btnObjectDuplicate->isEnabled(),
+          QStringLiteral("dock: equazioni, posizione, finestra e Remove spenti, Duplicate acceso"));
+    // La texture resta sua (decisione dell'utente, 2026-11-15): bersaglio
+    // Surface, e una texture della Library va sulla sfera fissa.
+    check(m_mw->ui->radioSurface->isEnabled() && m_mw->ui->radioSurface->isChecked(),
+          QStringLiteral("texture: il bersaglio resta la superficie, Surface acceso"));
+    if (selectTexture(QStringLiteral("textures/Procedurals/Plasma.json")))
+        check(gl->isTextureEnabled() && gl->objectFixed(sphere) && !m_mw->m_scene.surfaceTextureCode.isEmpty(),
+              QStringLiteral("texture dalla Library sulla sfera fissa: accesa, la sfera resta fissa"));
+    check(!m_mw->ui->btnStart_2->isEnabled() && !m_mw->ui->btnSpinPlus->isEnabled()
+              && !m_mw->ui->btnOmegaPlus->isEnabled() && !m_mw->ui->btnDeparture3D->isEnabled()
+              && !m_mw->ui->lineX_P3D->isEnabled(),
+          QStringLiteral("moti propri: GO, velocita' 3D e 4D, path spenti"));
+    check(!m_mw->ui->radioBasic->isEnabled() && !m_mw->ui->stepSlider->isEnabled()
+              && !m_mw->ui->panelMultiMesh->isEnabled(),
+          QStringLiteral("aspetto spento come sull'ambiente (gate della scena vuota)"));
+    check(m_mw->m_objectList->item(sphere)->text().contains(QStringLiteral("(fixed)")),
+          QStringLiteral("nell'elenco: \"%1\"").arg(m_mw->m_objectList->item(sphere)->text()));
+
+    // I gesti vanno al mondo: la rotella non scala la sfera, il trascinamento
+    // gira la scena e non lei.
+    const float scale0 = gl->objectScale();
+    gl->zoomCamera(1.0f);
+    check(!gl->objectZoomActive() && gl->objectScale() == scale0,
+          QStringLiteral("rotella: la scala della sfera resta %1").arg(scale0));
+    const QQuaternion q0 = gl->orientation().rotation;
+    const QQuaternion scene0 = gl->sceneRotation().rotation;
+    gl->addObjectRotation(10.0f, 0.0f, 0.0f);
+    check(gl->orientation().rotation == q0 && gl->sceneRotation().rotation != scene0,
+          QStringLiteral("trascinamento: la sfera non gira, la scena si'"));
+    gl->setObjectRotating(sphere, true);
+    check(!gl->isObjectRotating(sphere), QStringLiteral("il GO su un fisso non si accende"));
+    m_mw->m_btnObjectRemove->click();
+    wait(200);
+    check(gl->objectCount() == 3, QStringLiteral("Remove: la sfera fissa resta (%1 oggetti)").arg(gl->objectCount()));
+
+    // Sul toro i comandi tornano.
+    m_mw->selectSceneObject(1);
+    wait(300);
+    check(m_mw->ui->panelEquations->isEnabled() && m_mw->m_objectPos[0]->isEnabled()
+              && m_mw->m_btnObjectRemove->isEnabled() && m_mw->ui->radioBasic->isEnabled()
+              && m_mw->ui->stepSlider->isEnabled() && m_mw->ui->btnStart_2->isEnabled()
+              && m_mw->ui->btnSpinPlus->isEnabled() && m_mw->ui->lineX_P3D->isEnabled()
+              && m_mw->ui->radioSurface->isEnabled() && !m_mw->m_objectFixed->isChecked(),
+          QStringLiteral("sul toro: equazioni, posizione, Remove, aspetto, GO, path e Surface riaccesi"));
+
+    // Save e Load: la chiave \"fixed\" solo su chi lo e', e senza finestra.
+    PresetSerializer::MotionRunState run;
+    const QJsonObject json = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Fixed"), run, false);
+    const QJsonArray objects = json.value(QStringLiteral("objects")).toArray();
+    check(objects.size() == 2 && !objects.at(0).toObject().contains(QStringLiteral("fixed"))
+              && objects.at(1).toObject().value(QStringLiteral("fixed")).toBool()
+              && !objects.at(1).toObject().contains(QStringLiteral("timeline")),
+          QStringLiteral("Save: \"fixed\" solo sulla sfera, senza finestra"));
+    const QString path = m_outDir + QStringLiteral("/scene-fixed.json");
+    {
+        QFile f(path);
+        if (f.open(QIODevice::WriteOnly)) { f.write(QJsonDocument(json).toJson()); f.close(); }
+    }
+    if (!loadSurface(kSphere)) return;
+    const bool loaded = m_mw->loadSceneFile(path);
+    wait(1500);
+    check(loaded && gl->objectCount() == 3 && gl->objectFixed(2) && !gl->objectFixed(1),
+          QStringLiteral("Load: la sfera torna fissa, il toro no"));
+    m_mw->selectSceneObject(2);
+    wait(300);
+    check(m_mw->m_objectFixed->isChecked() && !m_mw->ui->panelEquations->isEnabled()
+              && !m_mw->m_btnObjectRemove->isEnabled(),
+          QStringLiteral("dopo il Load, sulla sfera: casella accesa, equazioni e Remove spenti"));
+
+    // Lo sblocco: torna un oggetto normale, e si toglie.
+    m_mw->m_objectFixed->setChecked(false);
+    wait(300);
+    check(!gl->objectFixed(2) && m_mw->ui->panelEquations->isEnabled() && m_mw->m_btnObjectRemove->isEnabled()
+              && m_mw->m_objectPos[0]->isEnabled() && m_mw->ui->radioBasic->isEnabled(),
+          QStringLiteral("sbloccata: equazioni, posizione, Remove e aspetto riaccesi"));
+    m_mw->m_btnObjectRemove->click();
+    wait(300);
+    check(gl->objectCount() == 2, QStringLiteral("Remove: la sfera se ne va (%1 oggetti)").arg(gl->objectCount()));
+
+    // LA SCENA D'ESEMPIO della Library: in H3 il toro fisso e tre oggetti liberi dentro.
+    const QString example = m_root + QStringLiteral("/scenes/Fixed Torus World.json");
+    if (QFile::exists(example)) {
+        if (!loadSurface(kSphere)) return;
+        const bool ok = m_mw->loadSceneFile(example);
+        wait(2000);
+        // La copia nella libreria C/presets e' dell'utente, che puo' averla
+        // risalvata (il 15-11 col toro sbloccato): qui si verifica che si apra,
+        // e si annota chi e' fisso. Che il blocco sopravviva al Save/Load lo
+        // dice gia' il passo qui sopra.
+        check(ok && gl->objectCount() == 5 && gl->hyperbolicSpace(),
+              QStringLiteral("Fixed Torus World: scena H3 con quattro oggetti (load %1, %2 oggetti, H3 %3)")
+                  .arg(ok).arg(gl->objectCount()).arg(gl->hyperbolicSpace()));
+        m_lines.append(QStringLiteral("   fissi: toro %1, sfera %2, nodo %3, perlina %4 (nella copia di fabbrica solo il toro)")
+                           .arg(gl->objectFixed(1)).arg(gl->objectFixed(2)).arg(gl->objectFixed(3)).arg(gl->objectFixed(4)));
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-fixed-example.png"));
+        // IL PATH DELLA CAMERA si scrive sull'ambiente, toro fisso o no: Departure
+        // e View accesi, il path parte, e il blocco/sblocco del toro non lo ferma.
+        check(gl->selectedObject() == 0, QStringLiteral("la scena si apre sull'ambiente"));
+        m_mw->ui->lineX_P3D->setText(QStringLiteral("2.4*cos(t)"));
+        m_mw->ui->lineY_P3D->setText(QStringLiteral("2.4*sin(t)"));
+        m_mw->ui->lineZ_P3D->setText(QStringLiteral("0"));
+        wait(100);
+        check(m_mw->ui->btnDeparture3D->isEnabled() && m_mw->ui->pushView3D->isEnabled()
+                  && m_mw->ui->lineX_P3D->isEnabled(),
+              QStringLiteral("path 3D scritto sull'ambiente: Departure e View accesi"));
+        m_mw->onDeparture3DClicked();
+        wait(300);
+        check(m_mw->pathRunning(CameraPaths::Path3D), QStringLiteral("il path della camera parte"));
+        m_mw->selectSceneObject(1);   // il toro fisso
+        wait(200);
+        check(m_mw->pathRunning(CameraPaths::Path3D) && !m_mw->ui->btnDeparture3D->isEnabled()
+                  && !m_mw->ui->pushView3D->isEnabled(),
+              QStringLiteral("sul toro fisso: il path della camera continua (%1), Departure (%2) e View (%3) "
+                             "dell'oggetto spenti")
+                  .arg(m_mw->pathRunning(CameraPaths::Path3D)).arg(m_mw->ui->btnDeparture3D->isEnabled())
+                  .arg(m_mw->ui->pushView3D->isEnabled()));
+        m_mw->m_objectFixed->setChecked(false);
+        wait(200);
+        m_mw->m_objectFixed->setChecked(true);
+        wait(200);
+        check(m_mw->pathRunning(CameraPaths::Path3D), QStringLiteral("sbloccato e ribloccato il toro: il path della camera continua"));
+        m_mw->selectSceneObject(0);
+        wait(200);
+        check(m_mw->pathRunning(CameraPaths::Path3D) && m_mw->ui->btnDeparture3D->isEnabled()
+                  && m_mw->ui->pushView3D->isEnabled() && m_mw->ui->btnDeparture3D->text() == QStringLiteral("STOP"),
+              QStringLiteral("di nuovo sull'ambiente: path in corsa, Departure (STOP) e View accesi"));
+        m_mw->onDeparture3DClicked();   // fermo
+        wait(100);
+        // Dove sta la camera, dentro il tubo del toro (in unita' della scena).
+        const H3::Vec3 cam = H3::logAtOrigin(gl->hyperbolicCamera() * H3::origin());
+        const double unit = gl->m_h3RadiiPerSceneUnit;
+        m_lines.append(QStringLiteral("   toro: scala %1, raggio di curvatura %2; camera a (%3, %4, %5) unita'")
+                           .arg(gl->objectScaleAt(1)).arg(gl->hyperbolicCurvatureRadius())
+                           .arg(cam.x / unit, 0, 'f', 2).arg(cam.y / unit, 0, 'f', 2).arg(cam.z / unit, 0, 'f', 2));
+    } else {
+        m_lines.append(QStringLiteral("   (scena d'esempio non in libreria: %1)").arg(example));
+    }
+}
+
+// IL POLO DI UNA SFERA (surface.vert, calculateFinalNormal): sul vertice del
+// polo la normale collassa e si ricalcola da un punto vicino, che deve stare
+// DENTRO il dominio: oltre v = pi/2 la sfera e' percorsa al contrario e la
+// normale usciva rovesciata; interpolata con quelle giuste dei vertici accanto
+// passava per zero e attorno al polo si vedeva un anello scuro (segnalato
+// dall'utente in H3, 2026-11-15; la luce a due facce lo nasconde solo sul
+// vertice). La sfera della Library, dritta, col polo nord verso la camera: al
+// centro del disco la luce e' uniforme.
+void ScenarioTest::runPoleNormalScenario()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Polo della sfera: la normale di ripiego sul polo ha il verso dei vicini (niente anello scuro) =="));
+    if (!buildScene(false, { QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json") })) return;
+    gl->resetOrientation(GLWidget::Orientation());   // dritta: il polo nord (v = pi/2) verso la camera
+    gl->setColor(1.0f, 0.25f, 0.2f);
+    gl->stopAllTimers();
+    wait(400);
+    gl->grabFramebuffer();
+    wait(200);
+    const QImage img = gl->grabFramebuffer().convertToFormat(QImage::Format_RGB32);
+    img.save(m_outDir + QStringLiteral("/pole-normal.png"));
+    // La finestra attorno al centro del disco: l'anello stava a un passo di
+    // griglia dal polo (3% del raggio della sfera a 100 passi).
+    const int cx = img.width() / 2, cy = img.height() / 2, r = std::max(4, img.height() / 40);
+    double sum = 0.0;
+    int n = 0, minLum = 255;
+    for (int y = cy - r; y <= cy + r; ++y)
+        for (int x = cx - r; x <= cx + r; ++x) {
+            const int lum = qGray(img.pixel(x, y));
+            sum += lum;
+            ++n;
+            minLum = std::min(minLum, lum);
+        }
+    const double mean = n ? sum / n : 0.0;
+    check(mean > 60.0 && minLum > 0.6 * mean,
+          QStringLiteral("attorno al polo (finestra di %1 px): luminanza media %2, minima %3")
+              .arg(2 * r + 1).arg(mean, 0, 'f', 0).arg(minLum));
+}
+
+// IL RIFERIMENTO DEL PATH DELLA CAMERA (GLWidget::cameraPathFrame): su un
+// oggetto fisso X(t), Y(t), Z(t) si leggono dal suo centro, girati come lui;
+// in H3 con la stessa isometria del disegno. Torna al centro della scena quando
+// l'oggetto si sblocca o se ne va; Save e Load lo portano.
+void ScenarioTest::runPathFrameScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Riferimento del path della camera: un oggetto fisso, in 3D e in H3, sblocco, Remove, Save/Load =="));
+    const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
+    const QString kSphere = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
+    const auto near = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 2e-3f; };
+    const auto text = [](const QVector3D &v) {
+        return QStringLiteral("(%1, %2, %3)").arg(v.x(), 0, 'f', 3).arg(v.y(), 0, 'f', 3).arg(v.z(), 0, 'f', 3);
+    };
+    // Il path della camera, scritto sull'ambiente e avviato una volta (si
+    // compila col Departure), poi fermo: applyCameraAt lo legge al tempo voluto.
+    // Il passaggio graduale alla vista del path (advancePathHandoff) si completa
+    // ripetendo t = 0.
+    const auto cameraPathCircle = [this]() {
+        m_mw->selectSceneObject(0);
+        wait(100);
+        m_mw->m_scene.pathViewMode3D = ModeCentered;   // il bersaglio e' il centro del riferimento
+        m_mw->ui->lineX_P3D->setText(QStringLiteral("cos(t)"));
+        m_mw->ui->lineY_P3D->setText(QStringLiteral("sin(t)"));
+        m_mw->ui->lineZ_P3D->setText(QStringLiteral("0"));
+        wait(100);
+        m_mw->onDeparture3DClicked();
+        wait(200);
+        m_mw->onDeparture3DClicked();   // fermo
+        wait(100);
+        for (int i = 0; i < 45; ++i) m_mw->m_paths->applyCameraAt(CameraPaths::Path3D, 0.0f);
+    };
+    // Il toro in (2, 0, 0), girato di 90 gradi attorno a z, fisso.
+    const auto placeTorus = [this, gl]() {
+        gl->setObjectPosition(QVector3D(2.0f, 0.0f, 0.0f));
+        gl->setRotationQuat(QQuaternion::fromAxisAndAngle(0.0f, 0.0f, 1.0f, 90.0f));
+        m_mw->m_objectFixed->setChecked(true);
+        wait(200);
+    };
+
+    // 3D.
+    if (!buildScene(false, { kTorus })) return;
+    placeTorus();
+    check(m_mw->m_pathFrameCombo && m_mw->m_pathFrameCombo->count() == 2 && m_mw->m_pathFrameCombo->isEnabled()
+              && gl->cameraPathFrame() == 0,
+          QStringLiteral("casella Path around: Environment e il toro, riferimento il centro della scena"));
+    if (!m_mw->m_pathFrameCombo) return;
+    cameraPathCircle();
+    check(near(gl->getCameraPos(), QVector3D(1.0f, 0.0f, 0.0f)),
+          QStringLiteral("dal centro della scena, t = 0: camera in %1").arg(text(gl->getCameraPos())));
+    m_mw->m_pathFrameCombo->setCurrentIndex(1);
+    emit m_mw->m_pathFrameCombo->activated(1);
+    wait(100);
+    check(gl->cameraPathFrame() == 1, QStringLiteral("scelto il toro: cameraPathFrame = %1").arg(gl->cameraPathFrame()));
+    m_mw->m_paths->applyCameraAt(CameraPaths::Path3D, 0.0f);
+    check(near(gl->getCameraPos(), QVector3D(2.0f, 1.0f, 0.0f)) && near(gl->m_pathTarget, QVector3D(2.0f, 0.0f, 0.0f)),
+          QStringLiteral("dal toro girato di 90 gradi, t = 0: (1,0,0) diventa %1, bersaglio %2")
+              .arg(text(gl->getCameraPos()), text(gl->m_pathTarget)));
+    m_mw->m_paths->applyCameraAt(CameraPaths::Path3D, float(M_PI / 2.0));
+    check(near(gl->getCameraPos(), QVector3D(1.0f, 0.0f, 0.0f)),
+          QStringLiteral("t = pi/2: (0,1,0) girato e' (-1,0,0), dal toro %1").arg(text(gl->getCameraPos())));
+
+    // Save e Load: per nome.
+    PresetSerializer::MotionRunState run;
+    const QJsonObject json = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Frame"), run, false);
+    check(json.value(QStringLiteral("cameraPathFrame")).toString() == QStringLiteral("Torus"),
+          QStringLiteral("Save: cameraPathFrame = \"%1\"").arg(json.value(QStringLiteral("cameraPathFrame")).toString()));
+    const QString path = m_outDir + QStringLiteral("/path-frame.json");
+    {
+        QFile f(path);
+        if (f.open(QIODevice::WriteOnly)) { f.write(QJsonDocument(json).toJson()); f.close(); }
+    }
+    if (!loadSurface(kSphere)) return;
+    const bool loaded = m_mw->loadSceneFile(path);
+    wait(1500);
+    check(loaded && gl->cameraPathFrame() == 1 && m_mw->m_pathFrameCombo->currentData().toInt() == 1,
+          QStringLiteral("Load: il riferimento torna sul toro (%1), casella compresa").arg(gl->cameraPathFrame()));
+
+    // Sblocco: torna al centro, la casella si svuota.
+    m_mw->selectSceneObject(1);
+    wait(200);
+    m_mw->m_objectFixed->setChecked(false);
+    wait(200);
+    check(gl->cameraPathFrame() == 0 && m_mw->m_pathFrameCombo->count() == 1 && !m_mw->m_pathFrameCombo->isEnabled(),
+          QStringLiteral("toro sbloccato: riferimento al centro, casella con il solo Environment"));
+    // Remove: una sfera fissa come riferimento (indice 2), tolto il toro (1) scorre a 1.
+    m_mw->addShapeToScene(shapePath(kSphere));
+    wait(500);
+    m_mw->m_objectFixed->setChecked(true);
+    wait(200);
+    gl->setCameraPathFrame(2);
+    m_mw->selectSceneObject(1);
+    wait(100);
+    m_mw->m_btnObjectRemove->click();
+    wait(300);
+    check(gl->objectCount() == 2 && gl->cameraPathFrame() == 1 && gl->objectFixed(1),
+          QStringLiteral("tolto il toro: il riferimento segue la sfera all'indice 1 (ora %1)").arg(gl->cameraPathFrame()));
+
+    // H3: la stessa isometria con cui il toro e' disegnato.
+    m_discardOnPrompt = true;
+    m_mw->onNewSceneClicked();
+    wait(300);
+    m_mw->startScene(MainWindow::SceneSpace::SpaceH3);
+    wait(300);
+    m_discardOnPrompt = false;
+    m_mw->addShapeToScene(shapePath(kTorus));
+    wait(500);
+    if (!m_mw->sceneStarted() || gl->objectCount() != 2 || !gl->hyperbolicSpace()) {
+        check(false, QStringLiteral("H3: la scena col toro non parte"));
+        return;
+    }
+    placeTorus();
+    cameraPathCircle();
+    gl->setCameraPathFrame(1);
+    m_mw->m_paths->applyCameraAt(CameraPaths::Path3D, 0.0f);
+    const double k = gl->m_h3RadiiPerSceneUnit;
+    const H3::Matrix toFrame = H3::inverse(gl->hyperbolicObjectPlacement(1)) * gl->hyperbolicCamera();
+    const H3::Vec3 at = H3::logAtOrigin(toFrame * H3::origin());
+    // Un passo avanti lungo la vista (-z della camera) va verso il centro del toro.
+    const H3::Vec3 ahead = H3::logAtOrigin(toFrame * H3::expAtOrigin({0.0, 0.0, -0.5 * k}));
+    const QVector3D atUnits(float(at.x / k), float(at.y / k), float(at.z / k));
+    const QVector3D aheadUnits(float(ahead.x / k), float(ahead.y / k), float(ahead.z / k));
+    check(near(atUnits, QVector3D(1.0f, 0.0f, 0.0f)) && near(aheadUnits, QVector3D(0.5f, 0.0f, 0.0f)),
+          QStringLiteral("H3, nel riferimento del toro: camera a %1 unita', mezzo passo avanti %2 (verso il centro)")
+              .arg(text(atUnits), text(aheadUnits)));
+    m_mw->m_paths->applyCameraAt(CameraPaths::Path3D, float(M_PI / 2.0));
+    const H3::Vec3 at2 = H3::logAtOrigin(H3::inverse(gl->hyperbolicObjectPlacement(1)) * gl->hyperbolicCamera() * H3::origin());
+    const QVector3D at2Units(float(at2.x / k), float(at2.y / k), float(at2.z / k));
+    check(near(at2Units, QVector3D(0.0f, 1.0f, 0.0f)),
+          QStringLiteral("H3, t = pi/2: camera a %1 unita' nel riferimento del toro").arg(text(at2Units)));
+
+    // LA SCENA D'ESEMPIO "Fixed Torus Ride" (copia della libreria, dell'utente):
+    // toro fisso spostato e girato, il path della camera nel suo riferimento,
+    // in corsa. La camera resta sull'anima del tubo (raggio 2.4).
+    const QString ride = m_root + QStringLiteral("/scenes/Fixed Torus Ride.json");
+    if (QFile::exists(ride)) {
+        if (!loadSurface(kSphere)) return;
+        const bool ok = m_mw->loadSceneFile(ride);
+        wait(1500);
+        const int frame = gl->cameraPathFrame();
+        const bool running = m_mw->pathRunning(CameraPaths::Path3D);
+        QVector3D rel;
+        if (frame > 0) {
+            const H3::Vec3 r = H3::logAtOrigin(H3::inverse(gl->hyperbolicObjectPlacement(frame)) * gl->hyperbolicCamera()
+                                               * H3::origin());
+            rel = QVector3D(float(r.x / k), float(r.y / k), float(r.z / k));
+        }
+        const float ring = std::hypot(rel.x(), rel.y());
+        check(ok && gl->hyperbolicSpace() && frame == 1 && gl->objectFixed(1) && running
+                  && std::abs(ring - 2.4f) < 0.05f && std::abs(rel.z()) < 0.05f,
+              QStringLiteral("Fixed Torus Ride: H3, path in corsa (%1) nel riferimento del toro (%2), camera sull'anima "
+                             "del tubo (raggio %3, z %4)").arg(running).arg(frame).arg(ring, 0, 'f', 3).arg(rel.z(), 0, 'f', 3));
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/path-frame-ride.png"));
+        m_mw->onDeparture3DClicked();   // fermo
+        wait(100);
+    } else {
+        m_lines.append(QStringLiteral("   (scena d'esempio non in libreria: %1)").arg(ride));
     }
 }
 

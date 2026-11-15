@@ -25,7 +25,7 @@
 #        library-folder, library-paste, library-rename, master-records[:filtro],
 #        renderer-all[:filtro], reset-scene, reset-button, tubes, border, meshes,
 #        animated-load, load-order, steps, shape-background, scene-objects,
-#        border-audit[:filtro])
+#        scene-timeline, scene-fixed, pole-normal, path-frame, scene-h3, border-audit[:filtro])
 #       border-audit: bordo acceso su ogni superficie parametrica, flag dei lati
 #       coperti riletti dalla GPU (~30 min); i dati restano in border-audit/ del
 #       report e ExC/Mac/Test/border-replica.py li rifa' in Python.

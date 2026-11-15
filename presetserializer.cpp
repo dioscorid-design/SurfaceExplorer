@@ -1022,6 +1022,7 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
         o["name"] = objectName;
         o["position"] = QJsonArray{ p.x(), p.y(), p.z() };
         o["scale"] = double(gl->objectScale());
+        if (gl->objectFixed(k)) o["fixed"] = true;   // SurfaceObject::fixed, solo se lo e'
         {
             const QString key = MainWindow::librarySourceKey(m_mainWindow->m_objectSessions[k].libraryPath);
             if (!key.isEmpty()) o["source"] = key;
@@ -1073,6 +1074,9 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
         r["angles4D"] = QJsonArray{ turn.angles4D.x(), turn.angles4D.y(), turn.angles4D.z() };
         scene["sceneRotation"] = r;
     }
+    // Il riferimento del path della camera (GLWidget::cameraPathFrame), per nome.
+    if (gl->cameraPathFrame() > 0 && gl->cameraPathFrame() < int(m_mainWindow->m_objectSessions.size()))
+        scene["cameraPathFrame"] = m_mainWindow->m_objectSessions[gl->cameraPathFrame()].name;
     m_mainWindow->selectSceneObject(selected);
     return scene;
 }

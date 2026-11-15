@@ -28,6 +28,7 @@ class QLineEdit;
 class QSlider;
 class QPushButton;
 class QCheckBox;
+class QComboBox;
 class QGroupBox;
 class QRadioButton;
 class QTimer;
@@ -1948,6 +1949,11 @@ private:
     // Timeline: finestra di comparsa del selezionato e T nella barra di stato.
     QDoubleSpinBox *m_objectWindowIn = nullptr;
     QDoubleSpinBox *m_objectWindowOut = nullptr;
+    // Fisso: l'oggetto selezionato come parte dell'ambiente (SurfaceObject::fixed).
+    QCheckBox *m_objectFixed = nullptr;
+    // Il riferimento del path 3D della camera (GLWidget::cameraPathFrame):
+    // Environment o un oggetto fisso.
+    QComboBox *m_pathFrameCombo = nullptr;
     // Il path del selezionato: X(t), Y(t), Z(t) sommati alla posizione, P(t)
     // lungo la quarta coordinata (solo nelle scene 4D). Si scrive nei campi dei
     // dock 3D e 4D, che seguono la selezione, slider Speed compreso: con
@@ -2060,6 +2066,14 @@ private:
     // I dock sull'ambiente di una scena: equazioni spente, texture solo sullo
     // sfondo. Da setSceneSpace e a ogni selezione (refreshObjectsUi).
     void applySceneEnvironmentGating();
+    // Il selezionato e' un oggetto FISSO (SurfaceObject::fixed) di una scena.
+    bool selectedObjectFixed() const;
+    // La casella Fixed del dock Objects, sul selezionato.
+    void setSelectedObjectFixed(bool on);
+    // Il gate della scena vuota (applyEmptySceneGating) e' chiuso per un
+    // oggetto fisso selezionato: quando la selezione entra o esce da un fisso,
+    // applySceneEnvironmentGating rifa' le regole con updateRenderState.
+    bool m_fixedSelectionGated = false;
     // Lo sfondo come bersaglio della texture l'ha scelto l'ambiente: tornando
     // su un oggetto si torna sulla sua superficie.
     bool m_backgroundForcedByEnvironment = false;

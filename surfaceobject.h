@@ -244,6 +244,19 @@ struct SurfaceObject
     // suoi moti restano fermi. L'ambiente e' sempre in scena.
     float windowIn = 0.0f;
     float windowOut = 0.0f;
+    // OGGETTO FISSO (2.0): parte dell'ambiente a tutti gli effetti pratici. Non
+    // si modifica (equazioni, aspetto, posizione, scala, finestra: i dock lo
+    // mostrano spento come l'ambiente, applySceneEnvironmentGating; la texture
+    // invece resta sua e modificabile, decisione dell'utente), non si toglie, e' sempre in scena e non ha moti propri (al blocco path e GO si
+    // fermano e le velocita' si azzerano): si muove solo col mondo, con le
+    // rotazioni e i path dell'ambiente. Ai gesti risponde come l'ambiente
+    // (GLWidget::gestureTarget, objectZoomActive, dragOrbitsHyperbolicCamera).
+    // E' cosi' che una superficie fa da scenario (il toro nella palla di
+    // Poincare' dentro cui si costruisce la scena) senza ridare all'ambiente
+    // una superficie sua: il disegno e i moti sono quelli di ogni oggetto,
+    // cambia solo cosa l'interfaccia lascia toccare. Reversibile dal dock
+    // Objects (casella Fixed); nel file della scena la chiave "fixed".
+    bool fixed = false;
     // I SUOI PATH (SurfaceEngine::compileObjectPath): il 3D e il 4D, alternativi
     // come quelli della camera; pathKind e' quello in uso, l'ultimo avviato.
     // Ognuno ha il suo TEMPO, un orologio dell'oggetto, che avanza mentre

@@ -2110,7 +2110,7 @@ void MainWindow::updateTextureUIState(bool isTextureOn, bool resetColorTargetToF
     //    ambiguo (pallino spento, tripla vuota). A comunicare che non si può editare ci
     //    pensano gli slider, disattivati da onColorTargetChanged quando la texture copre
     //    la superficie senza colori editabili. Tranne sull'ambiente di una scena, che
-    //    non ha superficie (applySceneEnvironmentGating).
+    //    non ha superficie (applySceneEnvironmentGating; un oggetto fisso la tiene).
     ui->radioSurface->setEnabled(!sceneEnvironmentSelected());
 
     // 3. GESTIONE DEL "PALLINO" (due gruppi INDIPENDENTI)

@@ -2274,7 +2274,11 @@ void MainWindow::updateSurfaceControlsGate()
 // l'unico modo di riaverli era cambiare tab.
 void MainWindow::applyEmptySceneGating()
 {
-    if (isSceneEmpty()) {
+    // Anche su un OGGETTO FISSO selezionato (SurfaceObject::fixed): e' parte
+    // dell'ambiente e il suo aspetto non si tocca, come se non avesse
+    // superficie. Entrando e uscendo da un fisso la selezione rifa' questa
+    // funzione via updateRenderState (applySceneEnvironmentGating).
+    if (isSceneEmpty() || selectedObjectFixed()) {
         // Trasparenza e luce: gli STESSI figli che il ramo wireframe disabilita
         // qui sopra. Si agisce sui figli e non sul groupbox panelTransp perche'
         // quello si porterebbe dietro anche il FOV, che ha una regola sua (piu'
@@ -2335,7 +2339,8 @@ void MainWindow::applyEmptySceneGating()
         // restavano accesi com'erano sotto il preset precedente.
         // In editing sfondo decide lo stato della texture di background, che
         // resta legittimamente componibile.
-        updateTextureUIState(editingBackground() && targetTextureOn());
+        // Su un oggetto fisso la texture di superficie resta sua (applySceneEnvironmentGating).
+        updateTextureUIState((editingBackground() || selectedObjectFixed()) && targetTextureOn());
 
         // Slider RGB: NON si toccano da qui. La loro sede unica e'
         // onColorTargetChanged, che gira anche dopo questo gate e li

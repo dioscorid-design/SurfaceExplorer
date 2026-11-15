@@ -8,6 +8,7 @@
 #include "mainwindow_p.h"
 #include "scenehintoverlay.h"
 
+#include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -417,7 +418,8 @@ void MainWindow::refreshSceneTimeSlider()
     m_sceneTimeSlider->setEnabled((cameraPath().has_value() || gl->objectHasRotationSpeed(0))
                                   && !m_isRecording);
     // Le finestre contano su T: senza un moto della camera T non corre.
-    const bool windows = gl->selectedObject() > 0 && sceneTimeCanRun();
+    // Un oggetto fisso e' sempre in scena: niente finestra.
+    const bool windows = gl->selectedObject() > 0 && !gl->objectFixed(gl->selectedObject()) && sceneTimeCanRun();
     m_objectWindowIn->setEnabled(windows);
     m_objectWindowOut->setEnabled(windows);
     m_sceneTimeValue->setText(QStringLiteral("%1 s").arg(double(t), 0, 'f', 1));
@@ -464,6 +466,7 @@ const ObjectState &MainWindow::environmentState() const
 bool MainWindow::selectedRotates4D() const
 {
     if (m_sceneSpace == SceneSpace::SpaceH3) return false;
+    if (selectedObjectFixed()) return false;   // un oggetto fisso non ha moti propri
     const bool environment = !ui->glWidget || ui->glWidget->selectedObject() == 0;
     // L'ambiente di una scena non ha superficie: le sue rotazioni 4D sono
     // quelle della scena (environment4DUsable).
@@ -641,6 +644,13 @@ bool MainWindow::sceneEnvironmentSelected() const
     return sceneStarted() && ui->glWidget && ui->glWidget->selectedObject() == 0;
 }
 
+bool MainWindow::selectedObjectFixed() const
+{
+    return sceneStarted() && ui->glWidget && ui->glWidget->selectedObject() > 0
+           && ui->glWidget->selectedObjectFixed();
+}
+
+
 // I DOCK SULL'AMBIENTE DI UNA SCENA: senza superficie, quello che si puo' usare
 // e' cio' che resta all'ambiente (camera, path, rotazioni, sfondo, suono). Il
 // resto lo spegne gia' il gate della scena vuota (applyEmptySceneGating: resa,
@@ -648,20 +658,34 @@ bool MainWindow::sceneEnvironmentSelected() const
 // scrivibili perche' da li' si riparte con un Run, e il bersaglio della
 // texture, che sull'ambiente e' solo lo sfondo. Le costanti A..F restano
 // (updateConstantsUIState): i path della camera le usano.
+// QUASI LO STESSO su un OGGETTO FISSO (SurfaceObject::fixed), che e' parte
+// dell'ambiente: equazioni spente, e in piu' GO e velocita' di rotazione spenti
+// (non ha moti propri) e i comandi di aspetto spenti come sull'ambiente, dal
+// gate della scena vuota (applyEmptySceneGating, dentro updateRenderState, che
+// qui si rifa' quando la selezione entra o esce da un fisso). La sua TEXTURE
+// resta sua e modificabile (il bersaglio Surface, i colori, la Library).
+// Posizione, finestra, path e Remove li spegne il dock Objects
+// (refreshObjectsUi, refreshSceneTimeSlider, refreshPathControls).
 void MainWindow::applySceneEnvironmentGating()
 {
     if (!ui->glWidget || !ui->panelEquations) return;
     const bool environment = sceneEnvironmentSelected();
-    ui->panelEquations->setEnabled(!environment);
+    const bool fixed = selectedObjectFixed();
+    const bool locked = environment || fixed;
+    ui->panelEquations->setEnabled(!locked);
     ui->panelEquations->setToolTip(environment
         ? QStringLiteral("The environment of a scene has no surface. To add one, right-click a Shape "
                          "in the Library and choose Add to Scene.")
-        : QString());
+        : fixed ? QStringLiteral("This object is fixed, part of the environment. To change it, uncheck Fixed "
+                                 "in the Objects dock.")
+                : QString());
+    // La TEXTURE di un oggetto fisso resta sua e modificabile (decisione
+    // dell'utente, 2026-11-15): il bersaglio va allo sfondo solo sull'ambiente.
     for (QRadioButton *r : { ui->radioSurface, ui->radioBorder }) {
         if (!r) continue;
         // Border ha la sua regola (a scena vuota e' spento): si riaccende
         // solo Surface, e Border lo rimette a posto updateRenderState.
-        if (environment) r->setEnabled(false);
+        if (environment || (fixed && r == ui->radioBorder)) r->setEnabled(false);
         else if (r == ui->radioSurface) r->setEnabled(true);
     }
     if (ui->radioSurface)
@@ -680,10 +704,39 @@ void MainWindow::applySceneEnvironmentGating()
         m_backgroundForcedByEnvironment = false;
         if (editingBackground() && ui->radioSurface) { ui->radioSurface->click(); clicked = true; }
     }
+    // GO e velocita' di rotazione del dock 3D: su un oggetto fisso spenti (le
+    // 4D le spegne updateRotation4DControls, via selectedRotates4D). Nessun'altra
+    // regola li tocca, quindi qui si riaccendono anche.
+    for (QPushButton *b : { ui->btnStart_2, ui->btnNutationPlus, ui->btnNutationMinus, ui->btnPrecessionPlus,
+                            ui->btnPrecessionMinus, ui->btnSpinPlus, ui->btnSpinMinus })
+        if (b) b->setEnabled(!fixed);
+    // I comandi di aspetto: entrando su un fisso li spegne applyEmptySceneGating,
+    // uscendone le regole normali li riaccendono. Tutte e due dentro
+    // updateRenderState, che da solo non gira a ogni selezione.
+    if (fixed != m_fixedSelectionGated) {
+        m_fixedSelectionGated = fixed;
+        updateRenderState();
+    }
     // Il clic passa da updateRenderState, che riaccende i tasti 4D senza
     // guardare i path: con un path in corsa scatti e spostamenti tornano
     // spenti qui (updateRotation4DControls -> updateViewButtonsEnabled).
     if (clicked) updateRotation4DControls();
+}
+
+// LA CASELLA FIXED del dock Objects (SurfaceObject::fixed): il blocco ferma GO
+// e path e azzera le velocita' (GLWidget::setObjectFixed); qui il dock 3D lo
+// mostra e i gate si rifanno (refreshObjectsUi -> applySceneEnvironmentGating).
+void MainWindow::setSelectedObjectFixed(bool on)
+{
+    GLWidget *gl = ui->glWidget;
+    const int k = gl ? gl->selectedObject() : 0;
+    if (k <= 0 || gl->objectFixed(k) == on) return;
+    gl->setObjectFixed(k, on);
+    m_sceneObjectsChanged = true;
+    refreshRotationSpeedLabels();
+    if (ui->btnStart_2) ui->btnStart_2->setText(gl->isAnimating() ? "STOP" : "GO");
+    refreshObjectsUi();
+    updateMasterButtonState();
 }
 
 // LA GRANDEZZA D'INGRESSO: una Shape e' salvata con la camera che la inquadra, e
@@ -889,6 +942,9 @@ bool MainWindow::loadSceneFile(const QString &path)
         }
         applyObjectMotion(o.value(QStringLiteral("motion")).toObject());
         captureObjectStartPose();
+        // Fisso (SurfaceObject::fixed): per ultimo, dopo finestra e moti, che il
+        // blocco spegne (il file di un fisso non li porta comunque).
+        if (o.value(QStringLiteral("fixed")).toBool()) gl->setObjectFixed(objIndex, true);
     }
     // La quota del taglio delle Cross Section, della scena (buildSceneJson). I
     // file di prima la portavano nel record dell'ambiente, se era una Cross
@@ -914,6 +970,13 @@ bool MainWindow::loadSceneFile(const QString &path)
                                    float(a.at(2).toDouble()));
         if (gl->objectCount() > 1) gl->setSceneRotation(r);
         m_startSceneRotation = gl->sceneRotation();
+    }
+    // Il riferimento del path della camera (GLWidget::cameraPathFrame), per
+    // nome dell'oggetto (unico nella scena), solo se quell'oggetto e' fisso.
+    {
+        const QString frame = root.value(QStringLiteral("cameraPathFrame")).toString();
+        for (int k = 1; !frame.isEmpty() && k < gl->objectCount() && k < int(m_objectSessions.size()); ++k)
+            if (m_objectSessions[k].name == frame && gl->objectFixed(k)) { gl->setCameraPathFrame(k); break; }
     }
     // L'ambiente e' un record incorporato, senza il percorso del suo file: lo
     // si ritrova nella linguetta Records per le equazioni (a pari equazioni
@@ -1135,7 +1198,8 @@ void MainWindow::setupObjectsDock()
     auto *help = new QLabel(QStringLiteral("Press NEW, then Scene in the status bar, and choose 3D, 4D or H³: "
                                            "the scene starts empty, with the camera, the background and the "
                                            "sound (in H³ the environment is the hyperbolic space itself). "
-                                           "Add objects to it: right-click a Shape, then Add to Scene."), w);
+                                           "Add objects to it: right-click a Shape, then Add to Scene. A Fixed object "
+                                           "becomes part of the environment, like a torus the scene is built inside."), w);
     help->setWordWrap(true);
     lay->addWidget(help);
 
@@ -1211,6 +1275,34 @@ void MainWindow::setupObjectsDock()
     for (QDoubleSpinBox *box : { m_objectWindowIn, m_objectWindowOut })
         box->setToolTip(QStringLiteral("In and Out count on T, the time of the environment's camera motion "
                                         "(its path or its rotations)."));
+
+    // FISSO: il selezionato come parte dell'ambiente (SurfaceObject::fixed).
+    m_objectFixed = new QCheckBox(QStringLiteral("Fixed (part of the environment)"), w);
+    m_objectFixed->setToolTip(QStringLiteral("A fixed object is part of the environment: its shape, place and size cannot "
+                                             "be changed, it cannot be removed, it is always in the scene and has no "
+                                             "motion of its own, it turns with the world. Its texture stays yours to "
+                                             "change. Uncheck to make it an ordinary object again."));
+    lay->addWidget(m_objectFixed);
+    connect(m_objectFixed, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_refreshingObjects) return;
+        setSelectedObjectFixed(on);
+    });
+
+    // IL RIFERIMENTO DEL PATH 3D DELLA CAMERA (GLWidget::cameraPathFrame): il
+    // centro della scena o un oggetto fisso. Voci e scelta le scrive refreshObjectsUi.
+    auto *frameRow = new QHBoxLayout();
+    frameRow->addWidget(rowLabel(QStringLiteral("Path around")));
+    m_pathFrameCombo = new QComboBox(w);
+    m_pathFrameCombo->setToolTip(QStringLiteral("Where the camera path X(t), Y(t), Z(t) is read from: the centre of the "
+                                                "scene, or the centre of a fixed object, turned as the object is. A circle "
+                                                "around a fixed torus then stays inside its tube wherever the torus is."));
+    frameRow->addWidget(m_pathFrameCombo, 1);
+    lay->addLayout(frameRow);
+    connect(m_pathFrameCombo, QOverload<int>::of(&QComboBox::activated), this, [this](int row) {
+        if (m_refreshingObjects || !m_pathFrameCombo) return;
+        ui->glWidget->setCameraPathFrame(m_pathFrameCombo->itemData(row).toInt());
+        m_sceneObjectsChanged = true;
+    });
 
     // LO SCORRIMENTO: il cursore porta il path dell'ambiente al tempo T
     // (seekSceneTime).
@@ -1419,7 +1511,9 @@ void MainWindow::setupObjectsDock()
         duplicateSceneObject(ui->glWidget->selectedObject());
     });
     connect(m_btnObjectRemove, &QPushButton::clicked, this, [this]() {
-        removeSceneObject(ui->glWidget->selectedObject());
+        const int k = ui->glWidget->selectedObject();
+        if (ui->glWidget->objectFixed(k)) return;   // il tasto e' spento: un fisso non si toglie
+        removeSceneObject(k);
     });
 }
 
@@ -1550,6 +1644,7 @@ void MainWindow::refreshObjectsUi()
     // Nell'elenco anche la finestra della timeline, se c'e'.
     auto listText = [this, gl, &nameOf](int k) {
         QString text = nameOf(k);
+        if (k > 0 && gl->objectFixed(k)) text += QStringLiteral("   (fixed)");
         const float in = gl->objectWindowIn(k), out = gl->objectWindowOut(k);
         if (k > 0 && (in > 0.0f || out > 0.0f)) {
             text += in > 0.0f && out > 0.0f ? QStringLiteral("   [%1 s - %2 s]").arg(in).arg(out)
@@ -1564,15 +1659,31 @@ void MainWindow::refreshObjectsUi()
     for (int k = 0; k < n; ++k) m_objectList->addItem(listText(k));
     m_objectList->setCurrentRow(selected);
     const QVector3D p = gl->objectPosition();
+    // Un oggetto fisso (SurfaceObject::fixed) non si sposta, non si toglie e
+    // non ha finestra (refreshSceneTimeSlider); si copia (la copia e' libera).
+    const bool fixed = gl->objectFixed(selected);
     for (int i = 0; i < 3; ++i) {
         m_objectPos[i]->setValue(i == 0 ? p.x() : i == 1 ? p.y() : p.z());
-        m_objectPos[i]->setEnabled(selected > 0);
+        m_objectPos[i]->setEnabled(selected > 0 && !fixed);
     }
     loadObjectPathText();
     m_objectWindowIn->setValue(gl->objectWindowIn(selected));
     m_objectWindowOut->setValue(gl->objectWindowOut(selected));
+    if (m_objectFixed) {
+        m_objectFixed->setEnabled(selected > 0);
+        m_objectFixed->setChecked(fixed);
+    }
+    // Il riferimento del path della camera: Environment e gli oggetti fissi.
+    if (m_pathFrameCombo) {
+        m_pathFrameCombo->clear();
+        m_pathFrameCombo->addItem(QStringLiteral("Environment"), 0);
+        for (int k = 1; k < n; ++k)
+            if (gl->objectFixed(k)) m_pathFrameCombo->addItem(nameOf(k), k);
+        m_pathFrameCombo->setCurrentIndex(std::max(0, m_pathFrameCombo->findData(gl->cameraPathFrame())));
+        m_pathFrameCombo->setEnabled(m_pathFrameCombo->count() > 1);
+    }
     m_btnObjectDuplicate->setEnabled(selected > 0);
-    m_btnObjectRemove->setEnabled(selected > 0);
+    m_btnObjectRemove->setEnabled(selected > 0 && !fixed);
     refreshHyperbolicControls();
     if (m_h3CurvatureRow) {
         m_h3CurvatureRow->setVisible(m_sceneSpace == SceneSpace::SpaceH3);
@@ -1726,6 +1837,18 @@ void MainWindow::refreshPathControls()
     const int selected = gl->selectedObject();
     const QString departure = QStringLiteral("DEPARTURE"), stop = QStringLiteral("STOP");
     ui->lineR_P3D->setEnabled(selected == 0);
+    // Un oggetto FISSO non ha moti propri: campi e Departure dei suoi path
+    // spenti. I campi del path 3D non hanno altre regole: prima del ritorno
+    // dell'ambiente, perche' si riaccendano anche passando a lui.
+    const bool fixed = gl->objectFixed(selected);
+    for (QLineEdit *field : { ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D, ui->lineX_P, ui->lineY_P, ui->lineZ_P,
+                              ui->lineP_P }) {
+        field->setToolTip(fixed ? QStringLiteral("A fixed object has no path of its own. The camera path is written "
+                                                 "with the Environment selected.")
+                                : QString());
+    }
+    for (QLineEdit *field : { ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D })
+        field->setEnabled(!fixed);
     if (selected == 0) {
         ui->btnDeparture->setText(pathRunning(CameraPaths::Path4D) ? stop : departure);
         ui->btnDeparture3D->setText(pathRunning(CameraPaths::Path3D) ? stop : departure);
@@ -1742,15 +1865,15 @@ void MainWindow::refreshPathControls()
     ui->btnDeparture3D->setText(running3D ? stop : departure);
     ui->btnDeparture->setText(running4D ? stop : departure);
     // Departure avvia cio' che e' scritto: senza campi non c'e' niente da avviare.
-    ui->btnDeparture3D->setEnabled(running3D || written(SurfaceEngine::ObjectPath3D));
-    ui->btnDeparture->setEnabled(running4D || written4D);
+    ui->btnDeparture3D->setEnabled(!fixed && (running3D || written(SurfaceEngine::ObjectPath3D)));
+    ui->btnDeparture->setEnabled(!fixed && (running4D || written4D));
     // Il path 4D solo nelle scene 4D e sugli oggetti parametrici: e' la P a
     // distinguerlo dal 3D, e il ray marching non passa dalla proiezione 4D. Uno
     // gia' scritto resta modificabile, per poterlo togliere se l'ambiente non e'
     // piu' 4D.
     const bool usable4D = (sceneIs4D() && !implicitMode()) || written4D;
     for (QLineEdit *field : { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P })
-        field->setEnabled(usable4D);
+        field->setEnabled(usable4D && !fixed);
 }
 
 bool MainWindow::sceneTimeCanRun() const

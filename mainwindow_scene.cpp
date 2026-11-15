@@ -2545,7 +2545,7 @@ void MainWindow::syncTextureControlsAfterRecordLoad(const LibraryItem &data)
         // alla superficie (la coppia Surface/Background va sempre navigabile) e
         // l'indicatore di target non deve mai sparire. (Prima: setEnabled(!texEnabled).)
         // Tranne sull'ambiente di una scena, che non ha superficie
-        // (applySceneEnvironmentGating).
+        // (applySceneEnvironmentGating; un oggetto fisso la tiene).
         ui->radioSurface->setEnabled(!sceneEnvironmentSelected());
         if (!texEnabled && ui->btnFlatPreview->isChecked()) {
             ui->btnFlatPreview->setChecked(false);

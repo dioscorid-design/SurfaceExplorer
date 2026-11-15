@@ -310,6 +310,15 @@ private:
     void runSceneResetScenarios();
     // 2.0: la timeline, primo passo (finestre di comparsa).
     void runSceneTimelineScenarios();
+    // 2.0: l'oggetto FISSO, parte dell'ambiente (SurfaceObject::fixed). Da
+    // sola: --scenario-only scene-fixed.
+    void runSceneFixedScenarios();
+    // Il polo di una sfera: la normale di ripiego sul polo ha il verso dei
+    // vicini (surface.vert, calculateFinalNormal). Da sola: --scenario-only pole-normal.
+    void runPoleNormalScenario();
+    // 2.0: il riferimento del path della camera su un oggetto fisso
+    // (GLWidget::cameraPathFrame). Da sola: --scenario-only path-frame.
+    void runPathFrameScenarios();
     // 2.0: il tasto Scene, la scelta 3D/4D e quando la scena resta o finisce.
     void runSceneSpaceScenarios();
     // La scena in H3 (avvio, camera come isometria, rifiuti, RESET, NEW).

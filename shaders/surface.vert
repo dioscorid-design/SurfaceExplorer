@@ -603,47 +603,27 @@ vec3 calculateFinalNormal(float u, float v) {
 
     vec3 N = cross(tangentU, tangentV);
 
-    // Se la normale collassa (siamo sul polo / singolarità)
+    // Se la normale collassa (siamo sul polo / singolarità): la si prende da
+    // un punto vicino, DENTRO il dominio. Oltre il bordo la parametrizzazione
+    // puo' capovolgersi (la sfera oltre v = pi/2 e' la sfera percorsa al
+    // contrario) e la normale usciva rovesciata: la luce e' a due facce e non
+    // se ne accorgeva, ma interpolata con quelle giuste dei vertici accanto
+    // passava per zero, e attorno al polo si vedeva un anello scuro (visibile
+    // in H3 su una sfera a 100 passi, 2026-11-15). Prima si provava +u, -u,
+    // +v, -v senza guardare il dominio. Stesse differenze centrali del caso
+    // regolare, cosi' l'orientamento e' quello dei vicini.
     if (dot(N, N) < 1.0e-8) {
-        // Strategia: spostiamoci LONTANO dal polo (offset grande, ASIMMETRICO),
-        // poi facciamo differenze in avanti standard nel nuovo punto.
-        // Proviamo le 4 direzioni cardinali: la prima che produce una
-        // normale non degenere vince.
-        float pole_off = 0.05;
-        float eps2     = 0.005;
-
-        vec3 p0, pU, pV;
-
-        // Tentativo 1: offset in +u
-        p0 = project4D(getRotatedPoint4D(u + pole_off, v));
-        pU = project4D(getRotatedPoint4D(u + pole_off + eps2, v));
-        pV = project4D(getRotatedPoint4D(u + pole_off, v + eps2));
-        N  = cross(pU - p0, pV - p0);
-
-        // Tentativo 2: offset in -u
-        if (dot(N, N) < 1.0e-8) {
-            p0 = project4D(getRotatedPoint4D(u - pole_off, v));
-            pU = project4D(getRotatedPoint4D(u - pole_off + eps2, v));
-            pV = project4D(getRotatedPoint4D(u - pole_off, v + eps2));
-            N  = cross(pU - p0, pV - p0);
+        float off = 0.05;
+        float du = (u + off <= ubuf.u_max) ? off : -off;   // verso l'interno del dominio
+        float dv = (v + off <= ubuf.v_max) ? off : -off;
+        vec2 tries[4] = vec2[4](vec2(0.0, dv), vec2(du, 0.0), vec2(du, dv), vec2(0.0, -dv));
+        for (int k = 0; k < 4 && dot(N, N) < 1.0e-8; ++k) {
+            float uu = u + tries[k].x;
+            float vv = v + tries[k].y;
+            vec3 tU = (project4D(getRotatedPoint4D(uu + eps, vv)) - project4D(getRotatedPoint4D(uu - eps, vv))) * 500.0;
+            vec3 tV = (project4D(getRotatedPoint4D(uu, vv + eps)) - project4D(getRotatedPoint4D(uu, vv - eps))) * 500.0;
+            N = cross(tU, tV);
         }
-
-        // Tentativo 3: offset in +v
-        if (dot(N, N) < 1.0e-8) {
-            p0 = project4D(getRotatedPoint4D(u, v + pole_off));
-            pU = project4D(getRotatedPoint4D(u + eps2, v + pole_off));
-            pV = project4D(getRotatedPoint4D(u, v + pole_off + eps2));
-            N  = cross(pU - p0, pV - p0);
-        }
-
-        // Tentativo 4: offset in -v
-        if (dot(N, N) < 1.0e-8) {
-            p0 = project4D(getRotatedPoint4D(u, v - pole_off));
-            pU = project4D(getRotatedPoint4D(u + eps2, v - pole_off));
-            pV = project4D(getRotatedPoint4D(u, v - pole_off + eps2));
-            N  = cross(pU - p0, pV - p0);
-        }
-
         if (dot(N, N) < 1.0e-8) return vec3(0.0, 0.0, 1.0);
     }
 

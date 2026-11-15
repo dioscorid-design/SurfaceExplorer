@@ -180,6 +180,9 @@ void GLWidget::removeObject(int index)
     std::unique_ptr<SurfaceObject> gone = std::move(m_objects[index]);
     m_objects.erase(m_objects.begin() + index);
     if (m_obj == gone.get()) m_obj = m_objects.front().get();
+    // Il riferimento del path della camera: se ne va con lui, o scorre con gli indici.
+    if (m_cameraPathFrame == index) m_cameraPathFrame = 0;
+    else if (m_cameraPathFrame > index) --m_cameraPathFrame;
     // Senza oggetti la scena non ha nulla da girare con l'ambiente: un oggetto
     // aggiunto dopo parte dalla scena dritta.
     if (m_objects.size() == 1) m_sceneRotation = SceneRotation();
@@ -5673,6 +5676,21 @@ void GLWidget::setCameraPosAndDirection3D(const QVector3D& pos, const QVector3D&
     QVector3D finalTarget = targetPoint;
     // 1. RIPRISTINA L'UP VECTOR ORIGINALE
     QVector3D finalUp(0.0f, 0.0f, 1.0f);
+    // NEL RIFERIMENTO DI UN OGGETTO FISSO (cameraPathFrame): posizione, bersaglio
+    // e alto del path letti dal suo centro, girati come lui. In euclideo qui; in
+    // H3 la stessa isometria entra in setHyperbolicCameraLookAt (la carta
+    // esponenziale non e' lineare: non si puo' trasformare il vettore e basta).
+    const bool framed = m_cameraPathFrame > 0 && m_cameraPathFrame < int(m_objects.size())
+                        && m_objects[m_cameraPathFrame]->fixed;
+    const QVector3D rawPos = pos, rawTarget = targetPoint, rawUp = finalUp;
+    H3::Matrix frameH3 = H3::Matrix::identity();
+    if (framed) {
+        const QMatrix4x4 f = objectPlacement(m_cameraPathFrame);
+        finalPos = f.map(pos);
+        finalTarget = f.map(targetPoint);
+        finalUp = f.mapVector(finalUp);
+        if (m_hyperbolic) frameH3 = hyperbolicObjectPlacement(m_cameraPathFrame);
+    }
     // 2. IL VERO FIX PER RHI: INVERTI IL ROLLIO
     float rollDeg = qRadiansToDegrees(roll);
 
@@ -5693,8 +5711,12 @@ void GLWidget::setCameraPosAndDirection3D(const QVector3D& pos, const QVector3D&
     m_isPathFollowing = true;
     m_pathUp = finalUp;
     m_pathRoll = rollDeg;
-    // In H3 la stessa posa muove la camera iperbolica.
-    if (m_hyperbolic) setHyperbolicCameraLookAt(finalPos, finalTarget, finalUp, rollDeg);
+    // In H3 la stessa posa muove la camera iperbolica (nel riferimento del
+    // path, se c'e': dalla posa grezza, con la sua isometria).
+    if (m_hyperbolic) {
+        if (framed) setHyperbolicCameraLookAt(rawPos, rawTarget, rawUp, rollDeg, frameH3);
+        else setHyperbolicCameraLookAt(finalPos, finalTarget, finalUp, rollDeg);
+    }
 
     update();
 }
@@ -5975,7 +5997,7 @@ H3::Matrix GLWidget::hyperbolicWorldCamera() const
 }
 
 void GLWidget::setHyperbolicCameraLookAt(const QVector3D &pos, const QVector3D &target, const QVector3D &up,
-                                         float rollDeg)
+                                         float rollDeg, const H3::Matrix &frame)
 {
     const double k = m_h3RadiiPerSceneUnit;
     H3::Vec3 v = {pos.x() * k, pos.y() * k, pos.z() * k};
@@ -6017,7 +6039,45 @@ void GLWidget::setHyperbolicCameraLookAt(const QVector3D &pos, const QVector3D &
     // Il rollio come nel render euclideo (rollMat * vista): attorno all'asse
     // di vista, di -roll nel riferimento della camera.
     if (rollDeg != 0.0f) r = r * H3::rotation({0.0, 0.0, 1.0}, -qDegreesToRadians(double(rollDeg)));
-    m_h3Camera = H3::renormalized(tp * r);
+    // Il riferimento del path (cameraPathFrame) davanti a tutto: la posa e'
+    // quella costruita dal centro, trasportata dove sta l'oggetto.
+    m_h3Camera = H3::renormalized(frame * tp * r);
+}
+
+void GLWidget::setCameraPathFrame(int index)
+{
+    const bool valid = index > 0 && index < int(m_objects.size()) && m_objects[index]->fixed;
+    m_cameraPathFrame = valid ? index : 0;
+    update();
+}
+
+QMatrix4x4 GLWidget::objectPlacement(int index)
+{
+    QMatrix4x4 m;
+    if (index < 0 || index >= int(m_objects.size())) return m;
+    SurfaceObject &o = *m_objects[index];
+    // Come o.model in prepareObjectUniforms, senza la scala.
+    if (!isEnvironment(o)) m.rotate(m_sceneRotation.rotation);
+    m.translate(effectivePosition(o));
+    m.rotate(o.rotationQuat);
+    return m;
+}
+
+H3::Matrix GLWidget::hyperbolicObjectPlacement(int index)
+{
+    if (index < 0 || index >= int(m_objects.size())) return H3::Matrix::identity();
+    SurfaceObject &o = *m_objects[index];
+    // Come hyperbolicObjectMatrices: la traslazione lungo la geodetica dal
+    // centro della scena, prima la rotazione della scena, poi la rotazione
+    // propria (che li' sta nella parte locale).
+    const QVector3D c = effectivePosition(o) * float(m_h3RadiiPerSceneUnit);
+    H3::Matrix place = H3::translation({c.x(), c.y(), c.z()});
+    if (!isEnvironment(o)) place = hyperbolicSceneRotation() * place;
+    const QMatrix3x3 q = o.rotationQuat.toRotationMatrix();
+    H3::Matrix rot = H3::Matrix::identity();
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) rot.m[i][j] = q(i, j);
+    return place * rot;
 }
 
 void GLWidget::hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMatrix4x4 &lorentz)
@@ -7085,6 +7145,7 @@ bool GLWidget::objectHasRotationSpeed(int index) const
 void GLWidget::setObjectRotating(int index, bool on)
 {
     if (index < 0 || index >= int(m_objects.size()) || !rotationTimer) return;
+    if (m_objects[index]->fixed) on = false;   // un oggetto fisso non ha moti propri
     m_objects[index]->rotating = on;
     if (on) {
         rotationTimer->start();
@@ -7262,6 +7323,7 @@ void GLWidget::advanceClocksBy(float dt) {
 bool GLWidget::isOnStage(const SurfaceObject &o) const
 {
     if (&o == m_objects.front().get()) return true;   // l'ambiente c'e' sempre
+    if (o.fixed) return true;                          // e cio' che ne fa parte
     if (o.windowIn > 0.0f && m_sceneTime < o.windowIn) return false;
     if (o.windowOut > 0.0f && m_sceneTime >= o.windowOut) return false;
     return true;
@@ -7302,6 +7364,7 @@ bool GLWidget::setObjectPath(int index, int kind, const QString &x, const QStrin
 void GLWidget::setObjectPathRunning(int index, bool on)
 {
     if (index <= 0 || index >= int(m_objects.size())) return;
+    if (m_objects[index]->fixed) on = false;   // un oggetto fisso non ha moti propri
     m_objects[index]->pathRunning = on;
     if (on && anyObjectPathRunning()) startAnimationTimer();
 }
@@ -7391,6 +7454,7 @@ QVector3D GLWidget::objectEffectivePosition(int index) const
 void GLWidget::setObjectWindow(int index, float in, float out)
 {
     if (index <= 0 || index >= int(m_objects.size())) return;   // l'ambiente no
+    if (m_objects[index]->fixed) return;                        // un oggetto fisso e' sempre in scena
     m_objects[index]->windowIn = std::max(0.0f, in);
     m_objects[index]->windowOut = std::max(0.0f, out);
     update();
@@ -7404,6 +7468,33 @@ float GLWidget::objectWindowIn(int index) const
 float GLWidget::objectWindowOut(int index) const
 {
     return index >= 0 && index < int(m_objects.size()) ? m_objects[index]->windowOut : 0.0f;
+}
+
+bool GLWidget::objectFixed(int index) const
+{
+    return index > 0 && index < int(m_objects.size()) && m_objects[index]->fixed;
+}
+
+void GLWidget::setObjectFixed(int index, bool on)
+{
+    if (index <= 0 || index >= int(m_objects.size())) return;   // l'ambiente e' gia' l'ambiente
+    SurfaceObject &o = *m_objects[index];
+    if (o.fixed == on) return;
+    // Sbloccato, non e' piu' un riferimento per il path della camera.
+    if (!on && m_cameraPathFrame == index) m_cameraPathFrame = 0;
+    if (on) {
+        // Fermo e sempre in scena: la finestra se ne va, GO e path si fermano e
+        // le velocita' si azzerano. Le formule del path restano, inerti: tolto
+        // il blocco, Departure le riavvia. Gli orologi (geometria, texture) no:
+        // una superficie animata resta animata, come lo sfondo dell'ambiente.
+        o.windowIn = o.windowOut = 0.0f;
+        setObjectRotating(index, false);
+        o.nutationSpeed = o.precessionSpeed = o.spinSpeed = 0.0f;
+        o.omegaSpeed = o.phiSpeed = o.psiSpeed = 0.0f;
+        o.pathRunning = false;
+    }
+    o.fixed = on;
+    update();
 }
 
 void GLWidget::advanceObjectClocksBy(SurfaceObject &o, float dt) {
