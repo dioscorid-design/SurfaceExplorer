@@ -314,6 +314,7 @@ private:
     void runSceneSpaceScenarios();
     // La scena in H3 (avvio, camera come isometria, rifiuti, RESET, NEW).
     void runSceneH3Scenarios();
+    void runDisabledLookScenarios();
     void runScenePathScenarios();
     void runSceneSeekScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run

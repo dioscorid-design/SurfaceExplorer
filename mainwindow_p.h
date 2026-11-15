@@ -32,6 +32,7 @@
 #include <QRadioButton>
 #include <QPushButton>
 #include <QCheckBox>
+#include <QGroupBox>
 #include <QTabBar>
 #include <QTimer>
 #include <QScopeGuard>

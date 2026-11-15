@@ -2199,6 +2199,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("disabled-look")) {
+        runDisabledLookScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-path")) {
         runScenePathScenarios();
         finish();
@@ -4071,6 +4076,7 @@ void ScenarioTest::run()
     runSceneTimelineScenarios();
     runSceneSpaceScenarios();
     runSceneH3Scenarios();
+    runDisabledLookScenarios();
     runScenePathScenarios();
     runSceneSeekScenarios();
     runVideoFrameScenarios();
@@ -9921,6 +9927,109 @@ void ScenarioTest::runSceneSpaceScenarios()
               .arg(rmSelected).arg(gl->getEngineMode() == GLWidget::ModeImplicit).arg(blank));
 }
 
+// I CONTROLLI SPENTI SI VEDONO SPENTI (richiesta dell'utente, 2026-11-15): lo
+// stile globale dava a etichette e testi lo stesso bianco da accesi e da spenti,
+// e agli slider lo stesso cursore. Ogni tipo di controllo, fotografato spento e
+// acceso: le due immagini devono differire. Pulsanti e slider di valore del
+// dock Render erano gia' a posto (casi di controllo). Da guardare:
+// disabled-*.png (ogni controllo spento/acceso) e disabled-dock-*.png (i casi
+// tipici: costanti non citate, ambiente di una scena, dock 4D in H3).
+void ScenarioTest::runDisabledLookScenarios()
+{
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Controlli spenti: si vedono spenti =="));
+    pressNew();
+    auto *ui = m_mw->ui;
+    // Sulla parte comune: un'etichetta puo' cambiare larghezza fra le due foto
+    // (il layout della riga si ricalcola).
+    const auto differing = [](const QImage &a, const QImage &b) {
+        int n = 0;
+        for (int y = 0; y < std::min(a.height(), b.height()); ++y)
+            for (int x = 0; x < std::min(a.width(), b.width()); ++x)
+                if (a.pixel(x, y) != b.pixel(x, y)) ++n;
+        return n;
+    };
+    struct Case { const char *name; QWidget *widget; };
+    const Case cases[] = {
+        { "etichetta (Transparency)", ui->lblTrans },
+        { "slider standard (costante A)", ui->aSlider },
+        { "slider standard (T del dock Objects)", m_mw->m_sceneTimeSlider },
+        { "slider di colore (R)", ui->sliderR },
+        { "slider Shell thickness", ui->shellThicknessSlider },
+        { "campo di testo (costante A)", ui->lineA },
+        { "campo dell'equazione (X)", ui->lineX },
+        { "casella (Texture)", ui->chkBoxTexture },
+        { "radio (Basic)", ui->radioBasic },
+        { "spinbox (mesh)", ui->spinMeshSel },
+        { "albero (Textures)", ui->treeTextures },
+        { "slider di valore (Transparency, gia' a posto)", ui->alphaSlider },
+        { "pulsante (Departure, gia' a posto)", ui->btnDeparture },
+    };
+    // Dopo NEW il campo X e' vuoto: un testo per la foto, a segnali fermi.
+    const QString xText = ui->lineX->toPlainText();
+    {
+        const QSignalBlocker blocker(ui->lineX);
+        ui->lineX->setPlainText(QStringLiteral("cos(u) * sin(v)"));
+    }
+    int index = 0;
+    for (const Case &c : cases) {
+        ++index;
+        if (!c.widget) {
+            check(false, QStringLiteral("controllo spento: %1 non trovato").arg(QLatin1String(c.name)));
+            continue;
+        }
+        // Acceso davvero: anche i contenitori spenti (la scena vuota di NEW
+        // spegne pannelli interi) si accendono per la foto, poi tornano com'erano.
+        QList<QWidget *> disabledAncestors;
+        for (QWidget *p = c.widget->parentWidget(); p; p = p->parentWidget())
+            if (p->testAttribute(Qt::WA_Disabled)) disabledAncestors << p;
+        for (QWidget *p : std::as_const(disabledAncestors)) p->setEnabled(true);
+        const bool was = !c.widget->testAttribute(Qt::WA_Disabled);
+        c.widget->setEnabled(true);
+        wait(50);
+        const QImage on = c.widget->grab().toImage();
+        c.widget->setEnabled(false);
+        wait(50);
+        const QImage off = c.widget->grab().toImage();
+        c.widget->setEnabled(was);
+        for (QWidget *p : std::as_const(disabledAncestors)) p->setEnabled(false);
+        on.save(m_outDir + QStringLiteral("/disabled-%1-on.png").arg(index, 2, 10, QLatin1Char('0')));
+        off.save(m_outDir + QStringLiteral("/disabled-%1-off.png").arg(index, 2, 10, QLatin1Char('0')));
+        const int n = differing(on, off);
+        check(n >= 20, QStringLiteral("controllo spento diverso dall'acceso: %1 (%2 pixel diversi; disabled-%3-*.png)")
+                           .arg(QLatin1String(c.name)).arg(n).arg(index, 2, 10, QLatin1Char('0')));
+    }
+    {
+        const QSignalBlocker blocker(ui->lineX);
+        ui->lineX->setPlainText(xText);
+    }
+    // I casi tipici, da guardare: le costanti non citate dall'equazione di
+    // NEW, il dock Equations con l'ambiente di una scena selezionato, il dock
+    // 4D in una scena H3.
+    const auto dockShot = [&](QDockWidget *dock, const QString &name) {
+        wait(300);
+        dock->grab().save(m_outDir + QStringLiteral("/disabled-dock-%1.png").arg(name));
+    };
+    dockShot(ui->dockEquations, QStringLiteral("equations-constants"));
+    m_discardOnPrompt = true;
+    m_mw->startScene(MainWindow::SceneSpace::Space3D);
+    wait(300);
+    m_discardOnPrompt = false;
+    const bool environmentOff = m_mw->sceneStarted() && !ui->panelEquations->isEnabled();
+    dockShot(ui->dockEquations, QStringLiteral("equations-environment"));
+    pressNew();
+    m_discardOnPrompt = true;
+    m_mw->startScene(MainWindow::SceneSpace::SpaceH3);
+    wait(300);
+    m_discardOnPrompt = false;
+    const bool h3Off = m_mw->ui->glWidget->hyperbolicSpace() && !m_mw->dockContent(ui->dock4D)->isEnabled();
+    dockShot(ui->dock4D, QStringLiteral("4d-h3"));
+    pressNew();
+    check(environmentOff && h3Off,
+          QStringLiteral("casi tipici fotografati: Equations con l'ambiente di una scena (spento %1), dock 4D in H3 "
+                         "(spento %2); disabled-dock-*.png").arg(environmentOff).arg(h3Off));
+}
+
 void ScenarioTest::runSceneH3Scenarios()
 {
     GLWidget *gl = m_mw->ui->glWidget;
@@ -10208,7 +10317,7 @@ void ScenarioTest::runSceneH3Scenarios()
     {
         m_mw->removeSceneObject(1);
         m_mw->refreshObjectsUi();
-        const bool shownOff = !m_mw->m_h3Lattice->isHidden() && !m_mw->m_h3Lattice->isChecked() && !gl->hyperbolicLattice();
+        const bool shownOff = !m_mw->m_h3LatticePanel->isHidden() && !m_mw->m_h3Lattice->isChecked() && !gl->hyperbolicLattice();
         m_mw->m_h3Lattice->setChecked(true);
         m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(GLWidget::kH3DefaultCurvatureRadius));
         const auto shot = [&](const H3::Matrix &camera, const QString &name) {
@@ -10241,6 +10350,106 @@ void ScenarioTest::runSceneH3Scenarios()
                   && face > 100 && edge > 100 && start > 100,
               QStringLiteral("reticolo {4,3,5}: spento di default, acceso si vede (%1 spigoli; %2, %3, %4 punti)")
                   .arg(gl->hyperbolicLatticeEdgeCount()).arg(face).arg(edge).arg(start));
+        // Col solo reticolo la scena non e' vuota per la proiezione (la vista
+        // da fuori e' l'ortogonale): Projection cambia il modo senza popup.
+        // Spento, torna il popup (richiesta dell'utente, 2026-11-15).
+        {
+            const int projection = int(gl->projectionMode);
+            m_lastPopup.clear();
+            m_mw->m_btnProjection->click();
+            wait(400);
+            const bool changed = int(gl->projectionMode) != projection && m_lastPopup.isEmpty();
+            m_mw->m_btnProjection->click();
+            m_mw->m_btnProjection->click();
+            wait(300);
+            const bool back = int(gl->projectionMode) == projection;
+            m_mw->m_h3Lattice->setChecked(false);
+            m_lastPopup.clear();
+            m_mw->m_btnProjection->click();
+            wait(400);
+            const bool refused = m_lastPopup.contains(QLatin1String("Nothing to project"))
+                                 && int(gl->projectionMode) == projection;
+            m_mw->m_h3Lattice->setChecked(true);
+            check(changed && back && refused,
+                  QStringLiteral("scena H3 col solo reticolo: Projection cambia il modo senza popup (%1), tre clic "
+                                 "tornano al modo di partenza (%2); senza reticolo il popup (%3)")
+                      .arg(changed).arg(back).arg(refused));
+        }
+    }
+
+    // LO SPESSORE DEI TUBI, in unita' della scena: lo slider della riga sotto
+    // il reticolo, che il raggio di curvatura non cambia; le sfere dei vertici;
+    // con la curvatura forte il tetto di 0.3 raggi, e il valore accanto allo
+    // slider lo dice. Spento il reticolo, la riga si spegne. Da guardare:
+    // scene-h3-lattice-thickness-r4.png e -r1.png (stesso spessore, celle
+    // diverse), scene-h3-lattice-thickness-cap.png.
+    {
+        QSlider *thickness = m_mw->m_h3LatticeThickness;
+        QSlider *curvature = m_mw->m_h3CurvatureSlider;
+        const auto shotTo = [&](const QString &name) {
+            gl->m_h3Camera = H3::Matrix::identity();
+            gl->update();
+            wait(500);
+            gl->grabFramebuffer().save(m_outDir + QStringLiteral("/") + name);
+        };
+        m_mw->m_h3Lattice->setChecked(true);
+        curvature->setValue(MainWindow::h3CurvatureSliderFromRadius(GLWidget::kH3DefaultCurvatureRadius));
+        const double density = gl->hyperbolicLatticeDensity();
+        // Il pannello del reticolo nel dock Objects, da guardare: scene-h3-dock-objects.png.
+        wait(200);
+        m_mw->m_dockObjects->grab().save(m_outDir + QStringLiteral("/scene-h3-dock-objects.png"));
+        const bool startDefault = thickness->isEnabled() && !m_mw->m_h3LatticePanel->isHidden()
+                                  && thickness->value() == 50
+                                  && std::abs(gl->hyperbolicLatticeThickness() - GLWidget::kH3LatticeDefaultThickness) < 1e-12;
+        thickness->setValue(75);
+        const double chosen = MainWindow::h3LatticeThicknessFromSlider(75);
+        const bool thicknessSet = std::abs(gl->hyperbolicLatticeThickness() - chosen) < 1e-12
+                                  && std::abs(gl->hyperbolicLatticeDensity() - density) < 1e-12
+                                  && m_mw->m_h3LatticeThicknessValue->text() == QString::number(chosen, 'f', 3);
+        // Lo slider del raggio va a passi: i raggi veri sono quelli letti.
+        curvature->setValue(MainWindow::h3CurvatureSliderFromRadius(4.0));
+        const double r4 = gl->hyperbolicCurvatureRadius();
+        const double at4 = gl->hyperbolicLatticeEffectiveThickness();
+        shotTo(QStringLiteral("scene-h3-lattice-thickness-r4.png"));
+        const int spheres = gl->m_h3LatticeVerticesDrawn;
+        const int edges = gl->m_h3LatticeDrawn;
+        curvature->setValue(MainWindow::h3CurvatureSliderFromRadius(1.0));
+        const double r1 = gl->hyperbolicCurvatureRadius();
+        const double at1 = gl->hyperbolicLatticeEffectiveThickness();
+        const double rhoAt1 = gl->hyperbolicLatticeTubeRadius();
+        shotTo(QStringLiteral("scene-h3-lattice-thickness-r1.png"));
+        // Il tetto: a R = 0.5 lo spessore massimo (0.5) sarebbe un raggio intero.
+        thickness->setValue(100);
+        curvature->setValue(MainWindow::h3CurvatureSliderFromRadius(0.5));
+        const double capped = gl->hyperbolicLatticeTubeRadius();
+        const QString cappedText = m_mw->m_h3LatticeThicknessValue->text();
+        shotTo(QStringLiteral("scene-h3-lattice-thickness-cap.png"));
+        // Spento il reticolo la riga si spegne; lo spessore resta.
+        m_mw->m_h3Lattice->setChecked(false);
+        wait(200);
+        m_mw->m_dockObjects->grab().save(m_outDir + QStringLiteral("/scene-h3-dock-objects-off.png"));
+        const bool offRow = !m_mw->m_h3LatticeThicknessRow->isEnabled() && m_mw->m_h3LatticeThicknessValue->text().isEmpty()
+                            && !m_mw->m_h3LatticeColor->isEnabled() && !m_mw->m_h3LatticeDensity->isEnabled()
+                            && std::abs(gl->hyperbolicLatticeThickness() - GLWidget::kH3LatticeMaxThickness) < 1e-12;
+        m_mw->m_h3Lattice->setChecked(true);
+        check(startDefault && thicknessSet && std::abs(at4 - chosen) < 1e-9 && std::abs(at1 - chosen) < 1e-9
+                  && std::abs(rhoAt1 - chosen / r1) < 1e-9 && spheres > 0 && spheres < edges,
+              QStringLiteral("spessore del reticolo: parte dal default (%1), lo slider lo sceglie (%2), lo stesso a "
+                             "R = %3 (%4) e a R = %5 (%6, %7 raggi), la densita' non cambia, sfere ai vertici "
+                             "(%8 per %9 spigoli)")
+                  .arg(startDefault).arg(chosen).arg(r4).arg(at4).arg(r1).arg(at1).arg(rhoAt1)
+                  .arg(spheres).arg(edges));
+        check(std::abs(capped - GLWidget::kH3LatticeMaxTubeRadius) < 1e-12 && cappedText == QStringLiteral("0.150"),
+              QStringLiteral("spessore a R = 0.5: il tubo si ferma a %1 raggi (letto %2), accanto allo slider "
+                             "quello disegnato (\"%3\", atteso \"0.150\")")
+                  .arg(GLWidget::kH3LatticeMaxTubeRadius).arg(capped).arg(cappedText));
+        check(offRow && m_mw->m_h3LatticeColor->isEnabled(),
+              QStringLiteral("spento il reticolo densita', spessore e colore si spengono (lo spessore resta), "
+                             "riacceso tornano"));
+        // Il reticolo resta acceso, come lo lascia il blocco di prima: i casi
+        // che seguono lo guardano girare.
+        gl->setHyperbolicLatticeThickness(GLWidget::kH3LatticeDefaultThickness);
+        curvature->setValue(MainWindow::h3CurvatureSliderFromRadius(GLWidget::kH3DefaultCurvatureRadius));
     }
 
     // LE ROTAZIONI DELL'AMBIENTE girano il mondo attorno al centro: in H3 anche
@@ -10418,7 +10627,7 @@ void ScenarioTest::runSceneH3Scenarios()
               QStringLiteral("riaperta: dock Objects allineato (raggio, reticolo, densita'), niente da salvare: %1")
                   .arg(m_mw->unsavedKeys().join(QStringLiteral(", "))));
         check(gl->hyperbolicLatticeColor() == latticeColor
-                  && !m_mw->m_h3LatticeColor->isHidden()
+                  && !m_mw->m_h3LatticePanel->isHidden()
                   && m_mw->m_h3LatticeColor->styleSheet().contains(latticeColor.name()),
               QStringLiteral("riaperta: colore del reticolo %1 (salvato %2), il pulsante del dock lo mostra")
                   .arg(gl->hyperbolicLatticeColor().name(), latticeColor.name()));
@@ -10453,6 +10662,46 @@ void ScenarioTest::runSceneH3Scenarios()
         check(zoomed && resetDiff < 1e-9,
               QStringLiteral("riaperta, zoom e RESET View: di nuovo la camera del file (View aveva da fare %1, scarto %2)")
                   .arg(zoomed).arg(resetDiff));
+        // LO SPESSORE NEL FILE. Una scena di prima della chiave ha il tubo di
+        // allora: 0.025 raggi col suo raggio (3), cioe' 0.075 unita'. Salvato,
+        // torna con lo slider.
+        {
+            QJsonObject old = json;
+            QJsonObject oldH3 = old.value(QStringLiteral("h3")).toObject();
+            const bool keyWritten = oldH3.contains(QStringLiteral("latticeThickness"));
+            oldH3.remove(QStringLiteral("latticeThickness"));
+            old.insert(QStringLiteral("h3"), oldH3);
+            const QString oldPath = m_outDir + QStringLiteral("/scene-h3-no-lattice-thickness.json");
+            QFile of(oldPath);
+            const bool oldWritten = of.open(QIODevice::WriteOnly) && of.write(QJsonDocument(old).toJson()) > 0;
+            of.close();
+            const bool oldLoaded = oldWritten && m_mw->loadSceneFile(oldPath);
+            wait(800);
+            const double expected = GLWidget::kH3LatticeTubeRadius * radius;
+            check(keyWritten && oldLoaded && std::abs(gl->hyperbolicLatticeThickness() - expected) < 1e-9
+                      && std::abs(gl->hyperbolicLatticeTubeRadius() - GLWidget::kH3LatticeTubeRadius) < 1e-9
+                      && !m_mw->hasUnsavedWork(),
+                  QStringLiteral("scena H3 senza latticeThickness (il save la scrive: %1): spessore %2 (atteso %3), "
+                                 "il tubo di prima, niente da salvare")
+                      .arg(keyWritten).arg(gl->hyperbolicLatticeThickness()).arg(expected));
+            m_mw->m_h3LatticeThickness->setValue(80);
+            const double thickness = gl->hyperbolicLatticeThickness();
+            PresetSerializer::MotionRunState thicknessRun;
+            const QJsonObject thicknessJson = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("H3 Scene"), thicknessRun, false);
+            const QString thicknessPath = m_outDir + QStringLiteral("/scene-h3-lattice-thickness.json");
+            QFile tf(thicknessPath);
+            const bool thicknessWritten = tf.open(QIODevice::WriteOnly) && tf.write(QJsonDocument(thicknessJson).toJson()) > 0;
+            tf.close();
+            newScene();
+            const bool thicknessLoaded = thicknessWritten && m_mw->loadSceneFile(thicknessPath);
+            wait(800);
+            check(thicknessLoaded && gl->hyperbolicLattice()
+                      && std::abs(gl->hyperbolicLatticeThickness() - thickness) < 1e-12
+                      && m_mw->m_h3LatticeThickness->value() == 80 && !m_mw->hasUnsavedWork(),
+                  QStringLiteral("scena H3 riaperta con lo spessore: %1 (salvato %2), slider %3, niente da salvare: %4")
+                      .arg(gl->hyperbolicLatticeThickness()).arg(thickness).arg(m_mw->m_h3LatticeThickness->value())
+                      .arg(m_mw->unsavedKeys().join(QStringLiteral(", "))));
+        }
     }
 
     // IL SELETTORE DI COLORE DI ANDROID (UiStyleManager::pickColorWithSliders,
@@ -10490,7 +10739,7 @@ void ScenarioTest::runSceneH3Scenarios()
 
     newScene();
     check(!m_mw->sceneStarted() && !gl->hyperbolicSpace() && m_mw->m_h3CurvatureRow->isHidden()
-              && !gl->hyperbolicLattice() && m_mw->m_h3Lattice->isHidden()
+              && !gl->hyperbolicLattice() && m_mw->m_h3LatticePanel->isHidden()
               && std::abs(gl->hyperbolicCurvatureRadius() - GLWidget::kH3DefaultCurvatureRadius) < 1e-9
               && gl->effectiveBackgroundSkyMode() == gl->backgroundSkyMode(),
           QStringLiteral("NEW chiude la scena H3 (senza la riga del raggio, che torna al default; lo sfondo torna alla sua forma)"));
@@ -12249,6 +12498,27 @@ void ScenarioTest::runResetButtonScenarios()
                   .arg(mode == 0 ? QStringLiteral("Parametric") : QStringLiteral("Ray Marching"))
                   .arg(start).arg(reset).arg(project)
                   .arg(unsaved.isEmpty() ? QString() : QStringLiteral(" (") + unsaved.join(QStringLiteral(", ")) + QLatin1Char(')')));
+    }
+    // ...ma con la sola texture di sfondo la proiezione si sceglie (richiesta
+    // dell'utente, 2026-11-15): niente popup, il modo cambia; tre clic
+    // tornano al modo di partenza.
+    {
+        pressNew();
+        gl->loadBackgroundScript(QStringLiteral("return vec3(uv.x, uv.y, 0.5);"));
+        gl->setBackgroundTextureEnabled(true);
+        const int projection = int(gl->projectionMode);
+        m_lastPopup.clear();
+        m_mw->m_btnProjection->click();
+        wait(400);
+        const bool changed = int(gl->projectionMode) != projection && m_lastPopup.isEmpty();
+        m_mw->m_btnProjection->click();
+        m_mw->m_btnProjection->click();
+        wait(300);
+        check(changed && int(gl->projectionMode) == projection,
+              QStringLiteral("scena vuota con la sola texture di sfondo: Projection cambia il modo senza popup "
+                             "(%1, popup \"%2\"), tre clic tornano al modo di partenza")
+                  .arg(changed).arg(m_lastPopup));
+        gl->setBackgroundTextureEnabled(false);
     }
     m_discardOnPrompt = true;
     ui->tabModeSelector->setCurrentIndex(0);

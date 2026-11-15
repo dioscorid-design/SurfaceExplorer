@@ -1246,6 +1246,29 @@ public:
     // Il colore di prima (0.78, 0.80, 0.86) a 8 bit, come lo scrive #rrggbb:
     // salvato e riaperto resta identico.
     static QColor defaultHyperbolicLatticeColor() { return QColor(199, 204, 219); }
+    // LO SPESSORE DEL RETICOLO: il raggio dei tubi in unita' della scena
+    // (richiesta dell'utente, 2026-11-15), che il raggio di curvatura non
+    // cambia; le celle invece si', il {4,3,5} esiste solo col suo lato in
+    // raggi. I vertici hanno una sfera dello stesso raggio, che chiude i giunti
+    // dei 12 spigoli quando il tubo e' spesso. Chiave "latticeThickness" del
+    // blocco h3; ogni scena H3 riparte dal default.
+    void setHyperbolicLatticeThickness(double sceneUnits);
+    double hyperbolicLatticeThickness() const { return m_h3LatticeThickness; }
+    // Lo spessore va da 0.005 a 0.5 unita' della scena. Il default e' il tubo
+    // di prima (kH3LatticeTubeRadius raggi) col raggio di default: 0.025 * 2.
+    // Le scene salvate prima della chiave hanno 0.025 * il loro raggio, cioe'
+    // il reticolo che avevano.
+    static constexpr double kH3LatticeTubeRadius = 0.025;
+    static constexpr double kH3LatticeMinThickness = 0.005;
+    static constexpr double kH3LatticeMaxThickness = 0.5;
+    static constexpr double kH3LatticeDefaultThickness = 0.05;
+    // Il tetto del raggio del tubo, in raggi: la camera al centro della cella
+    // dista 0.84 raggi dagli spigoli; oltre i tubi chiuderebbero il cubo.
+    static constexpr double kH3LatticeMaxTubeRadius = 0.3;
+    // Il raggio del tubo disegnato, in raggi di curvatura (col tetto), e lo
+    // stesso in unita' della scena.
+    double hyperbolicLatticeTubeRadius() const;
+    double hyperbolicLatticeEffectiveThickness() const { return hyperbolicLatticeTubeRadius() / m_h3RadiiPerSceneUnit; }
     double hyperbolicLatticeReach();
     int hyperbolicLatticeDrawnEdges();
     // LA VISTA DA FUORI: in H3 la proiezione ortogonale porta fuori
@@ -2088,10 +2111,13 @@ private:
     // semplice). Due pezzi, generati al primo uso: attorno alla cella della
     // camera in prospettiva, piu' grande e attorno alla cella centrale nella
     // vista da fuori (hyperbolicLatticePiece sceglie e genera).
+    // I vertici (per le loro sfere) allo stesso modo: una
+    // traslazione dall'origine per vertice, in ordine di distanza.
     struct LatticePiece {
         std::vector<H3::Matrix> edges;
         std::vector<double> reach;
-        int fine = 0;
+        std::vector<H3::Matrix> vertices;
+        std::vector<double> vertexReach;
     };
     LatticePiece m_h3LatticeAround;
     LatticePiece m_h3LatticeWhole;
@@ -2099,9 +2125,15 @@ private:
     double m_h3LatticeDensity = 1.0;
     // Colore base delle pareti (prima della luce): nel LatticeUbo, color.
     QColor m_h3LatticeColor = defaultHyperbolicLatticeColor();
-    // Del fotogramma: spigoli disegnati, di cui col tubo intero, e da quale pezzo.
+    double m_h3LatticeThickness = kH3LatticeDefaultThickness;
+    // Del fotogramma: spigoli disegnati, di cui col tubo intero, e da quale
+    // pezzo; le sfere dei vertici, di cui intere, e dove cominciano le loro
+    // istanze nel buffer.
     int m_h3LatticeDrawn = 0;
     int m_h3LatticeFine = 0;
+    int m_h3LatticeVerticesDrawn = 0;
+    int m_h3LatticeVerticesFine = 0;
+    int m_h3LatticeVertexInstance = 0;
     bool m_h3LatticeWholeDraw = false;
     QRhiGraphicsPipeline *m_latticePipeline = nullptr;
     QRhiShaderResourceBindings *m_latticeSrb = nullptr;
@@ -2109,14 +2141,21 @@ private:
     QRhiBuffer *m_latticeVbo = nullptr;
     QRhiBuffer *m_latticeInstances = nullptr;        // prospettiva: a ogni fotogramma
     QRhiBuffer *m_latticeWholeInstances = nullptr;   // vista da fuori: caricate una volta
-    int m_latticeFineVertexCount = 0;                // il tubo intero, poi il semplice, nel VBO
-    int m_latticeCoarseVertexCount = 0;
-    std::vector<float> m_latticeVertices;   // i tubi canonici, fino al caricamento nel VBO
+    // Le maglie canoniche nel VBO, in quest'ordine: il tubo intero, il
+    // semplice, la sfera intera, la semplice (primo vertice e quanti).
+    enum LatticeMeshKind { LatticeTubeFine, LatticeTubeCoarse, LatticeSphereFine, LatticeSphereCoarse, LatticeMeshCount };
+    struct LatticeMesh { int first = 0; int count = 0; };
+    LatticeMesh m_latticeMesh[LatticeMeshCount];
+    std::vector<float> m_latticeVertices;   // le maglie canoniche, fino al caricamento nel VBO
+    // Oltre quale distanza (in raggi) un tubo o una sfera usa la maglia semplice
+    // nella vista da fuori: kLatticeFineReach al raggio di sempre, piu' in la'
+    // per i tubi piu' spessi (stessa larghezza sullo schermo).
+    double hyperbolicLatticeFineReach() const;
     bool m_latticeVboUploaded = false;
     // Prima del render pass: cella della camera, istanze, uniform (e la
-    // pipeline, la prima volta). Nel render pass: il disegno, fra lo sfondo e
-    // gli oggetti opachi.
-    void prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates);
+    // pipeline, la prima volta; outputSize per il tubo piu' sottile in pixel).
+    // Nel render pass: il disegno, dopo gli oggetti opachi e prima dei trasparenti.
+    void prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates, const QSize &outputSize);
     void drawHyperbolicLattice(QRhiCommandBuffer *cb, const QSize &outputSize);
     bool createLatticePipeline();
     void releaseHyperbolicLattice();

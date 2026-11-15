@@ -1336,10 +1336,15 @@ void MainWindow::applyCameraFov(float deg)
 
 void MainWindow::toggleProjection()
 {
-    // SCENA VUOTA DI NEW: la proiezione non ha niente da mostrare (lo sfondo
-    // non ne dipende: il suo campo visivo e' virtuale). Prima cambiava lo
-    // stesso, e al preset successivo la scena risultava da salvare.
-    if (isWholeSceneEmpty()) {
+    // SCENA VUOTA DI NEW: la proiezione non ha niente da mostrare. Prima
+    // cambiava lo stesso, e al preset successivo la scena risultava da salvare.
+    // Non e' vuota una scena col solo reticolo di H3 (la vista da fuori e'
+    // la proiezione ortogonale) o con la sola texture di sfondo: li' la
+    // proiezione si sceglie (richiesta dell'utente, 2026-11-15).
+    GLWidget *gl = ui->glWidget;
+    const bool latticeShown = gl && gl->hyperbolicSpace() && gl->hyperbolicLattice();
+    const bool backgroundShown = gl && gl->isBackgroundTextureEnabled();
+    if (isWholeSceneEmpty() && !latticeShown && !backgroundShown) {
         InputValidator::showEmptySceneNotice(this, "Nothing to project");
         return;
     }

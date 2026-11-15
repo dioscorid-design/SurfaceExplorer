@@ -1255,34 +1255,61 @@ void MainWindow::setupObjectsDock()
         "positions and sizes in scene units."));
     m_h3CurvatureRow->setVisible(false);
     lay->addWidget(m_h3CurvatureRow);
-    // IL RETICOLO {4,3,5}: le pareti di H3, della scena (non dell'oggetto), con
-    // la sua densita' accanto. Visibilita', stato e tooltip: refreshHyperbolicControls.
-    auto *latticeRow = new QHBoxLayout();
-    latticeRow->setContentsMargins(0, 0, 0, 0);
-    m_h3Lattice = new QCheckBox(QStringLiteral("Lattice {4,3,5}"), w);
+    // IL RETICOLO {4,3,5}: le pareti di H3, della scena (non dell'oggetto). Un
+    // pannello come quelli del dock Render: la casella, poi densita', spessore
+    // dei tubi e colore, una riga ciascuno (richiesta dell'utente, 2026-11-15).
+    // Visibile solo in H3; stato e tooltip: refreshHyperbolicControls.
+    m_h3LatticePanel = new QGroupBox(w);
+    m_h3LatticePanel->setObjectName(QStringLiteral("panelH3Lattice"));
+    auto *latticeLay = new QVBoxLayout(m_h3LatticePanel);
+    m_h3Lattice = new QCheckBox(QStringLiteral("Lattice {4,3,5}"), m_h3LatticePanel);
     m_h3Lattice->setToolTip(QStringLiteral(
         "The walls of hyperbolic space: the regular tiling of H³ by cubes whose dihedral angles are 72 degrees, "
         "so that five of them meet around each edge (four in ordinary space). Its size belongs to H³, not to the "
         "scene: each edge is 1.62 radii of curvature long."));
-    m_h3LatticeDensity = new QSlider(Qt::Horizontal, w);
-    m_h3LatticeDensity->setRange(0, 100);
-    m_h3LatticeDensity->setPageStep(10);
-    m_h3LatticeDensity->setMinimumHeight(UiStyleManager::kSliderMinHeight);
-    m_h3LatticeDensityValue = new QLabel(w);
-    m_h3LatticeDensityValue->setMinimumWidth(m_h3LatticeDensityValue->fontMetrics().horizontalAdvance(QStringLiteral("00.00")));
-    m_h3LatticeDensityValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    m_h3LatticeColor = new QPushButton(w);
+    latticeLay->addWidget(m_h3Lattice);
+    // Le righe del pannello: etichetta (colonna larga quanto la piu' lunga),
+    // slider, valore.
+    QList<QLabel *> latticeLabels;
+    const auto latticeRow = [&](const QString &text, QWidget *&rowWidget) {
+        rowWidget = new QWidget(m_h3LatticePanel);
+        auto *row = new QHBoxLayout(rowWidget);
+        row->setContentsMargins(0, 0, 0, 0);
+        auto *label = new QLabel(text, rowWidget);
+        latticeLabels << label;
+        row->addWidget(label);
+        latticeLay->addWidget(rowWidget);
+        return row;
+    };
+    const auto latticeSlider = [&](QHBoxLayout *row, QSlider *&slider, QLabel *&value) {
+        slider = new QSlider(Qt::Horizontal, row->parentWidget());
+        slider->setRange(0, 100);
+        slider->setPageStep(10);
+        slider->setMinimumHeight(UiStyleManager::kSliderMinHeight);
+        row->addWidget(slider, 1);
+        value = new QLabel(row->parentWidget());
+        value->setMinimumWidth(value->fontMetrics().horizontalAdvance(QStringLiteral("00.000")));
+        value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        row->addWidget(value);
+    };
+    latticeSlider(latticeRow(QStringLiteral("Density"), m_h3LatticeDensityRow), m_h3LatticeDensity, m_h3LatticeDensityValue);
+    // Lo spessore dei tubi, in unita' della scena: il raggio di curvatura non
+    // lo cambia (GLWidget::setHyperbolicLatticeThickness).
+    latticeSlider(latticeRow(QStringLiteral("Thickness"), m_h3LatticeThicknessRow), m_h3LatticeThickness, m_h3LatticeThicknessValue);
+    QHBoxLayout *colorLay = latticeRow(QStringLiteral("Color"), m_h3LatticeColorRow);
+    m_h3LatticeColor = new QPushButton(m_h3LatticeColorRow);
     m_h3LatticeColor->setToolTip(QStringLiteral(
         "Colour of the lattice walls. It is the base colour: the light still shades them, as it does the objects."));
-    m_h3LatticeColor->setFixedWidth(UiStyleManager::kSliderMinHeight);
     m_h3LatticeColor->setMinimumHeight(UiStyleManager::kSliderMinHeight / 2);
-    for (QWidget *x : std::initializer_list<QWidget *>{ m_h3Lattice, m_h3LatticeDensity, m_h3LatticeDensityValue, m_h3LatticeColor })
-        x->setVisible(false);
-    latticeRow->addWidget(m_h3Lattice);
-    latticeRow->addWidget(m_h3LatticeDensity, 1);
-    latticeRow->addWidget(m_h3LatticeDensityValue);
-    latticeRow->addWidget(m_h3LatticeColor);
-    lay->addLayout(latticeRow);
+    colorLay->addWidget(m_h3LatticeColor, 1);
+    int latticeLabelWidth = 0;
+    for (QLabel *label : std::as_const(latticeLabels)) {
+        label->ensurePolished();
+        latticeLabelWidth = qMax(latticeLabelWidth, label->sizeHint().width());
+    }
+    for (QLabel *label : std::as_const(latticeLabels)) label->setMinimumWidth(latticeLabelWidth);
+    m_h3LatticePanel->setVisible(false);
+    lay->addWidget(m_h3LatticePanel);
     connect(m_h3LatticeColor, &QPushButton::clicked, this, [this]() {
         if (m_refreshingObjects || !ui->glWidget) return;
         const QColor picked = UiStyleManager::pickColor(this, ui->glWidget->hyperbolicLatticeColor(),
@@ -1304,12 +1331,21 @@ void MainWindow::setupObjectsDock()
         refreshHyperbolicControls();
         m_sceneObjectsChanged = true;
     });
+    connect(m_h3LatticeThickness, &QSlider::valueChanged, this, [this](int v) {
+        if (m_refreshingObjects) return;
+        ui->glWidget->setHyperbolicLatticeThickness(h3LatticeThicknessFromSlider(v));
+        refreshHyperbolicControls();
+        m_sceneObjectsChanged = true;
+    });
     connect(m_h3CurvatureSlider, &QSlider::valueChanged, this, [this](int v) {
         const double radius = h3CurvatureRadiusFromSlider(v);
         m_h3CurvatureValue->setText(QString::number(radius, 'f', radius < 10.0 ? 2 : 1));
         if (m_refreshingObjects) return;
         ui->glWidget->setHyperbolicCurvatureRadius(radius);
         clampHyperbolicObjectScales();
+        // I tubi restano dello spessore scelto, salvo il tetto in raggi: con
+        // la curvatura forte il valore accanto allo slider dello spessore lo dice.
+        refreshHyperbolicControls();
         m_sceneObjectsChanged = true;
     });
 
@@ -1408,31 +1444,44 @@ void MainWindow::clampHyperbolicObjectScales()
 
 void MainWindow::refreshHyperbolicControls()
 {
-    if (!m_h3Lattice || !m_h3LatticeDensity || !m_h3LatticeColor || !ui->glWidget) return;
+    if (!m_h3LatticePanel || !ui->glWidget) return;
     GLWidget *gl = ui->glWidget;
     const bool h3 = m_sceneSpace == SceneSpace::SpaceH3;
-    for (QWidget *x : std::initializer_list<QWidget *>{ m_h3Lattice, m_h3LatticeDensity, m_h3LatticeDensityValue, m_h3LatticeColor })
-        x->setVisible(h3);
+    m_h3LatticePanel->setVisible(h3);
     if (!h3) return;
-    // Il pulsante mostra il colore del reticolo (indipendente dall'accensione).
-    const QString hex = gl->hyperbolicLatticeColor().name();
+    // Il pulsante mostra il colore del reticolo; a reticolo spento la riga e'
+    // spenta come densita' e spessore, e il colore sbiadito.
+    const QColor color = gl->hyperbolicLatticeColor();
     m_h3LatticeColor->setStyleSheet(QStringLiteral(
-        "QPushButton { background-color: %1; border: 1px solid palette(mid); border-radius: 3px; }").arg(hex));
+        "QPushButton { background-color: %1; border: 1px solid palette(mid); border-radius: 3px; }"
+        "QPushButton:disabled { background-color: rgba(%2, %3, %4, 70); }")
+        .arg(color.name()).arg(color.red()).arg(color.green()).arg(color.blue()));
     const bool on = gl->hyperbolicLattice();
+    m_h3LatticeColorRow->setEnabled(on);
     const QSignalBlocker blocker(m_h3Lattice);
     const QSignalBlocker sliderBlocker(m_h3LatticeDensity);
+    const QSignalBlocker thicknessBlocker(m_h3LatticeThickness);
     m_h3Lattice->setChecked(on);
     m_h3LatticeDensity->setValue(int(std::lround(gl->hyperbolicLatticeDensity() * 100.0)));
-    m_h3LatticeDensity->setEnabled(on);
-    m_h3LatticeDensityValue->setEnabled(on);
+    m_h3LatticeDensityRow->setEnabled(on);
     // La distanza raggiunta, in raggi: solo col reticolo acceso (chiederla
     // genera il pezzo, che a reticolo spento non serve). Dipende anche dalla
     // proiezione: la vista da fuori ha il suo pezzo, piu' grande.
     m_h3LatticeDensityValue->setText(on ? QString::number(gl->hyperbolicLatticeReach(), 'f', 1) : QString());
-    m_h3LatticeDensity->setToolTip(
+    m_h3LatticeDensityRow->setToolTip(
         on ? QStringLiteral("Lattice density: how far the lattice reaches, in radii of curvature from the centre of "
                             "the cube around the camera (in Orthogonal, the central cube). Leftmost, that cube alone.")
            : QStringLiteral("Turn the Lattice on to choose its density."));
+    // Lo spessore scelto sullo slider, accanto quello disegnato: lo stesso,
+    // salvo il tetto in raggi con la curvatura forte.
+    m_h3LatticeThickness->setValue(h3LatticeSliderFromThickness(gl->hyperbolicLatticeThickness()));
+    m_h3LatticeThicknessRow->setEnabled(on);
+    m_h3LatticeThicknessValue->setText(on ? QString::number(gl->hyperbolicLatticeEffectiveThickness(), 'f', 3) : QString());
+    m_h3LatticeThicknessRow->setToolTip(
+        on ? QStringLiteral("Lattice thickness: the radius of the tubes, in scene units, from 0.005 to 0.5. Changing "
+                            "the radius of curvature leaves it as it is, except that a tube never exceeds 0.3 radii of "
+                            "curvature, or it would close the cubes: the number on the right is the radius actually drawn.")
+           : QStringLiteral("Turn the Lattice on to choose its thickness."));
 }
 
 // LO STATO DI H3 DA UN FILE DI SCENA (chiave "h3", PresetSerializer::buildSceneJson),
@@ -1450,6 +1499,10 @@ void MainWindow::applyHyperbolicSceneJson(const QJsonObject &h3)
                                                 h3CurvatureRadiusFromSlider(200)));
     gl->setHyperbolicLattice(h3.value(QStringLiteral("lattice")).toBool(false));
     gl->setHyperbolicLatticeDensity(qBound(0.0, h3.value(QStringLiteral("latticeDensity")).toDouble(1.0), 1.0));
+    // Lo spessore: le scene di prima della chiave hanno il tubo di allora,
+    // kH3LatticeTubeRadius raggi col raggio della scena (gia' letto sopra).
+    gl->setHyperbolicLatticeThickness(h3.value(QStringLiteral("latticeThickness"))
+                                          .toDouble(GLWidget::kH3LatticeTubeRadius * gl->hyperbolicCurvatureRadius()));
     // Il colore del reticolo: una chiave che manca (scene di prima) o che non
     // e' un colore da' il default, come le altre chiavi.
     const QColor latticeColor(h3.value(QStringLiteral("latticeColor")).toString());
@@ -1471,6 +1524,16 @@ double MainWindow::h3CurvatureRadiusFromSlider(int v)
 int MainWindow::h3CurvatureSliderFromRadius(double radius)
 {
     return qBound(0, int(std::lround(100.0 * std::log10(radius / 0.5))), 200);
+}
+
+double MainWindow::h3LatticeThicknessFromSlider(int v)
+{
+    return GLWidget::kH3LatticeDefaultThickness * std::pow(10.0, double(v - 50) / 50.0);
+}
+
+int MainWindow::h3LatticeSliderFromThickness(double thickness)
+{
+    return qBound(0, int(std::lround(50.0 + 50.0 * std::log10(thickness / GLWidget::kH3LatticeDefaultThickness))), 100);
 }
 
 void MainWindow::refreshObjectsUi()

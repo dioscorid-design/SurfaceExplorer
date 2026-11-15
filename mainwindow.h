@@ -28,6 +28,7 @@ class QLineEdit;
 class QSlider;
 class QPushButton;
 class QCheckBox;
+class QGroupBox;
 class QRadioButton;
 class QTimer;
 class QTreeWidget;
@@ -1972,14 +1973,23 @@ private:
     QWidget *m_h3CurvatureRow = nullptr;
     QSlider *m_h3CurvatureSlider = nullptr;
     QLabel *m_h3CurvatureValue = nullptr;
-    // Il reticolo {4,3,5} della scena H3 (GLWidget::setHyperbolicLattice).
+    // IL PANNELLO DEL RETICOLO {4,3,5} della scena H3, visibile solo in H3:
+    // la casella (GLWidget::setHyperbolicLattice), poi una riga ciascuno per
+    // densita' (0..100 -> setHyperbolicLatticeDensity; accanto la distanza
+    // raggiunta in raggi), spessore dei tubi (h3LatticeThicknessFromSlider ->
+    // setHyperbolicLatticeThickness; accanto quello disegnato, in unita' della
+    // scena) e colore. Densita', spessore e colore accesi col reticolo.
+    QGroupBox *m_h3LatticePanel = nullptr;
     QCheckBox *m_h3Lattice = nullptr;
-    // La densita' del reticolo accanto alla casella (0..100 ->
-    // GLWidget::setHyperbolicLatticeDensity; accanto la distanza raggiunta in raggi).
+    QWidget *m_h3LatticeDensityRow = nullptr;
     QSlider *m_h3LatticeDensity = nullptr;
     QLabel *m_h3LatticeDensityValue = nullptr;
+    QWidget *m_h3LatticeThicknessRow = nullptr;
+    QSlider *m_h3LatticeThickness = nullptr;
+    QLabel *m_h3LatticeThicknessValue = nullptr;
     // Il colore base del reticolo (GLWidget::setHyperbolicLatticeColor): un
     // pulsante che mostra il colore, e apre la palette al clic.
+    QWidget *m_h3LatticeColorRow = nullptr;
     QPushButton *m_h3LatticeColor = nullptr;
     // I controlli H3 del dock Objects: visibili solo in H3. Il reticolo sempre
     // attivo, la sua densita' col reticolo acceso, col tooltip che dice perche'.
@@ -1990,6 +2000,10 @@ private:
     void applyHyperbolicSceneJson(const QJsonObject &h3);
     static double h3CurvatureRadiusFromSlider(int v);
     static int h3CurvatureSliderFromRadius(double radius);
+    // Lo spessore dei tubi costanti: logaritmico, 0 -> 0.005, 50 -> 0.05 (il
+    // default), 100 -> 0.5 unita' della scena.
+    static double h3LatticeThicknessFromSlider(int v);
+    static int h3LatticeSliderFromThickness(double thickness);
     // In H3 nessun oggetto supera il limite di zoom (vedi objectScaleChangedByUser).
     void clampHyperbolicObjectScales();
     bool m_applyingObjectPath = false;

@@ -2467,7 +2467,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // reticolo acceso: altrimenti il percorso del fotogramma resta quello di sempre.
     if (m_hyperbolic && m_h3Lattice) {
         if (!resourceUpdates) resourceUpdates = rhi()->nextResourceUpdateBatch();
-        prepareHyperbolicLattice(resourceUpdates);
+        prepareHyperbolicLattice(resourceUpdates, outputSize);
     }
 
     // DEPTH PEELING: con due o piu' trasparenti gli strati si disegnano
@@ -2515,9 +2515,6 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             }
         }
 
-        // Il reticolo di H3: opaco, scrive la profondita' come gli oggetti.
-        drawHyperbolicLattice(cb, outputSize);
-
         // Prima gli opachi di tutti gli oggetti (scrivono la profondita'),
         // poi i trasparenti dal piu' lontano al piu' vicino (centro
         // dell'oggetto in vista: due oggetti compenetrati restano
@@ -2526,6 +2523,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         // Solo gli oggetti IN SCENA (finestre della timeline).
         for (const auto &obj : m_objects)
             if (isOnStage(*obj)) drawObject(*obj, cb, outputSize, DrawPhase::Opaque);
+        // Il reticolo di H3, dopo gli opachi: scrive la profondita' come loro,
+        // e i tubi lontani, allargati e trasparenti, si fondono su cio' che
+        // hanno dietro (gli oggetti compresi) invece di bucarlo.
+        drawHyperbolicLattice(cb, outputSize);
         std::vector<SurfaceObject *> byDepth;
         for (const auto &obj : m_objects)
             if (isOnStage(*obj)) byDepth.push_back(obj.get());
@@ -5800,6 +5801,7 @@ void GLWidget::setHyperbolicSpace(bool on)
     m_h3LatticeCell = H3::Matrix::identity();
     m_h3LatticeDensity = 1.0;
     m_h3LatticeColor = defaultHyperbolicLatticeColor();
+    m_h3LatticeThickness = kH3LatticeDefaultThickness;
     // Ogni scena H3 parte dal raggio di default, con la camera d'avvio come
     // quella euclidea: a 4 unita' dal centro lungo +z, rivolta verso di lui.
     m_h3RadiiPerSceneUnit = 1.0 / kH3DefaultCurvatureRadius;
@@ -6073,22 +6075,32 @@ static constexpr double kLatticePatchRadius = 3.5;
 #endif
 static constexpr double kLatticeWholeRadius = 4.5;
 static constexpr double kLatticeFineReach = 3.0;
-static constexpr double kLatticeTubeRadius = 0.025;   // in raggi: ~1/65 del lato
+static constexpr double kLatticeTubeRadius = GLWidget::kH3LatticeTubeRadius;   // in raggi: ~1/65 del lato
 static constexpr int kLatticeAlong = 8;                // anelli lungo lo spigolo
 static constexpr int kLatticeAround = 8;               // lati del tubo
 static constexpr int kLatticeCoarseAlong = 4;          // il tubo semplice
 static constexpr int kLatticeCoarseAround = 3;
+// IL TUBO PIU' SOTTILE SULLO SCHERMO: lontano un tubo scende sotto il pixel e
+// il rasterizzatore ne accende solo dei pezzi (le linee tratteggiate in fondo,
+// soprattutto nella vista da fuori). Sotto questo raggio in pixel il tubo si
+// allarga fin qui e si fa trasparente nella stessa misura: sullo schermo resta
+// la stessa quantita' di colore, continua. 0.75 px: anche la sezione
+// triangolare del tubo semplice e' larga almeno 1.1 px.
+static constexpr float kLatticeMinPixelRadius = 0.75f;
 
 // Il blocco uniform del reticolo: IDENTICO nei due stadi (la regola di Adreno
 // del CLAUDE.md vale per ogni pipeline). view = la rotazione della vista da
 // fuori (identita' in prospettiva, dove le istanze arrivano gia' nel
 // riferimento della camera); params = raggio del tubo, lato, intensita' della
-// luce, 1 se la proiezione e' ortogonale.
+// luce, 1 se la proiezione e' ortogonale; screen = meta' larghezza e meta'
+// altezza dell'uscita in pixel, raggio minimo di un tubo sullo schermo in
+// pixel (kLatticeMinPixelRadius). Un campo nuovo va in coda.
 struct LatticeUbo {
     float proj[16];
     float view[16];
     float color[4];
     float params[4];
+    float screen[4];
 };
 static const char *kLatticeUboBlock =
     "layout(std140, binding = 0) uniform LatticeUBO {\n"
@@ -6096,6 +6108,7 @@ static const char *kLatticeUboBlock =
     "    mat4 view;\n"
     "    vec4 color;\n"
     "    vec4 params;\n"
+    "    vec4 screen;\n"
     "} ub;\n";
 
 // Una matrice di Lorentz nei 16 float di un'istanza (per colonne, come mat4).
@@ -6133,10 +6146,45 @@ GLWidget::LatticePiece &GLWidget::hyperbolicLatticePiece()
         piece.reach.push_back(reach);
         piece.edges.push_back(frame);
     }
-    piece.fine = whole ? int(std::upper_bound(piece.reach.begin(), piece.reach.end(), kLatticeFineReach)
-                             - piece.reach.begin())
-                       : int(piece.edges.size());
+    // I vertici, per le loro sfere. Ognuno sta entro la distanza dei
+    // suoi spigoli, quindi la densita' li taglia con la stessa soglia.
+    std::vector<std::pair<double, int>> vertices;
+    vertices.reserve(h.vertices.size());
+    for (int v = 0; v < int(h.vertices.size()); ++v)
+        vertices.emplace_back(H3::distance(H3::origin(), h.vertices[v]), v);
+    std::stable_sort(vertices.begin(), vertices.end(),
+                     [](const auto &a, const auto &b) { return a.first < b.first; });
+    piece.vertices.reserve(vertices.size());
+    piece.vertexReach.reserve(vertices.size());
+    for (const auto &[reach, v] : vertices) {
+        piece.vertexReach.push_back(reach);
+        piece.vertices.push_back(H3::translationTo(h.vertices[v]));
+    }
     return piece;
+}
+
+void GLWidget::setHyperbolicLatticeThickness(double sceneUnits)
+{
+    sceneUnits = std::clamp(sceneUnits, kH3LatticeMinThickness, kH3LatticeMaxThickness);
+    if (sceneUnits == m_h3LatticeThickness) return;
+    m_h3LatticeThickness = sceneUnits;
+    update();
+}
+
+double GLWidget::hyperbolicLatticeTubeRadius() const
+{
+    return std::min(m_h3LatticeThickness * m_h3RadiiPerSceneUnit, kH3LatticeMaxTubeRadius);
+}
+
+double GLWidget::hyperbolicLatticeFineReach() const
+{
+    // Nella palla un tubo a distanza d e' largo circa 4 rho e^-d: a rho
+    // doppio la stessa larghezza sta ln 2 piu' in la'. Al piu' un raggio oltre
+    // la soglia di sempre (gli spigoli crescono di ~2.7 ogni mezzo raggio: il
+    // tubo intero per tutti sarebbe ~18 milioni di vertici).
+    const double rho = hyperbolicLatticeTubeRadius();
+    if (rho == kLatticeTubeRadius) return kLatticeFineReach;
+    return std::min(kLatticeFineReach + std::log(rho / kLatticeTubeRadius), kLatticeFineReach + 1.0);
 }
 
 int GLWidget::hyperbolicLatticeEdgeCount()
@@ -6178,23 +6226,49 @@ int GLWidget::hyperbolicLatticeDrawnEdges()
 bool GLWidget::createLatticePipeline()
 {
     if (!rhi() || !rhi()->isFeatureSupported(QRhi::Instancing)) return false;
-    // I tubi canonici, l'intero e poi il semplice nello stesso VBO: attorno
-    // all'asse z dall'origine per un lato, (frazione del lato, angolo) per
-    // vertice; il vertex shader li costruisce in H3.
+    // Le maglie canoniche nello stesso VBO, tre float per vertice (s, a, c):
+    // - i TUBI, l'intero e poi il semplice: attorno all'asse z dall'origine per
+    //   un lato, s = frazione del lato, a = angolo attorno, c = 0;
+    // - le SFERE dei vertici, l'intera e la semplice: nell'origine, s = 0,
+    //   a = longitudine, c = coseno della colatitudine.
+    // Il vertex shader le costruisce in H3 con la stessa formula: la direzione
+    // (cos a sin b, sin a sin b, cos b, 0), sin b = 1 esatto nei tubi.
     std::vector<float> verts;
-    const auto addTube = [&verts](int along, int around) {
+    int meshKind = 0;
+    const auto beginMesh = [&]() { m_latticeMesh[meshKind].first = int(verts.size() / 3); };
+    const auto endMesh = [&]() {
+        m_latticeMesh[meshKind].count = int(verts.size() / 3) - m_latticeMesh[meshKind].first;
+        ++meshKind;
+    };
+    const auto addTube = [&](int along, int around) {
+        beginMesh();
         for (int i = 0; i < along; ++i)
             for (int j = 0; j < around; ++j) {
                 const float s0 = float(i) / along, s1 = float(i + 1) / along;
                 const float a0 = 6.2831853f * float(j) / around, a1 = 6.2831853f * float(j + 1) / around;
-                const float quad[12] = {s0, a0, s1, a0, s1, a1, s0, a0, s1, a1, s0, a1};
-                verts.insert(verts.end(), quad, quad + 12);
+                const float quad[18] = {s0, a0, 0.0f, s1, a0, 0.0f, s1, a1, 0.0f,
+                                        s0, a0, 0.0f, s1, a1, 0.0f, s0, a1, 0.0f};
+                verts.insert(verts.end(), quad, quad + 18);
             }
+        endMesh();
+    };
+    const auto addSphere = [&](int rings, int around) {
+        beginMesh();
+        for (int i = 0; i < rings; ++i)
+            for (int j = 0; j < around; ++j) {
+                const float c0 = std::cos(3.14159265f * float(i) / rings);
+                const float c1 = std::cos(3.14159265f * float(i + 1) / rings);
+                const float a0 = 6.2831853f * float(j) / around, a1 = 6.2831853f * float(j + 1) / around;
+                const float quad[18] = {0.0f, a0, c0, 0.0f, a0, c1, 0.0f, a1, c1,
+                                        0.0f, a0, c0, 0.0f, a1, c1, 0.0f, a1, c0};
+                verts.insert(verts.end(), quad, quad + 18);
+            }
+        endMesh();
     };
     addTube(kLatticeAlong, kLatticeAround);
-    m_latticeFineVertexCount = int(verts.size() / 2);
     addTube(kLatticeCoarseAlong, kLatticeCoarseAround);
-    m_latticeCoarseVertexCount = int(verts.size() / 2) - m_latticeFineVertexCount;
+    addSphere(kLatticeAround / 2 + 1, kLatticeAround);
+    addSphere(2, kLatticeCoarseAround + 1);
     m_latticeVbo = rhi()->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, quint32(verts.size() * sizeof(float)));
     m_latticeUbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(LatticeUbo));
     if (!m_latticeVbo->create() || !m_latticeUbo->create()) return false;
@@ -6209,12 +6283,14 @@ bool GLWidget::createLatticePipeline()
     // Il punto del tubo: cosh(rho) * asse + sinh(rho) * direzione, con l'asse
     // la geodetica (0, 0, sinh s, cosh s) e la direzione perpendicolare
     // (cos a, sin a, 0, 0); la normale e' la tangente della geodetica che esce
-    // dall'asse (sceneTubeVertex di surface.vert, qui in forma chiusa). Poi la
+    // dall'asse (sceneTubeVertex di surface.vert, qui in forma chiusa). Nelle
+    // sfere s = 0: l'asse e' l'origine e la direzione percorre tutta la sfera,
+    // con la stessa formula (la sfera di raggio rho attorno al vertice). Poi la
     // matrice dell'istanza e la rotazione della vista; sullo schermo la carta
     // di Klein, nella vista da fuori la palla di Poincare' (come
     // hyperbolicChart di surface.vert).
     const QString vs = QStringLiteral("#version 450\n"
-        "layout(location = 0) in vec2 tube;\n"
+        "layout(location = 0) in vec3 tube;\n"
         "layout(location = 1) in vec4 m0;\n"
         "layout(location = 2) in vec4 m1;\n"
         "layout(location = 3) in vec4 m2;\n"
@@ -6222,16 +6298,39 @@ bool GLWidget::createLatticePipeline()
         + QString::fromLatin1(kLatticeUboBlock) + QStringLiteral(
         "layout(location = 0) out vec3 v_pos;\n"
         "layout(location = 1) out vec4 v_normal;\n"
+        "layout(location = 2) out float v_cover;\n"
+        "vec4 toClip(vec4 h) {\n"
+        "    return ub.proj * ((ub.params.w > 0.5) ? vec4(h.xyz, 1.0 + h.w) : h);\n"
+        "}\n"
         "void main() {\n"
         "    float rho = ub.params.x;\n"
         "    float s = tube.x * ub.params.y;\n"
         "    vec4 axis = vec4(0.0, 0.0, sinh(s), cosh(s));\n"
-        "    vec4 d = vec4(cos(tube.y), sin(tube.y), 0.0, 0.0);\n"
+        "    float sb = sqrt(max(0.0, 1.0 - tube.z * tube.z));\n"
+        "    vec4 d = vec4(cos(tube.y) * sb, sin(tube.y) * sb, tube.z, 0.0);\n"
         "    mat4 m = ub.view * mat4(m0, m1, m2, m3);\n"
+        // Il raggio del tubo sullo schermo, a questo anello: l'asse e due punti
+        // del bordo a 90 gradi (x e y sono perpendicolari all'asse, e nelle
+        // sfere al centro). Sotto il minimo il tubo si allarga di k e la
+        // copertura scende a 1/k. L'asse dietro la camera: com'e'.
+        "    float cover = 1.0;\n"
+        "    vec4 ca = toClip(m * axis);\n"
+        "    vec4 c1 = toClip(m * (cosh(rho) * axis + sinh(rho) * vec4(1.0, 0.0, 0.0, 0.0)));\n"
+        "    vec4 c2 = toClip(m * (cosh(rho) * axis + sinh(rho) * vec4(0.0, 1.0, 0.0, 0.0)));\n"
+        "    if (ca.w > 1.0e-6 && c1.w > 1.0e-6 && c2.w > 1.0e-6) {\n"
+        "        vec2 sa = ca.xy / ca.w;\n"
+        "        float r = max(length((c1.xy / c1.w - sa) * ub.screen.xy), length((c2.xy / c2.w - sa) * ub.screen.xy));\n"
+        "        if (r < ub.screen.z) {\n"
+        "            float k = min(ub.screen.z / max(r, 1.0e-4), 64.0);\n"
+        "            rho *= k;\n"
+        "            cover = 1.0 / k;\n"
+        "        }\n"
+        "    }\n"
         "    vec4 p = m * (cosh(rho) * axis + sinh(rho) * d);\n"
         "    v_pos = p.xyz;\n"
         "    v_normal = m * (sinh(rho) * axis + cosh(rho) * d);\n"
-        "    gl_Position = ub.proj * ((ub.params.w > 0.5) ? vec4(p.xyz, 1.0 + p.w) : p);\n"
+        "    v_cover = cover;\n"
+        "    gl_Position = toClip(p);\n"
         "}\n");
     // La luce come gli oggetti in H3 (surface.frag, HYPERBOLIC): in prospettiva
     // il coseno fra la normale e il raggio che forma l'immagine,
@@ -6239,6 +6338,7 @@ bool GLWidget::createLatticePipeline()
     const QString fs = QStringLiteral("#version 450\n"
         "layout(location = 0) in vec3 v_pos;\n"
         "layout(location = 1) in vec4 v_normal;\n"
+        "layout(location = 2) in float v_cover;\n"
         "layout(location = 0) out vec4 fragColor;\n")
         + QString::fromLatin1(kLatticeUboBlock) + QStringLiteral(
         "void main() {\n"
@@ -6250,7 +6350,7 @@ bool GLWidget::createLatticePipeline()
         "        c = -v_normal.w / max(length(v_pos), 1.0e-6);\n"
         "    }\n"
         "    float diff = (0.3 + 0.7 * abs(c)) * ub.params.z;\n"
-        "    fragColor = vec4(ub.color.rgb * diff, 1.0);\n"
+        "    fragColor = vec4(ub.color.rgb * diff, v_cover);\n"
         "}\n");
     const QShader vsShader = bakeShader(vs.toUtf8(), QShader::VertexStage);
     const QShader fsShader = bakeShader(fs.toUtf8(), QShader::FragmentStage);
@@ -6259,9 +6359,9 @@ bool GLWidget::createLatticePipeline()
     m_latticePipeline = rhi()->newGraphicsPipeline();
     m_latticePipeline->setTopology(QRhiGraphicsPipeline::Triangles);
     QRhiVertexInputLayout layout;
-    layout.setBindings({ { 2 * sizeof(float) },
+    layout.setBindings({ { 3 * sizeof(float) },
                          { 16 * sizeof(float), QRhiVertexInputBinding::PerInstance } });
-    layout.setAttributes({ { 0, 0, QRhiVertexInputAttribute::Float2, 0 },
+    layout.setAttributes({ { 0, 0, QRhiVertexInputAttribute::Float3, 0 },
                            { 1, 1, QRhiVertexInputAttribute::Float4, 0 },
                            { 1, 2, QRhiVertexInputAttribute::Float4, 4 * sizeof(float) },
                            { 1, 3, QRhiVertexInputAttribute::Float4, 8 * sizeof(float) },
@@ -6273,11 +6373,21 @@ bool GLWidget::createLatticePipeline()
     m_latticePipeline->setSampleCount(renderTarget()->sampleCount());
     m_latticePipeline->setDepthTest(true);
     m_latticePipeline->setDepthWrite(true);
+    // I tubi allargati sotto il pixel sono trasparenti (v_cover): si fondono
+    // su cio' che c'e' gia', percio' il reticolo si disegna dopo gli opachi.
+    // I tubi interi hanno copertura 1: come prima.
+    QRhiGraphicsPipeline::TargetBlend blend;
+    blend.enable = true;
+    blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
+    blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+    blend.srcAlpha = QRhiGraphicsPipeline::One;
+    blend.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+    m_latticePipeline->setTargetBlends({ blend });
     m_latticePipeline->setCullMode(QRhiGraphicsPipeline::None);
     return m_latticePipeline->create();
 }
 
-void GLWidget::prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates)
+void GLWidget::prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates, const QSize &outputSize)
 {
     if (!m_hyperbolic || !m_h3Lattice || m_isFlatView) return;
     const bool whole = hyperbolicOutsideView();
@@ -6291,9 +6401,23 @@ void GLWidget::prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates)
         updates->uploadStaticBuffer(m_latticeVbo, m_latticeVertices.data());
         m_latticeVboUploaded = true;
     }
-    // Solo gli spigoli entro la densita' scelta: i primi, sono in ordine di distanza.
+    // Solo gli spigoli entro la densita' scelta: i primi, sono in ordine di
+    // distanza. Il tubo intero ai vicini: tutti in prospettiva, nella vista da
+    // fuori quelli entro hyperbolicLatticeFineReach. Le sfere dei vertici con
+    // la stessa soglia.
     m_h3LatticeDrawn = hyperbolicLatticeDrawnEdges();
-    m_h3LatticeFine = std::min(piece.fine, m_h3LatticeDrawn);
+    const double fineReach = hyperbolicLatticeFineReach();
+    const auto countWithin = [](const std::vector<double> &reach, double limit) {
+        return int(std::upper_bound(reach.begin(), reach.end(), limit) - reach.begin());
+    };
+    m_h3LatticeFine = whole ? std::min(countWithin(piece.reach, fineReach), m_h3LatticeDrawn) : m_h3LatticeDrawn;
+    m_h3LatticeVerticesDrawn = 0;
+    m_h3LatticeVerticesFine = 0;
+    if (m_h3LatticeDrawn > 0) {
+        m_h3LatticeVerticesDrawn = countWithin(piece.vertexReach, piece.reach[size_t(m_h3LatticeDrawn) - 1] + 1e-9);
+        m_h3LatticeVerticesFine = whole ? std::min(countWithin(piece.vertexReach, fineReach), m_h3LatticeVerticesDrawn)
+                                        : m_h3LatticeVerticesDrawn;
+    }
     m_h3LatticeWholeDraw = whole;
     QMatrix4x4 view;   // identita'
     if (whole) {
@@ -6302,10 +6426,13 @@ void GLWidget::prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates)
         // sono: le istanze si caricano una volta (in float bastano: si guarda
         // da fuori, l'errore e' sotto il pixel), e a ogni fotogramma cambia
         // solo la rotazione della vista (hyperbolicViewer, nel mondo girato
-        // dall'ambiente).
+        // dall'ambiente). Tutti gli spigoli, poi tutti i vertici.
         if (!m_latticeWholeInstances) {
-            std::vector<float> instances(piece.edges.size() * 16);
+            const size_t total = piece.edges.size() + piece.vertices.size();
+            std::vector<float> instances(total * 16);
             for (size_t e = 0; e < piece.edges.size(); ++e) latticeMatrixToFloats(piece.edges[e], &instances[e * 16]);
+            for (size_t v = 0; v < piece.vertices.size(); ++v)
+                latticeMatrixToFloats(piece.vertices[v], &instances[(piece.edges.size() + v) * 16]);
             m_latticeWholeInstances = rhi()->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer,
                                                        quint32(instances.size() * sizeof(float)));
             if (!m_latticeWholeInstances->create()) {
@@ -6315,16 +6442,18 @@ void GLWidget::prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates)
             }
             updates->uploadStaticBuffer(m_latticeWholeInstances, instances.data());
         }
+        m_h3LatticeVertexInstance = int(piece.edges.size());
         const H3::Matrix toView = H3::inverse(hyperbolicViewer(hyperbolicWorldCamera()));
         latticeMatrixToFloats(toView, view.data());
     } else {
         // PROSPETTIVA: la cella della camera, poi ogni spigolo nel riferimento
         // della camera, in double (ogni spigolo ricentrato su se stesso).
         // Nel mondo girato dalle rotazioni dell'ambiente (hyperbolicWorldCamera).
+        // Dopo gli spigoli disegnati, i vertici disegnati.
         const H3::Matrix camera = hyperbolicWorldCamera();
         m_h3LatticeCell = H3::honeycomb435CellOf(m_h3LatticeCell, camera * H3::origin());
         const H3::Matrix toCamera = H3::inverse(camera) * m_h3LatticeCell;
-        const quint32 bytes = quint32(std::max<size_t>(1, piece.edges.size()) * 16 * sizeof(float));
+        const quint32 bytes = quint32(std::max<size_t>(1, piece.edges.size() + piece.vertices.size()) * 16 * sizeof(float));
         if (!m_latticeInstances || m_latticeInstances->size() < bytes) {
             delete m_latticeInstances;
             m_latticeInstances = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, bytes);
@@ -6334,9 +6463,12 @@ void GLWidget::prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates)
                 return;
             }
         }
-        std::vector<float> instances(size_t(m_h3LatticeDrawn) * 16);
+        std::vector<float> instances(size_t(m_h3LatticeDrawn + m_h3LatticeVerticesDrawn) * 16);
         for (size_t e = 0; e < size_t(m_h3LatticeDrawn); ++e)
             latticeMatrixToFloats(toCamera * piece.edges[e], &instances[e * 16]);
+        for (size_t v = 0; v < size_t(m_h3LatticeVerticesDrawn); ++v)
+            latticeMatrixToFloats(toCamera * piece.vertices[v], &instances[(size_t(m_h3LatticeDrawn) + v) * 16]);
+        m_h3LatticeVertexInstance = m_h3LatticeDrawn;
         if (!instances.empty())
             updates->updateDynamicBuffer(m_latticeInstances, 0, quint32(instances.size() * sizeof(float)), instances.data());
     }
@@ -6350,10 +6482,13 @@ void GLWidget::prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates)
     u.color[1] = float(m_h3LatticeColor.greenF());
     u.color[2] = float(m_h3LatticeColor.blueF());
     u.color[3] = 1.0f;
-    u.params[0] = float(kLatticeTubeRadius);
+    u.params[0] = float(hyperbolicLatticeTubeRadius());   // in raggi, dallo spessore in unita' della scena
     u.params[1] = float(H3::honeycomb435EdgeLength());
     u.params[2] = m_objects.front()->lightIntensity;   // la luce dell'ambiente
     u.params[3] = (projectionMode == Ortho4D) ? 1.0f : 0.0f;
+    u.screen[0] = 0.5f * float(outputSize.width());
+    u.screen[1] = 0.5f * float(outputSize.height());
+    u.screen[2] = kLatticeMinPixelRadius;
     updates->updateDynamicBuffer(m_latticeUbo, 0, sizeof(LatticeUbo), &u);
 }
 
@@ -6365,21 +6500,22 @@ void GLWidget::drawHyperbolicLattice(QRhiCommandBuffer *cb, const QSize &outputS
     cb->setGraphicsPipeline(m_latticePipeline);
     cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
     cb->setShaderResources(m_latticeSrb);
-    // I vicini col tubo intero, i lontani (solo nella vista da fuori) col tubo
-    // semplice: il secondo tubo e le loro istanze cominciano piu' avanti nei
-    // due buffer.
-    if (m_h3LatticeFine > 0) {
-        const QRhiCommandBuffer::VertexInput inputs[] = { { m_latticeVbo, 0 }, { instances, 0 } };
-        cb->setVertexInput(0, 2, inputs);
-        cb->draw(quint32(m_latticeFineVertexCount), quint32(m_h3LatticeFine));
-    }
-    if (m_h3LatticeDrawn > m_h3LatticeFine) {
+    // I vicini con la maglia intera, i lontani (solo nella vista da fuori) con
+    // la semplice: ogni maglia comincia al suo posto nel VBO, le sue istanze al
+    // loro nel buffer delle istanze. Prima i tubi, poi le sfere dei vertici.
+    const auto drawMesh = [&](LatticeMeshKind kind, int firstInstance, int count) {
+        if (count <= 0) return;
         const QRhiCommandBuffer::VertexInput inputs[] = {
-            { m_latticeVbo, quint32(m_latticeFineVertexCount * 2 * sizeof(float)) },
-            { instances, quint32(m_h3LatticeFine * 16 * sizeof(float)) } };
+            { m_latticeVbo, quint32(m_latticeMesh[kind].first * 3 * sizeof(float)) },
+            { instances, quint32(firstInstance * 16 * sizeof(float)) } };
         cb->setVertexInput(0, 2, inputs);
-        cb->draw(quint32(m_latticeCoarseVertexCount), quint32(m_h3LatticeDrawn - m_h3LatticeFine));
-    }
+        cb->draw(quint32(m_latticeMesh[kind].count), quint32(count));
+    };
+    drawMesh(LatticeTubeFine, 0, m_h3LatticeFine);
+    drawMesh(LatticeTubeCoarse, m_h3LatticeFine, m_h3LatticeDrawn - m_h3LatticeFine);
+    drawMesh(LatticeSphereFine, m_h3LatticeVertexInstance, m_h3LatticeVerticesFine);
+    drawMesh(LatticeSphereCoarse, m_h3LatticeVertexInstance + m_h3LatticeVerticesFine,
+             m_h3LatticeVerticesDrawn - m_h3LatticeVerticesFine);
 }
 
 void GLWidget::releaseHyperbolicLattice()

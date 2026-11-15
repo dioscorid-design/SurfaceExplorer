@@ -45,6 +45,10 @@ public:
     // da acceso, grigio da spento. Unica sede: lo usano setupBigSliders e gli
     // slider aggiunti dopo (Headlight, Border Thickness).
     static QString valueSliderStyle();
+    // L'aspetto spento di uno slider (binario e cursore grigi): da aggiungere a
+    // ogni foglio di slider che ridisegna binario e cursore, o lo spento resta
+    // uguale all'acceso (il foglio dello slider vince su quello della finestra).
+    static QString sliderDisabledStyle();
     static void applyInputFieldsStyle(const QList<QWidget*>& fields);
     // contentFitsView: il contenuto e' largo quanto la vista (dock unico del
     // telefono), quindi niente margine destro per la barra di scorrimento.
