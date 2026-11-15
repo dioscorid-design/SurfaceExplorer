@@ -30,6 +30,7 @@
 #include <QLabel>
 #include <QDialogButtonBox>
 #include <QShowEvent>
+#include <QScopeGuard>
 #include <algorithm>
 #include <functional>
 
@@ -51,6 +52,34 @@
 #include <QDialogButtonBox>
 #include <QScrollArea>
 #endif
+
+// L'USCITA DI UNA VOCE DI RISOLUZIONE dei dialoghi video (mobile e desktop, che
+// hanno le stesse voci nello stesso ordine); vuota = la vista ("Current View
+// Size"). La usa anche toggleRecord per la misura del video.
+static QSize videoResolutionSize(int index)
+{
+    static const QSize sizes[] = { QSize(), QSize(1920, 1080), QSize(2560, 1440), QSize(3840, 2160) };
+    return (index >= 1 && index <= 3) ? sizes[index] : QSize();
+}
+
+// LA CASELLA DOWNSCALING E LA SUA RIGA, uguali nei due dialoghi (mobile e
+// desktop). Il ricampionamento (GLWidget::captureRenderSize) conta solo col
+// motore a risoluzione nativa e un video piu' piccolo della vista: li' le
+// texture che misurano in pixel (linee del Wireframe, frattali) uscirebbero
+// larghe una frazione di pixel, spezzate e granulose; disegnate alla scala
+// della vista e ridotte sono la vista rimpicciolita, ma l'esportazione e' piu'
+// lenta (circa 1,5 volte, misurato). Quando non conta la casella e' spenta e
+// la riga sotto dice perche'.
+static void refreshResampleOption(GLWidget* gl, int resIndex, bool nativeEngine, QCheckBox* box, QLabel* hint)
+{
+    const QSize wanted = videoResolutionSize(resIndex);
+    const bool smaller = !wanted.isEmpty() && gl->captureRenderSize(wanted, 1.0f) != wanted;
+    box->setEnabled(nativeEngine && smaller);
+    hint->setText(!nativeEngine ? "Only with the Native Resolution engine."
+                  : !smaller ? "Not needed: the video is not smaller than the view."
+                  : "The video is smaller than the view: fine textures (wireframe lines, fractals) "
+                    "can be drawn at the view's resolution and scaled down. Export about 1.5x slower.");
+}
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
 #ifdef Q_OS_IOS
@@ -81,13 +110,16 @@ public:
     QComboBox* comboRes;
     QComboBox* comboEngine;
     QCheckBox* chkResample;
+    QLabel* resampleHint;
+    // Ricampionare: casella accesa (quando conta, refreshResampleOption) e spuntata.
+    bool resample() const { return chkResample->isEnabled() && chkResample->isChecked(); }
     QLineEdit* nameEdit;
 #if !defined(Q_OS_IOS)
     QComboBox* comboFormat;
 #endif
 
-    MobileVideoSaveDialog(const QString& startDir, int defDur, int defFps, int defRes, QWidget* parent = nullptr)
-        : QDialog(parent), currentDir(startDir) {
+    MobileVideoSaveDialog(GLWidget* gl, const QString& startDir, int defDur, int defFps, int defRes, QWidget* parent = nullptr)
+        : QDialog(parent), currentDir(startDir), m_gl(gl) {
         setWindowTitle("Export Settings & Save");
 
         // RIMOSSO setMinimumSize(320, 500)! Ora blocchiamo solo la larghezza, lasciando
@@ -159,16 +191,24 @@ public:
         comboEngine->setStyleSheet("padding: 8px; font-size: 14px;");
         form->addRow("Render Engine:", comboEngine);
 
-        // RICAMPIONAMENTO (vedi GLWidget::captureRenderSize): un video piu'
-        // piccolo della vista disegnato alla scala della vista e ridotto. Conta
-        // solo col motore a risoluzione nativa; spento di default (esportazione
-        // piu' veloce), lo stato lo mette chi apre il dialogo.
-        chkResample = new QCheckBox("Downscale from view size (sharper fine textures, slower)", scrollContent);
+        // RICAMPIONAMENTO (refreshResampleOption, come sul desktop): un video piu'
+        // piccolo della vista disegnato alla scala della vista e ridotto. Spento
+        // di default (esportazione piu' veloce); lo stato lo mette chi apre il
+        // dialogo.
+        chkResample = new QCheckBox("Draw at view size and downscale", scrollContent);
         chkResample->setStyleSheet("font-size: 14px;");
         form->addRow("Downscaling:", chkResample);
-        auto engineGate = [this]() { chkResample->setEnabled(comboEngine->currentIndex() == 0); };
-        connect(comboEngine, QOverload<int>::of(&QComboBox::currentIndexChanged), this, engineGate);
-        engineGate();
+        resampleHint = new QLabel(scrollContent);
+        resampleHint->setObjectName("videoResampleHint");
+        resampleHint->setWordWrap(true);
+        resampleHint->setStyleSheet("font-size: 13px;");
+        form->addRow(resampleHint);
+        auto refresh = [this]() {
+            refreshResampleOption(m_gl, comboRes->currentIndex(), comboEngine->currentIndex() == 0, chkResample, resampleHint);
+        };
+        connect(comboRes, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refresh);
+        connect(comboEngine, QOverload<int>::of(&QComboBox::currentIndexChanged), this, refresh);
+        refresh();
 
         scrollLayout->addLayout(form);
 
@@ -311,6 +351,7 @@ private:
     QDir currentDir;
     QLabel* pathLabel;
     QListWidget* listWidget;
+    GLWidget* m_gl;   // la vista, per refreshResampleOption
 };
 #else
 // IL DIALOGO DEL VIDEO SUL DESKTOP: tutte le impostazioni in una finestra, come
@@ -417,12 +458,7 @@ protected:
 
 public:
 
-    // L'uscita della voce di risoluzione; vuota = la vista.
-    static QSize resolutionSize(int index)
-    {
-        static const QSize sizes[] = { QSize(), QSize(1920, 1080), QSize(2560, 1440), QSize(3840, 2160) };
-        return (index >= 1 && index <= 3) ? sizes[index] : QSize();
-    }
+    // Ricampionare: casella accesa (quando conta, refreshResampleOption) e spuntata.
     bool resample() const { return chkResample->isEnabled() && chkResample->isChecked(); }
 
     // Le scelte per la prossima volta. La casella si ricorda anche quando e'
@@ -441,14 +477,7 @@ public:
 private:
     void refreshResample()
     {
-        const QSize wanted = resolutionSize(comboRes->currentIndex());
-        const bool native = comboEngine->currentIndex() == 0;
-        const bool smaller = !wanted.isEmpty() && m_gl->captureRenderSize(wanted, 1.0f) != wanted;
-        chkResample->setEnabled(native && smaller);
-        resampleHint->setText(!native ? "Only with the Native Resolution engine."
-                              : !smaller ? "Not needed: the video is not smaller than the view."
-                              : "The video is smaller than the view: fine textures (wireframe lines, fractals) "
-                                "can be drawn at the view's resolution and scaled down. Export about 1.5x slower.");
+        refreshResampleOption(m_gl, comboRes->currentIndex(), comboEngine->currentIndex() == 0, chkResample, resampleHint);
         QTimer::singleShot(0, this, [this]() { fitToText(); });
     }
 
@@ -649,7 +678,7 @@ void VideoRecorder::toggleRecord()
     int defFps = settings.value("lastRecFPS", 60).toInt();
     int defRes = settings.value("lastRecResIndex", 1).toInt();
 
-    MobileVideoSaveDialog pathDialog(defaultVideoDir, defDur, defFps, defRes, m_mainWindow);
+    MobileVideoSaveDialog pathDialog(m_mainWindow->ui->glWidget, defaultVideoDir, defDur, defFps, defRes, m_mainWindow);
     pathDialog.chkResample->setChecked(settings.value("lastRecResample", false).toBool());
     if (s_testVideoDialogHandler) QTimer::singleShot(0, &pathDialog, [&pathDialog]() { s_testVideoDialogHandler(&pathDialog); });
     if (pathDialog.exec() != QDialog::Accepted) {
@@ -663,7 +692,7 @@ void VideoRecorder::toggleRecord()
     userSelectedFile = pathDialog.getSelectedPath();
     useFBO = (pathDialog.comboEngine->currentIndex() == 0);
     settings.setValue("lastRecResample", pathDialog.chkResample->isChecked());
-    resample = useFBO && pathDialog.chkResample->isChecked();
+    resample = pathDialog.resample();
 
 #if defined(Q_OS_IOS)
     // iOS non espone la scelta del formato: i frame temporanei sono sempre RAW
@@ -719,9 +748,9 @@ void VideoRecorder::toggleRecord()
     settings.setValue("lastRecFPS", fps);
     settings.setValue("lastRecResIndex", resIndex);
 
-    if (resIndex == 1) { targetWidth = 1920; targetHeight = 1080; }
-    else if (resIndex == 2) { targetWidth = 2560; targetHeight = 1440; }
-    else if (resIndex == 3) { targetWidth = 3840; targetHeight = 2160; }
+    // Vuota = "Current View Size": target -1, la vista (vedi la cattura FBO).
+    const QSize wantedSize = videoResolutionSize(resIndex);
+    if (!wantedSize.isEmpty()) { targetWidth = wantedSize.width(); targetHeight = wantedSize.height(); }
 
     // ==============================================================
     // 3. PREPARAZIONE REGISTRAZIONE
@@ -993,6 +1022,10 @@ void VideoRecorder::toggleRecord()
     // getFrameForVideo lo cattura senza upscale (fix wireframe sfocato).
     // Per la voce a dimensione corrente (target -1: "Current View Size") usiamo
     // la dimensione nativa del widget.
+    // Le immagini (ImageCapture) ricampionano sempre: all'uscita da qui, comunque
+    // si esca, il ricampionamento torna acceso. Sotto il recorder lo mette come
+    // l'ha scelto l'utente nel dialogo.
+    const auto resampleRestore = qScopeGuard([gl = m_mainWindow->ui->glWidget]() { gl->setCaptureResampling(true); });
     bool fboCapture = useFBO;
     if (fboCapture) {
         int capW = targetWidth, capH = targetHeight;
@@ -1241,8 +1274,6 @@ void VideoRecorder::toggleRecord()
     // Va fatto SEMPRE, anche su stop anticipato (il loop esce solo con break).
     if (fboCapture) {
         m_mainWindow->ui->glWidget->endHiResCapture();
-        // Le immagini (ImageCapture) ricampionano sempre.
-        m_mainWindow->ui->glWidget->setCaptureResampling(true);
     }
 
     m_mainWindow->ui->glWidget->setUpdatesEnabled(true);
