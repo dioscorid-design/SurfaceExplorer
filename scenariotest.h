@@ -319,6 +319,9 @@ private:
     // 2.0: il riferimento del path della camera su un oggetto fisso
     // (GLWidget::cameraPathFrame). Da sola: --scenario-only path-frame.
     void runPathFrameScenarios();
+    // 2.0: il riferimento di un oggetto su un oggetto fisso (SurfaceObject::
+    // frame). Da sola: --scenario-only object-frame.
+    void runObjectFrameScenarios();
     // 2.0: il tasto Scene, la scelta 3D/4D e quando la scena resta o finisce.
     void runSceneSpaceScenarios();
     // La scena in H3 (avvio, camera come isometria, rifiuti, RESET, NEW).

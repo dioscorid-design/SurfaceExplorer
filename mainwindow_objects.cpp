@@ -882,6 +882,9 @@ bool MainWindow::loadSceneFile(const QString &path)
     ui->glWidget->setSceneTime(0.0f);
 
     GLWidget *gl = ui->glWidget;
+    // I riferimenti degli oggetti (SurfaceObject::frame), per nome: si risolvono
+    // dopo, quando ci sono tutti.
+    QList<QPair<int, QString>> pendingFrames;
     for (const QJsonValue &v : root.value(QStringLiteral("objects")).toArray()) {
         const QJsonObject o = v.toObject();
         // L'oggetto e' un record ("record", dal 2026-10-21: texture e moti
@@ -945,7 +948,14 @@ bool MainWindow::loadSceneFile(const QString &path)
         // Fisso (SurfaceObject::fixed): per ultimo, dopo finestra e moti, che il
         // blocco spegne (il file di un fisso non li porta comunque).
         if (o.value(QStringLiteral("fixed")).toBool()) gl->setObjectFixed(objIndex, true);
+        if (o.contains(QStringLiteral("frame"))) pendingFrames.append({ objIndex, o.value(QStringLiteral("frame")).toString() });
     }
+    for (const auto &pending : std::as_const(pendingFrames))
+        for (int k = 1; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k)
+            if (m_objectSessions[k].name == pending.second && gl->objectCanBeFrame(k)) {
+                gl->setObjectFrame(pending.first, k);
+                break;
+            }
     // La quota del taglio delle Cross Section, della scena (buildSceneJson). I
     // file di prima la portavano nel record dell'ambiente, se era una Cross
     // Section, e l'ha gia' messa il suo load.
@@ -1303,6 +1313,23 @@ void MainWindow::setupObjectsDock()
         ui->glWidget->setCameraPathFrame(m_pathFrameCombo->itemData(row).toInt());
         m_sceneObjectsChanged = true;
     });
+    // IL RIFERIMENTO DELL'OGGETTO SELEZIONATO (SurfaceObject::frame): posizione
+    // e path letti dal centro di un oggetto fisso, girati come lui.
+    auto *objFrameRow = new QHBoxLayout();
+    objFrameRow->addWidget(rowLabel(QStringLiteral("Placed around")));
+    m_objectFrameCombo = new QComboBox(w);
+    m_objectFrameCombo->setToolTip(QStringLiteral("Where the position X, Y, Z and the path of the selected object are read "
+                                                  "from: the centre of the scene, or the centre of a fixed object, turned as "
+                                                  "that object is. A shape placed around a fixed torus then stays with the "
+                                                  "torus wherever it is."));
+    objFrameRow->addWidget(m_objectFrameCombo, 1);
+    lay->addLayout(objFrameRow);
+    connect(m_objectFrameCombo, QOverload<int>::of(&QComboBox::activated), this, [this](int row) {
+        if (m_refreshingObjects || !m_objectFrameCombo) return;
+        ui->glWidget->setObjectFrame(ui->glWidget->selectedObject(), m_objectFrameCombo->itemData(row).toInt());
+        m_sceneObjectsChanged = true;
+        refreshObjectsUi();
+    });
 
     // LO SCORRIMENTO: il cursore porta il path dell'ambiente al tempo T
     // (seekSceneTime).
@@ -1645,6 +1672,7 @@ void MainWindow::refreshObjectsUi()
     auto listText = [this, gl, &nameOf](int k) {
         QString text = nameOf(k);
         if (k > 0 && gl->objectFixed(k)) text += QStringLiteral("   (fixed)");
+        if (k > 0 && gl->objectFrame(k) > 0) text += QStringLiteral("   around %1").arg(nameOf(gl->objectFrame(k)));
         const float in = gl->objectWindowIn(k), out = gl->objectWindowOut(k);
         if (k > 0 && (in > 0.0f || out > 0.0f)) {
             text += in > 0.0f && out > 0.0f ? QStringLiteral("   [%1 s - %2 s]").arg(in).arg(out)
@@ -1681,6 +1709,17 @@ void MainWindow::refreshObjectsUi()
             if (gl->objectFixed(k)) m_pathFrameCombo->addItem(nameOf(k), k);
         m_pathFrameCombo->setCurrentIndex(std::max(0, m_pathFrameCombo->findData(gl->cameraPathFrame())));
         m_pathFrameCombo->setEnabled(m_pathFrameCombo->count() > 1);
+    }
+    // Il riferimento del selezionato: Environment e gli oggetti fissi che
+    // possono farlo (non lui, non uno che ha gia' un riferimento). Spento su un
+    // fisso (la sua posa e' bloccata) e su chi fa gia' da riferimento ad altri.
+    if (m_objectFrameCombo) {
+        m_objectFrameCombo->clear();
+        m_objectFrameCombo->addItem(QStringLiteral("Environment"), 0);
+        for (int k = 1; k < n; ++k)
+            if (k != selected && gl->objectCanBeFrame(k)) m_objectFrameCombo->addItem(nameOf(k), k);
+        m_objectFrameCombo->setCurrentIndex(std::max(0, m_objectFrameCombo->findData(gl->objectFrame(selected))));
+        m_objectFrameCombo->setEnabled(selected > 0 && !fixed && m_objectFrameCombo->count() > 1);
     }
     m_btnObjectDuplicate->setEnabled(selected > 0);
     m_btnObjectRemove->setEnabled(selected > 0 && !fixed);

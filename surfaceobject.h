@@ -257,6 +257,14 @@ struct SurfaceObject
     // cambia solo cosa l'interfaccia lascia toccare. Reversibile dal dock
     // Objects (casella Fixed); nel file della scena la chiave "fixed".
     bool fixed = false;
+    // IL RIFERIMENTO DELL'OGGETTO (2.0): 0 = il centro della scena; altrimenti
+    // l'indice di un oggetto FISSO senza riferimento suo, e posizione e path di
+    // questo oggetto si leggono dal centro di quello, girati come lui
+    // (GLWidget::placementPrefix), con la stessa isometria del suo disegno: la
+    // stessa ragione del riferimento del path della camera
+    // (GLWidget::cameraPathFrame). Lo tiene a posto GLWidget (removeObject,
+    // setObjectFixed); nel file della scena la chiave "frame" (nome dell'oggetto).
+    int frame = 0;
     // I SUOI PATH (SurfaceEngine::compileObjectPath): il 3D e il 4D, alternativi
     // come quelli della camera; pathKind e' quello in uso, l'ultimo avviato.
     // Ognuno ha il suo TEMPO, un orologio dell'oggetto, che avanza mentre

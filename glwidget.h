@@ -307,6 +307,13 @@ public:
     // scena, posizione (path compreso), rotazione propria. Euclidea e in H3.
     QMatrix4x4 objectPlacement(int index);
     H3::Matrix hyperbolicObjectPlacement(int index);
+    // IL RIFERIMENTO DI UN OGGETTO (SurfaceObject::frame): un oggetto fisso
+    // senza riferimento suo, diverso da lui; e un oggetto che fa da riferimento
+    // ad altri non ne prende uno (catene lunghe una). setObjectFrame rifiuta il
+    // resto e torna false.
+    int objectFrame(int index) const;
+    bool objectCanBeFrame(int index) const;
+    bool setObjectFrame(int index, int frame);
     // Almeno un oggetto ha una finestra: T conta (master, RESET, barra di stato).
     bool hasTimeline() const;
     // IL PATH DI UN OGGETTO: X(t), Y(t), Z(t) che si sommano alla sua
@@ -2283,6 +2290,16 @@ private:
     SceneRotation m_sceneRotation;
     // Il riferimento del path 3D della camera: vedi cameraPathFrame.
     int m_cameraPathFrame = 0;
+    // CIO' CHE PRECEDE LA POSA DI UN OGGETTO nel suo modello: la rotazione della
+    // scena data dall'ambiente, oppure, se ha un riferimento (SurfaceObject::
+    // frame), la posa di quello (objectPlacement, che la rotazione della scena
+    // gia' contiene). Euclideo, in H3, e la sola rotazione (per riportare uno
+    // spostamento visto a schermo nelle coordinate dell'oggetto).
+    QMatrix4x4 placementPrefix(SurfaceObject &o);
+    H3::Matrix hyperbolicPlacementPrefix(SurfaceObject &o);
+    QQuaternion placementRotation(const SurfaceObject &o) const;
+    bool frameValid(const SurfaceObject &o) const;
+    bool isFrameOfSomeone(int index) const;
     // Scena 3D: gli oggetti parametrici sono rigidi (rigidObject, setScene3D).
     bool m_scene3D = false;
     // La posa dell'ambiente a T = 0 (o dove le rotazioni sono subentrate), per il cursore T (seekEnvironmentRotations).

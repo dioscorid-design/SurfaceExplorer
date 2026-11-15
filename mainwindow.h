@@ -1954,6 +1954,8 @@ private:
     // Il riferimento del path 3D della camera (GLWidget::cameraPathFrame):
     // Environment o un oggetto fisso.
     QComboBox *m_pathFrameCombo = nullptr;
+    // Il riferimento dell'oggetto selezionato (SurfaceObject::frame).
+    QComboBox *m_objectFrameCombo = nullptr;
     // Il path del selezionato: X(t), Y(t), Z(t) sommati alla posizione, P(t)
     // lungo la quarta coordinata (solo nelle scene 4D). Si scrive nei campi dei
     // dock 3D e 4D, che seguono la selezione, slider Speed compreso: con

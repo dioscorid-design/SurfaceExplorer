@@ -183,6 +183,11 @@ void GLWidget::removeObject(int index)
     // Il riferimento del path della camera: se ne va con lui, o scorre con gli indici.
     if (m_cameraPathFrame == index) m_cameraPathFrame = 0;
     else if (m_cameraPathFrame > index) --m_cameraPathFrame;
+    // E i riferimenti degli altri oggetti.
+    for (const auto &obj : m_objects) {
+        if (obj->frame == index) obj->frame = 0;
+        else if (obj->frame > index) --obj->frame;
+    }
     // Senza oggetti la scena non ha nulla da girare con l'ambiente: un oggetto
     // aggiunto dopo parte dalla scena dritta.
     if (m_objects.size() == 1) m_sceneRotation = SceneRotation();
@@ -6057,10 +6062,68 @@ QMatrix4x4 GLWidget::objectPlacement(int index)
     if (index < 0 || index >= int(m_objects.size())) return m;
     SurfaceObject &o = *m_objects[index];
     // Come o.model in prepareObjectUniforms, senza la scala.
-    if (!isEnvironment(o)) m.rotate(m_sceneRotation.rotation);
+    m = placementPrefix(o);
     m.translate(effectivePosition(o));
     m.rotate(o.rotationQuat);
     return m;
+}
+
+bool GLWidget::frameValid(const SurfaceObject &o) const
+{
+    const int f = o.frame;
+    return f > 0 && f < int(m_objects.size()) && m_objects[f].get() != &o && m_objects[f]->fixed
+           && m_objects[f]->frame == 0;
+}
+
+bool GLWidget::isFrameOfSomeone(int index) const
+{
+    for (const auto &obj : m_objects)
+        if (obj->frame == index) return true;
+    return false;
+}
+
+int GLWidget::objectFrame(int index) const
+{
+    return index > 0 && index < int(m_objects.size()) ? m_objects[index]->frame : 0;
+}
+
+bool GLWidget::objectCanBeFrame(int index) const
+{
+    return index > 0 && index < int(m_objects.size()) && m_objects[index]->fixed && m_objects[index]->frame == 0;
+}
+
+bool GLWidget::setObjectFrame(int index, int frame)
+{
+    if (index <= 0 || index >= int(m_objects.size())) return false;
+    if (frame != 0 && (frame == index || !objectCanBeFrame(frame) || isFrameOfSomeone(index))) return false;
+    m_objects[index]->frame = frame;
+    update();
+    return true;
+}
+
+QMatrix4x4 GLWidget::placementPrefix(SurfaceObject &o)
+{
+    QMatrix4x4 m;
+    if (isEnvironment(o)) return m;
+    if (frameValid(o)) return objectPlacement(o.frame);
+    // Gli oggetti girano con l'ambiente attorno al centro della scena
+    // (sceneRotation), posizione compresa: la rotazione va prima della posa.
+    m.rotate(m_sceneRotation.rotation);
+    return m;
+}
+
+H3::Matrix GLWidget::hyperbolicPlacementPrefix(SurfaceObject &o)
+{
+    if (isEnvironment(o)) return H3::Matrix::identity();
+    if (frameValid(o)) return hyperbolicObjectPlacement(o.frame);
+    return hyperbolicSceneRotation();
+}
+
+QQuaternion GLWidget::placementRotation(const SurfaceObject &o) const
+{
+    if (isEnvironment(o)) return QQuaternion();
+    if (frameValid(o)) return m_sceneRotation.rotation * m_objects[o.frame]->rotationQuat;
+    return m_sceneRotation.rotation;
 }
 
 H3::Matrix GLWidget::hyperbolicObjectPlacement(int index)
@@ -6072,7 +6135,7 @@ H3::Matrix GLWidget::hyperbolicObjectPlacement(int index)
     // propria (che li' sta nella parte locale).
     const QVector3D c = effectivePosition(o) * float(m_h3RadiiPerSceneUnit);
     H3::Matrix place = H3::translation({c.x(), c.y(), c.z()});
-    if (!isEnvironment(o)) place = hyperbolicSceneRotation() * place;
+    if (!isEnvironment(o)) place = hyperbolicPlacementPrefix(o) * place;
     const QMatrix3x3 q = o.rotationQuat.toRotationMatrix();
     H3::Matrix rot = H3::Matrix::identity();
     for (int i = 0; i < 3; ++i)
@@ -6092,7 +6155,7 @@ void GLWidget::hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMa
     // nel modello euclideo, la rotazione della scena data dall'ambiente.
     const QVector3D c = effectivePosition(o) * float(m_h3RadiiPerSceneUnit);
     H3::Matrix place = H3::translation({c.x(), c.y(), c.z()});
-    if (!isEnvironment(o)) place = hyperbolicSceneRotation() * place;
+    if (!isEnvironment(o)) place = hyperbolicPlacementPrefix(o) * place;
     // Verso la camera; nella vista da fuori verso il riferimento della palla,
     // centrata nel centro della scena (hyperbolicViewer).
     const H3::Matrix m = H3::inverse(hyperbolicViewer(m_h3Camera)) * place;
@@ -7050,7 +7113,7 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
 // (prepareObjectUniforms): lo spostamento visto a schermo va riportato li'.
 void GLWidget::moveObjectOnScreen(const QVector3D &delta)
 {
-    setObjectPosition(m_obj->position + m_sceneRotation.rotation.conjugated().rotatedVector(delta));
+    setObjectPosition(m_obj->position + placementRotation(*m_obj).conjugated().rotatedVector(delta));
     emit objectPositionChangedByUser(m_obj->position);
 }
 
@@ -7061,7 +7124,7 @@ void GLWidget::rollObjectOnScreen(float angle)
 {
     const QVector3D view = m_hyperbolic ? hyperbolicCameraRotation().column(2).toVector3D()   // H3
                                         : m_view.row(2).toVector3D();
-    const QVector3D axis = m_sceneRotation.rotation.conjugated().rotatedVector(view);
+    const QVector3D axis = placementRotation(*m_obj).conjugated().rotatedVector(view);
     m_obj->rotationQuat = (QQuaternion::fromAxisAndAngle(axis, angle) * m_obj->rotationQuat).normalized();
     markUserRotated();
     emit rotationChanged();
@@ -7480,8 +7543,13 @@ void GLWidget::setObjectFixed(int index, bool on)
     if (index <= 0 || index >= int(m_objects.size())) return;   // l'ambiente e' gia' l'ambiente
     SurfaceObject &o = *m_objects[index];
     if (o.fixed == on) return;
-    // Sbloccato, non e' piu' un riferimento per il path della camera.
-    if (!on && m_cameraPathFrame == index) m_cameraPathFrame = 0;
+    // Sbloccato, non e' piu' un riferimento: ne' per il path della camera ne'
+    // per gli altri oggetti.
+    if (!on) {
+        if (m_cameraPathFrame == index) m_cameraPathFrame = 0;
+        for (const auto &obj : m_objects)
+            if (obj->frame == index) obj->frame = 0;
+    }
     if (on) {
         // Fermo e sempre in scena: la finestra se ne va, GO e path si fermano e
         // le velocita' si azzerano. Le formule del path restano, inerti: tolto

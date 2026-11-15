@@ -1023,6 +1023,9 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
         o["position"] = QJsonArray{ p.x(), p.y(), p.z() };
         o["scale"] = double(gl->objectScale());
         if (gl->objectFixed(k)) o["fixed"] = true;   // SurfaceObject::fixed, solo se lo e'
+        // Il suo riferimento (SurfaceObject::frame), per nome, solo se c'e'.
+        if (gl->objectFrame(k) > 0 && gl->objectFrame(k) < int(m_mainWindow->m_objectSessions.size()))
+            o["frame"] = m_mainWindow->m_objectSessions[gl->objectFrame(k)].name;
         {
             const QString key = MainWindow::librarySourceKey(m_mainWindow->m_objectSessions[k].libraryPath);
             if (!key.isEmpty()) o["source"] = key;

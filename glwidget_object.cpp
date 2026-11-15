@@ -83,10 +83,9 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
         // sulla vista e la ignora. Vedi setFullViewAspect.
         mv(0, 0) = fullViewTextureWidth();
     } else {
-        o.model.setToIdentity();
-        // Gli oggetti girano con l'ambiente attorno al centro della scena
-        // (sceneRotation), posizione compresa: la rotazione va prima della posa.
-        if (!isEnvironment(o)) o.model.rotate(m_sceneRotation.rotation);
+        // Prima della posa la rotazione della scena data dall'ambiente o, se
+        // l'oggetto ha un riferimento, la posa di quello (placementPrefix).
+        o.model = placementPrefix(o);
         // La posizione piu' il path dell'oggetto (timeline 2a) al suo tempo.
         o.model.translate(effectivePosition(o));
         o.model.rotate(o.rotationQuat);
