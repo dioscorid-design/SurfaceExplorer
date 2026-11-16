@@ -1987,45 +1987,56 @@ private:
     QWidget *m_h3CurvatureRow = nullptr;
     QSlider *m_h3CurvatureSlider = nullptr;
     QLabel *m_h3CurvatureValue = nullptr;
-    // IL PANNELLO DEL RETICOLO {4,3,5} della scena H3, visibile solo in H3:
-    // la casella (GLWidget::setHyperbolicLattice), poi una riga ciascuno per
-    // densita' (0..100 -> setHyperbolicLatticeDensity; accanto la distanza
-    // raggiunta in raggi), spessore dei tubi (h3LatticeThicknessFromSlider ->
-    // setHyperbolicLatticeThickness; accanto quello disegnato, in unita' della
-    // scena) e colore. Densita', spessore e colore accesi col reticolo.
-    QGroupBox *m_h3LatticePanel = nullptr;
-    QCheckBox *m_h3Lattice = nullptr;
-    QWidget *m_h3LatticeDensityRow = nullptr;
-    QSlider *m_h3LatticeDensity = nullptr;
-    QLabel *m_h3LatticeDensityValue = nullptr;
-    QWidget *m_h3LatticeThicknessRow = nullptr;
-    QSlider *m_h3LatticeThickness = nullptr;
-    QLabel *m_h3LatticeThicknessValue = nullptr;
-    // Il colore base del reticolo (GLWidget::setHyperbolicLatticeColor): un
+    // IL PANNELLO DEL RETICOLO DELLA SCENA, visibile in H3 ({4,3,5}) e nelle
+    // scene 3D ({4,3,4}): la casella (GLWidget::setSceneLattice), poi una riga
+    // ciascuno per densita' (0..100 -> setSceneLatticeDensity; accanto la
+    // distanza raggiunta, in raggi in H3, in unita' della scena in R3),
+    // spessore dei tubi (latticeThicknessFromSlider -> setSceneLatticeThickness;
+    // accanto quello disegnato, in unita' della scena), in R3 il lato
+    // (latticeSideFromSlider -> setFlatLatticeSide) e colore. Le righe accese
+    // col reticolo.
+    QGroupBox *m_latticePanel = nullptr;
+    QCheckBox *m_latticeCheck = nullptr;
+    QWidget *m_latticeDensityRow = nullptr;
+    QSlider *m_latticeDensity = nullptr;
+    QLabel *m_latticeDensityValue = nullptr;
+    QWidget *m_latticeThicknessRow = nullptr;
+    QSlider *m_latticeThickness = nullptr;
+    QLabel *m_latticeThicknessValue = nullptr;
+    QWidget *m_latticeSideRow = nullptr;
+    QSlider *m_latticeSide = nullptr;
+    QLabel *m_latticeSideValue = nullptr;
+    // Il colore base del reticolo (GLWidget::setSceneLatticeColor): un
     // pulsante che mostra il colore, e apre la palette al clic.
-    QWidget *m_h3LatticeColorRow = nullptr;
-    QPushButton *m_h3LatticeColor = nullptr;
-    // I controlli H3 del dock Objects: visibili solo in H3. Il reticolo sempre
-    // attivo, la sua densita' col reticolo acceso, col tooltip che dice perche'.
-    // La richiama anche updateProjectionButtonText: la distanza raggiunta
-    // dipende dalla proiezione (il pezzo della vista da fuori e' piu' grande).
-    void refreshHyperbolicControls();
+    QWidget *m_latticeColorRow = nullptr;
+    QPushButton *m_latticeColor = nullptr;
+    // Il pannello del reticolo: testi e tooltip dello spazio, stato e valori.
+    // La richiama anche updateProjectionButtonText: in H3 la distanza
+    // raggiunta dipende dalla proiezione (il pezzo della vista da fuori e'
+    // piu' grande).
+    void refreshLatticeControls();
     // Raggio, reticolo e camera di una scena H3 riaperta da file (loadSceneFile).
     void applyHyperbolicSceneJson(const QJsonObject &h3);
     // Il blocco "h3" della scena a schermo (PresetSerializer::buildSceneJson),
     // l'inverso di applyHyperbolicSceneJson.
     QJsonObject hyperbolicSceneJson() const;
-    // LO STATO DI H3 MESSO DA PARTE uscendo da H3 col cambio di spazio
-    // (switchSceneSpace): raggio, reticolo, densita', colore e spessore, senza
-    // la camera. Rientrando torna; vuoto = i default. Dura quanto la scena: lo
-    // svuota setSceneSpace(None).
+    // Il blocco "r3" di una scena 3D col reticolo, e il suo inverso.
+    QJsonObject flatSceneJson() const;
+    void applyFlatSceneJson(const QJsonObject &flat);
+    // IL RAGGIO DI CURVATURA MESSO DA PARTE uscendo da H3 col cambio di spazio
+    // (switchSceneSpace; il reticolo no, e' della scena e passa con lei).
+    // Rientrando torna; vuoto = il default. Dura quanto la scena: lo svuota
+    // setSceneSpace(None).
     QJsonObject m_h3SceneMemory;
     static double h3CurvatureRadiusFromSlider(int v);
     static int h3CurvatureSliderFromRadius(double radius);
     // Lo spessore dei tubi costanti: logaritmico, 0 -> 0.005, 50 -> 0.05 (il
     // default), 100 -> 0.5 unita' della scena.
-    static double h3LatticeThicknessFromSlider(int v);
-    static int h3LatticeSliderFromThickness(double thickness);
+    static double latticeThicknessFromSlider(int v);
+    static int latticeSliderFromThickness(double thickness);
+    // Il lato del {4,3,4}: logaritmico, 0 -> 0.25, 100 -> 2.5, 200 -> 25 unita' della scena.
+    static double latticeSideFromSlider(int v);
+    static int latticeSliderFromSide(double side);
     // In H3 nessun oggetto supera il limite di zoom (vedi objectScaleChangedByUser).
     void clampHyperbolicObjectScales();
     bool m_applyingObjectPath = false;

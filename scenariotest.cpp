@@ -8064,12 +8064,12 @@ void ScenarioTest::runImageCaptureScenarios()
         if (!sphere.isEmpty()) m_mw->addShapeToScene(sphere);
         wait(500);
         gl->setObjectPosition(QVector3D(0.9f, 0.3f, 0.0f));
-        gl->setHyperbolicLattice(true);
+        gl->setSceneLattice(true);
         sameAsPart(QStringLiteral("scena H3 (mesh, ray marching, reticolo, cielo) in prospettiva"), QStringLiteral("h3"));
         gl->setProjectionMode(0);
         sameAsPart(QStringLiteral("scena H3 nella vista da fuori"), QStringLiteral("h3-outside"));
         gl->setProjectionMode(1);
-        gl->setHyperbolicLattice(false);
+        gl->setSceneLattice(false);
     }
 
     // IL FLUSSO, col riquadro trascinato dal mouse: il dialogo non e' modale,
@@ -10918,16 +10918,25 @@ void ScenarioTest::runSceneSwitchScenarios()
     }
     // 2. LO STATO DI H3 resta da parte: raggio 3 e reticolo, poi di nuovo R3.
     m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(3.0));
-    m_mw->m_h3Lattice->setChecked(true);
+    m_mw->m_latticeCheck->setChecked(true);
     const double radius3 = gl->hyperbolicCurvatureRadius();
     {
         m_mw->switchSceneSpace(Space::Space3D);
         wait(300);
         const auto [mesh, rm] = hyperbolicShaders();
         check(!gl->hyperbolicSpace() && m_mw->m_sceneSpace == Space::Space3D && spaceShown(QStringLiteral("3D"))
-                  && !mesh && !rm && m_mw->m_h3LatticePanel->isHidden(),
-              QStringLiteral("H3 -> 3D: la scena e' 3D, shader euclidei (mesh %1, ray marching %2), niente pannello del "
-                             "reticolo").arg(mesh).arg(rm));
+                  && !mesh && !rm,
+              QStringLiteral("H3 -> 3D: la scena e' 3D, shader euclidei (mesh %1, ray marching %2)").arg(mesh).arg(rm));
+        // Il reticolo e' della scena: resta acceso, ora {4,3,4}, col lato che
+        // tiene fermi gli angoli del cubo centrale di H3 col raggio 3.
+        const double side = GLWidget::flatLatticeSideForRadius(radius3);
+        check(gl->sceneLattice() && gl->sceneLatticeShown() && !m_mw->m_latticePanel->isHidden()
+                  && m_mw->m_latticeCheck->isChecked() && m_mw->m_latticeCheck->text().contains(QLatin1String("{4,3,4}"))
+                  && !m_mw->m_latticeSideRow->isHidden() && std::abs(gl->flatLatticeSide() - side) < 1e-9,
+              QStringLiteral("H3 -> 3D col reticolo acceso: resta acceso, {4,3,4}, lato %1 (atteso %2)")
+                  .arg(gl->flatLatticeSide()).arg(side));
+        shot(QStringLiteral("r3-lattice"));
+        m_mw->m_latticeCheck->setChecked(false);   // per il confronto con la prima immagine
         const double g = gap(gl->cameraPlacement(), camera3D);
         check(g < 1e-4 && std::abs(gl->m_cameraYaw - 8.0f) < 1e-3f && std::abs(gl->m_cameraPitch + 4.0f) < 1e-3f
                   && std::abs(gl->m_cameraRoll - 3.0f) < 1e-3f && !gl->m_isPathFollowing,
@@ -10938,12 +10947,13 @@ void ScenarioTest::runSceneSwitchScenarios()
         check(changed >= 0 && changed < flat.width() * flat.height() / 10000,
               QStringLiteral("R3 di nuovo: la stessa immagine (%1 pixel diversi di piu' di 2 livelli, al massimo %2; "
                              "scene-switch-r3-again.png)").arg(changed).arg(worst));
+        m_mw->m_latticeCheck->setChecked(true);
     }
     {
         m_mw->switchSceneSpace(Space::SpaceH3);
         wait(300);
         check(gl->hyperbolicSpace() && std::abs(gl->hyperbolicCurvatureRadius() - radius3) < 1e-9
-                  && gl->hyperbolicLattice() && m_mw->m_h3Lattice->isChecked()
+                  && gl->sceneLattice() && m_mw->m_latticeCheck->isChecked()
                   && m_mw->m_h3CurvatureSlider->value() == MainWindow::h3CurvatureSliderFromRadius(3.0),
               QStringLiteral("di nuovo H3: raggio %1 e reticolo acceso, come li si era lasciati (anche nel dock)")
                   .arg(gl->hyperbolicCurvatureRadius()));
@@ -11079,7 +11089,7 @@ void ScenarioTest::runSceneSwitchScenarios()
         m_mw->switchSceneSpace(Space::SpaceH3);
         wait(200);
         check(gl->hyperbolicSpace() && std::abs(gl->hyperbolicCurvatureRadius() - GLWidget::kH3DefaultCurvatureRadius) < 1e-9
-                  && !gl->hyperbolicLattice(),
+                  && !gl->sceneLattice(),
               QStringLiteral("scena nuova, 3D -> H3: raggio di default (%1), reticolo spento")
                   .arg(gl->hyperbolicCurvatureRadius()));
     }
@@ -11231,6 +11241,111 @@ void ScenarioTest::runSceneSwitchScenarios()
                              "tornando (%6, %7); scene-switch-%8*.png")
                   .arg(file, wasH3 ? "H3" : "3D", wasH3 ? "3D" : "H3").arg(g, 0, 'g', 3).arg(gStart, 0, 'g', 3)
                   .arg(gBack, 0, 'g', 3).arg(gBackStart, 0, 'g', 3).arg(name));
+    }
+    // 9. IL RETICOLO {4,3,4} DI R3 (richiesta dell'utente, 2026-11-16): il
+    // gemello piatto del {4,3,5}, con le impostazioni della scena condivise
+    // da R3 e H3 e il lato suo.
+    {
+        pressNew();
+        m_discardOnPrompt = true;
+        m_mw->startScene(Space::Space3D);
+        wait(300);
+        m_discardOnPrompt = false;
+        const double defaultSide = GLWidget::flatLatticeSideForRadius(GLWidget::kH3DefaultCurvatureRadius);
+        check(!m_mw->m_latticePanel->isHidden() && !m_mw->m_latticeSideRow->isHidden() && !gl->sceneLattice()
+                  && m_mw->m_latticeCheck->text() == QStringLiteral("Lattice {4,3,4}")
+                  && std::abs(gl->flatLatticeSide() - defaultSide) < 1e-9,
+              QStringLiteral("scena 3D: il pannello del reticolo c'e', {4,3,4} spento, Size, lato di default %1")
+                  .arg(gl->flatLatticeSide()));
+        // Gli angoli del cubo centrale: in R3 a lato/2 per asse, in H3 il
+        // vertice di Klein (a, a, a) letto nella carta esponenziale, in unita'
+        // della scena col raggio 2. Coincidono.
+        {
+            const double a = H3::honeycomb435HalfSide();
+            const H3::Vec3 v = H3::logAtOrigin(H3::fromKlein({a, a, a}));
+            const double radius = GLWidget::kH3DefaultCurvatureRadius;
+            const double corner = defaultSide / 2.0;
+            const double worst = std::max({ std::abs(v.x * radius - corner), std::abs(v.y * radius - corner),
+                                            std::abs(v.z * radius - corner) });
+            check(worst < 1e-9, QStringLiteral("gli angoli del cubo centrale: (%1, ...) in R3 e in H3 (scarto %2)")
+                                    .arg(corner, 0, 'f', 4).arg(worst, 0, 'g', 3));
+        }
+        const QImage none = shot(QStringLiteral("r3-lattice-off"));
+        m_mw->m_latticeCheck->setChecked(true);
+        const QImage on = shot(QStringLiteral("r3-lattice-on"));
+        const int fullEdges = gl->flatLatticeEdgeCount();
+        check(gl->sceneLattice() && gl->m_latticeDrawn == fullEdges && fullEdges > 1000
+                  && differing(none, on) > 10000 && m_mw->hasUnsavedWork(),
+              QStringLiteral("acceso: %1 spigoli disegnati su %2, si vede (%3 pixel diversi), da salvare; "
+                             "scene-switch-r3-lattice-on.png").arg(gl->m_latticeDrawn).arg(fullEdges).arg(differing(none, on)));
+        m_mw->m_latticeDensity->setValue(0);
+        shot(QStringLiteral("r3-lattice-density-0"));
+        check(gl->flatLatticeDrawnEdges() == 12 && gl->m_latticeDrawn == 12
+                  && std::abs(gl->flatLatticeReach() - std::sqrt(3.0) / 2.0 * defaultSide) < 1e-6,
+              QStringLiteral("densita' 0: il solo cubo attorno alla camera (%1 spigoli, fino a %2)")
+                  .arg(gl->m_latticeDrawn).arg(gl->flatLatticeReach()));
+        m_mw->m_latticeDensity->setValue(100);
+        // Il reticolo gira con la scena (le rotazioni dell'ambiente), come in H3.
+        {
+            const QImage before = shot(QStringLiteral("r3-lattice-turn-0"));
+            GLWidget::SceneRotation turn = gl->sceneRotation();
+            turn.rotation = QQuaternion::fromAxisAndAngle(0.0f, 1.0f, 0.0f, 30.0f);
+            gl->setSceneRotation(turn);
+            const int changed = differing(before, shot(QStringLiteral("r3-lattice-turn-30")));
+            gl->setSceneRotation(GLWidget::SceneRotation());
+            check(changed > 10000, QStringLiteral("la scena girata di 30 gradi gira il reticolo (%1 pixel diversi)").arg(changed));
+        }
+        // Size, spessore e colore dal dock.
+        // Il cursore va a passi interi: il lato e' quello del suo passo.
+        const double side1 = MainWindow::latticeSideFromSlider(MainWindow::latticeSliderFromSide(1.0));
+        m_mw->m_latticeSide->setValue(MainWindow::latticeSliderFromSide(1.0));
+        m_mw->m_latticeThickness->setValue(MainWindow::latticeSliderFromThickness(0.02));
+        gl->setSceneLatticeColor(QColor(200, 120, 40));
+        shot(QStringLiteral("r3-lattice-size-1"));
+        const double thickness = gl->sceneLatticeThickness();
+        check(std::abs(gl->flatLatticeSide() - side1) < 1e-12 && std::abs(side1 - 1.0) < 0.01
+                  && std::abs(thickness - 0.02) < 2e-3
+                  && m_mw->m_latticeSideValue->text() == QStringLiteral("1.00"),
+              QStringLiteral("Size 1 e spessore %1 dal dock (lato %2)").arg(thickness).arg(gl->flatLatticeSide()));
+        // Save e riapertura: il blocco r3, e il reticolo com'era.
+        PresetSerializer::MotionRunState run;
+        const QJsonObject json = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Flat Lattice"), run, false);
+        const QJsonObject r3 = json.value(QStringLiteral("r3")).toObject();
+        const QString path = m_outDir + QStringLiteral("/scene-switch-flat-lattice.json");
+        QFile f(path);
+        const bool written = f.open(QIODevice::WriteOnly) && f.write(QJsonDocument(json).toJson()) > 0;
+        f.close();
+        m_mw->markWholeSceneClean();
+        if (!loadSurface(kTorus)) return;
+        const bool loaded = written && m_mw->loadSceneFile(path);
+        wait(1000);
+        check(loaded && r3.value(QStringLiteral("lattice")).toBool() && !json.contains(QStringLiteral("h3"))
+                  && m_mw->m_sceneSpace == Space::Space3D && gl->sceneLattice() && m_mw->m_latticeCheck->isChecked()
+                  && std::abs(gl->flatLatticeSide() - side1) < 1e-12 && std::abs(gl->sceneLatticeThickness() - thickness) < 1e-12
+                  && gl->sceneLatticeColor() == QColor(200, 120, 40),
+              QStringLiteral("salvata e riaperta: blocco r3, reticolo acceso, lato %1, spessore e colore come prima")
+                  .arg(gl->flatLatticeSide()));
+        // In H3 lo stesso reticolo, {4,3,5}: acceso, spessore e colore; Size no.
+        m_mw->switchSceneSpace(Space::SpaceH3);
+        wait(300);
+        shot(QStringLiteral("r3-lattice-to-h3"));
+        check(gl->hyperbolicSpace() && gl->sceneLattice() && m_mw->m_latticeCheck->text() == QStringLiteral("Lattice {4,3,5}")
+                  && m_mw->m_latticeSideRow->isHidden() && std::abs(gl->sceneLatticeThickness() - thickness) < 1e-12
+                  && gl->sceneLatticeColor() == QColor(200, 120, 40),
+              QStringLiteral("3D -> H3: lo stesso reticolo, ora {4,3,5}, con spessore e colore; niente Size"));
+        m_mw->switchSceneSpace(Space::Space3D);
+        wait(300);
+        check(gl->sceneLattice() && std::abs(gl->flatLatticeSide() - defaultSide) < 1e-9,
+              QStringLiteral("di nuovo 3D: il lato dal raggio di H3 (%1, atteso %2)").arg(gl->flatLatticeSide()).arg(defaultSide));
+        // Una scena nuova riparte spenta; nel 4D il pannello non c'e'.
+        pressNew();
+        check(!gl->sceneLattice() && m_mw->m_latticePanel->isHidden() && !gl->sceneLatticeShown(),
+              QStringLiteral("NEW: reticolo spento, pannello nascosto"));
+        m_discardOnPrompt = true;
+        m_mw->startScene(Space::Space4D);
+        wait(300);
+        m_discardOnPrompt = false;
+        check(m_mw->m_latticePanel->isHidden() && !gl->sceneLatticeShown(), QStringLiteral("scena 4D: niente reticolo"));
     }
     pressNew();
 }
@@ -11522,8 +11637,8 @@ void ScenarioTest::runSceneH3Scenarios()
     {
         m_mw->removeSceneObject(1);
         m_mw->refreshObjectsUi();
-        const bool shownOff = !m_mw->m_h3LatticePanel->isHidden() && !m_mw->m_h3Lattice->isChecked() && !gl->hyperbolicLattice();
-        m_mw->m_h3Lattice->setChecked(true);
+        const bool shownOff = !m_mw->m_latticePanel->isHidden() && !m_mw->m_latticeCheck->isChecked() && !gl->sceneLattice();
+        m_mw->m_latticeCheck->setChecked(true);
         m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(GLWidget::kH3DefaultCurvatureRadius));
         const auto shot = [&](const H3::Matrix &camera, const QString &name) {
             gl->m_h3Camera = camera;
@@ -11551,7 +11666,7 @@ void ScenarioTest::runSceneH3Scenarios()
         const int edge = shot(alongEdge, QStringLiteral("scene-h3-lattice-edge.png"));
         const int start = shot(H3::translation({0.0, 0.0, 4.0 / GLWidget::kH3DefaultCurvatureRadius}),
                                QStringLiteral("scene-h3-lattice-start.png"));
-        check(shownOff && gl->hyperbolicLattice() && gl->hyperbolicLatticeEdgeCount() > 2000
+        check(shownOff && gl->sceneLattice() && gl->hyperbolicLatticeEdgeCount() > 2000
                   && face > 100 && edge > 100 && start > 100,
               QStringLiteral("reticolo {4,3,5}: spento di default, acceso si vede (%1 spigoli; %2, %3, %4 punti)")
                   .arg(gl->hyperbolicLatticeEdgeCount()).arg(face).arg(edge).arg(start));
@@ -11568,13 +11683,13 @@ void ScenarioTest::runSceneH3Scenarios()
             m_mw->m_btnProjection->click();
             wait(300);
             const bool back = int(gl->projectionMode) == projection;
-            m_mw->m_h3Lattice->setChecked(false);
+            m_mw->m_latticeCheck->setChecked(false);
             m_lastPopup.clear();
             m_mw->m_btnProjection->click();
             wait(400);
             const bool refused = m_lastPopup.contains(QLatin1String("Nothing to project"))
                                  && int(gl->projectionMode) == projection;
-            m_mw->m_h3Lattice->setChecked(true);
+            m_mw->m_latticeCheck->setChecked(true);
             check(changed && back && refused,
                   QStringLiteral("scena H3 col solo reticolo: Projection cambia il modo senza popup (%1), tre clic "
                                  "tornano al modo di partenza (%2); senza reticolo il popup (%3)")
@@ -11589,7 +11704,7 @@ void ScenarioTest::runSceneH3Scenarios()
     // scene-h3-lattice-thickness-r4.png e -r1.png (stesso spessore, celle
     // diverse), scene-h3-lattice-thickness-cap.png.
     {
-        QSlider *thickness = m_mw->m_h3LatticeThickness;
+        QSlider *thickness = m_mw->m_latticeThickness;
         QSlider *curvature = m_mw->m_h3CurvatureSlider;
         const auto shotTo = [&](const QString &name) {
             gl->m_h3Camera = H3::Matrix::identity();
@@ -11597,27 +11712,27 @@ void ScenarioTest::runSceneH3Scenarios()
             wait(500);
             gl->grabFramebuffer().save(m_outDir + QStringLiteral("/") + name);
         };
-        m_mw->m_h3Lattice->setChecked(true);
+        m_mw->m_latticeCheck->setChecked(true);
         curvature->setValue(MainWindow::h3CurvatureSliderFromRadius(GLWidget::kH3DefaultCurvatureRadius));
-        const double density = gl->hyperbolicLatticeDensity();
+        const double density = gl->sceneLatticeDensity();
         // Il pannello del reticolo nel dock Objects, da guardare: scene-h3-dock-objects.png.
         wait(200);
         m_mw->m_dockObjects->grab().save(m_outDir + QStringLiteral("/scene-h3-dock-objects.png"));
-        const bool startDefault = thickness->isEnabled() && !m_mw->m_h3LatticePanel->isHidden()
+        const bool startDefault = thickness->isEnabled() && !m_mw->m_latticePanel->isHidden()
                                   && thickness->value() == 50
-                                  && std::abs(gl->hyperbolicLatticeThickness() - GLWidget::kH3LatticeDefaultThickness) < 1e-12;
+                                  && std::abs(gl->sceneLatticeThickness() - GLWidget::kSceneLatticeDefaultThickness) < 1e-12;
         thickness->setValue(75);
-        const double chosen = MainWindow::h3LatticeThicknessFromSlider(75);
-        const bool thicknessSet = std::abs(gl->hyperbolicLatticeThickness() - chosen) < 1e-12
-                                  && std::abs(gl->hyperbolicLatticeDensity() - density) < 1e-12
-                                  && m_mw->m_h3LatticeThicknessValue->text() == QString::number(chosen, 'f', 3);
+        const double chosen = MainWindow::latticeThicknessFromSlider(75);
+        const bool thicknessSet = std::abs(gl->sceneLatticeThickness() - chosen) < 1e-12
+                                  && std::abs(gl->sceneLatticeDensity() - density) < 1e-12
+                                  && m_mw->m_latticeThicknessValue->text() == QString::number(chosen, 'f', 3);
         // Lo slider del raggio va a passi: i raggi veri sono quelli letti.
         curvature->setValue(MainWindow::h3CurvatureSliderFromRadius(4.0));
         const double r4 = gl->hyperbolicCurvatureRadius();
         const double at4 = gl->hyperbolicLatticeEffectiveThickness();
         shotTo(QStringLiteral("scene-h3-lattice-thickness-r4.png"));
-        const int spheres = gl->m_h3LatticeVerticesDrawn;
-        const int edges = gl->m_h3LatticeDrawn;
+        const int spheres = gl->m_latticeVerticesDrawn;
+        const int edges = gl->m_latticeDrawn;
         curvature->setValue(MainWindow::h3CurvatureSliderFromRadius(1.0));
         const double r1 = gl->hyperbolicCurvatureRadius();
         const double at1 = gl->hyperbolicLatticeEffectiveThickness();
@@ -11627,16 +11742,16 @@ void ScenarioTest::runSceneH3Scenarios()
         thickness->setValue(100);
         curvature->setValue(MainWindow::h3CurvatureSliderFromRadius(0.5));
         const double capped = gl->hyperbolicLatticeTubeRadius();
-        const QString cappedText = m_mw->m_h3LatticeThicknessValue->text();
+        const QString cappedText = m_mw->m_latticeThicknessValue->text();
         shotTo(QStringLiteral("scene-h3-lattice-thickness-cap.png"));
         // Spento il reticolo la riga si spegne; lo spessore resta.
-        m_mw->m_h3Lattice->setChecked(false);
+        m_mw->m_latticeCheck->setChecked(false);
         wait(200);
         m_mw->m_dockObjects->grab().save(m_outDir + QStringLiteral("/scene-h3-dock-objects-off.png"));
-        const bool offRow = !m_mw->m_h3LatticeThicknessRow->isEnabled() && m_mw->m_h3LatticeThicknessValue->text().isEmpty()
-                            && !m_mw->m_h3LatticeColor->isEnabled() && !m_mw->m_h3LatticeDensity->isEnabled()
-                            && std::abs(gl->hyperbolicLatticeThickness() - GLWidget::kH3LatticeMaxThickness) < 1e-12;
-        m_mw->m_h3Lattice->setChecked(true);
+        const bool offRow = !m_mw->m_latticeThicknessRow->isEnabled() && m_mw->m_latticeThicknessValue->text().isEmpty()
+                            && !m_mw->m_latticeColor->isEnabled() && !m_mw->m_latticeDensity->isEnabled()
+                            && std::abs(gl->sceneLatticeThickness() - GLWidget::kSceneLatticeMaxThickness) < 1e-12;
+        m_mw->m_latticeCheck->setChecked(true);
         check(startDefault && thicknessSet && std::abs(at4 - chosen) < 1e-9 && std::abs(at1 - chosen) < 1e-9
                   && std::abs(rhoAt1 - chosen / r1) < 1e-9 && spheres > 0 && spheres < edges,
               QStringLiteral("spessore del reticolo: parte dal default (%1), lo slider lo sceglie (%2), lo stesso a "
@@ -11648,12 +11763,12 @@ void ScenarioTest::runSceneH3Scenarios()
               QStringLiteral("spessore a R = 0.5: il tubo si ferma a %1 raggi (letto %2), accanto allo slider "
                              "quello disegnato (\"%3\", atteso \"0.150\")")
                   .arg(GLWidget::kH3LatticeMaxTubeRadius).arg(capped).arg(cappedText));
-        check(offRow && m_mw->m_h3LatticeColor->isEnabled(),
+        check(offRow && m_mw->m_latticeColor->isEnabled(),
               QStringLiteral("spento il reticolo densita', spessore e colore si spengono (lo spessore resta), "
                              "riacceso tornano"));
         // Il reticolo resta acceso, come lo lascia il blocco di prima: i casi
         // che seguono lo guardano girare.
-        gl->setHyperbolicLatticeThickness(GLWidget::kH3LatticeDefaultThickness);
+        gl->setSceneLatticeThickness(GLWidget::kSceneLatticeDefaultThickness);
         curvature->setValue(MainWindow::h3CurvatureSliderFromRadius(GLWidget::kH3DefaultCurvatureRadius));
     }
 
@@ -11784,13 +11899,13 @@ void ScenarioTest::runSceneH3Scenarios()
             m_mw->selectSceneObject(0);
         }
         m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(3.0));
-        m_mw->m_h3Lattice->setChecked(true);
-        m_mw->m_h3LatticeDensity->setValue(40);
+        m_mw->m_latticeCheck->setChecked(true);
+        m_mw->m_latticeDensity->setValue(40);
         // Il colore del reticolo: il pulsante apre la palette di sistema, che
         // un test non pilota; lo stesso setter.
         const QColor latticeColor(0x3a, 0x7f, 0xd0);
-        const bool colorWasDefault = gl->hyperbolicLatticeColor() == GLWidget::defaultHyperbolicLatticeColor();
-        gl->setHyperbolicLatticeColor(latticeColor);
+        const bool colorWasDefault = gl->sceneLatticeColor() == GLWidget::defaultSceneLatticeColor();
+        gl->setSceneLatticeColor(latticeColor);
         gl->m_h3Camera = H3::renormalized(H3::rotation({0.0, 1.0, 0.0}, 0.7) * H3::translation({0.3, -0.2, 1.1}));
         const double radius = gl->hyperbolicCurvatureRadius();
         const H3::Matrix camera = gl->hyperbolicCamera();
@@ -11821,21 +11936,21 @@ void ScenarioTest::runSceneH3Scenarios()
                   && gl->objectCount() == objects,
               QStringLiteral("scena H3 riaperta: spazio H3 (barra '%1'), %2 oggetti su %3")
                   .arg(m_mw->m_btnSceneSpace->text()).arg(gl->objectCount()).arg(objects));
-        check(std::abs(gl->hyperbolicCurvatureRadius() - radius) < 1e-9 && gl->hyperbolicLattice()
-                  && std::abs(gl->hyperbolicLatticeDensity() - 0.4) < 1e-9 && cameraDiff < 1e-9,
+        check(std::abs(gl->hyperbolicCurvatureRadius() - radius) < 1e-9 && gl->sceneLattice()
+                  && std::abs(gl->sceneLatticeDensity() - 0.4) < 1e-9 && cameraDiff < 1e-9,
               QStringLiteral("riaperta: raggio %1 (salvato %2), reticolo %3 a densita' %4, camera (scarto %5)")
-                  .arg(gl->hyperbolicCurvatureRadius()).arg(radius).arg(gl->hyperbolicLattice())
-                  .arg(gl->hyperbolicLatticeDensity()).arg(cameraDiff));
+                  .arg(gl->hyperbolicCurvatureRadius()).arg(radius).arg(gl->sceneLattice())
+                  .arg(gl->sceneLatticeDensity()).arg(cameraDiff));
         check(m_mw->m_h3CurvatureSlider->value() == MainWindow::h3CurvatureSliderFromRadius(radius)
-                  && m_mw->m_h3Lattice->isChecked() && m_mw->m_h3LatticeDensity->value() == 40
+                  && m_mw->m_latticeCheck->isChecked() && m_mw->m_latticeDensity->value() == 40
                   && !m_mw->hasUnsavedWork(),
               QStringLiteral("riaperta: dock Objects allineato (raggio, reticolo, densita'), niente da salvare: %1")
                   .arg(m_mw->unsavedKeys().join(QStringLiteral(", "))));
-        check(gl->hyperbolicLatticeColor() == latticeColor
-                  && !m_mw->m_h3LatticePanel->isHidden()
-                  && m_mw->m_h3LatticeColor->styleSheet().contains(latticeColor.name()),
+        check(gl->sceneLatticeColor() == latticeColor
+                  && !m_mw->m_latticePanel->isHidden()
+                  && m_mw->m_latticeColor->styleSheet().contains(latticeColor.name()),
               QStringLiteral("riaperta: colore del reticolo %1 (salvato %2), il pulsante del dock lo mostra")
-                  .arg(gl->hyperbolicLatticeColor().name(), latticeColor.name()));
+                  .arg(gl->sceneLatticeColor().name(), latticeColor.name()));
         // Una scena di prima della chiave latticeColor: lo stesso file senza.
         // Apre col colore di default, che salvato e riaperto resta identico.
         {
@@ -11849,11 +11964,11 @@ void ScenarioTest::runSceneH3Scenarios()
             of.close();
             const bool oldLoaded = oldWritten && m_mw->loadSceneFile(oldPath);
             wait(800);
-            const QColor def = GLWidget::defaultHyperbolicLatticeColor();
-            check(oldLoaded && gl->hyperbolicSpace() && gl->hyperbolicLatticeColor() == def
+            const QColor def = GLWidget::defaultSceneLatticeColor();
+            check(oldLoaded && gl->hyperbolicSpace() && gl->sceneLatticeColor() == def
                       && QColor(def.name()) == def && !m_mw->hasUnsavedWork(),
                   QStringLiteral("scena H3 senza latticeColor: colore di default %1 (letto %2), niente da salvare")
-                      .arg(def.name(), gl->hyperbolicLatticeColor().name()));
+                      .arg(def.name(), gl->sceneLatticeColor().name()));
         }
         // La camera del file e' quella d'apertura: zoom, poi RESET View la rimette.
         m_mw->selectSceneObject(0);
@@ -11883,14 +11998,14 @@ void ScenarioTest::runSceneH3Scenarios()
             const bool oldLoaded = oldWritten && m_mw->loadSceneFile(oldPath);
             wait(800);
             const double expected = GLWidget::kH3LatticeTubeRadius * radius;
-            check(keyWritten && oldLoaded && std::abs(gl->hyperbolicLatticeThickness() - expected) < 1e-9
+            check(keyWritten && oldLoaded && std::abs(gl->sceneLatticeThickness() - expected) < 1e-9
                       && std::abs(gl->hyperbolicLatticeTubeRadius() - GLWidget::kH3LatticeTubeRadius) < 1e-9
                       && !m_mw->hasUnsavedWork(),
                   QStringLiteral("scena H3 senza latticeThickness (il save la scrive: %1): spessore %2 (atteso %3), "
                                  "il tubo di prima, niente da salvare")
-                      .arg(keyWritten).arg(gl->hyperbolicLatticeThickness()).arg(expected));
-            m_mw->m_h3LatticeThickness->setValue(80);
-            const double thickness = gl->hyperbolicLatticeThickness();
+                      .arg(keyWritten).arg(gl->sceneLatticeThickness()).arg(expected));
+            m_mw->m_latticeThickness->setValue(80);
+            const double thickness = gl->sceneLatticeThickness();
             PresetSerializer::MotionRunState thicknessRun;
             const QJsonObject thicknessJson = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("H3 Scene"), thicknessRun, false);
             const QString thicknessPath = m_outDir + QStringLiteral("/scene-h3-lattice-thickness.json");
@@ -11900,11 +12015,11 @@ void ScenarioTest::runSceneH3Scenarios()
             newScene();
             const bool thicknessLoaded = thicknessWritten && m_mw->loadSceneFile(thicknessPath);
             wait(800);
-            check(thicknessLoaded && gl->hyperbolicLattice()
-                      && std::abs(gl->hyperbolicLatticeThickness() - thickness) < 1e-12
-                      && m_mw->m_h3LatticeThickness->value() == 80 && !m_mw->hasUnsavedWork(),
+            check(thicknessLoaded && gl->sceneLattice()
+                      && std::abs(gl->sceneLatticeThickness() - thickness) < 1e-12
+                      && m_mw->m_latticeThickness->value() == 80 && !m_mw->hasUnsavedWork(),
                   QStringLiteral("scena H3 riaperta con lo spessore: %1 (salvato %2), slider %3, niente da salvare: %4")
-                      .arg(gl->hyperbolicLatticeThickness()).arg(thickness).arg(m_mw->m_h3LatticeThickness->value())
+                      .arg(gl->sceneLatticeThickness()).arg(thickness).arg(m_mw->m_latticeThickness->value())
                       .arg(m_mw->unsavedKeys().join(QStringLiteral(", "))));
         }
     }
@@ -11944,7 +12059,7 @@ void ScenarioTest::runSceneH3Scenarios()
 
     newScene();
     check(!m_mw->sceneStarted() && !gl->hyperbolicSpace() && m_mw->m_h3CurvatureRow->isHidden()
-              && !gl->hyperbolicLattice() && m_mw->m_h3LatticePanel->isHidden()
+              && !gl->sceneLattice() && m_mw->m_latticePanel->isHidden()
               && std::abs(gl->hyperbolicCurvatureRadius() - GLWidget::kH3DefaultCurvatureRadius) < 1e-9
               && gl->effectiveBackgroundSkyMode() == gl->backgroundSkyMode(),
           QStringLiteral("NEW chiude la scena H3 (senza la riga del raggio, che torna al default; lo sfondo torna alla sua forma)"));
@@ -12349,9 +12464,9 @@ void ScenarioTest::runSceneH3Scenarios()
         // col tubo semplice; tutta a sinistra i 12 del cubo centrale. Il bordo
         // del reticolo: sull'asse orizzontale, al 97% del raggio della palla
         // c'e' ancora qualcosa (col pezzo della prospettiva era vuoto oltre il 94%).
-        QSlider *latticeDensity = m_mw->m_h3LatticeDensity;
-        const bool latticeSliderOff = !latticeDensity->isEnabled() && m_mw->m_h3LatticeDensityValue->text().isEmpty();
-        m_mw->m_h3Lattice->setChecked(true);
+        QSlider *latticeDensity = m_mw->m_latticeDensity;
+        const bool latticeSliderOff = !latticeDensity->isEnabled() && m_mw->m_latticeDensityValue->text().isEmpty();
+        m_mw->m_latticeCheck->setChecked(true);
         gl->update();
         wait(1200);
         const QImage lattice = gl->grabFramebuffer();
@@ -12359,13 +12474,13 @@ void ScenarioTest::runSceneH3Scenarios()
         const int wholeEdges = gl->hyperbolicLatticeEdgeCount();
         const bool latticeFull = latticeDensity->isEnabled() && latticeDensity->value() == 100
                                  && gl->hyperbolicLatticeDrawnEdges() == wholeEdges
-                                 && 0 < gl->m_h3LatticeTierEnd[0] && gl->m_h3LatticeTierEnd[0] < gl->m_h3LatticeTierEnd[1]
-                                 && gl->m_h3LatticeTierEnd[1] < gl->m_h3LatticeTierEnd[2]
-                                 && gl->m_h3LatticeTierEnd[2] < gl->m_h3LatticeDrawn;
-        const QString tiers = QStringLiteral("%1/%2/%3/%4").arg(gl->m_h3LatticeTierEnd[0])
-                                  .arg(gl->m_h3LatticeTierEnd[1] - gl->m_h3LatticeTierEnd[0])
-                                  .arg(gl->m_h3LatticeTierEnd[2] - gl->m_h3LatticeTierEnd[1])
-                                  .arg(gl->m_h3LatticeDrawn - gl->m_h3LatticeTierEnd[2]);
+                                 && 0 < gl->m_latticeTierEnd[0] && gl->m_latticeTierEnd[0] < gl->m_latticeTierEnd[1]
+                                 && gl->m_latticeTierEnd[1] < gl->m_latticeTierEnd[2]
+                                 && gl->m_latticeTierEnd[2] < gl->m_latticeDrawn;
+        const QString tiers = QStringLiteral("%1/%2/%3/%4").arg(gl->m_latticeTierEnd[0])
+                                  .arg(gl->m_latticeTierEnd[1] - gl->m_latticeTierEnd[0])
+                                  .arg(gl->m_latticeTierEnd[2] - gl->m_latticeTierEnd[1])
+                                  .arg(gl->m_latticeDrawn - gl->m_latticeTierEnd[2]);
         int farRing = 0;
         for (int x = int(cx + 0.95 * cy / halfH); x < int(cx + 0.985 * cy / halfH); ++x)
             for (int y = int(cy) - 40; y <= int(cy) + 40; ++y)
@@ -12381,11 +12496,11 @@ void ScenarioTest::runSceneH3Scenarios()
         gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-h3-outside-lattice-50.png"));
         const int halfEdges = gl->hyperbolicLatticeDrawnEdges();
         latticeDensity->setValue(100);
-        m_mw->m_h3Lattice->setChecked(false);
+        m_mw->m_latticeCheck->setChecked(false);
         m_mw->toggleProjection();   // Perspective
-        m_mw->m_h3Lattice->setChecked(true);
+        m_mw->m_latticeCheck->setChecked(true);
         const int aroundEdges = gl->hyperbolicLatticeEdgeCount();
-        m_mw->m_h3Lattice->setChecked(false);
+        m_mw->m_latticeCheck->setChecked(false);
         check(latticeSliderOff && latticeFull && cubeEdges == 12 && halfEdges > 12 && halfEdges < wholeEdges
                   && wholeEdges > 4 * aroundEdges && farRing > 20,
               QStringLiteral("vista da fuori: il reticolo ha il suo pezzo (%1 spigoli, in prospettiva %2), arriva "

@@ -975,6 +975,11 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
     // LO STATO DI H3, della scena e non dell'ambiente (MainWindow::hyperbolicSceneJson).
     // Lo rimette MainWindow::applyHyperbolicSceneJson.
     if (h3) scene["h3"] = m_mainWindow->hyperbolicSceneJson();
+    // IL RETICOLO DI UNA SCENA 3D ({4,3,4}, MainWindow::flatSceneJson): solo
+    // acceso, cosi' una scena 3D senza reticolo resta scritta come prima. Lo
+    // rimette MainWindow::applyFlatSceneJson.
+    if (m_mainWindow->m_sceneSpace == MainWindow::SceneSpace::Space3D && gl->sceneLattice())
+        scene["r3"] = m_mainWindow->flatSceneJson();
     // LA QUOTA DEL TAGLIO delle Cross Section (P+/P- dell'ambiente, path 4D) e'
     // della scena (2026-11-08): l'ambiente non ha superficie, e il suo record
     // la scrive solo se e' una Cross Section. La legge loadSceneFile.

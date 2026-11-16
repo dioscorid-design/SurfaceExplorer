@@ -1296,48 +1296,78 @@ public:
     static constexpr double kH3DefaultCurvatureRadius = 2.0;
     void setHyperbolicCurvatureRadius(double radius);
     double hyperbolicCurvatureRadius() const { return 1.0 / m_h3RadiiPerSceneUnit; }
-    // IL RETICOLO {4,3,5}: le pareti di H3, cubi con angoli diedri di 72
-    // gradi, cinque attorno a ogni spigolo (H3::honeycomb435). E' di H3, non
-    // della scena: il lato e' sempre 1.617 raggi di curvatura. Spento di default;
-    // ogni scena H3 riparte spenta. Spigoli come tubi geodetici, disegnati a
-    // istanze attorno alla cella che contiene la camera: sembra infinito.
-    void setHyperbolicLattice(bool on);
-    bool hyperbolicLattice() const { return m_h3Lattice; }
+    // IL RETICOLO DELLA SCENA: in H3 il {4,3,5}, le pareti di H3, cubi con
+    // angoli diedri di 72 gradi, cinque attorno a ogni spigolo
+    // (H3::honeycomb435), il cui lato e' di H3, non della scena: sempre 1.617
+    // raggi di curvatura. In una scena 3D il {4,3,4}, il suo gemello piatto:
+    // cubi con quattro attorno a ogni spigolo, col lato in unita' della scena
+    // (setFlatLatticeSide). Acceso, densita', spessore e colore sono della
+    // scena, condivisi dai due spazi (decisione dell'utente, 2026-11-16): il
+    // cambio di spazio li porta con se'. Spento di default; ogni scena riparte
+    // coi default (resetSceneLattice). Spigoli come tubi (geodetici in H3),
+    // disegnati a istanze attorno alla cella che contiene la camera.
+    void setSceneLattice(bool on);
+    bool sceneLattice() const { return m_sceneLattice; }
+    // Si vede: acceso, in H3 o in una scena 3D (fuori dalle scene e nel 4D no).
+    bool sceneLatticeShown() const { return m_sceneLattice && (m_hyperbolic || m_scene3D); }
+    // I default di una scena nuova: spento, densita' 1, colore e spessore di
+    // default, il lato di R3 come il cubo centrale col raggio di default. Da
+    // MainWindow::setSceneSpace a ogni scena che comincia o finisce.
+    void resetSceneLattice();
+    // IL LATO DEL {4,3,4} DI R3, in unita' della scena. Il cubo centrale e'
+    // centrato nel centro della scena, come quello di H3.
+    void setFlatLatticeSide(double sceneUnits);
+    double flatLatticeSide() const { return m_flatLatticeSide; }
+    static constexpr double kFlatLatticeMinSide = 0.25;
+    static constexpr double kFlatLatticeMaxSide = 25.0;
+    // Il lato col quale gli 8 vertici del cubo centrale di R3 stanno dove
+    // stanno quelli del cubo centrale di H3 col raggio dato, letti nella carta
+    // esponenziale nel centro come gli oggetti: 2 d / sqrt(3) * raggio, con d
+    // la distanza dei vertici dal centro in raggi (1.226): 1.416 * raggio.
+    // Il cambio di spazio H3 -> R3 lo usa (decisione dell'utente, 2026-11-16):
+    // gli angoli del cubo centrale restano fermi, gli spigoli si raddrizzano.
+    static double flatLatticeSideForRadius(double curvatureRadius);
+    // Fin dove arriva il {4,3,4} con la densita' di adesso: dal centro della
+    // cella della camera, in lati (gli spigoli disegnati) e in unita' della scena.
+    double flatLatticeReachSides();
+    double flatLatticeReach() { return flatLatticeReachSides() * m_flatLatticeSide; }
+    int flatLatticeDrawnEdges();
+    int flatLatticeEdgeCount();
     // Gli spigoli del pezzo del modo attuale (prospettiva o vista da fuori).
     int hyperbolicLatticeEdgeCount();
     // LA DENSITA' DEL RETICOLO: quanta parte se ne disegna, da 0 (il solo cubo
-    // attorno alla camera; nella vista da fuori quello centrale) a 1 (tutto il
-    // pezzo, il default). Si disegnano gli spigoli che stanno entro una distanza
-    // dal centro della cella (hyperbolicLatticeReach, in raggi di curvatura).
-    // Ogni scena H3 riparte da 1. Conteggi e reach generano il pezzo del modo
-    // attuale se ancora non c'e'.
-    void setHyperbolicLatticeDensity(double t);
-    double hyperbolicLatticeDensity() const { return m_h3LatticeDensity; }
+    // attorno alla camera; nella vista da fuori di H3 quello centrale) a 1
+    // (tutto il pezzo, il default). Si disegnano gli spigoli che stanno entro
+    // una distanza dal centro della cella (hyperbolicLatticeReach, in raggi di
+    // curvatura; flatLatticeReach in R3). Ogni scena riparte da 1. Conteggi e
+    // reach generano il pezzo del modo attuale se ancora non c'e'.
+    void setSceneLatticeDensity(double t);
+    double sceneLatticeDensity() const { return m_sceneLatticeDensity; }
     // IL COLORE DEL RETICOLO: il colore base delle pareti, indipendente dallo
     // sfondo e dalla superficie dell'ambiente (chiave "latticeColor" del blocco
-    // h3 della scena). Resta illuminato: e' il colore prima della luce, come gli
-    // oggetti. Ogni scena H3 riparte dal default.
-    void setHyperbolicLatticeColor(const QColor &c);
-    QColor hyperbolicLatticeColor() const { return m_h3LatticeColor; }
+    // h3 della scena, o r3 in una scena 3D). Resta illuminato: e' il colore
+    // prima della luce, come gli oggetti. Ogni scena riparte dal default.
+    void setSceneLatticeColor(const QColor &c);
+    QColor sceneLatticeColor() const { return m_sceneLatticeColor; }
     // Il colore di prima (0.78, 0.80, 0.86) a 8 bit, come lo scrive #rrggbb:
     // salvato e riaperto resta identico.
-    static QColor defaultHyperbolicLatticeColor() { return QColor(199, 204, 219); }
+    static QColor defaultSceneLatticeColor() { return QColor(199, 204, 219); }
     // LO SPESSORE DEL RETICOLO: il raggio dei tubi in unita' della scena
     // (richiesta dell'utente, 2026-11-15), che il raggio di curvatura non
     // cambia; le celle invece si', il {4,3,5} esiste solo col suo lato in
     // raggi. I vertici hanno una sfera dello stesso raggio, che chiude i giunti
-    // dei 12 spigoli quando il tubo e' spesso. Chiave "latticeThickness" del
-    // blocco h3; ogni scena H3 riparte dal default.
-    void setHyperbolicLatticeThickness(double sceneUnits);
-    double hyperbolicLatticeThickness() const { return m_h3LatticeThickness; }
+    // dei 12 spigoli quando il tubo e' spesso (in R3 dei 6). Chiave
+    // "latticeThickness" del blocco h3 (o r3); ogni scena riparte dal default.
+    void setSceneLatticeThickness(double sceneUnits);
+    double sceneLatticeThickness() const { return m_sceneLatticeThickness; }
     // Lo spessore va da 0.005 a 0.5 unita' della scena. Il default e' il tubo
     // di prima (kH3LatticeTubeRadius raggi) col raggio di default: 0.025 * 2.
     // Le scene salvate prima della chiave hanno 0.025 * il loro raggio, cioe'
     // il reticolo che avevano.
     static constexpr double kH3LatticeTubeRadius = 0.025;
-    static constexpr double kH3LatticeMinThickness = 0.005;
-    static constexpr double kH3LatticeMaxThickness = 0.5;
-    static constexpr double kH3LatticeDefaultThickness = 0.05;
+    static constexpr double kSceneLatticeMinThickness = 0.005;
+    static constexpr double kSceneLatticeMaxThickness = 0.5;
+    static constexpr double kSceneLatticeDefaultThickness = 0.05;
     // Il tetto del raggio del tubo, in raggi: la camera al centro della cella
     // dista 0.84 raggi dagli spigoli; oltre i tubi chiuderebbero il cubo.
     static constexpr double kH3LatticeMaxTubeRadius = 0.3;
@@ -2178,14 +2208,14 @@ private:
     // La camera d'apertura col raggio di allora (hyperbolicStartCamera).
     H3::Matrix m_h3StartCamera = H3::Matrix::identity();
     double m_h3StartRadiiPerSceneUnit = 1.0 / kH3DefaultCurvatureRadius;
-    // Il reticolo (setHyperbolicLattice): gli spigoli del pezzo attorno
+    // Il reticolo (setSceneLattice): gli spigoli del pezzo attorno
     // all'origine come riferimenti (H3::frameTowards, generati alla prima
     // accensione), la cella che contiene la camera (si cammina dal fotogramma
     // prima), e la pipeline propria: un tubo canonico lungo z (VBO statico),
     // una matrice di Lorentz per istanza (camera^-1 * cella * spigolo, in double
     // sulla CPU: ogni spigolo e' ricentrato su se stesso, niente perdita di
     // precisione lontano), il suo blocco uniform (LatticeUBO, uguale nei due stadi).
-    bool m_h3Lattice = false;
+    bool m_sceneLattice = false;
     H3::Matrix m_h3LatticeCell = H3::Matrix::identity();
     // I PEZZI: gli spigoli in ordine di distanza dal centro della cella
     // (reach: il piu' lontano dei due estremi), cosi' la densita' ne disegna i
@@ -2204,20 +2234,34 @@ private:
     LatticePiece m_h3LatticeAround;
     LatticePiece m_h3LatticeWhole;
     LatticePiece &hyperbolicLatticePiece();
-    double m_h3LatticeDensity = 1.0;
+    double m_sceneLatticeDensity = 1.0;
     // Colore base delle pareti (prima della luce): nel LatticeUbo, color.
-    QColor m_h3LatticeColor = defaultHyperbolicLatticeColor();
-    double m_h3LatticeThickness = kH3LatticeDefaultThickness;
+    QColor m_sceneLatticeColor = defaultSceneLatticeColor();
+    double m_sceneLatticeThickness = kSceneLatticeDefaultThickness;
+    // IL PEZZO DEL {4,3,4} DI R3, nel reticolo dei lati (cubo centrale
+    // [-1/2, 1/2]^3), generato al primo uso e uguale ovunque: gli spigoli come
+    // inizio (x, y, z) e asse (w: 0 x, 1 y, 2 z), in ordine di distanza dal
+    // centro della cella come quelli di H3; i vertici per le loro sfere. Al
+    // fotogramma si sposta nella cella della camera.
+    struct FlatLatticePiece {
+        std::vector<QVector4D> edges;
+        std::vector<double> reach;
+        std::vector<QVector3D> vertices;
+        std::vector<double> vertexReach;
+    };
+    FlatLatticePiece m_flatLatticePiece;
+    const FlatLatticePiece &flatLatticePiece();
+    double m_flatLatticeSide = flatLatticeSideForRadius(kH3DefaultCurvatureRadius);
     // Del fotogramma: spigoli disegnati, dove finisce ciascuna delle quattro
-    // fasce della vista da fuori (in prospettiva tutte a m_h3LatticeDrawn), e da
+    // fasce della vista da fuori (in prospettiva tutte a m_latticeDrawn), e da
     // quale pezzo; le sfere dei vertici, di cui intere, e dove cominciano le
     // loro istanze nel buffer.
-    int m_h3LatticeDrawn = 0;
-    int m_h3LatticeTierEnd[4] = { 0, 0, 0, 0 };
-    int m_h3LatticeVerticesDrawn = 0;
-    int m_h3LatticeVerticesFine = 0;
-    int m_h3LatticeVertexInstance = 0;
-    bool m_h3LatticeWholeDraw = false;
+    int m_latticeDrawn = 0;
+    int m_latticeTierEnd[4] = { 0, 0, 0, 0 };
+    int m_latticeVerticesDrawn = 0;
+    int m_latticeVerticesFine = 0;
+    int m_latticeVertexInstance = 0;
+    bool m_latticeWholeDraw = false;
     QRhiGraphicsPipeline *m_latticePipeline = nullptr;
     QRhiShaderResourceBindings *m_latticeSrb = nullptr;
     QRhiBuffer *m_latticeUbo = nullptr;
@@ -2240,10 +2284,13 @@ private:
     // Prima del render pass: cella della camera, istanze, uniform (e la
     // pipeline, la prima volta; outputSize per il tubo piu' sottile in pixel).
     // Nel render pass: il disegno, dopo gli oggetti opachi e prima dei trasparenti.
+    // In R3 lo stesso (prepareFlatLattice): istanze affini nel riferimento
+    // della camera, ogni fotogramma, nella rotazione della scena.
     void prepareHyperbolicLattice(QRhiResourceUpdateBatch *updates, const QSize &outputSize);
-    void drawHyperbolicLattice(QRhiCommandBuffer *cb, const QSize &outputSize);
+    void prepareFlatLattice(QRhiResourceUpdateBatch *updates, const QSize &outputSize);
+    void drawSceneLattice(QRhiCommandBuffer *cb, const QSize &outputSize);
     bool createLatticePipeline();
-    void releaseHyperbolicLattice();
+    void releaseSceneLattice();
     // Un passo nel riferimento della camera (traslazione o rotazione), a
     // destra della matrice; rifiutato se la porterebbe oltre la distanza massima.
     void moveHyperbolicCamera(const H3::Matrix &localStep);

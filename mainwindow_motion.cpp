@@ -1324,7 +1324,7 @@ void MainWindow::updateProjectionButtonText()
     // Chiamata a ogni cambio di proiezione (toggle, load preset/record, init):
     // in Ortho gli slider FOV si spengono.
     // In H3 la distanza raggiunta dal reticolo dipende dalla proiezione.
-    refreshHyperbolicControls();
+    refreshLatticeControls();
 }
 
 
@@ -1351,11 +1351,12 @@ void MainWindow::toggleProjection()
 {
     // SCENA VUOTA DI NEW: la proiezione non ha niente da mostrare. Prima
     // cambiava lo stesso, e al preset successivo la scena risultava da salvare.
-    // Non e' vuota una scena col solo reticolo di H3 (la vista da fuori e'
-    // la proiezione ortogonale) o con la sola texture di sfondo: li' la
-    // proiezione si sceglie (richiesta dell'utente, 2026-11-15).
+    // Non e' vuota una scena col solo reticolo (in H3 la vista da fuori e'
+    // la proiezione ortogonale; in una scena 3D il {4,3,4}) o con la sola
+    // texture di sfondo: li' la proiezione si sceglie (richiesta dell'utente,
+    // 2026-11-15).
     GLWidget *gl = ui->glWidget;
-    const bool latticeShown = gl && gl->hyperbolicSpace() && gl->hyperbolicLattice();
+    const bool latticeShown = gl && gl->sceneLatticeShown();
     const bool backgroundShown = gl && gl->isBackgroundTextureEnabled();
     if (isWholeSceneEmpty() && !latticeShown && !backgroundShown) {
         InputValidator::showEmptySceneNotice(this, "Nothing to project");
