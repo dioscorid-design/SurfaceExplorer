@@ -950,9 +950,10 @@ bool MainWindow::loadSceneFile(const QString &path)
         if (o.value(QStringLiteral("fixed")).toBool()) gl->setObjectFixed(objIndex, true);
         if (o.contains(QStringLiteral("frame"))) pendingFrames.append({ objIndex, o.value(QStringLiteral("frame")).toString() });
     }
+    // setObjectFrame rifiuta da se' un ciclo (file scritto a mano).
     for (const auto &pending : std::as_const(pendingFrames))
         for (int k = 1; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k)
-            if (m_objectSessions[k].name == pending.second && gl->objectCanBeFrame(k)) {
+            if (m_objectSessions[k].name == pending.second) {
                 gl->setObjectFrame(pending.first, k);
                 break;
             }
@@ -982,11 +983,11 @@ bool MainWindow::loadSceneFile(const QString &path)
         m_startSceneRotation = gl->sceneRotation();
     }
     // Il riferimento del path della camera (GLWidget::cameraPathFrame), per
-    // nome dell'oggetto (unico nella scena), solo se quell'oggetto e' fisso.
+    // nome dell'oggetto (unico nella scena), fisso o mobile.
     {
         const QString frame = root.value(QStringLiteral("cameraPathFrame")).toString();
         for (int k = 1; !frame.isEmpty() && k < gl->objectCount() && k < int(m_objectSessions.size()); ++k)
-            if (m_objectSessions[k].name == frame && gl->objectFixed(k)) { gl->setCameraPathFrame(k); break; }
+            if (m_objectSessions[k].name == frame) { gl->setCameraPathFrame(k); break; }
     }
     // L'ambiente e' un record incorporato, senza il percorso del suo file: lo
     // si ritrova nella linguetta Records per le equazioni (a pari equazioni
@@ -1299,13 +1300,15 @@ void MainWindow::setupObjectsDock()
     });
 
     // IL RIFERIMENTO DEL PATH 3D DELLA CAMERA (GLWidget::cameraPathFrame): il
-    // centro della scena o un oggetto fisso. Voci e scelta le scrive refreshObjectsUi.
+    // centro della scena o un oggetto, fisso o mobile. Voci e scelta le scrive
+    // refreshObjectsUi.
     auto *frameRow = new QHBoxLayout();
-    frameRow->addWidget(rowLabel(QStringLiteral("Path around")));
+    frameRow->addWidget(rowLabel(QStringLiteral("Camera path around")));
     m_pathFrameCombo = new QComboBox(w);
     m_pathFrameCombo->setToolTip(QStringLiteral("Where the camera path X(t), Y(t), Z(t) is read from: the centre of the "
-                                                "scene, or the centre of a fixed object, turned as the object is. A circle "
-                                                "around a fixed torus then stays inside its tube wherever the torus is."));
+                                                "scene, or the centre of an object, turned as the object is, also while it "
+                                                "moves. A circle around a torus then stays inside its tube wherever the "
+                                                "torus is or goes."));
     frameRow->addWidget(m_pathFrameCombo, 1);
     lay->addLayout(frameRow);
     connect(m_pathFrameCombo, QOverload<int>::of(&QComboBox::activated), this, [this](int row) {
@@ -1314,14 +1317,15 @@ void MainWindow::setupObjectsDock()
         m_sceneObjectsChanged = true;
     });
     // IL RIFERIMENTO DELL'OGGETTO SELEZIONATO (SurfaceObject::frame): posizione
-    // e path letti dal centro di un oggetto fisso, girati come lui.
+    // e path letti dal centro di un altro oggetto, fisso o mobile, girati come lui.
     auto *objFrameRow = new QHBoxLayout();
     objFrameRow->addWidget(rowLabel(QStringLiteral("Placed around")));
     m_objectFrameCombo = new QComboBox(w);
     m_objectFrameCombo->setToolTip(QStringLiteral("Where the position X, Y, Z and the path of the selected object are read "
-                                                  "from: the centre of the scene, or the centre of a fixed object, turned as "
-                                                  "that object is. A shape placed around a fixed torus then stays with the "
-                                                  "torus wherever it is."));
+                                                  "from: the centre of the scene, or the centre of another object, turned as "
+                                                  "that object is, also while it moves. A moon placed around a planet follows "
+                                                  "the planet along its path; objects that would go round each other in a "
+                                                  "circle are not offered."));
     objFrameRow->addWidget(m_objectFrameCombo, 1);
     lay->addLayout(objFrameRow);
     connect(m_objectFrameCombo, QOverload<int>::of(&QComboBox::activated), this, [this](int row) {
@@ -1701,23 +1705,22 @@ void MainWindow::refreshObjectsUi()
         m_objectFixed->setEnabled(selected > 0);
         m_objectFixed->setChecked(fixed);
     }
-    // Il riferimento del path della camera: Environment e gli oggetti fissi.
+    // Il riferimento del path della camera: Environment e ogni oggetto, fisso o mobile.
     if (m_pathFrameCombo) {
         m_pathFrameCombo->clear();
         m_pathFrameCombo->addItem(QStringLiteral("Environment"), 0);
-        for (int k = 1; k < n; ++k)
-            if (gl->objectFixed(k)) m_pathFrameCombo->addItem(nameOf(k), k);
+        for (int k = 1; k < n; ++k) m_pathFrameCombo->addItem(nameOf(k), k);
         m_pathFrameCombo->setCurrentIndex(std::max(0, m_pathFrameCombo->findData(gl->cameraPathFrame())));
         m_pathFrameCombo->setEnabled(m_pathFrameCombo->count() > 1);
     }
-    // Il riferimento del selezionato: Environment e gli oggetti fissi che
-    // possono farlo (non lui, non uno che ha gia' un riferimento). Spento su un
-    // fisso (la sua posa e' bloccata) e su chi fa gia' da riferimento ad altri.
+    // Il riferimento del selezionato: Environment e ogni altro oggetto, fisso o
+    // mobile, tranne quelli che chiuderebbero un ciclo (chi gli gira gia'
+    // attorno, anche attraverso altri). Spento su un fisso: la sua posa e' bloccata.
     if (m_objectFrameCombo) {
         m_objectFrameCombo->clear();
         m_objectFrameCombo->addItem(QStringLiteral("Environment"), 0);
         for (int k = 1; k < n; ++k)
-            if (k != selected && gl->objectCanBeFrame(k)) m_objectFrameCombo->addItem(nameOf(k), k);
+            if (k != selected && gl->objectFrameAllowed(selected, k)) m_objectFrameCombo->addItem(nameOf(k), k);
         m_objectFrameCombo->setCurrentIndex(std::max(0, m_objectFrameCombo->findData(gl->objectFrame(selected))));
         m_objectFrameCombo->setEnabled(selected > 0 && !fixed && m_objectFrameCombo->count() > 1);
     }

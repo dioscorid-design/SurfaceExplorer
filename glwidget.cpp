@@ -2210,23 +2210,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             m_projection = shift * m_projection;
         }
 
-        m_view.setToIdentity();
-        if (m_isPathFollowing) {
-            m_view.lookAt(m_cameraPos, m_pathTarget, m_pathUp);
-            if (m_pathRoll != 0.0f) {
-                QMatrix4x4 rollMat;
-                rollMat.rotate(m_pathRoll, 0.0f, 0.0f, 1.0f);
-                m_view = rollMat * m_view;
-            }
-        } else {
-            float radYaw = m_cameraYaw * M_PI / 180.0f;
-            float radPitch = m_cameraPitch * M_PI / 180.0f;
-            QVector3D front(std::sin(radYaw)*std::cos(radPitch), std::sin(radPitch), -std::cos(radYaw)*std::cos(radPitch));
-            QMatrix4x4 rollMat;
-            rollMat.rotate(m_cameraRoll, 0.0f, 0.0f, 1.0f);
-            QVector3D up = rollMat.map(QVector3D(0.0f, 1.0f, 0.0f));
-            m_view.lookAt(m_cameraPos, m_cameraPos + front, up);
-        }
+        updateViewMatrix();
     }
 
     // OROLOGI della scena: prima degli UBO, che leggono il tempo.
@@ -2243,6 +2227,11 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // m_lastRealTime si aggiorna comunque (sopra): a fine REC il primo dt
     // live e' quello di un frame, non la durata della registrazione.
     if (!m_clocksDrivenByRecorder) advanceClocksBy(dt);
+
+    // LA CAMERA NEL RIFERIMENTO DI UN OGGETTO MOBILE (cameraPathFrame): dopo gli
+    // orologi, che muovono l'oggetto, la posa del path si riporta nel suo
+    // riferimento com'e' ora, e la vista si rifa' (refreshFramedCamera).
+    if (!m_isFlatView && refreshFramedCamera()) updateViewMatrix();
 
     // L'OGGETTO: uniform (posa, parti, bordo) e texture.
     // GLI OGGETTI, prima parte: uniform (posa, parti, bordo) e texture. Gli
@@ -5677,31 +5666,35 @@ float GLWidget::advancePathHandoff()
 
 void GLWidget::setCameraPosAndDirection3D(const QVector3D& pos, const QVector3D& targetPoint, float roll)
 {
-    QVector3D finalPos = pos;
-    QVector3D finalTarget = targetPoint;
+    // La posa GREZZA del path: se c'e' un riferimento (cameraPathFrame) il
+    // render la riporta in quello a ogni fotogramma (refreshFramedCamera).
+    m_rawPathPos = pos;
+    m_rawPathTarget = targetPoint;
+    m_rawPathRoll = roll;
+    m_rawPathValid = true;
+    applyCameraPathPose(true);
+    update();
+}
+
+void GLWidget::applyCameraPathPose(bool fromTick)
+{
+    QVector3D finalPos = m_rawPathPos;
+    QVector3D finalTarget = m_rawPathTarget;
     // 1. RIPRISTINA L'UP VECTOR ORIGINALE
     QVector3D finalUp(0.0f, 0.0f, 1.0f);
-    // NEL RIFERIMENTO DI UN OGGETTO FISSO (cameraPathFrame): posizione, bersaglio
-    // e alto del path letti dal suo centro, girati come lui. In euclideo qui; in
-    // H3 la stessa isometria entra in setHyperbolicCameraLookAt (la carta
-    // esponenziale non e' lineare: non si puo' trasformare il vettore e basta).
-    const bool framed = m_cameraPathFrame > 0 && m_cameraPathFrame < int(m_objects.size())
-                        && m_objects[m_cameraPathFrame]->fixed;
-    const QVector3D rawPos = pos, rawTarget = targetPoint, rawUp = finalUp;
-    H3::Matrix frameH3 = H3::Matrix::identity();
-    if (framed) {
-        const QMatrix4x4 f = objectPlacement(m_cameraPathFrame);
-        finalPos = f.map(pos);
-        finalTarget = f.map(targetPoint);
-        finalUp = f.mapVector(finalUp);
-        if (m_hyperbolic) frameH3 = hyperbolicObjectPlacement(m_cameraPathFrame);
-    }
+    // NEL RIFERIMENTO DI UN OGGETTO (cameraPathFrame): posizione, bersaglio e
+    // alto del path letti dal suo centro, girati come lui, e riscritti dal
+    // centro della scena (framePathPose, esatta anche in H3): da qui in poi
+    // tutto come senza riferimento, passaggio graduale compreso.
+    if (cameraPathFramed()) framePathPose(finalPos, finalTarget, finalUp);
     // 2. IL VERO FIX PER RHI: INVERTI IL ROLLIO
-    float rollDeg = qRadiansToDegrees(roll);
+    float rollDeg = qRadiansToDegrees(m_rawPathRoll);
 
     // Handoff dal path 4D: nei primi tick la camera scivola dalla vista
-    // catturata al click a quella del path, invece di teletrasportarsi.
-    if (m_pathHandoffActive) {
+    // catturata al click a quella del path, invece di teletrasportarsi. Avanza
+    // solo col tick del path: la ripresa al render (refreshFramedCamera) non
+    // gira durante il passaggio.
+    if (fromTick && m_pathHandoffActive) {
         float k = advancePathHandoff();
         finalPos    = m_handoffPos    * (1.0f - k) + finalPos    * k;
         finalTarget = m_handoffTarget * (1.0f - k) + finalTarget * k;
@@ -5716,18 +5709,21 @@ void GLWidget::setCameraPosAndDirection3D(const QVector3D& pos, const QVector3D&
     m_isPathFollowing = true;
     m_pathUp = finalUp;
     m_pathRoll = rollDeg;
-    // In H3 la stessa posa muove la camera iperbolica (nel riferimento del
-    // path, se c'e': dalla posa grezza, con la sua isometria).
-    if (m_hyperbolic) {
-        if (framed) setHyperbolicCameraLookAt(rawPos, rawTarget, rawUp, rollDeg, frameH3);
-        else setHyperbolicCameraLookAt(finalPos, finalTarget, finalUp, rollDeg);
-    }
-
-    update();
+    // In H3 la stessa posa muove la camera iperbolica.
+    if (m_hyperbolic) setHyperbolicCameraLookAt(finalPos, finalTarget, finalUp, rollDeg);
+    // Cio' che si e' scritto: se al prossimo render la camera e' cambiata,
+    // l'ha mossa qualcun altro (refreshFramedCamera).
+    m_framedSetPos = m_cameraPos;
+    m_framedSetTarget = m_pathTarget;
+    m_framedSetUp = m_pathUp;
+    m_framedSetRoll = m_pathRoll;
+    m_framedSetH3 = m_h3Camera;
 }
 
 void GLWidget::setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &target4D, const QVector4D &up4D)
 {
+    // La camera e' del path 4D: la posa del path 3D non va piu' ripresa.
+    m_rawPathValid = false;
     // 1. GESTIONE OSSERVATORE
     QVector4D safeObserverPos = pos4D;
     safeObserverPos.setW(pos4D.w() + 5.0f);
@@ -6002,7 +5998,13 @@ H3::Matrix GLWidget::hyperbolicWorldCamera() const
 }
 
 void GLWidget::setHyperbolicCameraLookAt(const QVector3D &pos, const QVector3D &target, const QVector3D &up,
-                                         float rollDeg, const H3::Matrix &frame)
+                                         float rollDeg)
+{
+    m_h3Camera = hyperbolicLookAtMatrix(pos, target, up, rollDeg);
+}
+
+H3::Matrix GLWidget::hyperbolicLookAtMatrix(const QVector3D &pos, const QVector3D &target, const QVector3D &up,
+                                            float rollDeg) const
 {
     const double k = m_h3RadiiPerSceneUnit;
     H3::Vec3 v = {pos.x() * k, pos.y() * k, pos.z() * k};
@@ -6044,16 +6046,76 @@ void GLWidget::setHyperbolicCameraLookAt(const QVector3D &pos, const QVector3D &
     // Il rollio come nel render euclideo (rollMat * vista): attorno all'asse
     // di vista, di -roll nel riferimento della camera.
     if (rollDeg != 0.0f) r = r * H3::rotation({0.0, 0.0, 1.0}, -qDegreesToRadians(double(rollDeg)));
-    // Il riferimento del path (cameraPathFrame) davanti a tutto: la posa e'
-    // quella costruita dal centro, trasportata dove sta l'oggetto.
-    m_h3Camera = H3::renormalized(frame * tp * r);
+    return H3::renormalized(tp * r);
 }
 
 void GLWidget::setCameraPathFrame(int index)
 {
-    const bool valid = index > 0 && index < int(m_objects.size()) && m_objects[index]->fixed;
-    m_cameraPathFrame = valid ? index : 0;
+    // Un oggetto qualunque, fisso o mobile (l'ambiente no: e' gia' il centro).
+    m_cameraPathFrame = index > 0 && index < int(m_objects.size()) ? index : 0;
     update();
+}
+
+bool GLWidget::cameraPathFramed() const
+{
+    return m_cameraPathFrame > 0 && m_cameraPathFrame < int(m_objects.size());
+}
+
+// LA POSA DEL PATH NEL RIFERIMENTO (cameraPathFrame), riscritta come la
+// consegnerebbe un path dal centro della scena. In euclideo la posa
+// dell'oggetto applicata ai tre vettori. In H3 la camera costruita dal centro
+// (hyperbolicLookAtMatrix) portata dall'isometria dell'oggetto, poi riletta come
+// fa beginPathHandoff: posizione e un punto sulla geodetica di vista come
+// vettori dal centro (logaritmo), alto nel riferimento portato dall'origine. La
+// lookAt di questi tre ridà esattamente quella camera (il roll lo aggiunge il
+// chiamante, come senza riferimento), e il passaggio graduale lavora come sempre.
+void GLWidget::framePathPose(QVector3D &pos, QVector3D &target, QVector3D &up)
+{
+    if (!m_hyperbolic) {
+        const QMatrix4x4 f = objectPlacement(m_cameraPathFrame);
+        pos = f.map(pos);
+        target = f.map(target);
+        up = f.mapVector(up);
+        return;
+    }
+    const double k = m_h3RadiiPerSceneUnit;
+    const H3::Matrix cam = hyperbolicObjectPlacement(m_cameraPathFrame) * hyperbolicLookAtMatrix(pos, target, up, 0.0f);
+    const H3::Vec3 p = H3::logAtOrigin(cam * H3::origin());
+    const H3::Vec3 q = H3::logAtOrigin(cam * H3::expAtOrigin({0.0, 0.0, -0.05}));
+    const H3::Matrix rc = hyperbolicTransportedToCentre(cam);
+    pos = QVector3D(float(p.x / k), float(p.y / k), float(p.z / k));
+    target = QVector3D(float(q.x / k), float(q.y / k), float(q.z / k));
+    up = QVector3D(float(rc.m[0][1]), float(rc.m[1][1]), float(rc.m[2][1]));
+}
+
+static bool sameH3Matrix(const H3::Matrix &a, const H3::Matrix &b)
+{
+    for (int i = 0; i < 4; ++i)
+        for (int j = 0; j < 4; ++j)
+            if (a.m[i][j] != b.m[i][j]) return false;
+    return true;
+}
+
+// LA RIPRESA AL RENDER: un riferimento MOBILE avanza con altri orologi (path
+// degli oggetti nel render, rotazioni nel loro timer; nel REC dopo il path della
+// camera, advanceSceneBy). Messa al tick del path, la camera resterebbe indietro
+// di un passo rispetto all'oggetto, e dal vivo ballerebbe secondo la fase dei
+// timer. Qui la posa grezza del path si riporta nel riferimento com'e' ORA, con
+// la stessa funzione del tick (applyCameraPathPose). Solo a path in corsa (m_pathAnimating,
+// vero anche nel REC) e finita la scivolata d'avvio; e solo se la camera e'
+// ancora quella scritta dal path: chi l'ha mossa dopo (path 4D, RESET, altro) la
+// stacca. Vero se ha cambiato la camera: il render rifa' la vista.
+bool GLWidget::refreshFramedCamera()
+{
+    if (!m_rawPathValid || !m_pathAnimating || m_pathHandoffActive || !m_isPathFollowing || !cameraPathFramed())
+        return false;
+    if (m_cameraPos != m_framedSetPos || m_pathTarget != m_framedSetTarget || m_pathUp != m_framedSetUp
+        || m_pathRoll != m_framedSetRoll || (m_hyperbolic && !sameH3Matrix(m_h3Camera, m_framedSetH3))) {
+        m_rawPathValid = false;
+        return false;
+    }
+    applyCameraPathPose(false);
+    return true;
 }
 
 QMatrix4x4 GLWidget::objectPlacement(int index)
@@ -6068,18 +6130,20 @@ QMatrix4x4 GLWidget::objectPlacement(int index)
     return m;
 }
 
-bool GLWidget::frameValid(const SurfaceObject &o) const
+std::vector<SurfaceObject *> GLWidget::frameChain(const SurfaceObject &o) const
 {
-    const int f = o.frame;
-    return f > 0 && f < int(m_objects.size()) && m_objects[f].get() != &o && m_objects[f]->fixed
-           && m_objects[f]->frame == 0;
-}
-
-bool GLWidget::isFrameOfSomeone(int index) const
-{
-    for (const auto &obj : m_objects)
-        if (obj->frame == index) return true;
-    return false;
+    // Dal riferimento piu' lontano al piu' vicino. I cicli li rifiuta
+    // setObjectFrame; la guardia qui sotto vale per un file scritto a mano.
+    std::vector<SurfaceObject *> chain;
+    const SurfaceObject *cur = &o;
+    while (cur->frame > 0 && cur->frame < int(m_objects.size())) {
+        SurfaceObject *f = m_objects[cur->frame].get();
+        if (f == &o || std::find(chain.begin(), chain.end(), f) != chain.end()) break;
+        chain.push_back(f);
+        cur = f;
+    }
+    std::reverse(chain.begin(), chain.end());
+    return chain;
 }
 
 int GLWidget::objectFrame(int index) const
@@ -6087,43 +6151,70 @@ int GLWidget::objectFrame(int index) const
     return index > 0 && index < int(m_objects.size()) ? m_objects[index]->frame : 0;
 }
 
-bool GLWidget::objectCanBeFrame(int index) const
+bool GLWidget::objectFrameAllowed(int index, int frame) const
 {
-    return index > 0 && index < int(m_objects.size()) && m_objects[index]->fixed && m_objects[index]->frame == 0;
+    if (index <= 0 || index >= int(m_objects.size())) return false;
+    if (frame == 0) return true;
+    if (frame < 0 || frame >= int(m_objects.size()) || frame == index) return false;
+    // Niente cicli: risalendo i riferimenti di `frame` non si arriva a `index`.
+    int cur = frame;
+    for (size_t steps = 0; cur > 0 && cur < int(m_objects.size()) && steps < m_objects.size(); ++steps) {
+        if (cur == index) return false;
+        cur = m_objects[cur]->frame;
+    }
+    return true;
 }
 
 bool GLWidget::setObjectFrame(int index, int frame)
 {
-    if (index <= 0 || index >= int(m_objects.size())) return false;
-    if (frame != 0 && (frame == index || !objectCanBeFrame(frame) || isFrameOfSomeone(index))) return false;
+    if (!objectFrameAllowed(index, frame)) return false;
     m_objects[index]->frame = frame;
     update();
     return true;
+}
+
+static H3::Matrix h3Rotation(const QQuaternion &q)
+{
+    const QMatrix3x3 r = q.toRotationMatrix();
+    H3::Matrix m = H3::Matrix::identity();
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) m.m[i][j] = r(i, j);
+    return m;
 }
 
 QMatrix4x4 GLWidget::placementPrefix(SurfaceObject &o)
 {
     QMatrix4x4 m;
     if (isEnvironment(o)) return m;
-    if (frameValid(o)) return objectPlacement(o.frame);
     // Gli oggetti girano con l'ambiente attorno al centro della scena
     // (sceneRotation), posizione compresa: la rotazione va prima della posa.
     m.rotate(m_sceneRotation.rotation);
+    // Poi le pose dei riferimenti, dal piu' lontano (SurfaceObject::frame):
+    // posizione col path al suo tempo e rotazione col GO, come ORA.
+    for (SurfaceObject *f : frameChain(o)) {
+        m.translate(effectivePosition(*f));
+        m.rotate(f->rotationQuat);
+    }
     return m;
 }
 
 H3::Matrix GLWidget::hyperbolicPlacementPrefix(SurfaceObject &o)
 {
     if (isEnvironment(o)) return H3::Matrix::identity();
-    if (frameValid(o)) return hyperbolicObjectPlacement(o.frame);
-    return hyperbolicSceneRotation();
+    H3::Matrix p = hyperbolicSceneRotation();
+    for (SurfaceObject *f : frameChain(o)) {
+        const QVector3D c = effectivePosition(*f) * float(m_h3RadiiPerSceneUnit);
+        p = p * H3::translation({c.x(), c.y(), c.z()}) * h3Rotation(f->rotationQuat);
+    }
+    return p;
 }
 
 QQuaternion GLWidget::placementRotation(const SurfaceObject &o) const
 {
     if (isEnvironment(o)) return QQuaternion();
-    if (frameValid(o)) return m_sceneRotation.rotation * m_objects[o.frame]->rotationQuat;
-    return m_sceneRotation.rotation;
+    QQuaternion q = m_sceneRotation.rotation;
+    for (const SurfaceObject *f : frameChain(o)) q = q * f->rotationQuat;
+    return q;
 }
 
 H3::Matrix GLWidget::hyperbolicObjectPlacement(int index)
@@ -6136,11 +6227,7 @@ H3::Matrix GLWidget::hyperbolicObjectPlacement(int index)
     const QVector3D c = effectivePosition(o) * float(m_h3RadiiPerSceneUnit);
     H3::Matrix place = H3::translation({c.x(), c.y(), c.z()});
     if (!isEnvironment(o)) place = hyperbolicPlacementPrefix(o) * place;
-    const QMatrix3x3 q = o.rotationQuat.toRotationMatrix();
-    H3::Matrix rot = H3::Matrix::identity();
-    for (int i = 0; i < 3; ++i)
-        for (int j = 0; j < 3; ++j) rot.m[i][j] = q(i, j);
-    return place * rot;
+    return place * h3Rotation(o.rotationQuat);
 }
 
 void GLWidget::hyperbolicObjectMatrices(SurfaceObject &o, QMatrix4x4 &local, QMatrix4x4 &lorentz)
@@ -6831,11 +6918,33 @@ GLWidget::Orientation GLWidget::orientation() const
     return o;
 }
 
+void GLWidget::updateViewMatrix()
+{
+    m_view.setToIdentity();
+    if (m_isPathFollowing) {
+        m_view.lookAt(m_cameraPos, m_pathTarget, m_pathUp);
+        if (m_pathRoll != 0.0f) {
+            QMatrix4x4 rollMat;
+            rollMat.rotate(m_pathRoll, 0.0f, 0.0f, 1.0f);
+            m_view = rollMat * m_view;
+        }
+    } else {
+        float radYaw = m_cameraYaw * M_PI / 180.0f;
+        float radPitch = m_cameraPitch * M_PI / 180.0f;
+        QVector3D front(std::sin(radYaw)*std::cos(radPitch), std::sin(radPitch), -std::cos(radYaw)*std::cos(radPitch));
+        QMatrix4x4 rollMat;
+        rollMat.rotate(m_cameraRoll, 0.0f, 0.0f, 1.0f);
+        QVector3D up = rollMat.map(QVector3D(0.0f, 1.0f, 0.0f));
+        m_view.lookAt(m_cameraPos, m_cameraPos + front, up);
+    }
+}
+
 void GLWidget::resetFraming(const Framing &f)
 {
     // Vista libera: la modalita' path si spegne (un path in corsa la riaccende
     // al suo prossimo tick, insieme alla propria camera).
     m_isPathFollowing = false;
+    m_rawPathValid = false;
 
     m_cameraPos = f.cameraPos;
     m_cameraYaw = f.yaw;
@@ -7543,13 +7652,8 @@ void GLWidget::setObjectFixed(int index, bool on)
     if (index <= 0 || index >= int(m_objects.size())) return;   // l'ambiente e' gia' l'ambiente
     SurfaceObject &o = *m_objects[index];
     if (o.fixed == on) return;
-    // Sbloccato, non e' piu' un riferimento: ne' per il path della camera ne'
-    // per gli altri oggetti.
-    if (!on) {
-        if (m_cameraPathFrame == index) m_cameraPathFrame = 0;
-        for (const auto &obj : m_objects)
-            if (obj->frame == index) obj->frame = 0;
-    }
+    // I riferimenti (cameraPathFrame, SurfaceObject::frame) non c'entrano: un
+    // oggetto fa da riferimento fisso o mobile, e il blocco non tocca il suo.
     if (on) {
         // Fermo e sempre in scena: la finestra se ne va, GO e path si fermano e
         // le velocita' si azzerano. Le formule del path restano, inerti: tolto

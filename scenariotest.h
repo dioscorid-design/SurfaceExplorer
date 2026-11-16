@@ -322,6 +322,9 @@ private:
     // 2.0: il riferimento di un oggetto su un oggetto fisso (SurfaceObject::
     // frame). Da sola: --scenario-only object-frame.
     void runObjectFrameScenarios();
+    // 2.0: riferimenti mobili (oggetti e camera attorno a un oggetto che si
+    // muove, catene, cicli). Da sola: --scenario-only moving-frame.
+    void runMovingFrameScenarios();
     // 2.0: il tasto Scene, la scelta 3D/4D e quando la scena resta o finisce.
     void runSceneSpaceScenarios();
     // La scena in H3 (avvio, camera come isometria, rifiuti, RESET, NEW).

@@ -293,26 +293,30 @@ public:
     void setObjectFixed(int index, bool on);
     bool selectedObjectFixed() const { return m_obj->fixed; }
     // IL RIFERIMENTO DEL PATH 3D DELLA CAMERA (2.0): 0 = il centro della scena,
-    // come sempre; altrimenti un oggetto FISSO, e X(t), Y(t), Z(t) si leggono
-    // dal suo centro, girati com'e' girato lui (setCameraPosAndDirection3D),
-    // con la stessa isometria con cui l'oggetto e' disegnato (objectPlacement,
-    // hyperbolicObjectPlacement): in H3 la carta esponenziale non e' invariante
-    // per traslazione, e un cerchio "c + cerchio" letto dal centro della scena
-    // non e' un cerchio attorno a c. Cosi' un cerchio attorno a un toro fisso
-    // resta nel suo tubo ovunque il toro sia. In unita' della scena (la scala
-    // dell'oggetto non c'entra). Torna 0 quando l'oggetto si sblocca o se ne va.
+    // come sempre; altrimenti un oggetto, fisso o MOBILE, e X(t), Y(t), Z(t) si
+    // leggono dal suo centro, girati com'e' girato lui (applyCameraPathPose,
+    // framePathPose), con la stessa isometria con cui l'oggetto e' disegnato
+    // (objectPlacement, hyperbolicObjectPlacement): in H3 la carta esponenziale
+    // non e' invariante per traslazione, e un cerchio "c + cerchio" letto dal
+    // centro della scena non e' un cerchio attorno a c. Cosi' un cerchio attorno
+    // a un toro resta nel suo tubo ovunque il toro sia, anche mentre si muove: il
+    // render riporta la camera nel riferimento a ogni fotogramma
+    // (refreshFramedCamera). In unita' della scena (la scala dell'oggetto non
+    // c'entra). Torna 0 quando l'oggetto se ne va.
     int cameraPathFrame() const { return m_cameraPathFrame; }
     void setCameraPathFrame(int index);
+    bool cameraPathFramed() const;
     // La posa di un oggetto come e' disegnato, senza la scala: rotazione della
     // scena, posizione (path compreso), rotazione propria. Euclidea e in H3.
     QMatrix4x4 objectPlacement(int index);
     H3::Matrix hyperbolicObjectPlacement(int index);
-    // IL RIFERIMENTO DI UN OGGETTO (SurfaceObject::frame): un oggetto fisso
-    // senza riferimento suo, diverso da lui; e un oggetto che fa da riferimento
-    // ad altri non ne prende uno (catene lunghe una). setObjectFrame rifiuta il
-    // resto e torna false.
+    // IL RIFERIMENTO DI UN OGGETTO (SurfaceObject::frame): un altro oggetto,
+    // fisso o mobile, anche con un riferimento suo (catene: la luna attorno alla
+    // terra attorno al sole), purche' non si chiuda un ciclo.
+    // objectFrameAllowed dice se `frame` puo' esserlo per `index` (0 sempre);
+    // setObjectFrame rifiuta il resto e torna false.
     int objectFrame(int index) const;
-    bool objectCanBeFrame(int index) const;
+    bool objectFrameAllowed(int index, int frame) const;
     bool setObjectFrame(int index, int frame);
     // Almeno un oggetto ha una finestra: T conta (master, RESET, barra di stato).
     bool hasTimeline() const;
@@ -2233,10 +2237,10 @@ private:
     // esponenziale nell'origine); la camera guarda verso il bersaglio lungo la
     // geodetica, l'alto e' nel riferimento portato dall'origine. Entro la
     // distanza massima dal centro.
-    // frame: l'isometria del riferimento del path (cameraPathFrame); identita' =
-    // il centro della scena.
-    void setHyperbolicCameraLookAt(const QVector3D &pos, const QVector3D &target, const QVector3D &up, float rollDeg,
-                                   const H3::Matrix &frame = H3::Matrix::identity());
+    void setHyperbolicCameraLookAt(const QVector3D &pos, const QVector3D &target, const QVector3D &up, float rollDeg);
+    // La stessa camera, senza scriverla (framePathPose).
+    H3::Matrix hyperbolicLookAtMatrix(const QVector3D &pos, const QVector3D &target, const QVector3D &up,
+                                      float rollDeg) const;
     // La posa di un oggetto in H3 per l'UBO. L'isometria che porta il suo
     // centro nel riferimento della camera (camera^-1 * rotazione della scena *
     // traslazione nella sua posizione) e' m = k * spinta lungo z di R * kp.
@@ -2290,16 +2294,35 @@ private:
     SceneRotation m_sceneRotation;
     // Il riferimento del path 3D della camera: vedi cameraPathFrame.
     int m_cameraPathFrame = 0;
+    // LA POSA GREZZA DEL PATH 3D, prima del riferimento (setCameraPosAndDirection3D),
+    // e la camera che ne e' uscita (m_framedSet*): la ripresa al render
+    // (refreshFramedCamera) parte dalla prima, e la seconda dice se nel
+    // frattempo qualcun altro ha mosso la camera.
+    bool m_rawPathValid = false;
+    QVector3D m_rawPathPos, m_rawPathTarget;
+    float m_rawPathRoll = 0.0f;
+    QVector3D m_framedSetPos, m_framedSetTarget, m_framedSetUp;
+    float m_framedSetRoll = 0.0f;
+    H3::Matrix m_framedSetH3 = H3::Matrix::identity();
+    // La posa del path 3D in camera (vista e, in H3, camera iperbolica), nel
+    // riferimento se c'e'. fromTick: dal tick del path (avanza la scivolata
+    // d'avvio); false dalla ripresa al render.
+    void applyCameraPathPose(bool fromTick);
+    // Posizione, bersaglio e alto del path dal riferimento al centro della scena.
+    void framePathPose(QVector3D &pos, QVector3D &target, QVector3D &up);
+    bool refreshFramedCamera();
+    // m_view dalla camera di adesso (path o vista libera).
+    void updateViewMatrix();
     // CIO' CHE PRECEDE LA POSA DI UN OGGETTO nel suo modello: la rotazione della
-    // scena data dall'ambiente, oppure, se ha un riferimento (SurfaceObject::
-    // frame), la posa di quello (objectPlacement, che la rotazione della scena
-    // gia' contiene). Euclideo, in H3, e la sola rotazione (per riportare uno
-    // spostamento visto a schermo nelle coordinate dell'oggetto).
+    // scena data dall'ambiente, poi le pose dei suoi riferimenti (SurfaceObject::
+    // frame), dal piu' lontano, come sono ORA (path e GO compresi). Euclideo, in
+    // H3, e la sola rotazione (per riportare uno spostamento visto a schermo
+    // nelle coordinate dell'oggetto).
     QMatrix4x4 placementPrefix(SurfaceObject &o);
     H3::Matrix hyperbolicPlacementPrefix(SurfaceObject &o);
     QQuaternion placementRotation(const SurfaceObject &o) const;
-    bool frameValid(const SurfaceObject &o) const;
-    bool isFrameOfSomeone(int index) const;
+    // I riferimenti di o, dal piu' lontano al piu' vicino (vuota senza).
+    std::vector<SurfaceObject *> frameChain(const SurfaceObject &o) const;
     // Scena 3D: gli oggetti parametrici sono rigidi (rigidObject, setScene3D).
     bool m_scene3D = false;
     // La posa dell'ambiente a T = 0 (o dove le rotazioni sono subentrate), per il cursore T (seekEnvironmentRotations).

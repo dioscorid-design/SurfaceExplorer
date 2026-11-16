@@ -2209,6 +2209,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("moving-frame")) {
+        runMovingFrameScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-space")) {
         runSceneSpaceScenarios();
         finish();
@@ -4098,6 +4103,7 @@ void ScenarioTest::run()
     runPoleNormalScenario();
     runPathFrameScenarios();
     runObjectFrameScenarios();
+    runMovingFrameScenarios();
     runSceneSpaceScenarios();
     runSceneH3Scenarios();
     runDisabledLookScenarios();
@@ -9812,6 +9818,24 @@ void ScenarioTest::runSceneFixedScenarios()
     } else {
         m_lines.append(QStringLiteral("   (scena d'esempio non in libreria: %1)").arg(example));
     }
+
+    // LA STESSA SCENA IN R3: toro fisso, tre oggetti liberi, camera dentro il tubo.
+    const QString exampleR3 = m_root + QStringLiteral("/scenes/Fixed Torus World R3.json");
+    if (QFile::exists(exampleR3)) {
+        if (!loadSurface(kSphere)) return;
+        const bool ok = m_mw->loadSceneFile(exampleR3);
+        wait(2000);
+        // La camera nel riferimento del toro: a che distanza dall'anima del tubo.
+        const QVector3D rel = gl->objectPlacement(1).inverted().map(gl->getCameraPos());
+        const float fromCore = std::hypot(std::hypot(rel.x(), rel.y()) - 2.4f, rel.z());
+        check(ok && gl->objectCount() == 5 && !gl->hyperbolicSpace() && !m_mw->sceneIs4D() && gl->objectFixed(1)
+                  && fromCore < 0.2f,
+              QStringLiteral("Fixed Torus World R3: scena 3D, toro fisso e tre oggetti liberi, camera a %1 dall'anima del "
+                             "tubo (raggio del tubo 1.35)").arg(fromCore, 0, 'f', 3));
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-fixed-example-r3.png"));
+    } else {
+        m_lines.append(QStringLiteral("   (scena d'esempio non in libreria: %1)").arg(exampleR3));
+    }
 }
 
 // IL POLO DI UNA SFERA (surface.vert, calculateFinalNormal): sul vertice del
@@ -9933,13 +9957,13 @@ void ScenarioTest::runPathFrameScenarios()
     check(loaded && gl->cameraPathFrame() == 1 && m_mw->m_pathFrameCombo->currentData().toInt() == 1,
           QStringLiteral("Load: il riferimento torna sul toro (%1), casella compresa").arg(gl->cameraPathFrame()));
 
-    // Sblocco: torna al centro, la casella si svuota.
+    // Sblocco: il riferimento resta (un oggetto fa da riferimento anche mobile).
     m_mw->selectSceneObject(1);
     wait(200);
     m_mw->m_objectFixed->setChecked(false);
     wait(200);
-    check(gl->cameraPathFrame() == 0 && m_mw->m_pathFrameCombo->count() == 1 && !m_mw->m_pathFrameCombo->isEnabled(),
-          QStringLiteral("toro sbloccato: riferimento al centro, casella con il solo Environment"));
+    check(gl->cameraPathFrame() == 1 && m_mw->m_pathFrameCombo->count() == 2 && m_mw->m_pathFrameCombo->isEnabled(),
+          QStringLiteral("toro sbloccato: il riferimento resta sul toro, la casella lo elenca"));
     // Remove: una sfera fissa come riferimento (indice 2), tolto il toro (1) scorre a 1.
     m_mw->addShapeToScene(shapePath(kSphere));
     wait(500);
@@ -10058,15 +10082,14 @@ void ScenarioTest::runObjectFrameScenarios()
           QStringLiteral("sfera in (1,0,0) attorno al toro girato di 90 gradi: nel mondo %1").arg(text(worldOf(2))));
     check(m_mw->m_objectList->item(2)->text().contains(QStringLiteral("around Torus")),
           QStringLiteral("nell'elenco: \"%1\"").arg(m_mw->m_objectList->item(2)->text()));
-    // Le regole: la sfera non fa da riferimento (non fissa), il toro che fa da
-    // riferimento non ne prende uno, nessuno e' riferimento di se stesso.
-    check(!gl->objectCanBeFrame(2) && !gl->setObjectFrame(1, 2) && !gl->setObjectFrame(2, 2) && gl->objectFrame(2) == 1,
-          QStringLiteral("regole: la sfera non e' un riferimento, il toro non ne prende uno, niente auto-riferimento"));
+    // Le regole: niente cicli (il toro attorno alla sfera che gli gira
+    // attorno), niente auto-riferimento.
+    check(!gl->setObjectFrame(1, 2) && !gl->setObjectFrame(2, 2) && gl->objectFrame(2) == 1 && gl->objectFrame(1) == 0,
+          QStringLiteral("regole: ciclo e auto-riferimento rifiutati"));
     m_mw->m_objectFixed->setChecked(true);   // la sfera fissa, col suo riferimento
     wait(200);
-    check(gl->objectFixed(2) && gl->objectFrame(2) == 1 && !gl->objectCanBeFrame(2)
-              && !m_mw->m_objectFrameCombo->isEnabled(),
-          QStringLiteral("sfera fissa: tiene il riferimento, non fa da riferimento, casella spenta"));
+    check(gl->objectFixed(2) && gl->objectFrame(2) == 1 && !m_mw->m_objectFrameCombo->isEnabled(),
+          QStringLiteral("sfera fissa: tiene il riferimento, casella spenta (la sua posa e' bloccata)"));
     m_mw->m_objectFixed->setChecked(false);
     wait(200);
 
@@ -10088,13 +10111,13 @@ void ScenarioTest::runObjectFrameScenarios()
     check(loaded && gl->objectCount() == 3 && gl->objectFrame(2) == 1 && near(worldOf(2), QVector3D(2.0f, 1.0f, 0.0f)),
           QStringLiteral("Load: la sfera torna attorno al toro, nel mondo %1").arg(text(worldOf(2))));
 
-    // Sblocco del toro: la sfera torna letta dal centro.
+    // Sblocco del toro: il riferimento resta, la sfera gli resta attorno.
     m_mw->selectSceneObject(1);
     wait(100);
     m_mw->m_objectFixed->setChecked(false);
     wait(200);
-    check(gl->objectFrame(2) == 0 && near(worldOf(2), QVector3D(1.0f, 0.0f, 0.0f)),
-          QStringLiteral("toro sbloccato: la sfera letta dal centro, in %1").arg(text(worldOf(2))));
+    check(gl->objectFrame(2) == 1 && near(worldOf(2), QVector3D(2.0f, 1.0f, 0.0f)),
+          QStringLiteral("toro sbloccato: la sfera resta attorno al toro, in %1").arg(text(worldOf(2))));
     // Remove scorre gli indici: una seconda sfera (3) fissa, la sfera (2)
     // attorno a lei, tolto il toro (1) la sfera e' 1 e il suo riferimento 2.
     m_mw->addShapeToScene(shapePath(kSphere));
@@ -10149,6 +10172,200 @@ void ScenarioTest::runObjectFrameScenarios()
               QStringLiteral("Fixed Torus Ride 2: toro fisso, %1 oggetti attorno a lui, camera nel suo riferimento (%2)")
                   .arg(framed).arg(gl->cameraPathFrame()));
         gl->grabFramebuffer().save(m_outDir + QStringLiteral("/object-frame-ride.png"));
+        m_mw->onDeparture3DClicked();   // fermo
+        wait(100);
+    } else {
+        m_lines.append(QStringLiteral("   (scena d'esempio non in libreria: %1)").arg(ride));
+    }
+}
+
+// RIFERIMENTI MOBILI (2.0): un oggetto qualunque fa da riferimento, anche se si
+// muove. Chi gli sta attorno segue posizione e rotazione (path e GO compresi);
+// catene ammesse, cicli rifiutati; il blocco non toglie niente. La camera nel
+// riferimento di un oggetto che si muove resta esatta a ogni fotogramma: il
+// render la riporta nel riferimento dopo gli orologi (refreshFramedCamera),
+// anche nel passo del recorder, in 3D e in H3. In coda le due scene d'esempio.
+void ScenarioTest::runMovingFrameScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Riferimenti mobili: catene, cicli, oggetti e camera attorno a un oggetto che si muove (3D, H3, passo del REC) =="));
+    const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
+    const QString kSphere = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
+    const auto near = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 2e-3f; };
+    const auto text = [](const QVector3D &v) {
+        return QStringLiteral("(%1, %2, %3)").arg(v.x(), 0, 'f', 3).arg(v.y(), 0, 'f', 3).arg(v.z(), 0, 'f', 3);
+    };
+    const auto worldOf = [gl](int k) { return gl->objectPlacement(k).map(QVector3D()); };
+    const auto place = [this, gl](int k, const QVector3D &p, float turnDeg) {
+        m_mw->selectSceneObject(k);
+        wait(50);
+        gl->setObjectPosition(p);
+        gl->setRotationQuat(QQuaternion::fromAxisAndAngle(0.0f, 0.0f, 1.0f, turnDeg));
+    };
+    // Il passo del recorder: tick dal vivo spenti, orologi avanzati dal loop
+    // (advanceSceneBy), poi il fotogramma; `each` dopo ogni fotogramma.
+    const auto recSteps = [this, gl](int steps, auto &&each) {
+        gl->setExternalClockActive(true);
+        gl->setClocksDrivenByRecorder(true);
+        for (int i = 0; i < steps; ++i) {
+            m_mw->advanceSceneBy(1.0f / 30.0f, false);
+            gl->grabFramebuffer();
+            each();
+        }
+        gl->setClocksDrivenByRecorder(false);
+        gl->setExternalClockActive(false);
+    };
+    // La posizione dell'oggetto `child` nel riferimento di `frame`, in unita'
+    // della scena: euclidea o in H3 (logaritmo dopo l'isometria inversa).
+    const auto relative = [gl](int frame, const H3::Matrix &childH3, const QVector3D &childWorld) {
+        if (!gl->hyperbolicSpace()) return gl->objectPlacement(frame).inverted().map(childWorld);
+        const double k = gl->m_h3RadiiPerSceneUnit;
+        const H3::Vec3 r = H3::logAtOrigin(H3::inverse(gl->hyperbolicObjectPlacement(frame)) * childH3 * H3::origin());
+        return QVector3D(float(r.x / k), float(r.y / k), float(r.z / k));
+    };
+    const auto cameraRelative = [gl, &relative](int frame) {
+        return relative(frame, gl->hyperbolicCamera(), gl->getCameraPos());
+    };
+    const auto objectRelative = [gl, &relative](int frame, int child) {
+        return relative(frame, gl->hyperbolicObjectPlacement(child), gl->objectPlacement(child).map(QVector3D()));
+    };
+
+    // 1. COMPOSIZIONE E REGOLE (3D, nessuno fisso): pianeta (1), luna (2)
+    // attorno al pianeta, satellite (3) attorno alla luna.
+    if (!buildScene(false, { kSphere, kSphere, kSphere })) return;
+    check(gl->setObjectFrame(2, 1) && gl->setObjectFrame(3, 2),
+          QStringLiteral("catena di oggetti mobili: la luna attorno al pianeta, il satellite attorno alla luna"));
+    check(!gl->setObjectFrame(1, 3) && !gl->setObjectFrame(1, 2) && !gl->setObjectFrame(3, 3) && gl->objectFrame(1) == 0,
+          QStringLiteral("cicli (il pianeta attorno alla luna o al satellite) e auto-riferimento rifiutati"));
+    place(1, QVector3D(2.0f, 0.0f, 0.0f), 90.0f);
+    place(2, QVector3D(1.0f, 0.0f, 0.0f), 0.0f);
+    place(3, QVector3D(0.5f, 0.0f, 0.0f), 0.0f);
+    check(near(worldOf(2), QVector3D(2.0f, 1.0f, 0.0f)) && near(worldOf(3), QVector3D(2.0f, 1.5f, 0.0f)),
+          QStringLiteral("pianeta in (2,0,0) girato di 90 gradi: luna %1, satellite %2").arg(text(worldOf(2)), text(worldOf(3))));
+    // Il pianeta si sposta e la luna gira: il satellite li segue tutti e due.
+    place(1, QVector3D(0.0f, 2.0f, 0.0f), 90.0f);
+    place(2, QVector3D(1.0f, 0.0f, 0.0f), 90.0f);
+    check(near(worldOf(2), QVector3D(0.0f, 3.0f, 0.0f)) && near(worldOf(3), QVector3D(-0.5f, 3.0f, 0.0f)),
+          QStringLiteral("pianeta spostato, luna girata: luna %1, satellite %2").arg(text(worldOf(2)), text(worldOf(3))));
+    // Nel dock: sul satellite si offrono pianeta e luna; sul pianeta nessuno
+    // (chiuderebbe un ciclo). La camera puo' girare attorno a chiunque.
+    m_mw->selectSceneObject(3);
+    wait(100);
+    const int offeredSatellite = m_mw->m_objectFrameCombo->count();
+    m_mw->selectSceneObject(1);
+    wait(100);
+    check(offeredSatellite == 3 && m_mw->m_objectFrameCombo->count() == 1 && !m_mw->m_objectFrameCombo->isEnabled()
+              && m_mw->m_pathFrameCombo->count() == 4,
+          QStringLiteral("Placed around: sul satellite Environment, pianeta e luna (%1 voci), sul pianeta il solo "
+                         "Environment; Camera path around: tutti").arg(offeredSatellite));
+    // Il blocco e lo sblocco del pianeta non toccano i riferimenti.
+    m_mw->m_objectFixed->setChecked(true);
+    wait(100);
+    m_mw->m_objectFixed->setChecked(false);
+    wait(100);
+    check(gl->objectFrame(2) == 1 && gl->objectFrame(3) == 2, QStringLiteral("blocco e sblocco del pianeta: i riferimenti restano"));
+    check(m_mw->m_objectList->item(3)->text().contains(QStringLiteral("around ")),
+          QStringLiteral("nell'elenco: \"%1\"").arg(m_mw->m_objectList->item(3)->text()));
+    // Tolta la luna: il satellite torna letto dal centro.
+    m_mw->selectSceneObject(2);
+    wait(100);
+    m_mw->m_btnObjectRemove->click();
+    wait(300);
+    check(gl->objectCount() == 3 && gl->objectFrame(2) == 0 && gl->objectFrame(1) == 0,
+          QStringLiteral("tolta la luna: il satellite (ora 2) letto dal centro"));
+
+    // 2. LA CAMERA ATTORNO A UN OGGETTO CHE SI MUOVE, col passo del recorder: il
+    // toro (1) sul suo path e col GO, la camera sul cerchio di raggio 1 nel suo
+    // riferimento. Dopo ogni passo la camera, letta nel riferimento del toro
+    // com'e' ORA, e' esattamente la posa del path: messa al solo tick del path
+    // resterebbe indietro di un passo (il toro avanza dopo, negli orologi e nel
+    // GO), cioe' ~0.1 unita' qui.
+    for (const bool h3 : { false, true }) {
+        m_discardOnPrompt = true;
+        m_mw->onNewSceneClicked();
+        wait(300);
+        m_mw->startScene(h3 ? MainWindow::SceneSpace::SpaceH3 : MainWindow::SceneSpace::Space3D);
+        wait(300);
+        m_discardOnPrompt = false;
+        m_mw->addShapeToScene(shapePath(kTorus));
+        wait(500);
+        if (!m_mw->sceneStarted() || gl->objectCount() != 2) {
+            check(false, QStringLiteral("%1: la scena col toro non parte").arg(h3 ? "H3" : "3D"));
+            continue;
+        }
+        m_mw->selectSceneObject(1);
+        wait(100);
+        gl->setObjectPath(1, SurfaceEngine::ObjectPath3D, QStringLiteral("1.5*cos(t)"), QStringLiteral("1.5*sin(t)"),
+                          QStringLiteral("0"), QString());
+        gl->setObjectPathRunning(1, true);
+        gl->setSpinSpeed(1.0f);
+        if (!gl->isObjectRotating(1)) m_mw->onStopClicked();   // GO del toro
+        m_mw->selectSceneObject(0);
+        wait(100);
+        m_mw->m_scene.pathViewMode3D = ModeCentered;
+        m_mw->ui->lineX_P3D->setText(QStringLiteral("cos(t)"));
+        m_mw->ui->lineY_P3D->setText(QStringLiteral("sin(t)"));
+        m_mw->ui->lineZ_P3D->setText(QStringLiteral("0"));
+        wait(100);
+        gl->setCameraPathFrame(1);
+        m_mw->onDeparture3DClicked();
+        wait(100);
+        const bool moving = m_mw->pathRunning(CameraPaths::Path3D) && gl->isObjectRotating(1) && gl->isObjectPathRunning(1);
+        recSteps(45, []() {});   // la scivolata d'avvio (40 tick) si completa
+        const QVector3D torus0 = worldOf(1);
+        double worst = 0.0;
+        recSteps(10, [&]() { worst = std::max(worst, double((cameraRelative(1) - gl->m_rawPathPos).length())); });
+        const float moved = (worldOf(1) - torus0).length();
+        check(moving && worst < 1e-3 && moved > 0.1f,
+              QStringLiteral("%1, passo del REC: toro in moto (%2, spostato di %3), camera nel suo riferimento esatta "
+                             "(scarto massimo %4)").arg(h3 ? "H3" : "3D").arg(moving).arg(moved, 0, 'f', 3)
+                  .arg(worst, 0, 'g', 3));
+        m_mw->onDeparture3DClicked();   // fermo
+        wait(100);
+    }
+
+    // 3. LE SCENE D'ESEMPIO (copie della libreria, dell'utente).
+    const QString orbits = m_root + QStringLiteral("/scenes/Moving Frame Orbits.json");
+    if (QFile::exists(orbits)) {
+        if (!loadSurface(kSphere)) return;
+        const bool ok = m_mw->loadSceneFile(orbits);
+        wait(1500);
+        const bool frames = gl->objectCount() == 5 && gl->objectFrame(2) == 0 && gl->objectFrame(3) == 2
+                            && gl->objectFrame(4) == 3;
+        const QVector3D earth0 = worldOf(2);
+        double worstMoon = 0.0;
+        recSteps(20, [&]() { worstMoon = std::max(worstMoon, std::abs(double(objectRelative(2, 3).length()) - 0.7)); });
+        const float earthMoved = (worldOf(2) - earth0).length();
+        check(ok && gl->hyperbolicSpace() && frames && worstMoon < 1e-3 && earthMoved > 0.05f,
+              QStringLiteral("Moving Frame Orbits: H3, luna attorno alla terra e satellite attorno alla luna (%1); la terra "
+                             "si muove (%2), la luna resta a 0.7 da lei (scarto %3)")
+                  .arg(frames).arg(earthMoved, 0, 'f', 3).arg(worstMoon, 0, 'g', 3));
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/moving-frame-orbits.png"));
+    } else {
+        m_lines.append(QStringLiteral("   (scena d'esempio non in libreria: %1)").arg(orbits));
+    }
+    const QString ride = m_root + QStringLiteral("/scenes/Moving Torus Ride.json");
+    if (QFile::exists(ride)) {
+        if (!loadSurface(kSphere)) return;
+        const bool ok = m_mw->loadSceneFile(ride);
+        wait(1500);
+        const bool setUp = gl->cameraPathFrame() == 1 && !gl->objectFixed(1) && m_mw->pathRunning(CameraPaths::Path3D)
+                           && gl->isObjectPathRunning(1);
+        recSteps(45, []() {});
+        const QVector3D torus0 = worldOf(1);
+        double worstRing = 0.0, worstZ = 0.0;
+        recSteps(20, [&]() {
+            const QVector3D rel = cameraRelative(1);
+            worstRing = std::max(worstRing, std::abs(double(std::hypot(rel.x(), rel.y())) - 2.4));
+            worstZ = std::max(worstZ, std::abs(double(rel.z())));
+        });
+        const float moved = (worldOf(1) - torus0).length();
+        check(ok && setUp && worstRing < 1e-3 && worstZ < 1e-3 && moved > 0.01f,
+              QStringLiteral("Moving Torus Ride: toro libero in moto (%1, spostato di %2), camera sull'anima del suo tubo "
+                             "(scarti %3, %4)").arg(setUp).arg(moved, 0, 'f', 3).arg(worstRing, 0, 'g', 3)
+                  .arg(worstZ, 0, 'g', 3));
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/moving-torus-ride.png"));
         m_mw->onDeparture3DClicked();   // fermo
         wait(100);
     } else {
