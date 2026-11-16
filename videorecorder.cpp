@@ -77,8 +77,9 @@ static void refreshResampleOption(GLWidget* gl, int resIndex, bool nativeEngine,
     box->setEnabled(nativeEngine && smaller);
     hint->setText(!nativeEngine ? "Only with the Native Resolution engine."
                   : !smaller ? "Not needed: the video is not smaller than the view."
-                  : "The video is smaller than the view: fine textures (wireframe lines, fractals) "
-                    "can be drawn at the view's resolution and scaled down. Export about 1.5x slower.");
+                  : "The video is smaller than the view: tick the box above to draw fine textures "
+                    "(wireframe lines, fractals) at the view's resolution and scale them down. "
+                    "Export about 1.5x slower.");
 }
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
@@ -140,7 +141,24 @@ public:
         QVBoxLayout* scrollLayout = new QVBoxLayout(scrollContent);
 
         // --- 1. IMPOSTAZIONI VIDEO (Dentro la Scrollbar) ---
+        // LARGO QUANTO LA FINESTRA (segnalato dall'utente, 2026-11-16): una
+        // tendina e' larga almeno quanto la sua voce piu' lunga ("Native
+        // Resolution (FBO - Max Quality, Slower)"), e col modulo a due colonne
+        // il minimo era ~450 punti: su un telefono in verticale l'area di
+        // scorrimento lo allargava oltre la finestra, e la riga del Downscaling,
+        // che va a capo su quella larghezza, finiva fuori (la parola "Export").
+        // Ora le tendine si stringono (il testo scelto si accorcia, l'elenco
+        // aperto resta intero), i campi prendono lo spazio che c'e', una riga
+        // troppo lunga mette il campo sotto la sua etichetta, e la riga del
+        // Downscaling sta fuori dal modulo, larga quanto il dialogo: minimo
+        // ~270 punti, sotto i 320 del dialogo.
         QFormLayout* form = new QFormLayout();
+        form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+        const auto narrowable = [](QComboBox* combo) {
+            combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+            combo->setMinimumContentsLength(10);
+        };
         spinDuration = new QSpinBox(scrollContent);
         spinDuration->setRange(1, 86400);
         spinDuration->setValue(defDur);
@@ -168,6 +186,7 @@ public:
         int safeRes = (defRes >= 0 && defRes < comboRes->count()) ? defRes : 1;
         comboRes->setCurrentIndex(safeRes);
         comboRes->setStyleSheet("padding: 8px; font-size: 14px;");
+        narrowable(comboRes);
         form->addRow("Resolution:", comboRes);
 
 #if !defined(Q_OS_IOS)
@@ -180,6 +199,7 @@ public:
             "PNG (Lossless - Saves Disk Space)"
         });
         comboFormat->setStyleSheet("padding: 8px; font-size: 14px;");
+        narrowable(comboFormat);
         form->addRow("Frame Format:", comboFormat);
 #endif
 
@@ -189,6 +209,7 @@ public:
             "Screen Upscale (Standard, Faster)"
         });
         comboEngine->setStyleSheet("padding: 8px; font-size: 14px;");
+        narrowable(comboEngine);
         form->addRow("Render Engine:", comboEngine);
 
         // RICAMPIONAMENTO (refreshResampleOption, come sul desktop): un video piu'
@@ -202,7 +223,6 @@ public:
         resampleHint->setObjectName("videoResampleHint");
         resampleHint->setWordWrap(true);
         resampleHint->setStyleSheet("font-size: 13px;");
-        form->addRow(resampleHint);
         auto refresh = [this]() {
             refreshResampleOption(m_gl, comboRes->currentIndex(), comboEngine->currentIndex() == 0, chkResample, resampleHint);
         };
@@ -211,6 +231,7 @@ public:
         refresh();
 
         scrollLayout->addLayout(form);
+        scrollLayout->addWidget(resampleHint);
 
         // --- 2. NAVIGATORE CARTELLE (Dentro la Scrollbar) ---
         pathLabel = new QLabel(currentDir.absolutePath(), scrollContent);
