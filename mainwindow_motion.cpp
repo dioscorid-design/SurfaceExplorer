@@ -391,6 +391,7 @@ void MainWindow::captureStartPose()
 {
     if (!ui->glWidget) return;
     m_startFraming     = ui->glWidget->framing();
+    m_startCameraPlacement.reset();
     // In modalita' path la vista guarda il bersaglio del path e yaw/pitch
     // grezzi restano quelli di prima: si fotografa la direzione EFFETTIVA, come
     // fa il Save dei record (getEffectiveCameraYaw). Un path che ha gia' fatto
@@ -447,6 +448,14 @@ bool MainWindow::viewResetChangesSomething() const
                       // Il FOV lo rimette solo la superficie sola (resetView).
                       && (ui->glWidget->objectCount() > 1 || near(m_scene.fov, m_startFov));
     if (!same) return true;
+    // La camera d'apertura esatta (una scena passata da H3): anche alto e
+    // rollio, che a path fermo la Framing non vede.
+    if (m_startCameraPlacement && !ui->glWidget->hyperbolicSpace()) {
+        const QMatrix4x4 cam = ui->glWidget->cameraPlacement();
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j)
+                if (std::abs(cam(i, j) - (*m_startCameraPlacement)(i, j)) > 1e-3f) return true;
+    }
     // In H3 la camera e' l'isometria di GLWidget: View la riporta a quella
     // d'apertura (resetFraming), zoom compreso.
     if (ui->glWidget->hyperbolicSpace()) {
@@ -491,6 +500,10 @@ void MainWindow::resetView()
     // 2026-11-11, vedi viewResetFraming); il FOV qui sotto solo con una
     // superficie sola.
     ui->glWidget->resetFraming(viewResetFraming());
+    // In R3 la camera d'apertura che la Framing libera non sa dire (una scena
+    // passata da H3, switchSceneSpace): esatta.
+    if (m_startCameraPlacement && !ui->glWidget->hyperbolicSpace())
+        ui->glWidget->setEuclideanCameraPlacement(*m_startCameraPlacement);
 
     // Un path IN CORSA la camera la tiene: gliela si rimette subito al suo
     // tempo, invece di mostrare la vista libera per un fotogramma fino al

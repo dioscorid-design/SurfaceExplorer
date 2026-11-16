@@ -5814,11 +5814,15 @@ void GLWidget::setHyperbolicSpace(bool on)
         delete m_bgPipeline;
         m_bgPipeline = nullptr;
     }
-    // Un ray marching gia' compilato (una scena H3 riaperta da file: gli
-    // oggetti entrano prima che lo spazio diventi H3) si ricompila col ramo
-    // dello spazio nuovo (HYPERBOLIC, createImplicitFragmentShader).
+    // Un oggetto gia' compilato si ricompila col ramo dello spazio nuovo
+    // (HYPERBOLIC: createImplicitFragmentShader per il ray marching,
+    // createVertexShaderSource e il fragment per le mesh): un ray marching di
+    // una scena H3 riaperta da file, entrato prima che lo spazio diventi H3, e
+    // ogni oggetto quando una scena avviata cambia spazio (switchSceneSpace).
+    // Prima solo il ray marching: le mesh di una scena aperta da file non
+    // avevano ancora pipeline, e un cambio di spazio a scena piena non c'era.
     for (const auto &obj : m_objects)
-        if (obj->engineMode == ModeImplicit && obj->pipelineImplicit) rebuildShader(*obj);
+        if (obj->pipelineOpaque || obj->pipelineImplicit) rebuildShader(*obj);
     // Ogni scena H3 parte senza reticolo (la camera e' nella cella centrale o vicino).
     m_h3Lattice = false;
     m_h3LatticeCell = H3::Matrix::identity();
@@ -6918,25 +6922,183 @@ GLWidget::Orientation GLWidget::orientation() const
     return o;
 }
 
+// La vista della camera libera: una sola formula per il render
+// (euclideanView) e per il cambio di spazio (framingPlacement, e il suo
+// inverso placementFraming).
+static QMatrix4x4 freeCameraView(const QVector3D &pos, float yawDeg, float pitchDeg, float rollDeg)
+{
+    const float radYaw = yawDeg * M_PI / 180.0f;
+    const float radPitch = pitchDeg * M_PI / 180.0f;
+    const QVector3D front(std::sin(radYaw) * std::cos(radPitch), std::sin(radPitch),
+                          -std::cos(radYaw) * std::cos(radPitch));
+    QMatrix4x4 rollMat;
+    rollMat.rotate(rollDeg, 0.0f, 0.0f, 1.0f);
+    const QVector3D up = rollMat.map(QVector3D(0.0f, 1.0f, 0.0f));
+    QMatrix4x4 view;
+    view.lookAt(pos, pos + front, up);
+    return view;
+}
+
+QMatrix4x4 GLWidget::euclideanView() const
+{
+    if (!m_isPathFollowing) return freeCameraView(m_cameraPos, m_cameraYaw, m_cameraPitch, m_cameraRoll);
+    QMatrix4x4 view;
+    view.lookAt(m_cameraPos, m_pathTarget, m_pathUp);
+    if (m_pathRoll != 0.0f) {
+        QMatrix4x4 rollMat;
+        rollMat.rotate(m_pathRoll, 0.0f, 0.0f, 1.0f);
+        view = rollMat * view;
+    }
+    return view;
+}
+
 void GLWidget::updateViewMatrix()
 {
-    m_view.setToIdentity();
-    if (m_isPathFollowing) {
-        m_view.lookAt(m_cameraPos, m_pathTarget, m_pathUp);
-        if (m_pathRoll != 0.0f) {
-            QMatrix4x4 rollMat;
-            rollMat.rotate(m_pathRoll, 0.0f, 0.0f, 1.0f);
-            m_view = rollMat * m_view;
-        }
-    } else {
-        float radYaw = m_cameraYaw * M_PI / 180.0f;
-        float radPitch = m_cameraPitch * M_PI / 180.0f;
-        QVector3D front(std::sin(radYaw)*std::cos(radPitch), std::sin(radPitch), -std::cos(radYaw)*std::cos(radPitch));
-        QMatrix4x4 rollMat;
-        rollMat.rotate(m_cameraRoll, 0.0f, 0.0f, 1.0f);
-        QVector3D up = rollMat.map(QVector3D(0.0f, 1.0f, 0.0f));
-        m_view.lookAt(m_cameraPos, m_cameraPos + front, up);
+    m_view = euclideanView();
+}
+
+QMatrix4x4 GLWidget::cameraPlacement() const
+{
+    return m_hyperbolic ? hyperbolicPlacement(m_h3Camera) : euclideanView().inverted();
+}
+
+QMatrix4x4 GLWidget::hyperbolicPlacement(const H3::Matrix &camera) const
+{
+    // La posizione: il vettore dal centro (logaritmo nell'origine), da raggi a
+    // unita' della scena. L'orientamento: quello portato nel centro.
+    const double k = m_h3RadiiPerSceneUnit;
+    const H3::Vec3 v = H3::logAtOrigin(camera * H3::origin());
+    QMatrix4x4 placement = hyperbolicRotationPart(camera);
+    placement.setColumn(3, QVector4D(float(v.x / k), float(v.y / k), float(v.z / k), 1.0f));
+    return placement;
+}
+
+H3::Matrix GLWidget::hyperbolicCameraFromPlacement(const QMatrix4x4 &placement) const
+{
+    const double k = m_h3RadiiPerSceneUnit;
+    const QVector3D pos = placement.column(3).toVector3D();
+    H3::Vec3 v = {pos.x() * k, pos.y() * k, pos.z() * k};
+    const double len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+    if (len > kH3MaxCameraDistance) {
+        const double s = kH3MaxCameraDistance / len;
+        v = {v.x * s, v.y * s, v.z * s};
     }
+    H3::Matrix rotation = H3::Matrix::identity();
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) rotation.m[i][j] = placement(i, j);
+    // Il float del riferimento lo raddrizza renormalized, come a ogni passo.
+    return H3::renormalized(H3::translation(v) * rotation);
+}
+
+QMatrix4x4 GLWidget::framingPlacement(const Framing &f)
+{
+    return freeCameraView(f.cameraPos, f.yaw, f.pitch, f.roll).inverted();
+}
+
+GLWidget::Framing GLWidget::placementFraming(const QMatrix4x4 &placement, const Framing &base)
+{
+    Framing f = base;
+    f.cameraPos = placement.column(3).toVector3D();
+    QVector3D front = -placement.column(2).toVector3D().normalized();
+    QVector3D up = placement.column(1).toVector3D().normalized();
+    // A PICCO la camera libera non guarda: il pitch si ferma a 89 gradi, e lo
+    // yaw lo sceglie l'alto, cosi' la vista si inclina verso di lui e in alto
+    // sullo schermo resta cio' che c'era (con roll 0: guardando in giu', alto
+    // = verso dell'inclinazione; in su il contrario).
+    constexpr float kMaxPitchDeg = 89.0f;
+    const float maxSin = std::sin(qDegreesToRadians(kMaxPitchDeg));
+    if (std::abs(front.y()) > maxSin) {
+        const float s = front.y() < 0.0f ? 1.0f : -1.0f;
+        f.yaw = (std::abs(up.x()) + std::abs(up.z()) > 1e-6f) ? qRadiansToDegrees(std::atan2(s * up.x(), -s * up.z()))
+                                                             : 0.0f;
+        f.pitch = front.y() < 0.0f ? -kMaxPitchDeg : kMaxPitchDeg;
+    } else {
+        // Le formule inverse di freeCameraView (come effectiveYawPitch).
+        f.yaw = qRadiansToDegrees(std::atan2(front.x(), -front.z()));
+        f.pitch = qRadiansToDegrees(std::asin(qBound(-1.0f, front.y(), 1.0f)));
+    }
+    // La direzione davvero disegnata, e l'alto perpendicolare a lei.
+    const float radYaw = qDegreesToRadians(f.yaw), radPitch = qDegreesToRadians(f.pitch);
+    front = QVector3D(std::sin(radYaw) * std::cos(radPitch), std::sin(radPitch), -std::cos(radYaw) * std::cos(radPitch));
+    up -= QVector3D::dotProduct(up, front) * front;
+    if (up.lengthSquared() < 1e-12f) { f.roll = 0.0f; return f; }
+    up.normalize();
+    // IL ROLL: l'alto della camera libera e' (-sin r, cos r, 0), che lookAt
+    // raddrizza sulla vista. Da' l'alto voluto se sta nel piano di vista e
+    // alto, cioe' e' perpendicolare al lato: -sin r * lato.x + cos r * lato.y = 0,
+    // col verso dell'alto. Col lato lungo z ogni r va (vista e alto nel piano
+    // xy): quello che e' l'alto stesso. Quasi lungo la vista (si guarda lungo x
+    // con un rollio) lookAt non lo raddrizzerebbe: il piu' vicino all'alto.
+    const QVector3D side = QVector3D::crossProduct(front, up);
+    const auto upOf = [](float r) { return QVector3D(-std::sin(r), std::cos(r), 0.0f); };
+    const auto closest = [&up]() {
+        return (std::abs(up.x()) + std::abs(up.y()) > 1e-6f) ? std::atan2(-up.x(), up.y()) : 0.0f;
+    };
+    float r;
+    if (std::hypot(side.x(), side.y()) < 1e-6f) {
+        r = closest();
+    } else {
+        r = std::atan2(side.y(), side.x());
+        if (QVector3D::dotProduct(upOf(r), up) < 0.0f) r += float(M_PI);
+        if (QVector3D::dotProduct(upOf(r), up) < 1e-3f) r = closest();
+    }
+    f.roll = qRadiansToDegrees(std::remainder(r, 2.0f * float(M_PI)));
+    return f;
+}
+
+bool GLWidget::freeCameraReaches(const QMatrix4x4 &placement)
+{
+    // Gli assi della camera libera piu' vicina contro quelli voluti.
+    const QMatrix4x4 free = framingPlacement(placementFraming(placement, Framing()));
+    for (int c = 0; c < 3; ++c)
+        if ((free.column(c).toVector3D() - placement.column(c).toVector3D()).length() > 1e-4f) return false;
+    return true;
+}
+
+void GLWidget::setEuclideanCameraPlacement(const QMatrix4x4 &placement)
+{
+    const Framing f = placementFraming(placement, framing());
+    m_rawPathValid = false;
+    m_cameraPos = f.cameraPos;
+    m_cameraYaw = f.yaw;
+    m_cameraPitch = f.pitch;
+    m_cameraRoll = f.roll;
+    if (freeCameraReaches(placement)) {
+        // Libera: un path fermo lascia la sua modalita', come col RESET View,
+        // e ripartendo scivola da qui (beginPathHandoff).
+        m_isPathFollowing = false;
+    } else {
+        const QVector3D front = -placement.column(2).toVector3D().normalized();
+        m_isPathFollowing = true;
+        m_pathTarget = m_cameraPos + front * std::max(m_cameraPos.length(), 1.0f);
+        m_pathUp = placement.column(1).toVector3D().normalized();
+        m_pathRoll = 0.0f;
+    }
+    updateViewMatrix();
+    update();
+}
+
+void GLWidget::carryCameraTo(const QMatrix4x4 &camera)
+{
+    // UN PATH DELLA CAMERA IN CORSA (non nella scivolata d'avvio, che il tick
+    // riprende da se'): la camera e' la sua, la stessa posa nello spazio nuovo.
+    if (m_isPathFollowing && m_rawPathValid && m_pathAnimating && !m_pathHandoffActive) {
+        applyCameraPathPose(false);
+    } else if (m_hyperbolic) {
+        m_h3Camera = hyperbolicCameraFromPlacement(camera);
+    } else {
+        setEuclideanCameraPlacement(camera);
+        return;
+    }
+    updateViewMatrix();
+    update();
+}
+
+void GLWidget::setHyperbolicStartPlacement(const QMatrix4x4 &start)
+{
+    if (!m_hyperbolic) return;
+    m_h3StartCamera = hyperbolicCameraFromPlacement(start);
+    m_h3StartRadiiPerSceneUnit = m_h3RadiiPerSceneUnit;
 }
 
 void GLWidget::resetFraming(const Framing &f)

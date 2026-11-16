@@ -1504,10 +1504,17 @@ void MainWindow::setupStatusBar()
     m_btnScene->setFont(fontBold);
     connect(m_btnScene, &QPushButton::clicked, this, &MainWindow::showSceneSpaceMenu);
     ui->statusbar->addWidget(m_btnScene);
-    m_sceneSpaceLabel = new QLabel(QString(), this);
-    m_sceneSpaceLabel->setFont(fontBold);
-    m_sceneSpaceLabel->setVisible(false);
-    ui->statusbar->addWidget(m_sceneSpaceLabel);
+    // A scena avviata lo spazio (3D, 4D, H³): un tasto piatto come Scene, il
+    // clic apre il menu del cambio di spazio (switchSceneSpace).
+    m_btnSceneSpace = new QPushButton(QString(), this);
+    m_btnSceneSpace->setFlat(true);
+    m_btnSceneSpace->setFont(fontBold);
+    m_btnSceneSpace->setToolTip(QStringLiteral(
+        "The space of the scene. Click to switch between 3D and H³: the objects keep their positions, sizes "
+        "and paths in scene units, and the camera keeps its viewpoint."));
+    m_btnSceneSpace->setVisible(false);
+    connect(m_btnSceneSpace, &QPushButton::clicked, this, &MainWindow::showSceneSpaceSwitchMenu);
+    ui->statusbar->addWidget(m_btnSceneSpace);
     // 2.0: il selettore dell'oggetto.
     m_btnObjectSelector = new QPushButton(QString(), this);
     m_btnObjectSelector->setFlat(true);

@@ -526,6 +526,12 @@ void MainWindow::setSceneSpace(SceneSpace space)
 {
     const bool h3Changed = (m_sceneSpace == SceneSpace::SpaceH3) != (space == SceneSpace::SpaceH3);
     m_sceneSpace = space;
+    // Finita la scena, lo stato di H3 messo da parte e la camera d'apertura
+    // esatta non valgono per la prossima.
+    if (space == SceneSpace::None) {
+        m_h3SceneMemory = QJsonObject();
+        m_startCameraPlacement.reset();
+    }
     if (ui->glWidget) ui->glWidget->setHyperbolicSpace(space == SceneSpace::SpaceH3);
     if (m_h3CurvatureRow) m_h3CurvatureRow->setVisible(space == SceneSpace::SpaceH3);
     refreshHyperbolicControls();
@@ -601,24 +607,156 @@ void MainWindow::startScene(SceneSpace space)
         resetScene(0, /*loadDefaultSurface=*/false);
         updateMeshScopeEnabled();
     }
-    if (space == SceneSpace::SpaceH3) {
-        // Sulla scena vuota si puo' avviare un path 4D o dare velocita' 4D al
-        // GO prima di Scene: in H3 il 4D non c'e' (selectedRotates4D), e i loro
-        // tasti stanno per spegnersi, quindi si fermano qui.
-        if (pathRunning(CameraPaths::Path4D)) {
-            m_paths->stop(CameraPaths::Path4D);
-            ui->btnDeparture->setText(QStringLiteral("DEPARTURE"));
-            if (!pathRunning(CameraPaths::Path3D)) ui->glWidget->setPathAnimating(false);
-        }
-        ui->glWidget->setOmegaSpeed(0.0f);
-        ui->glWidget->setPhiSpeed(0.0f);
-        ui->glWidget->setPsiSpeed(0.0f);
-        refreshRotationSpeedLabels();
-    }
+    // Sulla scena vuota si puo' avviare un path 4D o dare velocita' 4D al GO
+    // prima di Scene.
+    if (space == SceneSpace::SpaceH3) stopEnvironment4DMotions();
     setSceneSpace(space);
     // Il selettore ora si vede anche con il solo ambiente, e al primo avvio
     // nessun load ha ancora scritto il suo testo e l'elenco che apre il suo menu.
     refreshObjectsUi();
+}
+
+void MainWindow::stopEnvironment4DMotions()
+{
+    // In H3 il 4D non c'e' (selectedRotates4D), e i tasti di questi moti stanno
+    // per spegnersi: si fermano qui. Le velocita' sono del selezionato, l'ambiente.
+    if (pathRunning(CameraPaths::Path4D)) {
+        m_paths->stop(CameraPaths::Path4D);
+        ui->btnDeparture->setText(QStringLiteral("DEPARTURE"));
+        if (!pathRunning(CameraPaths::Path3D)) ui->glWidget->setPathAnimating(false);
+    }
+    ui->glWidget->setOmegaSpeed(0.0f);
+    ui->glWidget->setPhiSpeed(0.0f);
+    ui->glWidget->setPsiSpeed(0.0f);
+    refreshRotationSpeedLabels();
+}
+
+// IL MENU DELLO SPAZIO A SCENA AVVIATA: le voci del tasto Scene, con lo spazio
+// di adesso spuntato. Fra 3D e H³ la voce dell'altro cambia lo spazio
+// (switchSceneSpace); il 4D non entra e non esce, il tooltip dice perche'.
+void MainWindow::showSceneSpaceSwitchMenu()
+{
+    if (!m_btnSceneSpace) return;
+    const SceneSpace current = shownSceneSpace();
+    QMenu menu(this);
+    menu.setToolTipsVisible(true);
+    const auto add = [&](const QString &text, SceneSpace space) {
+        QAction *action = menu.addAction(text);
+        action->setCheckable(true);
+        action->setChecked(space == current);
+        const bool usable = space == current
+                            || (current != SceneSpace::Space4D && space != SceneSpace::Space4D);
+        action->setEnabled(usable);
+        if (!usable)
+            action->setToolTip(current == SceneSpace::Space4D
+                                   ? QStringLiteral("A 4D scene stays 4D: its objects live in four dimensions.")
+                                   : QStringLiteral("A 4D scene has objects of its own: press NEW, then Scene, "
+                                                    "and choose 4D."));
+        connect(action, &QAction::triggered, this, [this, space]() { switchSceneSpace(space); });
+    };
+    add(QStringLiteral("3D"), SceneSpace::Space3D);
+    add(QStringLiteral("4D"), SceneSpace::Space4D);
+    add(QStringLiteral("H³"), SceneSpace::SpaceH3);
+    menu.exec(m_btnSceneSpace->mapToGlobal(QPoint(0, 0)) - QPoint(0, menu.sizeHint().height()));
+}
+
+MainWindow::SceneSpace MainWindow::shownSceneSpace() const
+{
+    if (m_sceneSpace != SceneSpace::None) return m_sceneSpace;
+    return sceneIs4D() ? SceneSpace::Space4D : SceneSpace::Space3D;
+}
+
+QString MainWindow::sceneRefusesH3() const
+{
+    GLWidget *gl = ui->glWidget;
+    // Le regole di Add to Scene (addShapeToScene): niente Cross Section, niente
+    // Shape definita in H3. La seconda si riconosce dalla sua voce della
+    // Library (la Shape da cui l'oggetto e' entrato, o la "source" del file di
+    // scena): il record dell'oggetto non porta la chiave "space".
+    for (int k = 1; k < gl->objectCount() && k < int(m_objectSessions.size()); ++k) {
+        const QString name = m_objectSessions[k].name;
+        if (gl->objectUsesCrossSection(k))
+            return QStringLiteral("%1 is a cross section: a slice of a 4D shape has no meaning in hyperbolic "
+                                  "space.").arg(name);
+        const LibraryItem *shape = m_libraryManager.getSurfaceByPath(m_objectSessions[k].libraryPath);
+        if (shape && shape->space == QLatin1String("H3"))
+            return QStringLiteral("%1 is defined in hyperbolic space: its picture is already a Poincare ball, "
+                                  "and in H³ it would be carried into hyperbolic space a second time.").arg(name);
+    }
+    return QString();
+}
+
+// IL CAMBIO DI SPAZIO DI UNA SCENA AVVIATA (richiesta dell'utente,
+// 2026-11-16): R3 <-> H3 con gli oggetti dentro, la stessa scena piatta e
+// curva. Quasi tutto passa da se': posizioni, scale e path degli oggetti sono
+// in unita' della scena nei due spazi (in H3 la carta esponenziale nel centro),
+// gli shader si ricompilano (GLWidget::setHyperbolicSpace) e il Save scrive lo
+// spazio. Non passa da se' la camera, che in H3 e' un'isometria: la porta
+// GLWidget (cameraPlacement, carryCameraTo), con quella d'apertura del RESET
+// View. Lo stato di H3 (raggio, reticolo) uscendo resta da parte e rientrando
+// torna (m_h3SceneMemory). Il 4D resta fuori: ha regole sue (la P, il ray
+// marching), e i suoi oggetti in 3D o in H3 non entrerebbero.
+void MainWindow::switchSceneSpace(SceneSpace space)
+{
+    GLWidget *gl = ui->glWidget;
+    if (!gl || m_isRecording || !sceneStarted()) return;
+    const bool toH3 = space == SceneSpace::SpaceH3;
+    const SceneSpace from = toH3 ? SceneSpace::Space3D : SceneSpace::SpaceH3;
+    if ((space != SceneSpace::Space3D && !toH3) || shownSceneSpace() != from) return;
+    // Sull'ambiente: e' lui la camera, i suoi moti e il suo cielo. La
+    // selezione torna com'era alla fine.
+    const int selected = gl->selectedObject();
+    selectSceneObject(0);
+    if (toH3) {
+        QString reason = sceneRefusesH3();
+        QString way = QStringLiteral("Remove it from the scene, then choose H³ again.");
+        // Un ambiente con una superficie (le scene di prima che partissero
+        // vuote): in H3 l'ambiente e' lo spazio stesso.
+        if (reason.isEmpty() && !isSceneEmpty()) {
+            reason = QStringLiteral("The environment of this scene has a surface of its own: in H³ the environment "
+                                    "is the hyperbolic space itself.");
+            way = QStringLiteral("Build the scene again: NEW, then Scene and H³, and add its objects.");
+        }
+        if (!reason.isEmpty()) {
+            selectSceneObject(selected);
+            InputValidator::showSceneNotice(this, reason, way);
+            return;
+        }
+        stopEnvironment4DMotions();
+    }
+    // La camera di adesso e quella d'apertura, nello spazio di partenza (in R3
+    // quella esatta, se la Framing libera non la sapeva dire).
+    const QMatrix4x4 camera = gl->cameraPlacement();
+    const QMatrix4x4 start = !toH3                  ? gl->hyperbolicPlacement(gl->hyperbolicStartCamera())
+                             : m_startCameraPlacement ? *m_startCameraPlacement
+                                                      : GLWidget::framingPlacement(m_startFraming);
+    QJsonObject h3State;
+    if (!toH3) {
+        h3State = hyperbolicSceneJson();
+        h3State.remove(QStringLiteral("camera"));
+    }
+    setSceneSpace(space);
+    if (toH3) {
+        // setSceneSpace ha messo i default di H3; ora lo stato messo da parte,
+        // poi la camera, che col raggio decide dove arriva in raggi.
+        applyHyperbolicSceneJson(m_h3SceneMemory);
+        m_h3SceneMemory = QJsonObject();
+        gl->setHyperbolicStartPlacement(start);
+        m_startCameraPlacement.reset();
+        clampHyperbolicObjectScales();
+    } else {
+        m_h3SceneMemory = h3State;
+        // In R3 il RESET View torna alla camera d'apertura: libera, o esatta
+        // quando la libera non ci arriva (l'alto lungo z dei path).
+        m_startFraming = GLWidget::placementFraming(start, m_startFraming);
+        if (GLWidget::freeCameraReaches(start)) m_startCameraPlacement.reset();
+        else m_startCameraPlacement = start;
+    }
+    gl->carryCameraTo(camera);
+    selectSceneObject(selected);
+    refreshObjectsUi();
+    // Lo spazio e' della scena: da salvare.
+    m_sceneObjectsChanged = true;
 }
 
 // IL CLIC SU UNA SHAPE O SU UN RECORD A SCENA AVVIATA: avviso, e la scena
@@ -1210,7 +1348,8 @@ void MainWindow::setupObjectsDock()
                                            "the scene starts empty, with the camera, the background and the "
                                            "sound (in H³ the environment is the hyperbolic space itself). "
                                            "Add objects to it: right-click a Shape, then Add to Scene. A Fixed object "
-                                           "becomes part of the environment, like a torus the scene is built inside."), w);
+                                           "becomes part of the environment, like a torus the scene is built inside. "
+                                           "Click 3D or H³ in the status bar to see the same scene in the other space."), w);
     help->setWordWrap(true);
     lay->addWidget(help);
 
@@ -1641,6 +1780,32 @@ void MainWindow::applyHyperbolicSceneJson(const QJsonObject &h3)
     refreshHyperbolicControls();
 }
 
+// LO STATO DI H3, della scena e non dell'ambiente: raggio di curvatura,
+// reticolo con densita', colore e spessore, e la camera, che in H3 e'
+// un'isometria (la camera euclidea dell'ambiente li' non conta), in double,
+// riga per riga. Lo scrive il Save (PresetSerializer::buildSceneJson) e lo
+// mette da parte il cambio di spazio (switchSceneSpace, senza la camera).
+QJsonObject MainWindow::hyperbolicSceneJson() const
+{
+    const GLWidget *gl = ui->glWidget;
+    QJsonObject hyperbolic;
+    hyperbolic["curvatureRadius"] = gl->hyperbolicCurvatureRadius();
+    hyperbolic["lattice"] = gl->hyperbolicLattice();
+    hyperbolic["latticeDensity"] = gl->hyperbolicLatticeDensity();
+    // Colore base del reticolo: #rrggbb. Le scene che non la scrivono
+    // (prima di questa chiave) hanno il colore di default.
+    hyperbolic["latticeColor"] = gl->hyperbolicLatticeColor().name();
+    // Lo spessore dei tubi in unita' della scena. Le scene che non lo
+    // scrivono hanno il tubo di prima col loro raggio (applyHyperbolicSceneJson).
+    hyperbolic["latticeThickness"] = gl->hyperbolicLatticeThickness();
+    QJsonArray camera;
+    const H3::Matrix &c = gl->hyperbolicCamera();
+    for (int i = 0; i < 4; ++i)
+        for (int j = 0; j < 4; ++j) camera.append(c.m[i][j]);
+    hyperbolic["camera"] = camera;
+    return hyperbolic;
+}
+
 double MainWindow::h3CurvatureRadiusFromSlider(int v)
 {
     return 0.5 * std::pow(10.0, double(v) / 100.0);   // 0 -> 0.5, 100 -> 5, 200 -> 50
@@ -1929,11 +2094,13 @@ void MainWindow::refreshSceneSlot()
     if (!m_btnScene || !m_sceneTimeLabel || !m_btnObjectSelector) return;
     const bool started = sceneStarted();
     m_btnScene->setVisible(!started);
-    m_sceneSpaceLabel->setVisible(started);
-    if (started)
-        m_sceneSpaceLabel->setText(m_sceneSpace == SceneSpace::SpaceH3 ? QStringLiteral("H³")
-                                   : sceneIs4D()                         ? QStringLiteral("4D")
-                                                                         : QStringLiteral("3D"));
+    m_btnSceneSpace->setVisible(started);
+    if (started) {
+        const SceneSpace space = shownSceneSpace();
+        m_btnSceneSpace->setText(space == SceneSpace::SpaceH3   ? QStringLiteral("H³")
+                                 : space == SceneSpace::Space4D ? QStringLiteral("4D")
+                                                                : QStringLiteral("3D"));
+    }
     m_btnObjectSelector->setVisible(started);
     m_sceneTimeLabel->setVisible(started);
 }

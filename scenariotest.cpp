@@ -2224,6 +2224,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-switch")) {
+        runSceneSwitchScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("disabled-look")) {
         runDisabledLookScenarios();
         finish();
@@ -4106,6 +4111,7 @@ void ScenarioTest::run()
     runMovingFrameScenarios();
     runSceneSpaceScenarios();
     runSceneH3Scenarios();
+    runSceneSwitchScenarios();
     runDisabledLookScenarios();
     runScenePathScenarios();
     runSceneSeekScenarios();
@@ -10400,10 +10406,10 @@ void ScenarioTest::runSceneSpaceScenarios()
         m_mw->refreshSceneTimeLabel();
         const bool started = !space.isEmpty();
         return m_mw->m_btnScene->isVisibleTo(m_mw) != started
-               && m_mw->m_sceneSpaceLabel->isVisibleTo(m_mw) == started
+               && m_mw->m_btnSceneSpace->isVisibleTo(m_mw) == started
                && m_mw->m_btnObjectSelector->isVisibleTo(m_mw) == started
                && m_mw->m_sceneTimeLabel->isVisibleTo(m_mw) == started
-               && (!started || m_mw->m_sceneSpaceLabel->text() == space);
+               && (!started || m_mw->m_btnSceneSpace->text() == space);
     };
     const auto newScene = [this]() {
         m_discardOnPrompt = true;
@@ -10786,6 +10792,449 @@ void ScenarioTest::runDisabledLookScenarios()
                          "(spento %2); disabled-dock-*.png").arg(environmentOff).arg(h3Off));
 }
 
+void ScenarioTest::runSceneSwitchScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    using Space = MainWindow::SceneSpace;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Cambio di spazio di una scena avviata, 3D <-> H3: oggetti, shader, camera, stato di H3, rifiuti, path, Save =="));
+    const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
+    const QString kRM = QStringLiteral("surfaces/Implicit/3D/Sphere.json");
+    const QString kCrossSection = QStringLiteral("surfaces/Implicit/Cross Sections/Duocylinder.json");
+    const QString kH3Torus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/H3/Torus.json");
+    const auto text = [](const QVector3D &v) {
+        return QStringLiteral("(%1, %2, %3)").arg(v.x(), 0, 'f', 3).arg(v.y(), 0, 'f', 3).arg(v.z(), 0, 'f', 3);
+    };
+    // Lo scarto massimo fra due riferimenti della camera (posizione e assi).
+    const auto gap = [](const QMatrix4x4 &a, const QMatrix4x4 &b) {
+        float worst = 0.0f;
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j) worst = std::max(worst, std::abs(a(i, j) - b(i, j)));
+        return double(worst);
+    };
+    const auto h3Gap = [](const H3::Matrix &a, const H3::Matrix &b) {
+        double worst = 0.0;
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j) worst = std::max(worst, std::abs(a.m[i][j] - b.m[i][j]));
+        return worst;
+    };
+    const auto differing = [](const QImage &a, const QImage &b) {
+        if (a.size() != b.size()) return -1;
+        int n = 0;
+        for (int y = 0; y < a.height(); ++y)
+            for (int x = 0; x < a.width(); ++x)
+                if (a.pixel(x, y) != b.pixel(x, y)) ++n;
+        return n;
+    };
+    // La stessa immagine a meno del float della camera (1e-6): sui bordi e
+    // nelle sfumature qualche pixel cambia di un livello o due. Contano quelli
+    // che cambiano di piu' (e il piu' diverso, per il messaggio).
+    const auto changedPixels = [](const QImage &a, const QImage &b, int *worst) {
+        *worst = 0;
+        if (a.size() != b.size()) return -1;
+        int n = 0;
+        for (int y = 0; y < a.height(); ++y)
+            for (int x = 0; x < a.width(); ++x) {
+                const QRgb p = a.pixel(x, y), q = b.pixel(x, y);
+                const int d = std::max({ std::abs(qRed(p) - qRed(q)), std::abs(qGreen(p) - qGreen(q)),
+                                         std::abs(qBlue(p) - qBlue(q)) });
+                *worst = std::max(*worst, d);
+                if (d > 2) ++n;
+            }
+        return n;
+    };
+    const auto shot = [this, gl](const QString &name) {
+        wait(400);
+        const QImage img = gl->grabFramebuffer();
+        img.save(m_outDir + QStringLiteral("/scene-switch-%1.png").arg(name));
+        return img;
+    };
+    const auto spaceShown = [this](const QString &label) {
+        m_mw->refreshSceneSlot();
+        return m_mw->m_btnSceneSpace->isVisibleTo(m_mw) && m_mw->m_btnSceneSpace->text() == label;
+    };
+    const auto positionOf = [this, gl](int k) {
+        m_mw->selectSceneObject(k);
+        return gl->objectPosition();
+    };
+    const auto hyperbolicShaders = [this, gl]() {
+        // Le mesh e il ray marching: lo shader che si compilerebbe adesso.
+        m_mw->selectSceneObject(1);
+        const SurfaceObject &torus = *gl->m_obj;
+        const bool mesh = gl->createVertexShaderSource(torus.eqX, torus.eqY, torus.eqZ, torus.eqW)
+                              .contains(QLatin1String("#define HYPERBOLIC"));
+        m_mw->selectSceneObject(2);
+        const bool rm = gl->createImplicitFragmentShader(*gl->m_obj).contains(QLatin1String("#define HYPERBOLIC"));
+        m_mw->selectSceneObject(0);
+        return QPair<bool, bool>(mesh, rm);
+    };
+
+    // 1. UNA SCENA 3D col toro e la sfera in ray marching fuori dal centro, la
+    // camera spostata, girata e inclinata.
+    if (!buildScene(false, { kTorus, kRM })) return;
+    const QVector3D torusPos(1.5f, 0.0f, 0.0f), spherePos(-1.0f, 0.5f, 0.0f);
+    m_mw->selectSceneObject(1);
+    gl->setObjectPosition(torusPos);
+    m_mw->selectSceneObject(2);
+    gl->setObjectPosition(spherePos);
+    m_mw->selectSceneObject(0);
+    gl->m_cameraPos = QVector3D(0.5f, 0.3f, 5.0f);
+    gl->m_cameraYaw = 8.0f;
+    gl->m_cameraPitch = -4.0f;
+    gl->m_cameraRoll = 3.0f;
+    gl->update();
+    const QMatrix4x4 camera3D = gl->cameraPlacement();
+    const GLWidget::Framing start0 = m_mw->m_startFraming;
+    const QMatrix4x4 startPlacement = GLWidget::framingPlacement(start0);
+    const QImage flat = shot(QStringLiteral("r3"));
+    m_mw->markWholeSceneClean();
+    {
+        const auto [meshBefore, rmBefore] = hyperbolicShaders();
+        const int popups = m_popupsClosed;
+        m_mw->switchSceneSpace(Space::SpaceH3);
+        wait(300);
+        const auto [mesh, rm] = hyperbolicShaders();
+        const QVector3D t = positionOf(1), s = positionOf(2);
+        m_mw->selectSceneObject(0);
+        check(gl->hyperbolicSpace() && m_mw->m_sceneSpace == Space::SpaceH3 && spaceShown(QStringLiteral("H³"))
+                  && gl->objectCount() == 3 && m_popupsClosed == popups && m_mw->hasUnsavedWork(),
+              QStringLiteral("3D -> H3: la scena e' H3, nella barra H³, i suoi oggetti restano (%1), da salvare")
+                  .arg(gl->objectCount() - 1));
+        check((t - torusPos).length() < 1e-6f && (s - spherePos).length() < 1e-6f,
+              QStringLiteral("posizioni in unita' della scena: toro %1, sfera %2").arg(text(t), text(s)));
+        check(!meshBefore && !rmBefore && mesh && rm,
+              QStringLiteral("shader con HYPERBOLIC: mesh %1, ray marching %2 (prima %3, %4)")
+                  .arg(mesh).arg(rm).arg(meshBefore).arg(rmBefore));
+        const double g = gap(gl->cameraPlacement(), camera3D);
+        const double d = H3::distance(H3::origin(), gl->hyperbolicCamera() * H3::origin());
+        const double expect = double(camera3D.column(3).toVector3D().length()) / gl->hyperbolicCurvatureRadius();
+        check(g < 1e-4 && std::abs(d - expect) < 1e-5,
+              QStringLiteral("la camera in H3: stesso punto e stessi assi in unita' della scena (scarto %1), a %2 raggi "
+                             "dal centro (attesi %3)").arg(g, 0, 'g', 3).arg(d, 0, 'f', 5).arg(expect, 0, 'f', 5));
+        const QImage curved = shot(QStringLiteral("h3"));
+        const int changed = differing(flat, curved);
+        check(changed > 1000, QStringLiteral("in H3 la scena si vede curva: %1 pixel diversi da R3 (scene-switch-r3/h3.png)")
+                                  .arg(changed));
+    }
+    // 2. LO STATO DI H3 resta da parte: raggio 3 e reticolo, poi di nuovo R3.
+    m_mw->m_h3CurvatureSlider->setValue(MainWindow::h3CurvatureSliderFromRadius(3.0));
+    m_mw->m_h3Lattice->setChecked(true);
+    const double radius3 = gl->hyperbolicCurvatureRadius();
+    {
+        m_mw->switchSceneSpace(Space::Space3D);
+        wait(300);
+        const auto [mesh, rm] = hyperbolicShaders();
+        check(!gl->hyperbolicSpace() && m_mw->m_sceneSpace == Space::Space3D && spaceShown(QStringLiteral("3D"))
+                  && !mesh && !rm && m_mw->m_h3LatticePanel->isHidden(),
+              QStringLiteral("H3 -> 3D: la scena e' 3D, shader euclidei (mesh %1, ray marching %2), niente pannello del "
+                             "reticolo").arg(mesh).arg(rm));
+        const double g = gap(gl->cameraPlacement(), camera3D);
+        check(g < 1e-4 && std::abs(gl->m_cameraYaw - 8.0f) < 1e-3f && std::abs(gl->m_cameraPitch + 4.0f) < 1e-3f
+                  && std::abs(gl->m_cameraRoll - 3.0f) < 1e-3f && !gl->m_isPathFollowing,
+              QStringLiteral("andata e ritorno: la camera libera di prima (scarto %1; yaw %2, pitch %3, roll %4)")
+                  .arg(g, 0, 'g', 3).arg(gl->m_cameraYaw).arg(gl->m_cameraPitch).arg(gl->m_cameraRoll));
+        int worst = 0;
+        const int changed = changedPixels(flat, shot(QStringLiteral("r3-again")), &worst);
+        check(changed >= 0 && changed < flat.width() * flat.height() / 10000,
+              QStringLiteral("R3 di nuovo: la stessa immagine (%1 pixel diversi di piu' di 2 livelli, al massimo %2; "
+                             "scene-switch-r3-again.png)").arg(changed).arg(worst));
+    }
+    {
+        m_mw->switchSceneSpace(Space::SpaceH3);
+        wait(300);
+        check(gl->hyperbolicSpace() && std::abs(gl->hyperbolicCurvatureRadius() - radius3) < 1e-9
+                  && gl->hyperbolicLattice() && m_mw->m_h3Lattice->isChecked()
+                  && m_mw->m_h3CurvatureSlider->value() == MainWindow::h3CurvatureSliderFromRadius(3.0),
+              QStringLiteral("di nuovo H3: raggio %1 e reticolo acceso, come li si era lasciati (anche nel dock)")
+                  .arg(gl->hyperbolicCurvatureRadius()));
+        check(gap(gl->cameraPlacement(), camera3D) < 1e-4,
+              QStringLiteral("la camera col raggio 3: sempre lo stesso punto di vista (scarto %1)")
+                  .arg(gap(gl->cameraPlacement(), camera3D), 0, 'g', 3));
+    }
+    // 3. IL RESET VIEW in H3 torna alla camera d'apertura della scena 3D,
+    // portata in H3.
+    {
+        m_mw->resetView();
+        wait(200);
+        check(gap(gl->cameraPlacement(), startPlacement) < 1e-4,
+              QStringLiteral("RESET View in H3: la camera d'apertura della scena (scarto %1)")
+                  .arg(gap(gl->cameraPlacement(), startPlacement), 0, 'g', 3));
+    }
+    // 4. UNA CAMERA GIRATA IN H3 (trascinamento e rollio), poi R3: lo stesso
+    // punto di vista con la camera libera, e di nuovo H3: la stessa isometria.
+    {
+        gl->orbitHyperbolicCamera(35.0f, 25.0f);
+        gl->virtualMove(GLWidget::RollLeft, 0.5f, 0.1f);
+        gl->zoomCamera(1.0f);
+        const QMatrix4x4 turned = gl->cameraPlacement();
+        const H3::Matrix turnedH3 = gl->hyperbolicCamera();
+        m_mw->switchSceneSpace(Space::Space3D);
+        wait(200);
+        const double g = gap(gl->cameraPlacement(), turned);
+        check(!gl->hyperbolicSpace() && g < 1e-4,
+              QStringLiteral("camera girata in H3, poi 3D: stesso punto di vista con la camera libera (scarto %1; yaw %2, "
+                             "pitch %3, roll %4)").arg(g, 0, 'g', 3).arg(gl->m_cameraYaw).arg(gl->m_cameraPitch)
+                  .arg(gl->m_cameraRoll));
+        m_mw->switchSceneSpace(Space::SpaceH3);
+        wait(200);
+        check(h3Gap(gl->hyperbolicCamera(), turnedH3) < 1e-4,
+              QStringLiteral("e di nuovo H3: la stessa camera (scarto %1)")
+                  .arg(h3Gap(gl->hyperbolicCamera(), turnedH3), 0, 'g', 3));
+        // Il RESET View dopo il ritorno in R3: la camera d'apertura, la stessa
+        // dell'inizio (andata e ritorno anche per lei).
+        m_mw->switchSceneSpace(Space::Space3D);
+        wait(200);
+        m_mw->resetView();
+        wait(200);
+        const GLWidget::Framing &f = m_mw->m_startFraming;
+        check(gap(gl->cameraPlacement(), startPlacement) < 1e-4 && (f.cameraPos - start0.cameraPos).length() < 1e-3f
+                  && std::abs(f.yaw - start0.yaw) < 1e-3f && std::abs(f.pitch - start0.pitch) < 1e-3f
+                  && std::abs(f.roll - start0.roll) < 1e-3f,
+              QStringLiteral("RESET View in 3D dopo H3: la camera d'apertura dell'inizio, %1 (yaw %2, pitch %3, roll %4)")
+                  .arg(text(gl->getCameraPos())).arg(f.yaw).arg(f.pitch).arg(f.roll));
+    }
+    // 4b. LA CAMERA DEI PATH: alto lungo z, la vista nel piano xy (le scene
+    // Torus Ride e Torus World). La camera libera di R3 non la sa dire (il suo
+    // alto sta nel piano xy): prima il cambio la girava di 90 gradi, e tornando
+    // in H3 restava girata (segnalato dall'utente, 2026-11-16). Ora in R3 e'
+    // la camera di un path fermo, esatta, anche quella del RESET View. Nel
+    // piano z = 0, che passa per il centro, la geodetica di vista ci resta e
+    // l'alto e' z esatto: il caso critico, non uno vicino.
+    {
+        m_mw->switchSceneSpace(Space::SpaceH3);
+        wait(200);
+        gl->setHyperbolicCameraLookAt(QVector3D(3.0f, 1.0f, 0.0f), QVector3D(0.0f, 0.0f, 0.0f),
+                                      QVector3D(0.0f, 0.0f, 1.0f), 0.0f);
+        gl->m_h3StartCamera = gl->m_h3Camera;
+        gl->m_h3StartRadiiPerSceneUnit = gl->m_h3RadiiPerSceneUnit;
+        gl->update();
+        const QMatrix4x4 pathLike = gl->cameraPlacement();
+        const H3::Matrix pathLikeH3 = gl->hyperbolicCamera();
+        const QImage before = shot(QStringLiteral("z-up-h3"));
+        m_mw->switchSceneSpace(Space::Space3D);
+        wait(200);
+        const double g = gap(gl->cameraPlacement(), pathLike);
+        const QVector3D screenUp = gl->m_view.inverted().column(1).toVector3D();
+        check(!GLWidget::freeCameraReaches(pathLike) && g < 1e-4 && gl->m_isPathFollowing && screenUp.z() > 0.999f,
+              QStringLiteral("alto lungo z, poi 3D: la stessa camera, come a path fermo (scarto %1, alto a schermo %2)")
+                  .arg(g, 0, 'g', 3).arg(text(screenUp)));
+        shot(QStringLiteral("z-up-r3"));
+        gl->zoomCamera(1.0f);
+        const bool zoomChanges = m_mw->viewResetChangesSomething();
+        m_mw->resetView();
+        wait(200);
+        check(zoomChanges && gap(gl->cameraPlacement(), pathLike) < 1e-4 && !m_mw->viewResetChangesSomething(),
+              QStringLiteral("RESET View in 3D: la camera d'apertura con l'alto lungo z (scarto %1)")
+                  .arg(gap(gl->cameraPlacement(), pathLike), 0, 'g', 3));
+        m_mw->switchSceneSpace(Space::SpaceH3);
+        wait(200);
+        // Il reticolo e' acceso (dalla parte 2): i suoi fili sottili cambiano
+        // pixel anche con la camera a 1e-7, quindi lo 0.1% e non lo 0.01%.
+        int worst = 0;
+        const int changed = changedPixels(before, shot(QStringLiteral("z-up-h3-again")), &worst);
+        check(h3Gap(gl->hyperbolicCamera(), pathLikeH3) < 1e-4
+                  && h3Gap(gl->hyperbolicStartCamera(), pathLikeH3) < 1e-4
+                  && changed >= 0 && changed < before.width() * before.height() / 1000,
+              QStringLiteral("e di nuovo H3: la stessa camera (scarto %1) e la stessa d'apertura, la stessa immagine (%2 "
+                             "pixel diversi di piu' di 2 livelli, al massimo %3; scene-switch-z-up-*.png)")
+                  .arg(h3Gap(gl->hyperbolicCamera(), pathLikeH3), 0, 'g', 3).arg(changed).arg(worst));
+        m_mw->switchSceneSpace(Space::Space3D);
+        wait(200);
+    }
+    // 5. SAVE E RIAPERTURA di una scena diventata H3: lo spazio, il raggio, la
+    // camera e gli oggetti.
+    {
+        m_mw->switchSceneSpace(Space::SpaceH3);
+        wait(300);
+        gl->orbitHyperbolicCamera(-20.0f, 10.0f);
+        const H3::Matrix cameraH3 = gl->hyperbolicCamera();
+        PresetSerializer::MotionRunState run;
+        const QJsonObject json = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Switched"), run, false);
+        const QString path = m_outDir + QStringLiteral("/scene-switch.json");
+        QFile f(path);
+        const bool written = f.open(QIODevice::WriteOnly) && f.write(QJsonDocument(json).toJson()) > 0;
+        f.close();
+        m_mw->markWholeSceneClean();
+        if (!loadSurface(kTorus)) return;
+        const bool loaded = written && m_mw->loadSceneFile(path);
+        wait(1500);
+        const QVector3D t = positionOf(1), s = positionOf(2);
+        m_mw->selectSceneObject(0);
+        check(loaded && json.value(QStringLiteral("space")).toString() == QLatin1String("H3") && gl->hyperbolicSpace()
+                  && gl->objectCount() == 3 && std::abs(gl->hyperbolicCurvatureRadius() - radius3) < 1e-9
+                  && h3Gap(gl->hyperbolicCamera(), cameraH3) < 1e-9 && (t - torusPos).length() < 1e-5f
+                  && (s - spherePos).length() < 1e-5f,
+              QStringLiteral("salvata e riaperta: H3, raggio %1, la stessa camera (scarto %2), toro %3, sfera %4")
+                  .arg(gl->hyperbolicCurvatureRadius()).arg(h3Gap(gl->hyperbolicCamera(), cameraH3), 0, 'g', 3)
+                  .arg(text(t), text(s)));
+        // Una scena nuova riparte dai default di H3: lo stato messo da parte
+        // era della scena di prima.
+        m_mw->switchSceneSpace(Space::Space3D);
+        wait(200);
+        pressNew();
+        m_discardOnPrompt = true;
+        m_mw->startScene(Space::Space3D);
+        wait(300);
+        m_discardOnPrompt = false;
+        m_mw->switchSceneSpace(Space::SpaceH3);
+        wait(200);
+        check(gl->hyperbolicSpace() && std::abs(gl->hyperbolicCurvatureRadius() - GLWidget::kH3DefaultCurvatureRadius) < 1e-9
+                  && !gl->hyperbolicLattice(),
+              QStringLiteral("scena nuova, 3D -> H3: raggio di default (%1), reticolo spento")
+                  .arg(gl->hyperbolicCurvatureRadius()));
+    }
+
+    // 6. I RIFIUTI: una Cross Section o una Shape definita in H3 non vanno in
+    // H3 (le regole di Add to Scene); tolte, la scena passa. Il 4D non cambia.
+    {
+        if (!buildScene(false, { kTorus, kCrossSection })) return;
+        const int popups = m_popupsClosed;
+        m_lastPopup.clear();
+        m_mw->switchSceneSpace(Space::SpaceH3);
+        wait(300);
+        check(!gl->hyperbolicSpace() && m_mw->m_sceneSpace == Space::Space3D && gl->objectCount() == 3
+                  && m_popupsClosed == popups + 1 && m_lastPopup.contains(QLatin1String("cross section")),
+              QStringLiteral("con una Cross Section: un avviso, la scena resta 3D (%1)").arg(m_lastPopup.simplified()));
+        m_mw->removeSceneObject(2);
+        wait(300);
+        const QString h3Shape = shapePath(kH3Torus);
+        if (!h3Shape.isEmpty()) m_mw->addShapeToScene(h3Shape);
+        wait(500);
+        const int popupsH3 = m_popupsClosed;
+        m_lastPopup.clear();
+        m_mw->switchSceneSpace(Space::SpaceH3);
+        wait(300);
+        check(!h3Shape.isEmpty() && !gl->hyperbolicSpace() && gl->objectCount() == 3 && m_popupsClosed == popupsH3 + 1
+                  && m_lastPopup.contains(QLatin1String("defined in hyperbolic space")),
+              QStringLiteral("con una Shape definita in H3: un avviso, la scena resta 3D (%1)").arg(m_lastPopup.simplified()));
+        m_mw->removeSceneObject(2);
+        wait(300);
+        m_mw->switchSceneSpace(Space::SpaceH3);
+        wait(300);
+        check(gl->hyperbolicSpace() && gl->objectCount() == 2,
+              QStringLiteral("tolta, la scena passa in H3"));
+    }
+    {
+        if (!buildScene(true, { QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json") })) return;
+        const int popups = m_popupsClosed;
+        m_mw->switchSceneSpace(Space::SpaceH3);
+        m_mw->switchSceneSpace(Space::Space3D);
+        wait(300);
+        check(m_mw->m_sceneSpace == Space::Space4D && !gl->hyperbolicSpace() && m_popupsClosed == popups
+                  && spaceShown(QStringLiteral("4D")),
+              QStringLiteral("scena 4D: resta 4D"));
+    }
+
+    // 7. CON IL PATH DELLA CAMERA IN CORSA attorno al toro (Camera path
+    // around): il cambio non lo ferma, e la camera resta sul cerchio nel
+    // riferimento del toro, nei due spazi, subito e dopo qualche passo.
+    {
+        if (!buildScene(false, { kTorus })) return;
+        m_mw->selectSceneObject(1);
+        gl->setObjectPosition(QVector3D(1.0f, 0.5f, 0.0f));
+        m_mw->selectSceneObject(0);
+        m_mw->m_scene.pathViewMode3D = ModeCentered;
+        m_mw->ui->lineX_P3D->setText(QStringLiteral("2*cos(t)"));
+        m_mw->ui->lineY_P3D->setText(QStringLiteral("2*sin(t)"));
+        m_mw->ui->lineZ_P3D->setText(QStringLiteral("0.5"));
+        wait(100);
+        gl->setCameraPathFrame(1);
+        m_mw->onDeparture3DClicked();
+        wait(100);
+        const auto recSteps = [this, gl](int steps) {
+            gl->setExternalClockActive(true);
+            gl->setClocksDrivenByRecorder(true);
+            for (int i = 0; i < steps; ++i) {
+                m_mw->advanceSceneBy(1.0f / 30.0f, false);
+                gl->grabFramebuffer();
+            }
+            gl->setClocksDrivenByRecorder(false);
+            gl->setExternalClockActive(false);
+        };
+        // La camera nel riferimento del toro, in unita' della scena, contro la
+        // posa grezza del path.
+        const auto offPath = [gl]() {
+            QVector3D rel;
+            if (gl->hyperbolicSpace()) {
+                const double k = gl->m_h3RadiiPerSceneUnit;
+                const H3::Vec3 r = H3::logAtOrigin(H3::inverse(gl->hyperbolicObjectPlacement(1)) * gl->hyperbolicCamera()
+                                                   * H3::origin());
+                rel = QVector3D(float(r.x / k), float(r.y / k), float(r.z / k));
+            } else {
+                rel = gl->objectPlacement(1).inverted().map(gl->getCameraPos());
+            }
+            return double((rel - gl->m_rawPathPos).length());
+        };
+        recSteps(45);   // la scivolata d'avvio si completa
+        const double before = offPath();
+        m_mw->switchSceneSpace(Space::SpaceH3);
+        const double atSwitch = offPath();
+        recSteps(10);
+        const double inH3 = offPath();
+        m_mw->switchSceneSpace(Space::Space3D);
+        const double back = offPath();
+        recSteps(10);
+        const double inR3 = offPath();
+        check(m_mw->pathRunning(CameraPaths::Path3D) && before < 1e-3 && atSwitch < 1e-3 && inH3 < 1e-3 && back < 1e-3
+                  && inR3 < 1e-3,
+              QStringLiteral("path della camera in corsa attorno al toro: continua, la camera resta sul path (scarti: 3D "
+                             "%1, al cambio %2, in H3 %3, di nuovo 3D %4 e %5)")
+                  .arg(before, 0, 'g', 3).arg(atSwitch, 0, 'g', 3).arg(inH3, 0, 'g', 3).arg(back, 0, 'g', 3)
+                  .arg(inR3, 0, 'g', 3));
+        m_mw->onDeparture3DClicked();   // fermo
+        wait(100);
+    }
+
+    // 8. LE SCENE D'ESEMPIO DELL'UTENTE nell'altro spazio, a path fermo: la
+    // stessa camera, e quella del RESET View; da guardare accanto alla gemella
+    // (Sunrise) o all'originale (Torus World e Torus Ride, alto lungo z).
+    const std::pair<QString, QString> examples[] = {
+        { QStringLiteral("DMI/Flat Sunrise.json"), QStringLiteral("flat-sunrise-h3") },
+        { QStringLiteral("DMI/Hyperbolic Sunrise.json"), QStringLiteral("hyperbolic-sunrise-r3") },
+        { QStringLiteral("Fixed Torus World.json"), QStringLiteral("fixed-torus-world-r3") },
+        { QStringLiteral("Fixed Torus Ride.json"), QStringLiteral("fixed-torus-ride-r3") },
+    };
+    for (const auto &[file, name] : examples) {
+        const QString path = m_root + QStringLiteral("/scenes/") + file;
+        if (!QFile::exists(path)) {
+            m_lines.append(QStringLiteral("   (scena d'esempio non in libreria: %1)").arg(path));
+            continue;
+        }
+        if (!loadSurface(kTorus)) return;
+        const bool loaded = m_mw->loadSceneFile(path);
+        wait(1500);
+        if (m_mw->pathRunning(CameraPaths::Path3D)) {
+            m_mw->onDeparture3DClicked();   // fermo: la camera e' quella che si vede
+            wait(200);
+        }
+        const bool wasH3 = gl->hyperbolicSpace();
+        const QMatrix4x4 camera = gl->cameraPlacement();
+        const QMatrix4x4 start = wasH3 ? gl->hyperbolicPlacement(gl->hyperbolicStartCamera())
+                                       : GLWidget::framingPlacement(m_mw->m_startFraming);
+        shot(name + QStringLiteral("-before"));
+        const int popups = m_popupsClosed;
+        m_mw->switchSceneSpace(wasH3 ? Space::Space3D : Space::SpaceH3);
+        shot(name);
+        const double g = gap(gl->cameraPlacement(), camera);
+        m_mw->resetView();
+        wait(200);
+        const double gStart = gap(gl->cameraPlacement(), start);
+        // Indietro, dalla camera d'apertura: resta quella, e il RESET View la tiene.
+        m_mw->switchSceneSpace(wasH3 ? Space::SpaceH3 : Space::Space3D);
+        wait(200);
+        const double gBack = gap(gl->cameraPlacement(), start);
+        m_mw->resetView();
+        wait(200);
+        const double gBackStart = gap(gl->cameraPlacement(), start);
+        check(loaded && m_popupsClosed == popups && g < 1e-4 && gStart < 1e-4 && gBack < 1e-4 && gBackStart < 1e-4,
+              QStringLiteral("%1: da %2 a %3 la stessa camera (scarto %4), RESET View alla stessa d'apertura (%5), e "
+                             "tornando (%6, %7); scene-switch-%8*.png")
+                  .arg(file, wasH3 ? "H3" : "3D", wasH3 ? "3D" : "H3").arg(g, 0, 'g', 3).arg(gStart, 0, 'g', 3)
+                  .arg(gBack, 0, 'g', 3).arg(gBackStart, 0, 'g', 3).arg(name));
+    }
+    pressNew();
+}
+
 void ScenarioTest::runSceneH3Scenarios()
 {
     GLWidget *gl = m_mw->ui->glWidget;
@@ -10826,7 +11275,7 @@ void ScenarioTest::runSceneH3Scenarios()
     m_mw->startScene(Space::SpaceH3);
     m_mw->refreshSceneTimeLabel();
     check(m_mw->sceneStarted() && gl->hyperbolicSpace() && m_mw->isSceneEmpty()
-              && m_mw->m_sceneSpaceLabel->text() == QStringLiteral("H³"),
+              && m_mw->m_btnSceneSpace->text() == QStringLiteral("H³"),
           QStringLiteral("H3 dopo NEW: scena avviata e vuota, nella barra H3"));
     // IL DEFAULT: raggio di curvatura kH3DefaultCurvatureRadius, la riga del
     // dock Objects c'e', la camera d'avvio a 4 unita' (4 / raggio raggi), la
@@ -11368,10 +11817,10 @@ void ScenarioTest::runSceneH3Scenarios()
         for (int i = 0; i < 4; ++i)
             for (int j = 0; j < 4; ++j)
                 cameraDiff = std::max(cameraDiff, std::abs(gl->hyperbolicCamera().m[i][j] - camera.m[i][j]));
-        check(loaded && gl->hyperbolicSpace() && m_mw->m_sceneSpaceLabel->text() == QStringLiteral("H³")
+        check(loaded && gl->hyperbolicSpace() && m_mw->m_btnSceneSpace->text() == QStringLiteral("H³")
                   && gl->objectCount() == objects,
               QStringLiteral("scena H3 riaperta: spazio H3 (barra '%1'), %2 oggetti su %3")
-                  .arg(m_mw->m_sceneSpaceLabel->text()).arg(gl->objectCount()).arg(objects));
+                  .arg(m_mw->m_btnSceneSpace->text()).arg(gl->objectCount()).arg(objects));
         check(std::abs(gl->hyperbolicCurvatureRadius() - radius) < 1e-9 && gl->hyperbolicLattice()
                   && std::abs(gl->hyperbolicLatticeDensity() - 0.4) < 1e-9 && cameraDiff < 1e-9,
               QStringLiteral("riaperta: raggio %1 (salvato %2), reticolo %3 a densita' %4, camera (scarto %5)")

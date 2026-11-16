@@ -473,9 +473,13 @@ public:
     // Un oggetto della scena (non l'ambiente) e' una Cross Section: le
     // rotazioni e il path 4D dell'ambiente ne cambiano il taglio.
     bool anyCrossSectionObject() const {
-        for (size_t k = 1; k < m_objects.size(); ++k)
-            if (m_objects[k]->engineMode == ModeImplicit && m_objects[k]->implicitUsesCrossSection) return true;
+        for (int k = 1; k < int(m_objects.size()); ++k)
+            if (objectUsesCrossSection(k)) return true;
         return false;
+    }
+    bool objectUsesCrossSection(int index) const {
+        return index >= 0 && index < int(m_objects.size()) && m_objects[index]->engineMode == ModeImplicit
+               && m_objects[index]->implicitUsesCrossSection;
     }
     void setEnvironmentRotation4D(float o, float p, float ps) {
         SurfaceObject &env = *m_objects.front();
@@ -1223,8 +1227,10 @@ public:
 
     // SCENA IPERBOLICA: lo spazio della scena e' H3 e la camera e' una
     // sua isometria (hyperbolicspace.h), composta in double passo dopo passo.
-    // La accende e la spegne MainWindow col tasto Scene; accenderla porta la
-    // camera nell'origine, il centro della scena. In H3 rotella, pinch e tasti
+    // La accende e la spegne MainWindow col tasto Scene (e col cambio di spazio,
+    // MainWindow::switchSceneSpace); accenderla porta la camera a 4 unita' dal
+    // centro della scena, e ogni oggetto gia' compilato si ricompila con lo
+    // shader dello spazio nuovo. In H3 rotella, pinch e tasti
     // del dock 3D muovono la camera nel SUO riferimento (avanti = lungo la
     // geodetica di vista), il trascinamento gira il mondo attorno al centro
     // della scena, cielo compreso: il cielo e' il bordo all'infinito di H3.
@@ -1241,6 +1247,43 @@ public:
     // riportata al raggio di curvatura di adesso restando dov'era in unita'
     // della scena, come fa il cursore del raggio con la camera.
     H3::Matrix hyperbolicStartCamera() const;
+    // LA STESSA CAMERA IN R3 E IN H3, per il cambio di spazio di una scena
+    // avviata (MainWindow::switchSceneSpace). Il riferimento della camera
+    // (camera -> mondo: colonne lato, alto, indietro e la posizione), in unita'
+    // della scena. In H3 la posizione e' quella della carta esponenziale nel
+    // centro, come per gli oggetti, e l'orientamento quello portato dal centro
+    // lungo la geodetica (hyperbolicCameraRotation): una camera che guarda il
+    // centro lo guarda anche nell'altro spazio, e andata e ritorno torna quella
+    // di prima. In H3 la camera sta entro la distanza massima dal centro.
+    // cameraPlacement: la camera di adesso, nello spazio di adesso (in R3 libera
+    // o del path); hyperbolicPlacement: una camera di H3 col raggio di adesso.
+    QMatrix4x4 cameraPlacement() const;
+    QMatrix4x4 hyperbolicPlacement(const H3::Matrix &camera) const;
+    // La camera libera euclidea (posizione, yaw, pitch, roll) e il suo
+    // riferimento, nei due versi. La camera libera non arriva dappertutto: il
+    // suo alto e' (-sin roll, cos roll, 0), nel piano xy, quindi guardando in
+    // orizzontale nel piano xy l'alto non puo' essere z, ed e' proprio la
+    // camera che lasciano i path (alto lungo z) e che salvano le scene Torus
+    // Ride e Torus World; e il pitch si ferma a 89 gradi. placementFraming da'
+    // allora la piu' vicina (girata fino a 90 gradi: il caso segnalato
+    // dall'utente, 2026-11-16), e freeCameraReaches dice se e' esatta.
+    // Osservatore 4D e taglio restano quelli di base.
+    static QMatrix4x4 framingPlacement(const Framing &f);
+    static Framing placementFraming(const QMatrix4x4 &placement, const Framing &base);
+    static bool freeCameraReaches(const QMatrix4x4 &placement);
+    // LA CAMERA EUCLIDEA DA UN RIFERIMENTO, ESATTA: libera se la camera libera
+    // ci arriva; se no come a path fermo (m_isPathFollowing, lo stato in cui un
+    // path lascia la camera in R3), con l'alto esplicito e il bersaglio sulla
+    // linea di vista, alla distanza del centro della scena; yaw e pitch quelli
+    // della vista, cosi' rotella e tasti vanno dove si guarda.
+    void setEuclideanCameraPlacement(const QMatrix4x4 &placement);
+    // La camera nello spazio nuovo, a spazio gia' cambiato (in H3 dopo il
+    // raggio di curvatura, che decide dove arriva in raggi): quella data (in
+    // R3 setEuclideanCameraPlacement); con un path della camera in corsa la sua
+    // posa, riapplicata nello spazio nuovo (applyCameraPathPose), e il path continua.
+    void carryCameraTo(const QMatrix4x4 &camera);
+    // In H3: la camera d'apertura del RESET View, da un riferimento.
+    void setHyperbolicStartPlacement(const QMatrix4x4 &start);
     // IL RAGGIO DI CURVATURA della scena H3, in unita' della scena: le
     // lunghezze di H3 sono in raggi di curvatura, e un'unita' della scena
     // (passi della camera, posizioni e grandezze degli oggetti) ne vale
@@ -2311,8 +2354,13 @@ private:
     // Posizione, bersaglio e alto del path dal riferimento al centro della scena.
     void framePathPose(QVector3D &pos, QVector3D &target, QVector3D &up);
     bool refreshFramedCamera();
-    // m_view dalla camera di adesso (path o vista libera).
+    // m_view dalla camera di adesso (path o vista libera): euclideanView, la
+    // stessa che legge cameraPlacement.
     void updateViewMatrix();
+    QMatrix4x4 euclideanView() const;
+    // Un riferimento della camera (cameraPlacement) come camera di H3, col
+    // raggio di adesso, entro la distanza massima dal centro.
+    H3::Matrix hyperbolicCameraFromPlacement(const QMatrix4x4 &placement) const;
     // CIO' CHE PRECEDE LA POSA DI UN OGGETTO nel suo modello: la rotazione della
     // scena data dall'ambiente, poi le pose dei suoi riferimenti (SurfaceObject::
     // frame), dal piu' lontano, come sono ORA (path e GO compresi). Euclideo, in

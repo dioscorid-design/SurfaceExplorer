@@ -1363,6 +1363,12 @@ private:
     // e' stata salvata.
     void captureStartPose();
     GLWidget::Framing m_startFraming;
+    // LA CAMERA D'APERTURA ESATTA, quando la Framing libera non la sa dire: una
+    // scena passata da H3 a R3 (switchSceneSpace) la cui camera d'apertura ha
+    // l'alto lungo z guardando nel piano xy (GLWidget::freeCameraReaches). Il
+    // RESET View in R3 la rimette (setEuclideanCameraPlacement). La azzerano
+    // captureStartPose, l'ingresso in H3 e la fine della scena.
+    std::optional<QMatrix4x4> m_startCameraPlacement;
     GLWidget::Orientation m_startOrientation;
     // La rotazione della scena data dall'ambiente (GLWidget::sceneRotation)
     // all'apertura: quella del file per una scena, dritta altrimenti.
@@ -2006,6 +2012,14 @@ private:
     void refreshHyperbolicControls();
     // Raggio, reticolo e camera di una scena H3 riaperta da file (loadSceneFile).
     void applyHyperbolicSceneJson(const QJsonObject &h3);
+    // Il blocco "h3" della scena a schermo (PresetSerializer::buildSceneJson),
+    // l'inverso di applyHyperbolicSceneJson.
+    QJsonObject hyperbolicSceneJson() const;
+    // LO STATO DI H3 MESSO DA PARTE uscendo da H3 col cambio di spazio
+    // (switchSceneSpace): raggio, reticolo, densita', colore e spessore, senza
+    // la camera. Rientrando torna; vuoto = i default. Dura quanto la scena: lo
+    // svuota setSceneSpace(None).
+    QJsonObject m_h3SceneMemory;
     static double h3CurvatureRadiusFromSlider(int v);
     static int h3CurvatureSliderFromRadius(double radius);
     // Lo spessore dei tubi costanti: logaritmico, 0 -> 0.005, 50 -> 0.05 (il
@@ -2048,7 +2062,9 @@ private:
     enum class SceneSpace { None, Space3D, Space4D, SpaceH3 };
     SceneSpace m_sceneSpace = SceneSpace::None;
     QPushButton *m_btnScene = nullptr;
-    QLabel *m_sceneSpaceLabel = nullptr;
+    // Lo spazio della scena avviata nella barra (3D, 4D, H³), al posto del
+    // tasto Scene: il clic apre il menu del cambio di spazio.
+    QPushButton *m_btnSceneSpace = nullptr;
     // Con piu' oggetti la scena c'e' anche senza scelta: gli scenari li
     // aggiungono direttamente, e l'ambiente decide come prima.
     bool sceneStarted() const;
@@ -2058,6 +2074,21 @@ private:
     // La scena parte vuota (dopo NEW), con l'ambiente parametrico vuoto; con
     // una superficie a schermo un avviso e tutto resta com'e'.
     void startScene(SceneSpace space);
+    // IL CAMBIO DI SPAZIO DI UNA SCENA AVVIATA, fra 3D e H³, con gli oggetti
+    // dentro: il menu del tasto dello spazio e il cambio. Il 4D resta com'e'.
+    // Un oggetto che in H3 non puo' stare (Cross Section, Shape definita in
+    // H3) o un ambiente con una superficie: un avviso, e la scena resta.
+    void showSceneSpaceSwitchMenu();
+    void switchSceneSpace(SceneSpace space);
+    // Lo spazio che la barra mostra: la scelta, o per una scena senza scelta
+    // (piu' oggetti aggiunti direttamente) 4D o 3D secondo l'ambiente.
+    SceneSpace shownSceneSpace() const;
+    // Perche' la scena a schermo non puo' diventare H3 (vuoto = puo'): il
+    // primo oggetto che lo impedisce, col suo nome.
+    QString sceneRefusesH3() const;
+    // Entrando in H3 i moti 4D dell'ambiente si fermano: path 4D, velocita' 4D
+    // del GO (in H3 il 4D non c'e', selectedRotates4D).
+    void stopEnvironment4DMotions();
     // Il tasto Scene o 3D/4D, selettore e T, secondo sceneStarted.
     void refreshSceneSlot();
     // Il clic su una Shape o su un record a scena avviata: avvisa e ritorna

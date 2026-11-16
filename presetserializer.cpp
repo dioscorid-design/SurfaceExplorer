@@ -972,28 +972,9 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
     // "3D" (sceneIs4D falso) e si riapriva euclidea (segnalato dall'utente, 11-11).
     const bool h3 = m_mainWindow->m_sceneSpace == MainWindow::SceneSpace::SpaceH3;
     scene["space"] = h3 ? "H3" : m_mainWindow->sceneIs4D() ? "4D" : "3D";
-    // LO STATO DI H3, della scena e non dell'ambiente: raggio di curvatura,
-    // reticolo con la sua densita', e la camera, che in H3 e' un'isometria (la
-    // camera euclidea dell'ambiente li' non conta), in double, riga per riga.
+    // LO STATO DI H3, della scena e non dell'ambiente (MainWindow::hyperbolicSceneJson).
     // Lo rimette MainWindow::applyHyperbolicSceneJson.
-    if (h3) {
-        QJsonObject hyperbolic;
-        hyperbolic["curvatureRadius"] = gl->hyperbolicCurvatureRadius();
-        hyperbolic["lattice"] = gl->hyperbolicLattice();
-        hyperbolic["latticeDensity"] = gl->hyperbolicLatticeDensity();
-        // Colore base del reticolo: #rrggbb. Le scene che non la scrivono
-        // (prima di questa chiave) hanno il colore di default.
-        hyperbolic["latticeColor"] = gl->hyperbolicLatticeColor().name();
-        // Lo spessore dei tubi in unita' della scena. Le scene che non lo
-        // scrivono hanno il tubo di prima col loro raggio (applyHyperbolicSceneJson).
-        hyperbolic["latticeThickness"] = gl->hyperbolicLatticeThickness();
-        QJsonArray camera;
-        const H3::Matrix &c = gl->hyperbolicCamera();
-        for (int i = 0; i < 4; ++i)
-            for (int j = 0; j < 4; ++j) camera.append(c.m[i][j]);
-        hyperbolic["camera"] = camera;
-        scene["h3"] = hyperbolic;
-    }
+    if (h3) scene["h3"] = m_mainWindow->hyperbolicSceneJson();
     // LA QUOTA DEL TAGLIO delle Cross Section (P+/P- dell'ambiente, path 4D) e'
     // della scena (2026-11-08): l'ambiente non ha superficie, e il suo record
     // la scrive solo se e' una Cross Section. La legge loadSceneFile.
