@@ -70,6 +70,58 @@ foreach(_chap IN LISTS _doc_chapters)
     endif()
 endforeach()
 unset(_doc_chapters)
+
+# I PRESET DI FABBRICA: l'app contiene solo i file ELENCATI in resources.qrc,
+# rcc non guarda la cartella. Un preset messo in presets/ e non elencato
+# compilava lo stesso, in silenzio, e Restore Factory Presets non lo installava
+# mai (la texture Fine Grain, 2026-11-16); uno elencato e poi cancellato fermava
+# rcc con un "Cannot find file" che non dice cosa fare. La cartella e il .qrc
+# devono coincidere: se no la build si ferma, coi file e il comando. Con
+# CONFIGURE_DEPENDS la cartella si riguarda a ogni build, quindi anche un file
+# aggiunto o tolto senza toccare il .qrc rifa' il controllo. Le cartelle sono
+# quelle di update_resources.py (RESOURCE_GROUPS, "/library"), che come lui
+# salta i file nascosti (.DS_Store): tenerle allineate.
+# 2.0: anche le scene (update_resources.py le elenca, Restore Factory le copia).
+set(_preset_dirs surfaces textures records sounds scenes)
+set(_presets_on_disk)
+foreach(_dir IN LISTS _preset_dirs)
+    file(GLOB_RECURSE _found CONFIGURE_DEPENDS LIST_DIRECTORIES false
+         RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/presets/${_dir}/*")
+    foreach(_f IN LISTS _found)
+        get_filename_component(_name "${_f}" NAME)
+        if(NOT _name MATCHES "^\\.")
+            list(APPEND _presets_on_disk "${_f}")
+        endif()
+    endforeach()
+endforeach()
+string(REGEX MATCHALL "<file>presets/[^<]*</file>" _qrc_presets "${_qrc_content}")
+list(TRANSFORM _qrc_presets REPLACE "^<file>(.*)</file>$" "\\1")
+set(_not_in_qrc ${_presets_on_disk})
+set(_not_on_disk ${_qrc_presets})
+if(_qrc_presets)
+    list(REMOVE_ITEM _not_in_qrc ${_qrc_presets})
+endif()
+if(_presets_on_disk)
+    list(REMOVE_ITEM _not_on_disk ${_presets_on_disk})
+endif()
+if(_not_in_qrc OR _not_on_disk)
+    list(JOIN _not_in_qrc "\n  + " _list_added)
+    list(JOIN _not_on_disk "\n  - " _list_removed)
+    set(_msg "La cartella presets e resources.qrc non coincidono.\n")
+    if(_not_in_qrc)
+        string(APPEND _msg "Nella cartella ma non nel .qrc (Restore Factory Presets non li installerebbe):\n  + ${_list_added}\n")
+    endif()
+    if(_not_on_disk)
+        string(APPEND _msg "Nel .qrc ma non nella cartella:\n  - ${_list_removed}\n")
+    endif()
+    string(APPEND _msg "Rigenera il .qrc dalla cartella:  python3 update_resources.py")
+    message(FATAL_ERROR "${_msg}")
+endif()
+unset(_preset_dirs)
+unset(_presets_on_disk)
+unset(_qrc_presets)
+unset(_not_in_qrc)
+unset(_not_on_disk)
 unset(_qrc_content)
 
 qt_add_executable(SurfaceExplorer
