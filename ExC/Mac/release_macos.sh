@@ -9,6 +9,8 @@
 #   ./release_macos.sh              firma + .dmg + notarizza (nessun upload)
 #   ./release_macos.sh --upload     come sopra, poi crea/aggiorna la release
 #                                   GitHub del tag corrente e carica il .dmg
+#   ./release_macos.sh --upload-only  solo il caricamento del .dmg gia' pronto
+#                                   (notarizzato e con lo staple), senza rifarlo
 #   ./release_macos.sh --help
 #
 # >>> PER UNA NUOVA VERSIONE, prima di lanciare lo script aggiorna la versione
@@ -48,9 +50,11 @@ usage() { sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
 
 # --- ARGOMENTI ---
 DO_UPLOAD=0
+UPLOAD_ONLY=0
 for a in "$@"; do
   case "$a" in
     --upload)  DO_UPLOAD=1 ;;
+    --upload-only) DO_UPLOAD=1; UPLOAD_ONLY=1 ;;
     --help|-h) usage ;;
     *) echo "ERRORE: argomento sconosciuto: $a (usa --help)"; exit 1 ;;
   esac
@@ -108,6 +112,16 @@ if [ "$BUILT_ID" != "$BUNDLE_ID" ]; then
   exit 1
 fi
 
+# SOLO IL CARICAMENTO (--upload-only): il .dmg c'e' gia', notarizzato e con lo
+# staple (per esempio dopo uno staple fallito per la rete e rifatto a mano). Non
+# si rifanno firma, .dmg e notarizzazione: si controlla che sia davvero pronto e
+# si passa al passo 7.
+if [ "$UPLOAD_ONLY" -eq 1 ]; then
+  [ -f "$DMG_PATH" ] || { echo "ERRORE: $DMG_PATH non c'e': lancia lo script senza --upload-only."; exit 1; }
+  xcrun stapler validate "$DMG_PATH" >/dev/null 2>&1 \
+    || { echo "ERRORE: $DMG_PATH non ha il ticket di notarizzazione. Se e' notarizzato: xcrun stapler staple \"$DMG_PATH\""; exit 1; }
+  echo ">>> --upload-only: carico il .dmg gia' pronto ($(stat -f '%Sm' "$DMG_PATH"), notarizzato e con lo staple)"
+else
 # Si lavora su una copia: macdeployqt e la firma cambiano il bundle, e quello di Qt
 # Creator deve restare com'e' (firmato in place, al primo Info.plist rigenerato senza
 # relink la firma non combaciava piu' e macOS uccideva l'app all'avvio).
@@ -151,11 +165,28 @@ echo ">>> 5. Invio a notarizzazione (attende il risultato, puo' richiedere alcun
 xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
 
 echo ">>> 6. Staple del ticket di notarizzazione..."
-xcrun stapler staple "$DMG_PATH"
+# Il ticket si scarica da CloudKit (api.apple-cloudkit.com): un intoppo di rete o
+# di DNS faceva fallire lo staple (errore 68, il 2026-11-16) e lo script si
+# fermava con la notarizzazione appena finita. Si riprova; se non basta, il
+# .dmg resta notarizzato e basta rifare lo staple a mano, poi --upload-only.
+STAPLED=0
+for attempt in 1 2 3; do
+  if xcrun stapler staple "$DMG_PATH"; then STAPLED=1; break; fi
+  [ "$attempt" -lt 3 ] && { echo ">>>   staple non riuscito (tentativo $attempt/3), riprovo fra 20 secondi..."; sleep 20; }
+done
+if [ "$STAPLED" -eq 0 ]; then
+  echo "ERRORE: staple non riuscito, ma il .dmg e' notarizzato. Quando la rete torna:"
+  echo "  xcrun stapler staple \"$DMG_PATH\""
+  [ "$DO_UPLOAD" -eq 1 ] && echo "  $0 --upload-only"
+  exit 1
+fi
 
 echo ""
 echo "=== DMG PRONTO E NOTARIZZATO: $DMG_PATH ==="
-echo "Verifica: spctl -a -t open --context context:primary-signing-identifier -v \"$DMG_PATH\""
+# Il contesto giusto per un .dmg e' primary-signature (primary-signing-identifier
+# rispondeva "rejected, Insufficient Context" anche a un .dmg buono).
+echo "Verifica: spctl -a -t open --context context:primary-signature -v \"$DMG_PATH\""
+fi
 
 # --- 7. UPLOAD su GitHub Releases (opz.) ---
 if [ "$DO_UPLOAD" -eq 0 ]; then
