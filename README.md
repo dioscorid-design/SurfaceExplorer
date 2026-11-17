@@ -26,7 +26,7 @@ Surface Explorer is built on the Qt RHI architecture and adds two major renderin
 ## 💻 System Requirements
 * **OS**: Linux (Fedora/Ubuntu), Windows 10/11, macOS 14.4 or later (arm64), or iPhone and iPad via the App Store.
 * **Graphics**: GPU with support for **Vulkan 1.0+**, **Metal**, **Direct3D 11+**, or **OpenGL 3.3+**.
-* **Framework**: Built with **Qt 6.12** on macOS and iOS, and **Qt 6.11** on Linux and Windows (Qt 6.10 works there too), for maximum stability and High-DPI support.
+* **Framework**: Built with **Qt 6.12** on macOS and iOS, and **Qt 6.10.2** on Linux and Windows, for maximum stability and High-DPI support.
 
 ## ⚠️ Known Issues
 
@@ -43,7 +43,7 @@ You don't need to compile the project to try it! Check out the **[Latest Release
 Version [1.5](https://github.com/dioscorid-design/SurfaceExplorer/releases/tag/v1.5) is available for macOS, Windows and Linux. The [2.0 beta](https://github.com/dioscorid-design/SurfaceExplorer/releases/tag/v2.0-beta) for macOS adds scenes with several surfaces together.
 
 ## 🛠️ Build from Source
-To compile Surface Explorer manually, ensure you have **Qt 6.11** (Qt 6.10 also works on Linux and Windows) and **CMake** installed:
+To compile Surface Explorer manually, ensure you have **Qt 6.10.2** and **CMake** installed:
 
 ```bash
 # 1. Clone the repository
