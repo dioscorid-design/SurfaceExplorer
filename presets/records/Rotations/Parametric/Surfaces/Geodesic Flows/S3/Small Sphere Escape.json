@@ -3,7 +3,7 @@
     "angles": {
         "omega": 9.999999747378752e-05,
         "phi": 9.999999747378752e-05,
-        "psi": 154.8856201171875
+        "psi": 162.7132568359375
     },
     "background": {
         "code": "//IMG:/Users/dioscorid/Projects/C/presets/textures/Images/Solar System/2k_venus_atmosphere.jpg",
@@ -15,15 +15,16 @@
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
+        "skyMode": "fixed",
         "zoom": 1
     },
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": -0.4355321526527405,
-        "rot_x": 0.5231288075447083,
-        "rot_y": 0.5173065066337585,
-        "rot_z": 0.5186926126480103,
+        "rot_w": -0.8904396891593933,
+        "rot_x": -0.2637481987476349,
+        "rot_y": -0.26243576407432556,
+        "rot_z": -0.262071430683136,
         "x": 0,
         "y": 0,
         "yaw": 0,
@@ -55,6 +56,7 @@
         "y": "A * sin(W) * sin(V) * sin(U)",
         "z": "A*sin(W)*cos(V)"
     },
+    "fillLight": 0,
     "fov3D": 45,
     "fov4D": 45,
     "geodesic": {
@@ -106,7 +108,7 @@
     },
     "pathMode": 0,
     "pathMode3D": 0,
-    "projectionMode": 1,
+    "projectionMode": 0,
     "renderMode": 1,
     "speeds": {
         "nutation": 0.30000001192092896,
