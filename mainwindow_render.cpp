@@ -797,6 +797,11 @@ void MainWindow::setupRendererDock()
     connect(ui->glWidget, &GLWidget::borderAvailabilityChanged, this,
             [this] { updateBorderControlsGate(); }, Qt::QueuedConnection);
 
+    // Proporzioni della vista a dock chiusi, per la texture procedurale di
+    // sfondo: in coda, a layout dei dock finito (vedi updateFullViewAspect).
+    connect(ui->glWidget, &GLWidget::viewResized, this,
+            [this] { updateFullViewAspect(); }, Qt::QueuedConnection);
+
     // SHADER CHE NON COMPILA: la superficie SPARISCE (buildPipeline azzera le
     // pipeline) e finora l'unica traccia era un qWarning sulla console, che
     // l'utente non vede -- restava solo lo schermo vuoto, senza spiegazione.
@@ -862,20 +867,22 @@ void MainWindow::setupRendererDock()
 
     // IMMAGINE DI TEXTURE NON DECODIFICABILE.
     // Il file c'e' ed e' leggibile (validato prima del caricamento) ma Qt non ne
-    // ricava pixel: formato non supportato o file corrotto. Prima
-    // loadTextureFromFile usciva in silenzio e a schermo restava la texture
-    // PRECEDENTE, che sembrava "la texture di default del preset": nessun
-    // indizio della causa. Box asincrono per gli stessi motivi del segnale
-    // gemello qui sopra (niente event loop annidato).
+    // ricava pixel: formato non supportato, file corrotto o immagine troppo
+    // grande anche per la lettura ridotta. Prima loadTextureFromFile usciva in
+    // silenzio e a schermo restava la texture PRECEDENTE, che sembrava "la
+    // texture di default del preset": nessun indizio della causa. Il motivo
+    // arriva da GLWidget::readTextureImage: prima il testo diceva sempre
+    // "corrotto", anche per un'immagine solo troppo grande. Box asincrono per
+    // gli stessi motivi del segnale gemello qui sopra (niente event loop
+    // annidato).
     connect(ui->glWidget, &GLWidget::textureImageLoadFailed, this,
-            [this](const QString &path) {
+            [this](const QString &path, const QString &reason) {
         if (m_textureImageErrorPopupActive) return;
         m_textureImageErrorPopupActive = true;
 
         auto *box = new QMessageBox(QMessageBox::Warning, "Image Not Loaded",
             "This image could not be loaded, so the previous texture is still "
-            "showing:\n\n" + path + "\n\nThe file exists but is not a readable "
-            "image: it may be corrupted, or in a format that is not supported.",
+            "showing:\n\n" + path + "\n\n" + reason,
             QMessageBox::Ok, this);
         box->setAttribute(Qt::WA_DeleteOnClose);
         connect(box, &QDialog::finished, this,
@@ -1990,21 +1997,24 @@ void MainWindow::updateRenderState()
     // così i suoi blocchi indipendenti (campo a prodotto, vista 2D) sopravvivono
     // al passaggio per il wireframe.
     //
-    // In wireframe i due slider tornano anche al DEFAULT (opaco, luce 100%): lo
-    // shader usa comunque ubuf.alpha sulle linee, e un alpha stantio (< 1) le
-    // renderebbe sbiadite con lo slider ormai bloccato. Reset incondizionato
-    // finché mode == 2, non solo alla transizione: copre anche il load di un
-    // preset wireframe con alpha salvato < 1 (setValue del load, poi questa
-    // chiamata lo riporta a 1). A slider disabilitati nessun input utente da
-    // preservare; uscendo dal wireframe restano ai default.
+    // In wireframe la TRASPARENZA torna anche al DEFAULT (opaco): lo shader usa
+    // comunque ubuf.alpha sulle linee, e un alpha stantio (< 1) le renderebbe
+    // sbiadite con lo slider ormai bloccato. Reset incondizionato finché
+    // mode == 2, non solo alla transizione: copre anche il load di un preset
+    // wireframe con alpha salvato < 1 (setValue del load, poi questa chiamata
+    // lo riporta a 1).
+    // La LUCE invece NON si tocca: il ramo wireframe dello shader non legge
+    // u_lightIntensity, quindi un valore diverso da 100% non si vede sulle
+    // linee, e azzerarla faceva perdere la scelta dell'utente al ritorno su
+    // Base/Phong (segnalato dall'utente, 11-11: lo slider tornava al default).
     // Il reset riguarda lo stato GLOBALE, quindi si fa solo quando e' il
     // globale a essere in wireframe (m_scene.renderMode), NON quando e'
     // semplicemente la mesh selezionata a esserlo: li' le altre mesh sono
-    // ancora solide e azzerarne trasparenza e luce cancellerebbe l'aspetto
+    // ancora solide e azzerarne la trasparenza cancellerebbe l'aspetto
     // per-mesh appena impostato.
     if (mode == 2 && m_scene.renderMode == 2) {
-        // Questi due sono reset AUTOMATICI del motore, non scelte dell'utente su
-        // una singola mesh: vanno sullo stato globale. Senza il bypass, con una
+        // E' un reset AUTOMATICO del motore, non una scelta dell'utente su
+        // una singola mesh: va sullo stato globale. Senza il bypass, con una
         // mesh selezionata nello spinbox finivano scritti su QUELLA parte (che
         // smetteva di ereditare) e il giro di segnali che ne seguiva poteva
         // inchiodare il selettore. Si manifestava solo TORNANDO in wireframe,
@@ -2023,7 +2033,6 @@ void MainWindow::updateRenderState()
             ui->glWidget->pinInheritedAlphas();
         if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(true);
         resetTransparency();
-        ui->lightSlider->setValue(100);   // valueChanged aggiorna intensità e label
         if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(oldBypass);
     }
     // Il FOV vive ORA dentro panelTransp (scelta di layout), ma NON deve
@@ -3283,21 +3292,20 @@ void MainWindow::onUserRenderModeChosen()
         // propaga piu' il wireframe a tutte le parti.
         ui->glWidget->setActiveMeshRenderMode(mode);
 
-        // WIREFRAME => TEXTURE SPENTA SU QUESTA MESH. In wireframe la texture
-        // non si disegna (il fragment esce prima con colore piatto), quindi
-        // lasciarla "accesa" descriveva uno stato che a schermo non esisteva:
-        // togliendo il wireframe ricompariva da sola, e per giunta col checkbox
-        // deselezionato -- display e realta' che dicevano il contrario.
-        // Si SPEGNE conservando lo script (setActiveMeshTextureEnabled):
-        // riaccendendo il checkbox si ritrova la propria texture invece di
-        // doverla ricaricare. Non si riaccende da se' uscendo dal wireframe:
-        // e' l'utente a decidere quando rimetterla.
-        if (mode == 2) ui->glWidget->setActiveMeshTextureEnabled(false);
+        // WIREFRAME => TEXTURE SOSPESA, NON SPENTA. In wireframe la texture
+        // della mesh non si disegna (il fragment esce prima, a colore piatto),
+        // ma resta accesa: uscendo dal wireframe ricompare, come quella della
+        // superficie intera. Qui prima la si SPEGNEVA (setActiveMeshTexture-
+        // Enabled(false)), e non tornava piu' da sola (segnalato dall'utente:
+        // "contrariamente alla superficie singola"); per giunta lo spegnimento
+        // cambiava la texture salvata della mesh, e la Library chiedeva di
+        // salvare una texture mai toccata. Il display la mostra spenta finche'
+        // la mesh e' in wireframe (surfaceTextureShown), e il master non la
+        // conta come animazione in corso (GLWidget::partTextureShown).
 
-        // DISPLAY RIALLINEATO A OGNI CAMBIO DI MODALITA', non solo entrando in
-        // wireframe: uscendone (mode 0/1) la texture resta spenta, e senza
-        // questo giro l'editor continuava a mostrare lo script di prima mentre
-        // la mesh tornava in tinta unita.
+        // DISPLAY RIALLINEATO A OGNI CAMBIO DI MODALITA': entrando in wireframe
+        // il checkbox si spegne, uscendone torna a mostrare la texture della
+        // mesh.
         // syncAppearanceControlsToActiveMesh e' il punto unico del display
         // per-mesh: svuota/riempie l'editor, allinea checkbox, picker e tasti.
         syncAppearanceControlsToActiveMesh();

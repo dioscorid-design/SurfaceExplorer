@@ -21,16 +21,25 @@ set -e
 
 # --- CONFIGURAZIONE ---
 APP_NAME="SurfaceExplorer"
-BUNDLE_ID="com.dioscorid.surfaceexplorer"
+# L'id del canale DMG (CMakeLists.txt, SE_MACOS_BUNDLE_ID): diverso da quello
+# dell'App Store, com.dioscorid.surfaceexplorer.
+BUNDLE_ID="com.dioscorid.surfaceexplorer.dmg"
 SIGN_IDENTITY="Developer ID Application: GAETANO MOSCHETTI (BAPKX72394)"
 NOTARY_PROFILE="notarytool-profile"
 REPO="dioscorid-design/SurfaceExplorer"
-MACDEPLOYQT="$HOME/Qt/6.10.1/macos/bin/macdeployqt"
+# Versione di Qt per macOS: l'UNICA riga da cambiare a un aggiornamento di Qt.
+# Ne derivano macdeployqt e la cartella della Release di Qt Creator (BUILD_DIR).
+QT_VERSION="6.12.0"
+MACDEPLOYQT="$HOME/Qt/$QT_VERSION/macos/bin/macdeployqt"
 
 # Lo script vive in ExC/Mac/ : la root del progetto e' due cartelle sopra
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # ExC/Mac
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"               # root del progetto
-BUILD_DIR="$PROJECT_DIR/build/Desktop_Qt_6_10-Release"
+# La cartella che Qt Creator da' alla Release del kit "Qt <versione> for macOS"
+# (6.12.0 -> build/Qt_6_12_0_for_macOS_Release). Era scritta a mano col nome
+# dell'era Qt 6.10 (build/Desktop_Qt_6_10-Release) e, passati a 6.12, lo script
+# non trovava piu' l'app. Un'altra cartella: BUILD_DIR=<cartella> ./release_macos.sh
+BUILD_DIR="${BUILD_DIR:-$PROJECT_DIR/build/Qt_${QT_VERSION//./_}_for_macOS_Release}"
 APP_PATH="$BUILD_DIR/$APP_NAME.app"
 DMG_NAME="$APP_NAME.dmg"
 DMG_PATH="$SCRIPT_DIR/$DMG_NAME"                             # .dmg prodotto accanto allo script, in ExC/Mac
@@ -68,10 +77,32 @@ TAG="v$VERSION"
 ASSET_NAME="SurfaceExplorer-${TAG}-macos.dmg"
 
 if [ ! -d "$APP_PATH" ]; then
-  echo "ERRORE: $APP_PATH non trovato. Compila prima la Release da Qt Creator."
+  echo "ERRORE: $APP_PATH non trovato. Compila prima la Release da Qt Creator (kit Qt $QT_VERSION for macOS)."
+  # Le app che ci sono, per capire subito se e' solo il nome della cartella.
+  OTHERS="$(ls -d "$PROJECT_DIR"/build/*/"$APP_NAME.app" 2>/dev/null || true)"
+  if [ -n "$OTHERS" ]; then
+    echo "App trovate in altre cartelle di build (per usarne una: BUILD_DIR=<cartella> $0):"
+    echo "$OTHERS"
+  fi
   exit 1
 fi
 [ -x "$MACDEPLOYQT" ] || { echo "ERRORE: macdeployqt non trovato: $MACDEPLOYQT"; exit 1; }
+
+# IL NOME DELL'APP NEL DMG, come in CMakeLists.txt (SE_MACOS_BUNDLE_NAME):
+# "Surface Explorer v1.5". Con lo stesso nome dell'App Store (SurfaceExplorer.app)
+# le due copie finivano nello stesso file in Applicazioni e chi installava per
+# ultimo cancellava l'altra (la TestFlight 1.5 ha sostituito il DMG, 2026-11-13).
+APP_DISPLAY_NAME="Surface Explorer v$VERSION"
+# Una Release compilata prima del cambio (o col generatore Xcode) avrebbe l'id o il
+# nome sbagliati: meglio fermarsi che pubblicarla.
+BUILT_ID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+BUILT_NAME="$(/usr/libexec/PlistBuddy -c 'Print CFBundleName' "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+if [ "$BUILT_ID" != "$BUNDLE_ID" ] || [ "$BUILT_NAME" != "$APP_DISPLAY_NAME" ]; then
+  echo "ERRORE: l'app compilata ha id '$BUILT_ID' e nome '$BUILT_NAME',"
+  echo "        attesi '$BUNDLE_ID' e '$APP_DISPLAY_NAME'."
+  echo "Ricompila la Release da Qt Creator (CMakeLists.txt la riconfigura) e rilancia lo script."
+  exit 1
+fi
 
 # Si lavora su una copia: macdeployqt e la firma cambiano il bundle, e quello di Qt
 # Creator deve restare com'e' (firmato in place, al primo Info.plist rigenerato senza
@@ -79,7 +110,7 @@ fi
 STAGING_DIR="$BUILD_DIR/dmg_staging"
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
-STAGED_APP="$STAGING_DIR/$APP_NAME.app"
+STAGED_APP="$STAGING_DIR/$APP_DISPLAY_NAME.app"
 cp -R "$APP_PATH" "$STAGED_APP"
 
 echo ">>> 0. macdeployqt: framework e plugin Qt dentro l'app..."
@@ -104,7 +135,7 @@ codesign --verify --deep --strict --verbose=2 "$STAGED_APP"
 echo ">>> 3. Creazione .dmg (con collegamento alla cartella Applicazioni)..."
 rm -f "$DMG_PATH"
 ln -s /Applications "$STAGING_DIR/Applications"
-hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_PATH"
+hdiutil create -volname "$APP_DISPLAY_NAME" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_PATH"
 rm -rf "$STAGING_DIR"
 
 echo ">>> 4. Firma del .dmg..."
@@ -130,10 +161,13 @@ fi
 echo ""
 echo ">>> 7. Upload su GitHub Releases ($REPO, tag $TAG)..."
 # Token GitHub: GH_TOKEN esplicito -> gh CLI (keyring) -> ~/.git-credentials (store)
+#   -> credential helper di git (su macOS: osxkeychain, dove git salva il token dopo
+#   un push). GIT_TERMINAL_PROMPT=0: se il token non c'e', fallisce senza chiedere nulla.
 TOKEN="${GH_TOKEN:-}"
 [ -n "$TOKEN" ] || TOKEN="$(gh auth token 2>/dev/null || true)"
 [ -n "$TOKEN" ] || TOKEN="$(grep 'github.com' "$HOME/.git-credentials" 2>/dev/null | sed -E 's#https://([^:]+):([^@]+)@.*#\2#' | head -1)"
-[ -n "$TOKEN" ] || { echo "ERRORE: nessun token GitHub (imposta GH_TOKEN, oppure 'gh auth login', oppure configura git credential.helper store)."; exit 1; }
+[ -n "$TOKEN" ] || TOKEN="$(printf 'protocol=https\nhost=github.com\n\n' | GIT_TERMINAL_PROMPT=0 git credential fill 2>/dev/null | sed -n 's/^password=//p' | head -1)"
+[ -n "$TOKEN" ] || { echo "ERRORE: nessun token GitHub (imposta GH_TOKEN, oppure 'gh auth login', oppure fai un push a GitHub per salvarlo nel portachiavi)."; exit 1; }
 API="https://api.github.com/repos/$REPO"
 gh_api() { curl -s -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github+json" "$@"; }
 
@@ -173,10 +207,18 @@ if [ -n "$PRERELEASE_TAG" ]; then
 fi
 
 # 7a. assicura il tag vX.Y su origin (lo crea su HEAD se manca; NON sposta uno esistente)
-if ! git -C "$PROJECT_DIR" ls-remote --tags origin "$TAG" | grep -q "$TAG"; then
+# Nomi COMPLETI (refs/tags/...): spesso esiste anche un RAMO con lo stesso nome
+# (es. il ramo v1.5 e il tag v1.5) e "git push origin v1.5" e' ambiguo. Se la lettura
+# del remoto fallisce (rete, DNS) ci si ferma: "non l'ho potuto leggere" NON vuol dire
+# "il tag manca".
+REMOTE_TAG="$(git -C "$PROJECT_DIR" ls-remote --tags origin "refs/tags/$TAG")" \
+  || { echo "ERRORE: non riesco a leggere i tag dal remoto (rete o DNS?). Non creo e non pusho nulla: riprova."; exit 1; }
+if [ -z "$REMOTE_TAG" ]; then
   echo ">>> Tag $TAG assente sul remoto: lo creo su HEAD ($(git -C "$PROJECT_DIR" rev-parse --short HEAD)) e lo pusho"
-  git -C "$PROJECT_DIR" tag -a "$TAG" -m "Release $TAG" 2>/dev/null || git -C "$PROJECT_DIR" tag "$TAG"
-  git -C "$PROJECT_DIR" push origin "$TAG"
+  git -C "$PROJECT_DIR" rev-parse -q --verify "refs/tags/$TAG" >/dev/null \
+    || git -C "$PROJECT_DIR" tag -a "$TAG" -m "Release $TAG" 2>/dev/null \
+    || git -C "$PROJECT_DIR" tag "$TAG"
+  git -C "$PROJECT_DIR" push origin "refs/tags/$TAG"
 else
   echo ">>> Tag $TAG gia' presente sul remoto (lo uso cosi' com'e')"
 fi

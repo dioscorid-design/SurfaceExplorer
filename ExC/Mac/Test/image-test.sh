@@ -44,7 +44,7 @@ PRESETS="${PRESETS:-$(cd "$PROJECT_DIR/.." && pwd)/presets}"
 REPORTS="$PROJECT_DIR/build/test-reports"
 CMAKE="${CMAKE:-$HOME/Qt/Tools/CMake/CMake.app/Contents/bin/cmake}"
 # Qt e ninja: gli stessi di build-tests.sh.
-QT_PREFIX="${QT_PREFIX:-$HOME/Qt/6.10.1/macos}"
+QT_PREFIX="${QT_PREFIX:-$HOME/Qt/6.12.0/macos}"
 NINJA="${NINJA:-$HOME/Qt/Tools/Ninja/ninja}"
 
 err() { printf 'ERRORE: %s\n' "$*" >&2; exit 1; }
@@ -93,7 +93,7 @@ if [ -n "$REF" ]; then
                 # Stessa configurazione della build dei test: fra Debug e
                 # Release i calcoli in virgola mobile possono differire
                 # nell'ultima cifra, e darebbero immagini "diverse" per finta.
-                "$PROJECT_DIR/ExC/Mac/Test/build-tests.sh" "$SRC" "$BLD" > "$REF_DIR/build.log" 2>&1 \
+                bash "$PROJECT_DIR/ExC/Mac/Test/build-tests.sh" "$SRC" "$BLD" > "$REF_DIR/build.log" 2>&1 \
                     || err "build di riferimento fallita: vedi $REF_DIR/build.log"
             else
                 # Commit di prima di build/Tests: i test esistono solo in Debug.

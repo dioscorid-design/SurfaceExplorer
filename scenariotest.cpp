@@ -1,10 +1,20 @@
 #include "scenariotest.h"
 
 #include "mainwindow.h"
+#include "videorecorder.h"
+#include <QFileDialog>
+#include <QCheckBox>
+#include <QSpinBox>
+#include <QDialogButtonBox>
 #include "ui_mainwindow.h"
+#include "camerapaths.h"
 #include "glwidget.h"
 #include "imagecapture.h"
+#ifdef Q_OS_MACOS
+#include "nativevideoencoder.h"
+#endif
 #include <QImageReader>
+#include <QImageWriter>
 #include <QComboBox>
 #include "librarymanager.h"
 #include "libraryfileoperations.h"
@@ -40,6 +50,13 @@
 #include <QPainter>
 #include <rhi/qrhi.h>
 #include <QPlainTextEdit>
+#include <QWindow>
+#include <QMenuBar>
+#include <QBackingStore>
+#include <qpa/qwindowsysteminterface.h>
+#include <QtGui/private/qeventpoint_p.h>
+#include <QTouchEvent>
+#include <QStyleHints>
 #include <QPushButton>
 #include <QSlider>
 #include <QTreeWidget>
@@ -110,7 +127,7 @@ ScenarioTest::ScenarioTest(MainWindow *mw, const QString &root, const QString &o
     auto *watcher = new QTimer(this);
     connect(watcher, &QTimer::timeout, this, [this] {
         QWidget *w = QApplication::activeModalWidget();
-        if (!w) return;
+        if (!w || w == m_leaveOpen) return;
         QString desc = w->windowTitle();
         if (auto *mb = qobject_cast<QMessageBox *>(w)) desc += QStringLiteral(": ") + mb->text();
         if (m_acceptNextDialog && !qobject_cast<QMessageBox *>(w)) {
@@ -471,6 +488,53 @@ void ScenarioTest::runTubeScenarios()
             gl->grabFramebuffer().save(m_outDir + QStringLiteral("/lissajous-layers-8.png"));
             ui->meshCountSlider->setValue(layers);  wait(800);
             m_mw->performMasterStop();
+        }
+    }
+
+    // LA COSTANTE E NEI CAMPI VALUTATI DA EXPRTK (Meshes, limiti; 2026-11-07).
+    // ExprTk non distingue maiuscole: la 'e' di Nepero, registrata prima,
+    // oscurava la E dello slider, che valeva 2.71828 a qualunque valore
+    // (parseUIConstant, substituteConstantE). La 'e' minuscola resta Nepero e
+    // la notazione scientifica (2E1) non va toccata.
+    {
+        bool okE = false, okLower = false, okSci = false;
+        const float vE = m_mw->parseUIConstant(QStringLiteral("3*round(D) + 6*sgn(round(E))"), 1, 1, 1, 6, 0, 1, 0, &okE);
+        const float vLower = m_mw->parseUIConstant(QStringLiteral("e"), 1, 1, 1, 1, 5, 1, 0, &okLower);
+        const float vSci = m_mw->parseUIConstant(QStringLiteral("2E1 + E"), 1, 1, 1, 1, 5, 1, 0, &okSci);
+        check(okE && vE == 18.0f && okLower && qAbs(vLower - 2.7182818f) < 1e-5f && okSci && vSci == 25.0f,
+              QStringLiteral("costanti nei campi: 3*round(D) + 6*sgn(round(E)) con D = 6, E = 0 -> %1 (18); "
+                             "e -> %2 (Nepero); 2E1 + E con E = 5 -> %3 (25)")
+                  .arg(vE).arg(vLower, 0, 'f', 5).arg(vSci));
+        // UNA COSTANTE CITATA SOLO DAL CAMPO MESHES e' in uso (il campo e' fra
+        // le fonti delle costanti, tubeConstantSource): Spherical Spirals ha
+        // Meshes = A ("Slider A: how many spirals") e A in nessuna equazione.
+        const QString kSpirals = QStringLiteral("surfaces/Parametric/Solid Curves/Multi Curves/Spherical Spirals.json");
+        if (loadSurface(kSpirals)) {
+            const bool openOn = ui->aSlider->isEnabled();
+            const int openParts = gl->meshPartCount();
+            setConstantBySlider(QStringLiteral("A"), 4.0);
+            wait(600);
+            check(openOn && openParts == 6 && ui->aSlider->isEnabled() && gl->meshPartCount() == 4,
+                  QStringLiteral("Spherical Spirals (Meshes = A): aperto con %1 spirali, slider A %2; "
+                                 "A = 4 dallo slider -> %3 spirali, slider A %4")
+                      .arg(openParts).arg(onOff(openOn)).arg(gl->meshPartCount()).arg(onOff(ui->aSlider->isEnabled())));
+        }
+        // Meshes = E: prima il campo, che rende E "in uso" (lo script del
+        // record non la cita), poi il valore di E.
+        const QString kWaveE = QStringLiteral("records/Animations/Parametric/Solid Curves/Multi Curves/Lissajous Layers Wave.json");
+        if (loadRecord(kWaveE)) {
+            typeInField(ui->lineMeshCount, QStringLiteral("E"));
+            pressEnter(ui->lineMeshCount);
+            wait(800);
+            setConstantByField(QStringLiteral("E"), QStringLiteral("5"));
+            wait(400);
+            check(gl->meshPartCount() == 5 && ui->eSlider->isEnabled(),
+                  QStringLiteral("Meshes = E, poi E = 5 -> %1 strati (5), slider E %2")
+                      .arg(gl->meshPartCount()).arg(onOff(ui->eSlider->isEnabled())));
+            m_mw->performMasterStop();
+            m_discardOnPrompt = true;
+            loadRecord(kWaveE);   // di nuovo il record com'e' nel file
+            m_discardOnPrompt = false;
         }
     }
 
@@ -1814,6 +1878,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("texture-owner")) {
+        runTextureOwnerScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("mesh-image")) {
         runMeshImageScenarios();
         finish();
@@ -1841,6 +1910,11 @@ void ScenarioTest::run()
     }
     if (m_only == QLatin1String("library-rename")) {
         runLibraryRenameScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("library-clash")) {
+        runLibraryNameClashScenarios();
         finish();
         return;
     }
@@ -1904,6 +1978,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("roll")) {
+        runRollScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("shape-background")) {
         runShapeBackgroundScenarios();
         finish();
@@ -1926,6 +2005,18 @@ void ScenarioTest::run()
     // l'avviso su un'app appena aperta.
     m_lines.append(QStringLiteral("== Avvio =="));
     checkDirty(QStringLiteral("app appena aperta"), false, false, false);
+    // Le icone del foglio di stile (frecce degli spinbox, spunta delle
+    // checkbox): se mancano dal .qrc il foglio di stile non dice nulla e le
+    // frecce e la spunta semplicemente non si vedono (ui/make_icons.py).
+    {
+        QStringList missing;
+        for (const char *name : { "spin-up", "spin-down", "spin-up-off", "spin-down-off", "check" })
+            if (QPixmap(QStringLiteral(":/ui/%1.png").arg(QLatin1String(name))).isNull())
+                missing << QLatin1String(name);
+        check(missing.isEmpty(),
+              QStringLiteral("icone del foglio di stile nelle risorse (mancano: %1)")
+                  .arg(missing.isEmpty() ? QStringLiteral("nessuna") : missing.join(QStringLiteral(", "))));
+    }
     m_discardOnPrompt = true;
     ui->tabModeSelector->setCurrentIndex(1);  wait(1500);
     checkDirty(QStringLiteral("linguetta Ray Marching (superficie di default)"), false, false, false);
@@ -2016,7 +2107,7 @@ void ScenarioTest::run()
     if (loadRecord(QString::fromLatin1(kParametricRecord))) {
         checkTexColors(QStringLiteral("record caricato"));
         const QColor m1(QStringLiteral("#1c3664")), m2(QStringLiteral("#e28d57"));
-        if (selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json")))
+        if (selectTexture(QStringLiteral("textures/Procedurals/Fractals/Mandelbrot.json")))
             checkTexColors(QStringLiteral("Mandelbrot dalla Library"), m1, m2);
         const QColor n2(10, 200, 30);
         setTexColorBySliders(true, n2);
@@ -2052,14 +2143,14 @@ void ScenarioTest::run()
         if (!ui->radioMeshAll->isChecked()) click(ui->radioMeshAll);
         checkTexColors(QStringLiteral("ambito All"));
         const QColor m1(QStringLiteral("#1c3664")), m2(QStringLiteral("#e28d57"));
-        if (selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json")))
+        if (selectTexture(QStringLiteral("textures/Procedurals/Fractals/Mandelbrot.json")))
             checkTexColors(QStringLiteral("All: Mandelbrot dalla Library"), m1, m2);
         if (!ui->radioMeshOne->isChecked()) click(ui->radioMeshOne);
         ui->spinMeshSel->setValue(1);  wait(300);
         const QColor d1(QStringLiteral("#33cc33")), d2(Qt::black);
         checkTexColors(QStringLiteral("fascia 1 (colori propri)"), m1, m2, d1, d2);
         const QColor b1(QStringLiteral("#f2e4d8")), b2(QStringLiteral("#8a4a32"));
-        if (selectTexture(QStringLiteral("textures/Procedurals/Porous Bone.json")))
+        if (selectTexture(QStringLiteral("textures/Procedurals/Materials/Porous Bone.json")))
             checkTexColors(QStringLiteral("fascia 1: Porous Bone dalla Library"), m1, m2, b1, b2);
         const QColor o1(250, 120, 0);
         setTexColorBySliders(false, o1);
@@ -2094,9 +2185,9 @@ void ScenarioTest::run()
     // ---------------------------------------------------------------------
     // DISPLACEMENT (rilievi), Ray Marching: il campo e il motore insieme.
     const QString kDispRecord = QStringLiteral("records/Animations/Implicit/3D/Blistered Gyroid.json");
-    const QString kLimestone  = QStringLiteral("textures/Ray Marching/Limestone.json");
+    const QString kLimestone  = QStringLiteral("textures/Ray Marching/Materials/Limestone.json");
     const QString kFbm        = QStringLiteral("textures/Ray Marching/Fractal Noise FBm.json");
-    const QString kFractal    = QStringLiteral("textures/Ray Marching/Fractal Noise.json");
+    const QString kFractal    = QStringLiteral("textures/Ray Marching/Materials/Fractal Noise.json");
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Displacement: Ray Marching (%1) ==").arg(kDispRecord));
     if (loadRecord(kDispRecord)) {
@@ -2306,7 +2397,7 @@ void ScenarioTest::run()
     // CODICE DELLA TEXTURE, parametrico: lo script del dock Script. Il Save
     // scrive l'intenzione (l'editor, anche non eseguito) qualunque modulo il
     // dock stia mostrando.
-    const QString kMandelbrot = QStringLiteral("textures/Procedurals/Mandelbrot.json");
+    const QString kMandelbrot = QStringLiteral("textures/Procedurals/Fractals/Mandelbrot.json");
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Codice texture: parametrico (%1) ==")
                        .arg(QString::fromLatin1(kParametricRecord)));
@@ -2431,7 +2522,7 @@ void ScenarioTest::run()
             presetTextureCode(QString::fromLatin1(kMultiMeshRecord), LibraryType::Motion, true);
         if (!ui->radioMeshOne->isChecked()) click(ui->radioMeshOne);
         ui->spinMeshSel->setValue(1);  wait(300);
-        if (selectTexture(QStringLiteral("textures/Procedurals/Porous Bone.json")))
+        if (selectTexture(QStringLiteral("textures/Procedurals/Materials/Porous Bone.json")))
             checkTextureCode(QStringLiteral("multi-mesh, fascia 1: Porous Bone dalla Library"), globalCode);
         setScriptMode(MainWindow::ScriptModeTexture);
         checkTextureCode(QStringLiteral("dock Script sulla texture della fascia"), globalCode);
@@ -3689,7 +3780,7 @@ void ScenarioTest::run()
         const QString atLoad = overlay();
         selectTexture(QStringLiteral("textures/Procedurals/Linear Gradient.json"));  wait(300);
         const QString plain = overlay();
-        selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json"));  wait(300);
+        selectTexture(QStringLiteral("textures/Procedurals/Fractals/Mandelbrot.json"));  wait(300);
         const QString hinted = overlay();
         auto flat = [](QString s) { return s.replace(QLatin1Char('\n'), QLatin1String(" / ")); };
         check(atLoad.contains(QLatin1String("frequencies")) && plain.isEmpty()
@@ -3739,18 +3830,21 @@ void ScenarioTest::run()
 
     runScriptDockScenarios();
     runTextureTargetScenarios();
+    runTextureOwnerScenarios();
     runMeshImageScenarios();
     runMeshClockScenarios();
     runRecordTextureScenarios();
     runLibraryFolderScenarios();
     runLibraryPasteScenarios();
     runLibraryRenameScenarios();
+    runLibraryNameClashScenarios();
     runResetSceneScenarios();
     runResetButtonScenarios();
     runBorderScenarios();
     runMeshCountScenarios();
     runStepsScenarios();
     runShapeBackgroundScenarios();
+    runRollScenarios();
     runVideoFrameScenarios();
     runImageCaptureScenarios();
     runAnimatedLoadScenarios();
@@ -4597,7 +4691,7 @@ void ScenarioTest::runBorderScenarios()
                   QStringLiteral("immagine col bersaglio Border -> immagine sul bordo, ferma"));
         const QString imageCode = gl->borderTextureCode();
         const int popups = m_popupsClosed;
-        selectTexture(QStringLiteral("textures/Ray Marching/Fractal Noise.json"));
+        selectTexture(QStringLiteral("textures/Ray Marching/Materials/Fractal Noise.json"));
         check(gl->borderTextureCode() == imageCode && m_popupsClosed == popups + 1 && !m_mw->implicitMode(),
               QStringLiteral("texture Ray Marching col bersaglio Border -> rifiutata con un avviso, niente cambio di modalita'"));
 
@@ -4640,7 +4734,7 @@ void ScenarioTest::runBorderScenarios()
         // ("Border slider", al plurale con piu' costanti), alla scelta in
         // Library e nel record riaperto.
         click(ui->radioBorder);
-        selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json"));
+        selectTexture(QStringLiteral("textures/Procedurals/Fractals/Mandelbrot.json"));
         const QString hPick = m_mw->composedHintText();
         m_record = QStringLiteral("border-hint");
         const LibraryItem recHint = captureSave();
@@ -5553,7 +5647,12 @@ void ScenarioTest::runImageCaptureScenarios()
                 }
             return n;
         };
-        const QSize sw = ImageCapture::sizeFor(viewRatio, 3200);
+        // Almeno 2.5 volte la vista: lo spessore e' la scala ARROTONDATA, e con
+        // una finestra grande (2.x, o la sezione lanciata da sola) 3200 pixel
+        // valevano 1.3 volte la vista -> spessore 1, niente strisce, e le tre
+        // verifiche qui sotto fallivano per la finestra, non per il codice.
+        const int viewLong = int(std::lround(std::max(gl->width(), gl->height()) * gl->devicePixelRatioF()));
+        const QSize sw = ImageCapture::sizeFor(viewRatio, std::max(3200, int(2.5 * viewLong)));
         const QImage thick = ImageCapture::render(gl, sw, viewRatio, &err);
         gl->setCaptureLineWidth(1);
         gl->beginHiResCapture(sw.width(), sw.height());
@@ -5654,6 +5753,44 @@ void ScenarioTest::runImageCaptureScenarios()
         // Il taglio dipende da (u,v): le strisce tagliano dove tagliano le linee native, ne'
         // piu' ne' meno (con (u,v) sbagliati sparivano bande intere). Ogni pixel di una delle
         // due immagini ha una linea dell'altra a pochi pixel.
+        // Come uncovered, a una dimensione qualunque.
+        auto uncoveredIn = [&](const QImage &a, const QImage &b, const QSize &sz) {
+            QVector<char> ink(sz.width() * sz.height(), 0);
+            for (int y = 0; y < sz.height(); ++y)
+                for (int x = 0; x < sz.width(); ++x)
+                    ink[y * sz.width() + x] = inked(b, x, y);
+            QPair<qint64, qint64> n(0, 0);
+            for (int y = 3; y + 3 < sz.height(); ++y)
+                for (int x = 3; x + 3 < sz.width(); ++x) {
+                    if (!inked(a, x, y)) continue;
+                    ++n.first;
+                    bool hasInkNearby = false;
+                    for (int dy = -3; dy <= 3 && !hasInkNearby; ++dy)
+                        for (int dx = -3; dx <= 3 && !hasInkNearby; ++dx)
+                            hasInkNearby = ink[(y + dy) * sz.width() + x + dx];
+                    if (!hasInkNearby) ++n.second;
+                }
+            return n;
+        };
+        // Pixel di linea di a e quanti di loro non hanno una linea di b entro 3 pixel.
+        auto uncovered = [&](const QImage &a, const QImage &b) {
+            QVector<char> ink(sw.width() * sw.height(), 0);
+            for (int y = 0; y < sw.height(); ++y)
+                for (int x = 0; x < sw.width(); ++x)
+                    ink[y * sw.width() + x] = inked(b, x, y);
+            QPair<qint64, qint64> n(0, 0);
+            for (int y = 3; y + 3 < sw.height(); ++y)
+                for (int x = 3; x + 3 < sw.width(); ++x) {
+                    if (!inked(a, x, y)) continue;
+                    ++n.first;
+                    bool hasInkNearby = false;
+                    for (int dy = -3; dy <= 3 && !hasInkNearby; ++dy)
+                        for (int dx = -3; dx <= 3 && !hasInkNearby; ++dx)
+                            hasInkNearby = ink[(y + dy) * sw.width() + x + dx];
+                    if (!hasInkNearby) ++n.second;
+                }
+            return n;
+        };
         if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Multi Meshes/Octahedron Bands.json"))) {
             gl->stopAllTimers();
             gl->setClocksDrivenByRecorder(true);
@@ -5662,24 +5799,6 @@ void ScenarioTest::runImageCaptureScenarios()
             const QImage native = wireShot(1, sw), strips = wireShot(3, sw);
             const bool quads = gl->wireframeQuadsActive() && gl->wireframeQuadsEligible();
             strips.save(m_outDir + QStringLiteral("/image-capture-cutout-strips.png"));
-            auto uncovered = [&](const QImage &a, const QImage &b) {
-                QVector<char> ink(sw.width() * sw.height(), 0);
-                for (int y = 0; y < sw.height(); ++y)
-                    for (int x = 0; x < sw.width(); ++x)
-                        ink[y * sw.width() + x] = inked(b, x, y);
-                QPair<qint64, qint64> n(0, 0);
-                for (int y = 3; y + 3 < sw.height(); ++y)
-                    for (int x = 3; x + 3 < sw.width(); ++x) {
-                        if (!inked(a, x, y)) continue;
-                        ++n.first;
-                        bool hasInkNearby = false;
-                        for (int dy = -3; dy <= 3 && !hasInkNearby; ++dy)
-                            for (int dx = -3; dx <= 3 && !hasInkNearby; ++dx)
-                                hasInkNearby = ink[(y + dy) * sw.width() + x + dx];
-                        if (!hasInkNearby) ++n.second;
-                    }
-                return n;
-            };
             const QPair<qint64, qint64> extra = uncovered(strips, native), missing = uncovered(native, strips);
             check(quads && extra.first > 1000 && extra.second < extra.first / 200 && missing.second < missing.first / 200,
                   QStringLiteral("wireframe con taglio CUTOUT: strisce (%1) e linee native coincidono "
@@ -5687,7 +5806,59 @@ void ScenarioTest::runImageCaptureScenarios()
                       .arg(quads).arg(extra.second).arg(missing.second).arg(missing.first));
             gl->setClocksDrivenByRecorder(false);
         }
-        // Alpha < 1: una linea si miscela una volta sola, anche dove i segmenti si toccano.
+        // LA CAMERA SULLA SUPERFICIE: i segmenti con un estremo dietro la
+        // camera. Le linee native li tagliano al piano vicino; le strisce li
+        // buttavano interi, e nelle immagini scattate da dentro la superficie
+        // mancavano proprio le linee piu' vicine. Mobius Racing corre a 0.05
+        // sopra il nastro; a maglie larghe (20 passi) i segmenti che passano
+        // sotto la camera arrivano dentro la vista. La camera si porta a tempi
+        // fissi del path (applyCameraAt): gli scatti sono gli stessi a ogni giro.
+        if (loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Equations/Non-orientables/Mobius Racing.json"))) {
+            Ui::MainWindow *ui = m_mw->ui;
+            gl->stopAllTimers();
+            gl->setClocksDrivenByRecorder(true);
+            ui->lineSteps->setText(QStringLiteral("20"));
+            emit ui->lineSteps->editingFinished();
+            wait(900);
+            gl->setGlobalRenderMode(2);
+            wait(400);
+            const QSize sc = ImageCapture::sizeFor(viewRatio, 1200);
+            qint64 worstMissing = 0, worstTotal = 0;
+            int worstAt = 0;
+            bool quads = true;
+            QImage worstStrips, worstNative;
+            QStringList trace;
+            // Il passaggio graduale alla vista del path (advancePathHandoff,
+            // 40 passi) dipende da quanti tick sono corsi prima dello stop:
+            // lo si completa, cosi' la camera e' quella del path e basta.
+            for (int i = 0; i < 45; ++i) m_mw->m_paths->applyCameraAt(CameraPaths::Path3D, 0.0f);
+            for (int k = 0; k < 36; ++k) {
+                m_mw->m_paths->applyCameraAt(CameraPaths::Path3D, 0.35f * float(k));
+                wait(60);
+                const QImage native = wireShot(1, sc), strips = wireShot(3, sc);
+                quads = quads && gl->wireframeQuadsActive() && gl->wireframeQuadsEligible();
+                const QPair<qint64, qint64> m = uncoveredIn(native, strips, sc);
+                trace << QStringLiteral("%1/%2").arg(m.second).arg(m.first);
+                if (m.second > worstMissing || (m.second == worstMissing && m.first > worstTotal)) {
+                    worstMissing = m.second; worstTotal = m.first; worstAt = k;
+                    worstStrips = strips; worstNative = native;
+                }
+            }
+            worstStrips.save(m_outDir + QStringLiteral("/image-capture-racing-strips.png"));
+            worstNative.save(m_outDir + QStringLiteral("/image-capture-racing-native.png"));
+            check(quads && worstTotal > 1000 && worstMissing <= 20,
+                  QStringLiteral("wireframe con la camera sulla superficie (Mobius Racing, 20 passi): le strisce hanno anche "
+                                 "le linee che vanno dietro la camera (peggior scatto %1: %2 di linea mancanti su %3) [%4]")
+                      .arg(worstAt).arg(worstMissing).arg(worstTotal).arg(trace.join(QLatin1Char(' '))));
+            gl->setClocksDrivenByRecorder(false);
+        }
+        // Alpha < 1 in WIREFRAME: le linee escono OPACHE. Il wireframe non ha
+        // trasparenza (GLWidget forza alpha 1 sui blocchi disegnati in
+        // wireframe, vedi "WIREFRAME OPACO"; prima un alpha dato in solido
+        // rendeva le linee sbiadite o invisibili). Qui si verificava che una
+        // linea SEMITRASPARENTE si miscelasse una volta sola dove i segmenti si
+        // toccano: con le linee opache la domanda non si pone piu', e il test
+        // controlla invece che alpha 0.5 non le sbiadisca.
         if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) {
             gl->stopAllTimers();
             gl->setClocksDrivenByRecorder(true);
@@ -5698,17 +5869,17 @@ void ScenarioTest::runImageCaptureScenarios()
             const QImage im = wireShot(6, sw);
             im.save(m_outDir + QStringLiteral("/image-capture-wire-alpha.png"));
             const int bg = qRed(im.pixel(1, 1));
-            const int once = bg + (255 - bg) / 2, twice = bg + (255 - bg) * 3 / 4;
-            const int limit = (once + twice) / 2;
-            qint64 line = 0, denser = 0;
+            const int full = bg + (255 - bg) * 9 / 10;
+            qint64 line = 0, opaque = 0;
             for (int y = 0; y < im.height(); ++y)
                 for (int x = 0; x < im.width(); ++x) {
                     const int r = qRed(im.pixel(x, y));
                     if (r > bg + 20) ++line;
-                    if (r > limit) ++denser;
+                    if (r >= full) ++opaque;
                 }
-            check(line > 1000 && denser < line / 20,
-                  QStringLiteral("wireframe con alpha < 1: pixel miscelati due volte %1 su %2 di linea (il 37 per cento senza la passata di profondita')").arg(denser).arg(line));
+            check(line > 1000 && opaque > line * 6 / 10,
+                  QStringLiteral("wireframe con alpha 0.5: linee opache, %1 pixel pieni su %2 di linea (%3%)")
+                      .arg(opaque).arg(line).arg(100.0 * double(opaque) / double(std::max<qint64>(1, line)), 0, 'f', 1));
             gl->setClocksDrivenByRecorder(false);
         }
         if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
@@ -5723,26 +5894,34 @@ void ScenarioTest::runImageCaptureScenarios()
         QFile::remove(out);
         ImageCapture::setTestSavePath(out);
         QString dialogPng = m_outDir + QStringLiteral("/image-capture-dialog.png");
-        {   // Il test non deve dipendere da cio' che una prova a mano ha salvato.
+        // Le chiavi che il dialogo ricorda: il test non deve dipendere da cio' che
+        // una prova a mano ha salvato.
+        auto clearImageSettings = [] {
             QSettings st;
-            for (const char *k : { "imagePrintLength", "imagePrintUnit", "imageDpi", "imageSizeMode", "imageLongSide", "imageRatioIndex" })
+            for (const char *k : { "imagePrintLength", "imagePrintUnit", "imageDpi", "imageSizeMode", "imageLongSide",
+                                   "imageRatioIndex", "imageExactW", "imageExactH" })
                 st.remove(QString::fromLatin1(k));
-        }
+        };
+        clearImageSettings();
+        // Il menu "Size by": lato lungo, stampa (non su telefono), larghezza x altezza.
+        auto setSizeMode = [](QDialog *d, const QString &item) {
+            for (QComboBox *c : d->findChildren<QComboBox *>())
+                if (c->findText(QStringLiteral("Print size")) >= 0 || c->findText(QStringLiteral("Width × height (px)")) >= 0)
+                    c->setCurrentIndex(std::max(0, c->findText(item)));
+        };
         bool sawDialog = false;
         QString printText;
         ImageCapture::setTestDialogHandler([&](QDialog *d) {
             sawDialog = true;
             d->grab().save(dialogPng);
             // La misura di stampa (desktop e iPad): 50 cm a 300 dpi sono 5906 pixel.
-            for (QComboBox *c : d->findChildren<QComboBox *>())
-                if (c->count() == 2 && c->itemText(1) == QStringLiteral("Print size")) c->setCurrentIndex(1);
+            setSizeMode(d, QStringLiteral("Print size"));
             QCoreApplication::processEvents();
             d->grab().save(m_outDir + QStringLiteral("/image-capture-dialog-print.png"));
             for (QLabel *l : d->findChildren<QLabel *>())
                 if (l->text().contains(QStringLiteral("megapixel"))) printText = l->text();
             // Si torna ai pixel per lo scatto vero.
-            for (QComboBox *c : d->findChildren<QComboBox *>())
-                if (c->count() == 2 && c->itemText(1) == QStringLiteral("Print size")) c->setCurrentIndex(0);
+            setSizeMode(d, QStringLiteral("Long side (px)"));
             d->accept();
         });
         const bool done = ImageCapture::run(gl, m_mw, m_outDir);
@@ -5755,12 +5934,323 @@ void ScenarioTest::runImageCaptureScenarios()
         check(sawDialog && done && QFile::exists(out) && onDisk.isValid() && onDisk.width() > 100,
               QStringLiteral("flusso intero: dialogo, rendering e PNG salvato (dialogo %1, salvato %2, su disco %3x%4)")
                   .arg(sawDialog).arg(done).arg(onDisk.width()).arg(onDisk.height()));
+        // SUL TELEFONO il dialogo sta nell'angolo in alto a sinistra della
+        // finestra (dentro l'area sicura): centrato copriva buona parte della
+        // vista e il riquadro guida non si vedeva. Qui il ramo del telefono
+        // forzato (setTestCornerDialog), poi Cancel.
+        {
+            QPoint at(-1, -1);
+            ImageCapture::setTestCornerDialog(true);
+            ImageCapture::setTestDialogHandler([&](QDialog *d) {
+                QCoreApplication::processEvents();
+                at = d->pos();
+                d->reject();
+            });
+            ImageCapture::run(gl, m_mw, m_outDir);
+            ImageCapture::setTestCornerDialog(false);
+            ImageCapture::setTestDialogHandler(nullptr);
+            QMargins safe;
+            if (QWindow *w = m_mw->windowHandle()) safe = w->safeAreaMargins();
+            const QPoint expected = m_mw->geometry().topLeft() + QPoint(safe.left() + 8, safe.top() + 8);
+            check((at - expected).manhattanLength() <= 4,
+                  QStringLiteral("telefono: il dialogo sta nell'angolo in alto a sinistra della finestra (a %1,%2, atteso %3,%4)")
+                      .arg(at.x()).arg(at.y()).arg(expected.x()).arg(expected.y()));
+        }
+        // IL TESTO SI LEGGE TUTTO, in ogni modo e con le righe che le scelte
+        // aggiungono (rapporto, trascinamento): il dialogo cresce col testo.
+        // Prima restava alto come all'apertura e l'ultima riga usciva tagliata.
+        // Anche col ramo del telefono, dove il dialogo e' ancorato all'angolo.
+        for (const bool corner : { false, true }) {
+            QStringList report;
+            bool allFit = true;
+            ImageCapture::setTestCornerDialog(corner);
+            ImageCapture::setTestDialogHandler([&](QDialog *d) {
+                QLabel *info = d->findChild<QLabel *>(QStringLiteral("imageInfo"));
+                // 1:1, piu' stretto della vista: compare la riga del trascinamento.
+                for (QComboBox *c : d->findChildren<QComboBox *>())
+                    if (c->findText(QStringLiteral("1:1")) >= 0) { c->setCurrentIndex(c->findText(QStringLiteral("1:1"))); break; }
+                if (auto *w = d->findChild<QSpinBox *>(QStringLiteral("imageExactW"))) w->setValue(1203);
+                if (auto *h = d->findChild<QSpinBox *>(QStringLiteral("imageExactH"))) h->setValue(1301);
+                for (const QString &mode : { QStringLiteral("Width × height (px)"), QStringLiteral("Long side (px)"),
+                                             QStringLiteral("Print size"), QStringLiteral("Width × height (px)") }) {
+                    setSizeMode(d, mode);
+                    QCoreApplication::processEvents();
+                    QCoreApplication::processEvents();
+                    const int need = info ? info->heightForWidth(info->width()) : -1;
+                    const bool fits = info && need > 0 && info->height() >= need
+                                      && info->geometry().bottom() < d->height();
+                    allFit = allFit && fits;
+                    report << QStringLiteral("%1 %2/%3").arg(mode.section(QLatin1Char(' '), 0, 0))
+                                  .arg(info ? info->height() : -1).arg(need);
+                }
+                d->reject();
+            });
+            ImageCapture::run(gl, m_mw, m_outDir);
+            ImageCapture::setTestCornerDialog(false);
+            ImageCapture::setTestDialogHandler(nullptr);
+            check(allFit, QStringLiteral("dialogo%1: il testo informativo si legge tutto in ogni modo (altezza/necessaria: %2)")
+                              .arg(corner ? QStringLiteral(" nell'angolo (telefono)") : QString(),
+                                   report.join(QStringLiteral(", "))));
+        }
+        // IL DITO: il riquadro si trascina coi tocchi, e il DOPPIO TOCCO lo
+        // ricentra come il doppio clic. Accettando i tocchi Qt non sintetizza
+        // il doppio clic: prima sul telefono il doppio tocco non faceva nulla.
+        // Due tocchi piu' distanti dell'intervallo del doppio clic no.
+        {
+            double afterDrag = 0.0, afterDoubleTap = 1.0, afterSlowTaps = 0.0;
+            ImageCapture::setTestDialogHandler([&](QDialog *d) {
+                for (QComboBox *c : d->findChildren<QComboBox *>())
+                    if (c->findText(QStringLiteral("1:1")) >= 0) { c->setCurrentIndex(c->findText(QStringLiteral("1:1"))); break; }
+                setSizeMode(d, QStringLiteral("Long side (px)"));
+                QCoreApplication::processEvents();
+                QWidget *guide = gl->findChild<QWidget *>(QStringLiteral("imageFrameGuide"));
+                if (!guide) { d->reject(); return; }
+                const auto touchAt = [&](QEvent::Type type, QEventPoint::State state, const QPointF &at) {
+                    // La posizione locale (position()) il costruttore non la
+                    // scrive: senza, il riquadro riceveva sempre (0, 0).
+                    QEventPoint pt(1, state, at, guide->mapToGlobal(at));
+                    QMutableEventPoint::setPosition(pt, at);
+                    QTouchEvent te(type, nullptr, Qt::NoModifier, { pt });
+                    QCoreApplication::sendEvent(guide, &te);
+                };
+                const auto tap = [&](const QPointF &at) {
+                    touchAt(QEvent::TouchBegin, QEventPoint::Pressed, at);
+                    touchAt(QEvent::TouchEnd, QEventPoint::Released, at);
+                };
+                const auto position = [&] { return guide->property("framePosition").toPointF().x(); };
+                const QPointF c(guide->width() / 2.0, guide->height() / 2.0);
+                const QPointF right = c + QPointF(guide->width() / 8.0, 0.0);
+                // Trascinamento col dito.
+                touchAt(QEvent::TouchBegin, QEventPoint::Pressed, c);
+                touchAt(QEvent::TouchUpdate, QEventPoint::Updated, right);
+                touchAt(QEvent::TouchEnd, QEventPoint::Released, right);
+                afterDrag = position();
+                // Doppio tocco: al centro.
+                tap(right);
+                tap(right + QPointF(2.0, 1.0));
+                afterDoubleTap = position();
+                // Di nuovo a destra, poi due tocchi lenti: resta dov'e'.
+                touchAt(QEvent::TouchBegin, QEventPoint::Pressed, c);
+                touchAt(QEvent::TouchUpdate, QEventPoint::Updated, right);
+                touchAt(QEvent::TouchEnd, QEventPoint::Released, right);
+                tap(right);
+                wait(QGuiApplication::styleHints()->mouseDoubleClickInterval() + 150);
+                tap(right);
+                afterSlowTaps = position();
+                d->reject();
+            });
+            ImageCapture::run(gl, m_mw, m_outDir);
+            ImageCapture::setTestDialogHandler(nullptr);
+            check(afterDrag > 0.1 && std::abs(afterDoubleTap) < 1e-9 && afterSlowTaps > 0.1,
+                  QStringLiteral("dito: il riquadro si trascina (%1), il doppio tocco lo ricentra (%2), due tocchi lenti no (%3)")
+                      .arg(afterDrag, 0, 'f', 2).arg(afterDoubleTap, 0, 'f', 2).arg(afterSlowTaps, 0, 'f', 2));
+        }
+        // IL DIALOGO RESTA DAVANTI. Sul Mac un clic nella finestra principale
+        // la porta sopra il dialogo; dal secondo clic (il doppio clic che
+        // ricentra il riquadro) non arrivava piu' un WindowActivate e il dialogo
+        // restava coperto, con la finestra principale bloccata dalla sessione
+        // (non si chiudeva nemmeno col Quit). Qui il riordino del sistema si
+        // rifa' con raise() sulla finestra principale, poi un doppio clic sul
+        // riquadro: il dialogo deve tornare davanti (topLevelAt legge l'ordine
+        // vero delle finestre).
+        {
+            bool coveredFirst = false, frontAfter = false, recentred = false, appActive = true;
+            ImageCapture::setTestDialogHandler([&](QDialog *d) {
+                for (QComboBox *c : d->findChildren<QComboBox *>())
+                    if (c->findText(QStringLiteral("1:1")) >= 0) { c->setCurrentIndex(c->findText(QStringLiteral("1:1"))); break; }
+                setSizeMode(d, QStringLiteral("Long side (px)"));
+                wait(300);
+                QWidget *guide = gl->findChild<QWidget *>(QStringLiteral("imageFrameGuide"));
+                const QPoint probe = d->frameGeometry().center();
+                m_mw->raise();
+                wait(300);
+                // Sul Mac la finestra strumento si nasconde quando l'app non e'
+                // in primo piano (l'utente lavora in un'altra finestra): li' il
+                // controllo non dice nulla.
+                appActive = QGuiApplication::applicationState() == Qt::ApplicationActive;
+                coveredFirst = QGuiApplication::topLevelAt(probe) != d->windowHandle();
+                if (guide) {
+                    const QPointF at(guide->width() * 0.6, guide->height() / 2.0);
+                    // Prima a destra col trascinamento, poi il doppio clic.
+                    guide->setProperty("framePosition", QPointF());
+                    const QPointF g = guide->mapToGlobal(at);
+                    for (const auto &[type, buttons] : std::initializer_list<std::pair<QEvent::Type, Qt::MouseButtons>>{
+                             { QEvent::MouseButtonPress, Qt::LeftButton }, { QEvent::MouseButtonRelease, Qt::NoButton },
+                             { QEvent::MouseButtonDblClick, Qt::LeftButton }, { QEvent::MouseButtonRelease, Qt::NoButton } }) {
+                        QMouseEvent me(type, at, g, Qt::LeftButton, buttons, Qt::NoModifier);
+                        QCoreApplication::sendEvent(guide, &me);
+                    }
+                    recentred = guide->property("framePosition").toPointF().isNull();
+                }
+                wait(300);
+                frontAfter = QGuiApplication::topLevelAt(probe) == d->windowHandle();
+                d->reject();
+            });
+            ImageCapture::run(gl, m_mw, m_outDir);
+            ImageCapture::setTestDialogHandler(nullptr);
+            // Sul Mac il dialogo e' una finestra strumento: la finestra
+            // principale non lo copre nemmeno portata davanti. Altrove lo copre,
+            // e il doppio clic deve riportarlo su.
+#ifdef Q_OS_MACOS
+            const bool coveredOk = !coveredFirst;
+#else
+            const bool coveredOk = coveredFirst;
+#endif
+            check((!appActive || (coveredOk && frontAfter)) && recentred,
+                  QStringLiteral("doppio clic sul riquadro con la finestra principale davanti: il dialogo e' davanti "
+                                 "(coperto prima %1, davanti dopo %2, riquadro al centro %3)%4")
+                      .arg(coveredFirst).arg(frontAfter).arg(recentred)
+                      .arg(appActive ? QString() : QStringLiteral(" [app non in primo piano: ordine delle finestre non verificato]")));
+        }
+        // CANCEL DOPO UN DOPPIO CLIC SUL RIQUADRO, con eventi del sistema a
+        // finestre (QWindowSystemInterface: la stessa strada dei clic veri,
+        // doppio clic sintetizzato da Qt): il dialogo si chiude, run() torna,
+        // la cornice sparisce e la finestra principale e' di nuovo libera.
+        {
+            bool dialogClosed = false;
+            // L'IMMAGINE DELLA FINESTRA (backing store): li' il riquadro dipinge
+            // la velatura, sopra la vista che ha un disegno suo. Alfa medio sulla
+            // striscia di sinistra della vista, fuori dal riquadro 1:1.
+            const auto stripAlpha = [&]() {
+                QBackingStore *bs = m_mw->window()->backingStore();
+                const QImage *img = bs ? dynamic_cast<const QImage *>(bs->paintDevice()) : nullptr;
+                if (!img || img->isNull()) return -1.0;
+                const qreal dpr = img->devicePixelRatio();
+                const QPoint tl = gl->mapTo(m_mw->window(), QPoint(0, 0));
+                const QRect r(QPoint(int(tl.x() * dpr), int(tl.y() * dpr)),
+                              QSize(int(gl->width() / 8 * dpr), int(gl->height() * dpr)));
+                double sum = 0.0; int n = 0;
+                for (int y = r.top(); y <= r.bottom() && y < img->height(); y += 4)
+                    for (int x = r.left(); x <= r.right() && x < img->width(); x += 4) { sum += qAlpha(img->pixel(x, y)); ++n; }
+                return n ? sum / n : -1.0;
+            };
+            double alphaDuring = -1.0;
+            ImageCapture::setTestDialogHandler([&](QDialog *d) {
+                for (QComboBox *c : d->findChildren<QComboBox *>())
+                    if (c->findText(QStringLiteral("1:1")) >= 0) { c->setCurrentIndex(c->findText(QStringLiteral("1:1"))); break; }
+                setSizeMode(d, QStringLiteral("Long side (px)"));
+                wait(300);
+                QWidget *guide = gl->findChild<QWidget *>(QStringLiteral("imageFrameGuide"));
+                QWindow *mainWin = m_mw->window()->windowHandle();
+                // Un trascinamento vero del riquadro (il residuo compariva solo dopo).
+                if (guide && mainWin) {
+                    const QPointF from(guide->mapTo(m_mw->window(), QPoint(guide->width() / 2, guide->height() / 2)));
+                    const QPointF to = from + QPointF(guide->width() / 10.0, 0.0);
+                    using WSI = QWindowSystemInterface;
+                    WSI::handleMouseEvent<WSI::SynchronousDelivery>(mainWin, from, mainWin->mapToGlobal(from), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+                    for (int k = 1; k <= 5; ++k) {
+                        const QPointF at = from + (to - from) * (k / 5.0);
+                        WSI::handleMouseEvent<WSI::SynchronousDelivery>(mainWin, at, mainWin->mapToGlobal(at), Qt::LeftButton, Qt::NoButton, QEvent::MouseMove);
+                        wait(30);
+                    }
+                    WSI::handleMouseEvent<WSI::SynchronousDelivery>(mainWin, to, mainWin->mapToGlobal(to), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+                    wait(300);
+                }
+                alphaDuring = stripAlpha();
+                const auto click = [](QWindow *w, const QPointF &local, int times) {
+                    const QPointF global = w->mapToGlobal(local);
+                    for (int i = 0; i < times; ++i) {
+                        QWindowSystemInterface::handleMouseEvent<QWindowSystemInterface::SynchronousDelivery>(
+                            w, local, global, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+                        QWindowSystemInterface::handleMouseEvent<QWindowSystemInterface::SynchronousDelivery>(
+                            w, local, global, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+                    }
+                };
+                if (guide && mainWin)
+                    click(mainWin, QPointF(guide->mapTo(m_mw->window(), QPoint(int(guide->width() * 0.6), guide->height() / 2))), 2);
+                wait(400);
+                QPushButton *cancel = nullptr;
+                for (QPushButton *b : d->findChildren<QPushButton *>())
+                    if (b->text() == QLatin1String("Cancel")) cancel = b;
+                if (cancel && d->windowHandle())
+                    click(d->windowHandle(), QPointF(cancel->mapTo(d, cancel->rect().center())), 1);
+                wait(400);
+                dialogClosed = !d->isVisible();
+                if (d->isVisible()) d->reject();   // non resti aperto se il clic non e' arrivato
+            });
+            const bool done = ImageCapture::run(gl, m_mw, m_outDir);
+            ImageCapture::setTestDialogHandler(nullptr);
+            wait(300);
+            const bool guideGone = gl->findChild<QWidget *>(QStringLiteral("imageFrameGuide")) == nullptr;
+            const double alphaAfter = stripAlpha();
+            // La velatura c'era (alfa alto) e dopo il Cancel non deve restare.
+            const bool veilGone = alphaDuring > 40.0 && alphaAfter >= 0.0 && alphaAfter < 10.0;
+            check(dialogClosed && !done && guideGone && veilGone,
+                  QStringLiteral("trascinamento, doppio clic sul riquadro e Cancel col mouse: dialogo chiuso %1, cornice sparita %2, "
+                                 "velatura ripulita dall'immagine della finestra %3 (alfa durante %4, dopo %5)")
+                      .arg(dialogClosed).arg(guideGone).arg(veilGone)
+                      .arg(alphaDuring, 0, 'f', 1).arg(alphaAfter, 0, 'f', 1));
+        }
+        // DOPO IL DIALOGO, con Capture e con Cancel: la sessione non resta
+        // addosso all'app. Le voci della barra dei menu tornano come prima
+        // (la sessione le spegne) e la finestra principale riceve di nuovo i
+        // clic (la sessione li tiene per il riquadro): un clic vero sulla vista
+        // (QWindowSystemInterface) deve arrivarle.
+        {
+            QMenuBar *bar = m_mw->findChild<QMenuBar *>();
+            auto menuStates = [&]() {
+                QList<bool> states;
+                std::function<void(const QList<QAction *> &)> walk = [&](const QList<QAction *> &acts) {
+                    for (QAction *a : acts) {
+                        if (!a || a->isSeparator()) continue;
+                        states << a->isEnabled();
+                        if (a->menu()) walk(a->menu()->actions());
+                    }
+                };
+                if (bar) walk(bar->actions());
+                return states;
+            };
+            struct PressCounter : QObject {
+                int presses = 0;
+                bool eventFilter(QObject *, QEvent *e) override {
+                    // Anche il doppio clic: due giri ravvicinati nello stesso
+                    // punto (Cancel e' rapido) Qt li consegna cosi'.
+                    if (e->type() == QEvent::MouseButtonPress || e->type() == QEvent::MouseButtonDblClick) ++presses;
+                    return false;
+                }
+            };
+            const QString out = m_outDir + QStringLiteral("/image-capture-after.png");
+            for (const bool capture : { true, false }) {
+                const QList<bool> before = menuStates();
+                bool menusOffDuring = true;
+                ImageCapture::setTestSavePath(out);
+                ImageCapture::setTestDialogHandler([&](QDialog *d) {
+                    for (QAction *a : bar ? bar->actions() : QList<QAction *>())
+                        if (a && !a->isSeparator() && a->isEnabled()) menusOffDuring = false;
+                    setSizeMode(d, QStringLiteral("Long side (px)"));
+                    for (QSpinBox *sb : d->findChildren<QSpinBox *>())
+                        if (sb->maximum() > 2000 && sb->singleStep() == 256) sb->setValue(800);
+                    QCoreApplication::processEvents();
+                    if (capture) d->accept(); else d->reject();
+                });
+                const bool done = ImageCapture::run(gl, m_mw, m_outDir);
+                ImageCapture::setTestDialogHandler(nullptr);
+                ImageCapture::setTestSavePath(QString());
+                wait(300);
+                const QList<bool> after = menuStates();
+                PressCounter counter;
+                gl->installEventFilter(&counter);
+                if (QWindow *win = m_mw->window()->windowHandle()) {
+                    const QPointF at(gl->mapTo(m_mw->window(), QPoint(gl->width() / 2, gl->height() / 2)));
+                    using WSI = QWindowSystemInterface;
+                    WSI::handleMouseEvent<WSI::SynchronousDelivery>(win, at, win->mapToGlobal(at), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+                    WSI::handleMouseEvent<WSI::SynchronousDelivery>(win, at, win->mapToGlobal(at), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+                }
+                wait(100);
+                gl->removeEventFilter(&counter);
+                check(done == capture && menusOffDuring && !before.isEmpty() && after == before && counter.presses > 0,
+                      QStringLiteral("dopo %1: menu spenti durante %2, poi come prima %3 (%4 voci); la vista riceve di nuovo i clic %5")
+                          .arg(capture ? QStringLiteral("Capture") : QStringLiteral("Cancel"))
+                          .arg(menusOffDuring).arg(after == before).arg(before.size()).arg(counter.presses > 0));
+            }
+            QFile::remove(out);
+        }
+        clearImageSettings();
         // A misura di stampa i dpi vanno nel file: 10 cm a 300 dpi.
         const QString outPrint = m_outDir + QStringLiteral("/image-capture-print.png");
         ImageCapture::setTestSavePath(outPrint);
-        ImageCapture::setTestDialogHandler([](QDialog *d) {
-            for (QComboBox *c : d->findChildren<QComboBox *>())
-                if (c->count() == 2 && c->itemText(1) == QStringLiteral("Print size")) c->setCurrentIndex(1);
+        ImageCapture::setTestDialogHandler([&](QDialog *d) {
+            setSizeMode(d, QStringLiteral("Print size"));
             for (QDoubleSpinBox *s : d->findChildren<QDoubleSpinBox *>()) s->setValue(10.0);
             QCoreApplication::processEvents();
             d->accept();
@@ -5773,11 +6263,405 @@ void ScenarioTest::runImageCaptureScenarios()
                   && printed.width() == 1181,
               QStringLiteral("misura di stampa nel PNG: %1 punti al metro (300 dpi), %2 pixel di lato")
                   .arg(printed.dotsPerMeterX()).arg(printed.width()));
-        {
-            QSettings st;
-            for (const char *k : { "imagePrintLength", "imagePrintUnit", "imageDpi", "imageSizeMode", "imageLongSide", "imageRatioIndex" })
-                st.remove(QString::fromLatin1(k));
+        // LARGHEZZA E ALTEZZA scritte una per una: lati senza fattori comuni (come
+        // i 5461 x 5734 chiesti dall'utente, che nessun rapporto Custom fino a 999
+        // esprime), e il PNG deve uscire esattamente di quei pixel. Piccoli, per
+        // la velocita' del test.
+        const QString outExact = m_outDir + QStringLiteral("/image-capture-exact.png");
+        QFile::remove(outExact);
+        ImageCapture::setTestSavePath(outExact);
+        bool ratioHidden = false;
+        ImageCapture::setTestDialogHandler([&](QDialog *d) {
+            setSizeMode(d, QStringLiteral("Width × height (px)"));
+            if (auto *w = d->findChild<QSpinBox *>(QStringLiteral("imageExactW"))) w->setValue(1203);
+            if (auto *h = d->findChild<QSpinBox *>(QStringLiteral("imageExactH"))) h->setValue(1301);
+            QCoreApplication::processEvents();
+            for (QComboBox *c : d->findChildren<QComboBox *>())
+                if (c->findText(QStringLiteral("16:9")) >= 0) ratioHidden = !c->isVisible();
+            d->grab().save(m_outDir + QStringLiteral("/image-capture-dialog-exact.png"));
+            d->accept();
+        });
+        const bool doneExact = ImageCapture::run(gl, m_mw, m_outDir);
+        ImageCapture::setTestSavePath(QString());
+        ImageCapture::setTestDialogHandler(nullptr);
+        const QSize exactOnDisk = QImageReader(outExact).size();
+        check(doneExact && exactOnDisk == QSize(1203, 1301) && ratioHidden,
+              QStringLiteral("larghezza x altezza: PNG di %1x%2 px (chiesti 1203x1301), menu del rapporto nascosto %3")
+                  .arg(exactOnDisk.width()).arg(exactOnDisk.height()).arg(ratioHidden));
+        clearImageSettings();
+    }
+
+    // DERIVATE IN PIXEL DELLO SCHERMO. La texture Wireframe (Ray Marching) tiene
+    // le linee larghe un pixel con fwidth: in un'immagine piu' grande della vista
+    // restavano di un pixel dell'immagine, e riportata alla misura dello schermo
+    // l'immagine usciva molto piu' scura del display (Gyroid del record DMI).
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Immagine piu' grande della vista: cio' che la texture misura in pixel resta in proporzione =="));
+    if (loadRecord(QStringLiteral("records/DMI/Gyroid.json"))) {
+        gl->stopAllTimers();
+        wait(500);
+        auto luma = [](const QImage &im) {
+            double sum = 0.0;
+            for (int y = 0; y < im.height(); ++y)
+                for (int x = 0; x < im.width(); ++x) {
+                    const QRgb p = im.pixel(x, y);
+                    sum += 0.299 * qRed(p) + 0.587 * qGreen(p) + 0.114 * qBlue(p);
+                }
+            return sum / std::max(1.0, double(im.width()) * im.height());
+        };
+        const QImage live = gl->grabFramebuffer().convertToFormat(QImage::Format_RGB32);
+        const double vr = double(gl->width()) / double(std::max(1, gl->height()));
+        const QSize big = ImageCapture::sizeFor(vr, 2 * std::max(live.width(), live.height()));
+        QString e;
+        const QImage hi = ImageCapture::render(gl, big, vr, &e);
+        if (!live.isNull() && !hi.isNull()) {
+            const QImage down = hi.scaled(live.size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+            const double a = luma(live), b = luma(down);
+            check(b > 0.85 * a && b < 1.15 * a,
+                  QStringLiteral("immagine %1x%2 (vista %3x%4), riportata alla misura della vista: luminosita' media %5 contro %6 a schermo")
+                      .arg(big.width()).arg(big.height()).arg(live.width()).arg(live.height())
+                      .arg(b, 0, 'f', 1).arg(a, 0, 'f', 1));
+        } else {
+            check(false, QStringLiteral("immagine piu' grande della vista: rendering fallito %1").arg(e));
         }
+        // IMMAGINE PIU' PICCOLA DELLA VISTA: si disegna alla scala della vista e si
+        // riduce (GLWidget::captureRenderSize). Senza, le linee della texture
+        // (fwidth) uscivano larghe un terzo di pixel: spezzate e granulose. Il
+        // riferimento e' la vista rimpicciolita; si misura la differenza media
+        // per pixel, col ricampionamento e senza (setCaptureResampling).
+        if (!live.isNull()) {
+            const QSize small = ImageCapture::sizeFor(vr, std::max(live.width(), live.height()) / 3);
+            const QImage ref = live.scaled(small, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                                   .convertToFormat(QImage::Format_RGB32);
+            auto diffTo = [&](const QImage &im) {
+                if (im.isNull() || im.size() != ref.size()) return 255.0;
+                const QImage a = im.convertToFormat(QImage::Format_RGB32);
+                double sum = 0.0;
+                for (int y = 0; y < a.height(); ++y)
+                    for (int x = 0; x < a.width(); ++x) {
+                        const QRgb p = a.pixel(x, y), q = ref.pixel(x, y);
+                        sum += (std::abs(qRed(p) - qRed(q)) + std::abs(qGreen(p) - qGreen(q)) + std::abs(qBlue(p) - qBlue(q))) / 3.0;
+                    }
+                return sum / std::max(1.0, double(a.width()) * a.height());
+            };
+            const QImage resampled = ImageCapture::render(gl, small, vr, &e);
+            gl->setCaptureResampling(false);
+            const QImage native = ImageCapture::render(gl, small, vr, &e);
+            gl->setCaptureResampling(true);
+            resampled.save(m_outDir + QStringLiteral("/image-small-resampled.png"));
+            native.save(m_outDir + QStringLiteral("/image-small-native.png"));
+            ref.save(m_outDir + QStringLiteral("/image-small-reference.png"));
+            const double dr = diffTo(resampled), dn = diffTo(native);
+            const double lr = luma(resampled), ln = luma(native), lref = luma(ref);
+            check(resampled.size() == small && dr < 0.5 * dn && std::abs(lr - lref) < 0.1 * lref,
+                  QStringLiteral("immagine %1x%2 (un terzo della vista): ricampionata, scarto medio dallo schermo rimpicciolito %3 "
+                                 "(senza ricampionamento %4), luminosita' %5 contro %6 (senza %7)")
+                      .arg(small.width()).arg(small.height()).arg(dr, 0, 'f', 1).arg(dn, 0, 'f', 1)
+                      .arg(lr, 0, 'f', 1).arg(lref, 0, 'f', 1).arg(ln, 0, 'f', 1));
+        }
+        // I VIDEO PIU' PICCOLI DELLA VISTA si ricampionano allo stesso modo: il
+        // tempo per fotogramma, 1080p col percorso del recorder (beginHiResCapture,
+        // getFrameForVideo), col ricampionamento e senza.
+        auto msPerFrame = [&](bool resample) {
+            gl->setCaptureResampling(resample);
+            gl->beginHiResCapture(1920, 1080);
+            gl->getFrameForVideo(1920, 1080, true);   // il primo paga la riconfigurazione
+            QElapsedTimer t;
+            t.start();
+            constexpr int kFrames = 12;
+            QSize got;
+            for (int i = 0; i < kFrames; ++i) got = gl->getFrameForVideo(1920, 1080, true).size();
+            const double ms = double(t.nsecsElapsed()) * 1e-6 / kFrames;
+            gl->endHiResCapture();
+            gl->setCaptureResampling(true);
+            return std::make_pair(ms, got);
+        };
+        {
+            const auto off = msPerFrame(false), on = msPerFrame(true);
+            const QSize drawn = gl->captureRenderSize(QSize(1920, 1080), 1.0f);
+            check(on.second == QSize(1920, 1080) && off.second == QSize(1920, 1080),
+                  QStringLiteral("video 1920x1080 da una vista %1x%2 (Gyroid, ray marching): disegnato a %3x%4 e ridotto, "
+                                 "%5 ms per fotogramma contro %6 senza ricampionamento (x%7)")
+                      .arg(live.width()).arg(live.height()).arg(drawn.width()).arg(drawn.height())
+                      .arg(on.first, 0, 'f', 1).arg(off.first, 0, 'f', 1).arg(on.first / std::max(0.001, off.first), 0, 'f', 2));
+        }
+#ifdef Q_OS_MACOS
+        // L'ESPORTAZIONE INTERA, come nel recorder: orologi avanti, fotogramma,
+        // conversione, encoder nativo (AVFoundation) su un file temporaneo.
+        auto exportSeconds = [&](bool resample) {
+            const QString out = m_outDir + QStringLiteral("/video-%1.mp4").arg(resample ? QStringLiteral("on") : QStringLiteral("off"));
+            QFile::remove(out);
+            gl->setCaptureResampling(resample);
+            gl->beginHiResCapture(1920, 1080);
+            QElapsedTimer t;
+            t.start();
+            bool ok = NativeVideoEncoder::begin(out, 60, 1920, 1080, QString(), 1.0);
+            for (int i = 0; ok && i < 60; ++i) {
+                gl->advanceClocksBy(1.0f / 60.0f);
+                QImage frame = gl->getFrameForVideo(1920, 1080, true);
+                frame.setDevicePixelRatio(1.0);
+                if (frame.format() != QImage::Format_RGB32) frame = frame.convertToFormat(QImage::Format_RGB32);
+                ok = NativeVideoEncoder::appendFrame(frame);
+            }
+            ok = NativeVideoEncoder::end() && ok;
+            const double sec = double(t.nsecsElapsed()) * 1e-9;
+            gl->endHiResCapture();
+            gl->setCaptureResampling(true);
+            return std::make_pair(ok ? sec : -1.0, QFileInfo(out).size());
+        };
+        {
+            const auto off = exportSeconds(false), on = exportSeconds(true);
+            check(on.first > 0.0 && off.first > 0.0 && on.second > 0,
+                  QStringLiteral("esportazione video 1080p, 60 fotogrammi (Gyroid, ray marching): %1 s col ricampionamento, %2 s senza (x%3)")
+                      .arg(on.first, 0, 'f', 2).arg(off.first, 0, 'f', 2).arg(on.first / std::max(0.001, off.first), 0, 'f', 2));
+        }
+#endif
+        if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Multi Meshes/Torus Necklace Spin.json"))) {
+            gl->stopAllTimers();
+            wait(400);
+            const auto off = msPerFrame(false), on = msPerFrame(true);
+            check(on.second == QSize(1920, 1080),
+                  QStringLiteral("video 1920x1080 (Torus Necklace Spin, mesh): %1 ms per fotogramma contro %2 senza ricampionamento (x%3)")
+                      .arg(on.first, 0, 'f', 1).arg(off.first, 0, 'f', 1).arg(on.first / std::max(0.001, off.first), 0, 'f', 2));
+        }
+    }
+    // STEREOGRAFICA, LE CORDE OLTRE IL TETTO (14a2a91): oltre il raggio
+    // proiettato 12 r ogni punto finisce sulla sfera del tetto, e un triangolo coi
+    // vertici li' in direzioni lontane diventava una lastra piatta attraverso la
+    // sfera (Clifford Tori Labirinth). Il fragment la scarta. Una mesh fatta
+    // apposta (setCustomMesh, punti 4D): un quadrato coi vertici oltre il tetto
+    // in direzioni opposte (w = 50) deve sparire; lo stesso quadrato dentro il
+    // tetto (w = 0) deve vedersi.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Stereografica: le corde oltre il tetto non si disegnano =="));
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))) {
+        gl->stopAllTimers();
+        gl->setProjectionMode(2);
+        wait(300);
+        const double vr = double(gl->width()) / double(std::max(1, gl->height()));
+        int h = int(std::lround(gl->height() * gl->devicePixelRatioF()));
+        h -= h % 2;
+        const QSize sz(int(std::lround(h * vr)) & ~1, h);
+        auto inkWith = [&](float w, const QString &tag) {
+            const QVector<QVector<QVector4D>> grid = {
+                { QVector4D(1.0f, 0.0f, 0.0f, w), QVector4D(0.0f, 1.0f, 0.0f, w) },
+                { QVector4D(0.0f, -1.0f, 0.0f, w), QVector4D(-1.0f, 0.0f, 0.0f, w) } };
+            gl->setCustomMesh(grid);
+            wait(400);
+            QString e;
+            const QImage im = ImageCapture::render(gl, sz, vr, &e);
+            im.save(m_outDir + QStringLiteral("/stereo-chord-%1.png").arg(tag));
+            if (im.isNull()) return qint64(-1);
+            const QRgb bg = im.pixel(1, 1);
+            qint64 n = 0;
+            for (int y = 0; y < im.height(); y += 2)
+                for (int x = 0; x < im.width(); x += 2) {
+                    const QRgb q = im.pixel(x, y);
+                    if (std::abs(qRed(q) - qRed(bg)) + std::abs(qGreen(q) - qGreen(bg)) + std::abs(qBlue(q) - qBlue(bg)) > 30) ++n;
+                }
+            return n;
+        };
+        const qint64 inside = inkWith(0.0f, QStringLiteral("inside"));
+        const qint64 beyond = inkWith(50.0f, QStringLiteral("beyond"));
+        const qint64 total = qint64(sz.width() / 2) * (sz.height() / 2);
+        check(inside > total / 100 && beyond >= 0 && beyond < total / 1000,
+              QStringLiteral("quadrato dentro il tetto: %1 pixel disegnati; coi vertici oltre il tetto in direzioni opposte: "
+                             "%2 (la corda non si disegna)").arg(inside).arg(beyond));
+        gl->setProjectionMode(1);
+    }
+    // IL RIQUADRO TRASCINATO (FrameGuide, GLWidget::setCaptureShift): l'immagine
+    // e' la parte della vista sotto il riquadro. Prima la logica pura; poi, su
+    // ogni scena, lo stesso pezzo di un'immagine col rapporto della vista: larga
+    // la meta' col riquadro tutto a destra (a sinistra) e' la sua meta' destra
+    // (sinistra); larga il doppio, in basso (in alto), la meta' di sotto (sopra).
+    // Mesh, ray marching (anche in stereografica), i cieli a sfera e a cubo:
+    // ognuno ricava i raggi a modo suo (u_mvpMatrix, la sua inversa, la matrice
+    // dei raggi del cielo).
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Riquadro trascinato: l'immagine e' la parte della vista sotto di lui =="));
+    {
+        const QSize view(1200, 800);
+        const QRect right = ImageCapture::guideRect(view, 1.0, QPointF(1.0, 0.0));
+        const QRect left = ImageCapture::guideRect(view, 1.0, QPointF(-1.0, 0.7));    // y non conta
+        const QRect bottom = ImageCapture::guideRect(view, 3.0, QPointF(0.4, 1.0));   // x non conta
+        const QPointF toRight = ImageCapture::captureShiftFor(1.0, 1.5, QPointF(1.0, 0.0));
+        const QPointF toBottom = ImageCapture::captureShiftFor(3.0, 1.5, QPointF(0.0, 1.0));
+        check(right == QRect(400, 0, 800, 800) && left == QRect(0, 0, 800, 800) && bottom == QRect(0, 400, 1200, 400)
+                  && ImageCapture::guideRect(view, 1.0, QPointF()) == ImageCapture::guideRect(view, 1.0)
+                  && qFuzzyCompare(toRight.x(), -0.5) && toRight.y() == 0.0
+                  && toBottom.x() == 0.0 && qFuzzyCompare(toBottom.y(), 1.0)
+                  && ImageCapture::captureShiftFor(1.0, 1.5, QPointF()).isNull(),
+              QStringLiteral("guideRect e captureShiftFor: il riquadro si sposta solo lungo il lato libero, fino ai "
+                             "bordi; spostamento in NDC -0.5 a destra (1:1 in 3:2), +1 in basso (3:1 in 3:2), zero al centro"));
+    }
+    const auto sameAsPart = [&](const QString &what, const QString &tag, bool wider = true) {
+        gl->stopAllTimers();
+        wait(500);
+        const double vr = double(gl->width()) / double(std::max(1, gl->height()));
+        // All'altezza della vista (pari), non piu' piccola: qui si verifica lo
+        // spostamento del riquadro, e un'immagine piu' piccola della vista verrebbe
+        // ricampionata (GLWidget::captureRenderSize), con bordi spostati di un
+        // pixel fra intero e pezzi sulle scacchiere a contrasto pieno.
+        int h = int(std::lround(gl->height() * gl->devicePixelRatioF()));
+        h -= h % 2;
+        int w = int(std::lround(h * vr));
+        w -= w % 2;
+        QString e;
+        const QImage full = ImageCapture::render(gl, QSize(w, h), vr, &e);
+        if (full.isNull()) {
+            check(false, QStringLiteral("%1: rendering col rapporto della vista fallito %2").arg(what, e));
+            return;
+        }
+        full.save(m_outDir + QStringLiteral("/image-frame-%1-full.png").arg(tag));
+        // Percentuale di pixel diversi di piu' di 48 livelli in un canale.
+        const auto differ = [](const QImage &part, const QImage &whole, const QPoint &at) {
+            qint64 n = 0;
+            for (int y = 0; y < part.height(); ++y)
+                for (int x = 0; x < part.width(); ++x) {
+                    const QRgb a = part.pixel(x, y), b = whole.pixel(x + at.x(), y + at.y());
+                    if (std::max({ std::abs(qRed(a) - qRed(b)), std::abs(qGreen(a) - qGreen(b)),
+                                   std::abs(qBlue(a) - qBlue(b)) }) > 48) ++n;
+                }
+            return 100.0 * double(n) / std::max(1.0, double(part.width()) * part.height());
+        };
+        struct Part { QString name; QSize size; double ratio; QPointF position; QPoint at; };
+        const QList<Part> parts = {
+            { QStringLiteral("destra"), QSize(w / 2, h), vr / 2.0, QPointF(1.0, 0.0), QPoint(w - w / 2, 0) },
+            { QStringLiteral("sinistra"), QSize(w / 2, h), vr / 2.0, QPointF(-1.0, 0.0), QPoint(0, 0) },
+            { QStringLiteral("sotto"), QSize(w, h / 2), vr * 2.0, QPointF(0.0, 1.0), QPoint(0, h - h / 2) },
+            { QStringLiteral("sopra"), QSize(w, h / 2), vr * 2.0, QPointF(0.0, -1.0), QPoint(0, 0) },
+        };
+        QStringList report, bad;
+        for (const Part &p : parts) {
+            if (!wider && p.ratio > vr) continue;
+            const QImage img = ImageCapture::render(gl, p.size, p.ratio, &e, 1.0, p.position);
+            img.save(m_outDir + QStringLiteral("/image-frame-%1-%2.png").arg(tag, p.name));
+            const double pct = img.isNull() ? 100.0 : differ(img, full, p.at);
+            report << QStringLiteral("%1 %2%").arg(p.name).arg(pct, 0, 'f', 2);
+            if (pct > 1.0) bad << p.name;
+        }
+        // Lo spostamento non resta addosso alla vista.
+        const bool reset = gl->m_captureShift.isNull();
+        check(bad.isEmpty() && reset,
+              QStringLiteral("%1: col riquadro ai bordi l'immagine e' il pezzo della vista sotto di lui (pixel diversi: %2)%3")
+                  .arg(what, report.join(QStringLiteral(", ")), reset ? QString() : QStringLiteral("; spostamento rimasto")));
+    };
+    sameAsPart(QStringLiteral("Gyroid (ray marching)"), QStringLiteral("gyroid"));
+    if (loadRecord(QStringLiteral("records/Rotations/Implicit/Cross Sections/S2xS1/Splitting Torus.json"))) {
+        sameAsPart(QStringLiteral("Splitting Torus (ray marching, cielo a cubo)"), QStringLiteral("splitting"));
+        // In stereografica il ray marching ha un campo visivo suo, fisso (45
+        // gradi, raymarch_template.txt): non segue la riduzione del campo
+        // verticale delle immagini piu' larghe della vista, gia' a riquadro
+        // centrato. Qui si guardano le sole immagini piu' strette.
+        gl->setProjectionMode(2);
+        sameAsPart(QStringLiteral("Splitting Torus in stereografica (immagini piu' strette della vista)"),
+                   QStringLiteral("splitting-stereo"), false);
+        gl->setProjectionMode(1);
+    }
+    if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Multi Meshes/Torus Necklace Spin.json")))
+        sameAsPart(QStringLiteral("Torus Necklace Spin (mesh, cielo a sfera)"), QStringLiteral("necklace"));
+    // LO SFONDO FISSO E LA VISTA 2D: si disegnano a schermo intero senza
+    // proiezione e la finestra della cattura la ricevono da
+    // GLWidget::captureViewWindow. Prima un'immagine col rapporto diverso
+    // dalla vista mostrava lo sfondo (o la texture) intero, stirato sul suo
+    // rapporto, e non seguiva il riquadro trascinato. Una scacchiera con le
+    // tinte che cambiano lungo u e v: ogni casella e' riconoscibile.
+    {
+        Ui::MainWindow *ui = m_mw->ui;
+        gl->setBackgroundSkyMode(GLWidget::BgFixed);
+        gl->setBackgroundFraming(1.0f, QVector2D(), 0.0f);
+        gl->loadBackgroundScript(QStringLiteral("return vec3(mod(floor(u * 8.0) + floor(v * 8.0), 2.0), u, v);"));
+        gl->setBackgroundTextureEnabled(true);
+        wait(600);
+        sameAsPart(QStringLiteral("sfondo fisso (scacchiera da script)"), QStringLiteral("bg-fixed"));
+        gl->setBackgroundTextureEnabled(false);
+        selectTexture(QStringLiteral("textures/Procedurals/Animated Checkerboard.json"));
+        wait(600);
+        ui->btnFlatPreview->setChecked(true);
+        wait(300);
+        sameAsPart(QStringLiteral("vista 2D della texture (Animated Checkerboard)"), QStringLiteral("flat"));
+        ui->btnFlatPreview->setChecked(false);
+        wait(300);
+        // Il flusso qui sotto riparte dalla scena di prima, senza texture
+        // animata e FERMA: il record fa ripartire la rotazione, e il flusso
+        // confronta pixel per pixel il PNG con un secondo scatto.
+        loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Multi Meshes/Torus Necklace Spin.json"));
+        gl->stopAllTimers();
+        wait(500);
+    }
+    // IL FLUSSO, col riquadro trascinato dal mouse: il dialogo non e' modale,
+    // il riquadro riceve il trascinamento, il resto della finestra principale
+    // no (un clic sul GO va perso). L'immagine salvata e' quella del riquadro.
+    {
+        const QString out = m_outDir + QStringLiteral("/image-capture-dragged.png");
+        QFile::remove(out);
+        // Le chiavi che il dialogo ricorda (come nei flussi qui sopra).
+        const auto clearImageSettings = [] {
+            QSettings st;
+            for (const char *k : { "imagePrintLength", "imagePrintUnit", "imageDpi", "imageSizeMode", "imageLongSide",
+                                   "imageRatioIndex", "imageExactW", "imageExactH" })
+                st.remove(QString::fromLatin1(k));
+        };
+        clearImageSettings();
+        ImageCapture::setTestSavePath(out);
+        QPointF dragged;
+        bool goIgnored = false, dialogNonModal = false;
+        ImageCapture::setTestDialogHandler([&](QDialog *d) {
+            dialogNonModal = !d->isModal() && d->windowModality() == Qt::NonModal;
+            // 1:1, piu' stretto della vista: il riquadro si sposta in orizzontale.
+            for (QComboBox *c : d->findChildren<QComboBox *>())
+                if (c->findText(QStringLiteral("1:1")) >= 0) { c->setCurrentIndex(c->findText(QStringLiteral("1:1"))); break; }
+            QCoreApplication::processEvents();
+            QWidget *guide = gl->findChild<QWidget *>(QStringLiteral("imageFrameGuide"));
+            if (guide) {
+                const QPointF from(guide->width() / 2.0, guide->height() / 2.0);
+                const QPointF to = from + QPointF(guide->width() / 8.0, 0.0);
+                QMouseEvent press(QEvent::MouseButtonPress, from, guide->mapToGlobal(from), Qt::LeftButton,
+                                  Qt::LeftButton, Qt::NoModifier);
+                QMouseEvent move(QEvent::MouseMove, to, guide->mapToGlobal(to), Qt::NoButton, Qt::LeftButton,
+                                 Qt::NoModifier);
+                QMouseEvent release(QEvent::MouseButtonRelease, to, guide->mapToGlobal(to), Qt::LeftButton,
+                                    Qt::NoButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(guide, &press);
+                QCoreApplication::sendEvent(guide, &move);
+                QCoreApplication::sendEvent(guide, &release);
+                dragged = guide->property("framePosition").toPointF();
+                guide->grab().save(m_outDir + QStringLiteral("/image-capture-dragged-guide.png"));
+            }
+            // Un clic sul GO della finestra principale: col dialogo aperto non arriva.
+            QPushButton *go = m_mw->ui->btnStart_2;
+            const QString before = go ? go->text() : QString();
+            const bool animating = gl->isAnimating();
+            if (go) {
+                const QPointF c(go->width() / 2.0, go->height() / 2.0);
+                QMouseEvent p(QEvent::MouseButtonPress, c, go->mapToGlobal(c), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QMouseEvent r(QEvent::MouseButtonRelease, c, go->mapToGlobal(c), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(go, &p);
+                QCoreApplication::sendEvent(go, &r);
+                QCoreApplication::processEvents();
+                goIgnored = go->text() == before && gl->isAnimating() == animating;
+            }
+            d->accept();
+        });
+        const bool done = ImageCapture::run(gl, m_mw, m_outDir);
+        ImageCapture::setTestSavePath(QString());
+        ImageCapture::setTestDialogHandler(nullptr);
+        const QImage saved(out);
+        QString e;
+        const QImage expected = saved.isNull() ? QImage() : ImageCapture::render(gl, saved.size(), 1.0, &e, 1.0, dragged);
+        const QImage centred = saved.isNull() ? QImage() : ImageCapture::render(gl, saved.size(), 1.0, &e);
+        const auto same = [](const QImage &a, const QImage &b) {
+            return !a.isNull() && a.size() == b.size()
+                   && a.convertToFormat(QImage::Format_RGB32) == b.convertToFormat(QImage::Format_RGB32);
+        };
+        check(done && dialogNonModal && dragged.x() > 0.1 && dragged.y() == 0.0 && goIgnored
+                  && same(saved, expected) && !same(saved, centred),
+              QStringLiteral("flusso col riquadro trascinato: dialogo non modale %1, riquadro a %2 (trascinato a destra), "
+                             "clic sul GO ignorato %3, PNG uguale all'immagine del riquadro %4 e diverso da quella centrata %5")
+                  .arg(dialogNonModal).arg(dragged.x(), 0, 'f', 2).arg(goIgnored)
+                  .arg(same(saved, expected)).arg(!same(saved, centred)));
+        clearImageSettings();
+        pressNew();
     }
     gl->setClocksDrivenByRecorder(false);
 }
@@ -5829,6 +6713,223 @@ void ScenarioTest::runVideoFrameScenarios()
               QStringLiteral("dimensione nativa: immagine intera (%1x%2)").arg(img.width()).arg(img.height()));
     }
     gl->setClocksDrivenByRecorder(false);
+
+#if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
+    // IL DIALOGO DEL VIDEO SUL DESKTOP: un dialogo solo con tutte le impostazioni
+    // (prima fino a sei QInputDialog in fila), che riparte dalle scelte
+    // dell'ultima volta; il Downscaling si accende solo quando conta. Dopo,
+    // il selettore del file. Il REC vero: la scelta Video/Image e il selettore
+    // del file li chiude il watcher dei popup (Video, poi Annulla), il dialogo
+    // l'handler.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Video: un dialogo solo per le impostazioni (desktop) =="));
+    {
+        QSettings st;
+        st.setValue("lastRecDuration", 7);
+        st.setValue("lastRecFPS", 30);
+        st.setValue("lastRecResIndex", 0);   // la vista: la riga del Downscaling corta
+        st.setValue("lastRecFormat", 1);
+        st.setValue("lastRecEngine", 0);
+        st.setValue("lastRecResample", true);
+    }
+    // Le finestre modali le chiude il watcher dei popup (Annulla), la scelta
+    // Video/Image con m_popupAnswer; questo timer, piu' svelto, le annota soltanto.
+    QStringList modalsSeen;
+    bool fileDialogSeen = false;
+    QTimer observer;
+    observer.setInterval(20);
+    QObject::connect(&observer, &QTimer::timeout, [&]() {
+        QWidget *m = QApplication::activeModalWidget();
+        if (!m) return;
+        const QString cls = QString::fromLatin1(m->metaObject()->className());
+        if (modalsSeen.isEmpty() || modalsSeen.last() != cls) modalsSeen << cls;
+        if (qobject_cast<QFileDialog *>(m)) fileDialogSeen = true;
+    });
+    for (const bool accept : { false, true }) {
+        modalsSeen.clear();
+        fileDialogSeen = false;
+        bool restored = false, gateOk = false, hintVisible = false;
+        QString title, gateText, hintText;
+        VideoRecorder::setTestDialogHandler([&](QDialog *d) {
+            m_leaveOpen = d;
+            title = d->windowTitle();
+            const QList<QSpinBox *> spins = d->findChildren<QSpinBox *>();
+            const QList<QComboBox *> combos = d->findChildren<QComboBox *>();
+            QCheckBox *chk = d->findChild<QCheckBox *>();
+            if (spins.size() != 2 || combos.size() != 3 || !chk) { m_leaveOpen = nullptr; d->reject(); return; }
+            QComboBox *res = combos[0], *format = combos[1], *engine = combos[2];
+            restored = spins[0]->value() == 7 && spins[1]->value() == 30 && res->currentIndex() == 0
+                       && format->currentIndex() == 1 && engine->currentIndex() == 0 && chk->isChecked();
+            // La casella si accende solo col motore nativo e un video piu' piccolo della vista.
+            // Si apre sulla vista (riga corta); 1080p la allunga se il video e'
+            // piu' piccolo della vista.
+            const bool smaller1080 = gl->captureRenderSize(QSize(1920, 1080), 1.0f) != QSize(1920, 1080);
+            wait(300);
+            const bool onView = chk->isEnabled();
+            res->setCurrentIndex(1);
+            engine->setCurrentIndex(1);
+            const bool onUpscale = chk->isEnabled();
+            engine->setCurrentIndex(0);
+            const bool on1080 = chk->isEnabled();
+            gateOk = on1080 == smaller1080 && !onView && !onUpscale;
+            // Dalla riga corta a quella lunga: il dialogo cresce e la riga si
+            // legge tutta (alta quanto chiede alla sua larghezza, sopra i tasti).
+            wait(300);
+            QLabel *hint = d->findChild<QLabel *>(QStringLiteral("videoResampleHint"));
+            QDialogButtonBox *box = d->findChild<QDialogButtonBox *>();
+            hintVisible = hint && box && hint->height() >= hint->heightForWidth(hint->width())
+                          && hint->geometry().bottom() < box->geometry().top();
+            hintText = hint && box ? QStringLiteral("alta %1 su %2, fondo %3, tasti da %4")
+                                         .arg(hint->height()).arg(hint->heightForWidth(hint->width()))
+                                         .arg(hint->geometry().bottom()).arg(box->geometry().top())
+                                   : QStringLiteral("riga o tasti non trovati");
+            gateText = QStringLiteral("1080p %1 (piu' piccolo della vista %2), vista %3, Screen Upscale %4")
+                           .arg(on1080).arg(smaller1080).arg(onView).arg(onUpscale);
+            m_leaveOpen = nullptr;
+            if (accept) {
+                spins[0]->setValue(9);
+                d->accept();
+            } else {
+                d->reject();
+            }
+        });
+        m_popupAnswer = QStringLiteral("Video");
+        observer.start();
+        m_mw->m_videoRecorder->toggleRecord();
+        observer.stop();
+        m_popupAnswer.clear();
+        VideoRecorder::setTestDialogHandler(nullptr);
+        wait(200);
+        const bool noInputDialog = !modalsSeen.contains(QStringLiteral("QInputDialog"));
+        const bool recording = m_mw->m_isRecording;
+        check(title == QStringLiteral("Capture Video") && restored && noInputDialog,
+              QStringLiteral("%1: un dialogo solo (\"%2\"), finestre modali %3; riparte dalle scelte salvate %4")
+                  .arg(accept ? QStringLiteral("Capture") : QStringLiteral("Cancel"), title, modalsSeen.join(QStringLiteral(" > ")))
+                  .arg(restored));
+        check(gateOk, QStringLiteral("Downscaling acceso solo quando conta: %1").arg(gateText));
+        check(hintVisible, QStringLiteral("la riga del Downscaling si legge tutta quando si allunga (%1)").arg(hintText));
+        if (accept) {
+            const int saved = QSettings().value("lastRecDuration").toInt();
+            check(fileDialogSeen && saved == 9 && !recording,
+                  QStringLiteral("Capture apre il selettore del file %1 e salva le scelte (durata %2); Annulla li' non registra %3")
+                      .arg(fileDialogSeen).arg(saved).arg(!recording));
+        } else {
+            check(!fileDialogSeen && !recording,
+                  QStringLiteral("Cancel: niente selettore del file %1, nessuna registrazione %2").arg(!fileDialogSeen).arg(!recording));
+        }
+    }
+#endif
+}
+
+// ROLL LEFT / RIGHT A SCENA FERMA. Sulla Shape la camera rolla; sui record
+// (Rotations, Paths) col moto fermato i due tasti non facevano nulla
+// (segnalato dall'utente su Calabi-Yau e Brieskorn-Pham). Si tiene premuto
+// Roll Left come l'utente e si guarda se il fotogramma cambia.
+void ScenarioTest::runRollScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Roll Left a scena ferma: Shape e record =="));
+    auto changedPct = [](const QImage &a0, const QImage &b0) {
+        const QImage a = a0.convertToFormat(QImage::Format_RGB32), b = b0.convertToFormat(QImage::Format_RGB32);
+        if (a.size() != b.size() || a.isNull()) return 100.0;
+        qint64 diff = 0;
+        for (int y = 0; y < a.height(); ++y) {
+            const QRgb *pa = reinterpret_cast<const QRgb *>(a.constScanLine(y));
+            const QRgb *pb = reinterpret_cast<const QRgb *>(b.constScanLine(y));
+            for (int x = 0; x < a.width(); ++x)
+                if (qAbs(qGray(pa[x]) - qGray(pb[x])) > 6) ++diff;
+        }
+        return 100.0 * double(diff) / double(a.width() * a.height());
+    };
+    int rollSign = 0;   // verso della prima Shape: i record devono girare uguale
+    // NON c'e' il record Rotations "Calabi Yau": salva Speed = 1, e il passo dei
+    // tasti del dock 3D View (Roll compreso) segue Speed, quindi li' il rollio e'
+    // dieci volte piu' lento e sotto la soglia di questo test. E' voluto: Speed
+    // regola insieme path e tasti (deciso con l'utente il 2026-11-07).
+    struct RollCase { const char *rel; bool record; };
+    for (const RollCase &rc : { RollCase{ "surfaces/Parametric/Surfaces/Multi Meshes/Brieskorn-Pham.json", false },
+                                RollCase{ "records/Rotations/Parametric/Surfaces/Multi Meshes/Brieskorn-Pham (3,5).json", true },
+                                RollCase{ "surfaces/Parametric/Surfaces/Multi Meshes/Calabi-Yau.json", false },
+                                RollCase{ "records/Paths/Parametric/Surfaces/Multi Meshes/Calabi-Yau Orbit.json", true } }) {
+        const QString rel = QString::fromLatin1(rc.rel);
+        if (!(rc.record ? loadRecord(rel) : loadSurface(rel))) continue;
+        wait(800);
+        // Moto fermato come dall'utente: STOP del master se qualcosa gira.
+        auto moving = [this, gl] {
+            return gl->isAnimating() || m_mw->pathRunning(CameraPaths::Path3D) || m_mw->pathRunning(CameraPaths::Path4D);
+        };
+        if (moving()) { m_mw->performMasterStop();  wait(600); }
+        const QImage before = gl->grabFramebuffer();
+        const float rollBefore = gl->framing().roll;
+        const bool enabled = ui->btnRollLeft->isEnabled();
+        // 1100 ms: la ripetizione continua parte dopo 400 ms di pressione
+        // (connectNavButton), e restano i 700 ms di rollio di prima.
+        emit ui->btnRollLeft->pressed();
+        wait(1100);
+        emit ui->btnRollLeft->released();
+        wait(300);
+        const QImage after = gl->grabFramebuffer();
+        const double pct = changedPct(before, after);
+        // Verso della rotazione: orientamento dell'asse principale della
+        // figura (momenti del secondo ordine dei pixel diversi dallo sfondo).
+        auto axisDeg = [](const QImage &img0) {
+            const QImage img = img0.convertToFormat(QImage::Format_RGB32);
+            const QRgb bg = img.pixel(0, 0);
+            double n = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+            for (int y = 0; y < img.height(); y += 2) {
+                const QRgb *row = reinterpret_cast<const QRgb *>(img.constScanLine(y));
+                for (int x = 0; x < img.width(); x += 2) {
+                    if (qAbs(qGray(row[x]) - qGray(bg)) <= 10) continue;
+                    n += 1; sx += x; sy += y; sxx += double(x) * x; syy += double(y) * y; sxy += double(x) * y;
+                }
+            }
+            if (n < 10) return 0.0;
+            const double mx = sx / n, my = sy / n;
+            const double cxx = sxx / n - mx * mx, cyy = syy / n - my * my, cxy = sxy / n - mx * my;
+            return qRadiansToDegrees(0.5 * std::atan2(2.0 * cxy, cxx - cyy));
+        };
+        double turn = axisDeg(after) - axisDeg(before);
+        while (turn > 90.0) turn -= 180.0;
+        while (turn < -90.0) turn += 180.0;
+        if (rollSign == 0 && qAbs(turn) > 0.3) rollSign = turn > 0 ? 1 : -1;
+        const bool sameWay = rollSign == 0 || qAbs(turn) <= 0.3 || (turn > 0) == (rollSign > 0);
+        check(enabled && pct > 1.0 && sameWay,
+              QStringLiteral("%1 (%2), moto fermo: Roll Left -> la vista ruota, nel verso della Shape (%3% pixel cambiati, asse %9 gradi, tasto %4, roll %5 -> %6, path %7, animazione %8)")
+                  .arg(QFileInfo(rel).baseName(), rc.record ? QStringLiteral("record") : QStringLiteral("Shape"))
+                  .arg(pct, 0, 'f', 1).arg(onOff(enabled)).arg(rollBefore, 0, 'f', 1).arg(gl->framing().roll, 0, 'f', 1)
+                  .arg(onOff(gl->m_isPathFollowing), onOff(moving())).arg(turn, 0, 'f', 2));
+    }
+
+    // UN CLIC = UNO SCATTO (connectNavButton). Prima il timer di ripetizione
+    // partiva alla pressione e scattava ogni 30 ms: un clic dava da 1 a 5
+    // scatti e non si tornava all'angolo di partenza (T3 Villarceau, Psi).
+    // Psi+ e Psi- cliccati una volta ciascuno devono riportare Psi dov'era;
+    // tenuto premuto, il tasto deve ancora scorrere.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Tasti a scatto: un clic, uno scatto =="));
+    if (loadSurface(QStringLiteral("surfaces/Implicit/Cross Sections/T3.json"))) {
+        wait(800);
+        if (gl->isAnimating()) { m_mw->performMasterStop(); wait(600); }
+        const bool enabled = ui->btnPsiAhead->isEnabled() && ui->btnPsiRear->isEnabled();
+        const float step = 2.0f * m_mw->pathSpeed4D();   // rotSpeed di virtualMove
+        auto press = [this](QPushButton *b, int ms) {
+            emit b->pressed(); wait(ms); emit b->released(); wait(100);
+        };
+        const float psi0 = gl->getPsi();
+        press(ui->btnPsiAhead, 150);   // un clic normale: meno dell'attesa di ripetizione
+        const float psi1 = gl->getPsi();
+        press(ui->btnPsiRear, 150);
+        const float psi2 = gl->getPsi();
+        check(enabled && qAbs((psi1 - psi0) - step) < 1e-5f && qAbs(psi2 - psi0) < 1e-5f,
+              QStringLiteral("Psi+ poi Psi-, un clic ciascuno: uno scatto e ritorno esatto (passo %1, Psi %2 -> %3 -> %4, tasti %5)")
+                  .arg(step, 0, 'f', 4).arg(psi0, 0, 'f', 6).arg(psi1, 0, 'f', 6).arg(psi2, 0, 'f', 6).arg(onOff(enabled)));
+        press(ui->btnPsiAhead, 1000);  // tenuto premuto: ripetizione dopo 400 ms
+        const float steps = step > 0.0f ? (gl->getPsi() - psi2) / step : 0.0f;
+        check(enabled && steps > 5.0f,
+              QStringLiteral("Psi+ tenuto premuto 1 s: il valore scorre (%1 scatti)").arg(steps, 0, 'f', 1));
+    }
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()
@@ -5872,6 +6973,21 @@ void ScenarioTest::runShapeBackgroundScenarios()
             check(m_mw->m_scene.bgColor.name() == defaultBackgroundColor().name(),
                   QStringLiteral("poi una Shape senza colore di sfondo -> grigio di default (%1)")
                       .arg(m_mw->m_scene.bgColor.name()));
+    }
+    // FORMA DELLO SFONDO al cambio di preset: una Shape caricata dopo un record
+    // con lo sfondo "Sphere" riparte da Fixed, come NEW e come un record senza
+    // la chiave. Prima la forma restava quella del record: la texture applicata
+    // poi allo sfondo si avvolgeva sul cielo e il Save la scriveva nel record.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Shape: la forma dello sfondo torna Fixed dopo un record Sphere =="));
+    if (loadRecord(QStringLiteral("records/Rotations/Parametric/Solid Curves/Single Curves/Torus Knot.json"))) {
+        check(gl->backgroundSkyMode() == GLWidget::BgSphere,
+              QStringLiteral("record Torus Knot -> forma dello sfondo Sphere (%1)")
+                  .arg(GLWidget::bgSkyModeName(gl->backgroundSkyMode())));
+        if (loadSurface(kTorus))
+            check(gl->backgroundSkyMode() == GLWidget::BgFixed && m_mw->ui->radioBgFixed->isChecked(),
+                  QStringLiteral("poi la Shape del toro -> forma Fixed, nel motore e nei radio (%1)")
+                      .arg(GLWidget::bgSkyModeName(gl->backgroundSkyMode())));
     }
     // NIENTE DA SALVARE, e la texture dello SFONDO coi SUOI colori. Da una
     // scena vuota la Shape si scriveva con le equazioni vuote (riaperta, il
@@ -5919,7 +7035,7 @@ void ScenarioTest::runShapeBackgroundScenarios()
     wait(300);
     check(!QFile::exists(defaultBg) && m_lastPopup.contains(QLatin1String("no background texture")),
           QStringLiteral("sfondo di default -> Save Texture rifiutato (%1)").arg(m_lastPopup));
-    if (selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json"))) {
+    if (selectTexture(QStringLiteral("textures/Procedurals/Fractals/Mandelbrot.json"))) {
         const QColor c1(QStringLiteral("#aa3311")), c2(QStringLiteral("#113355"));
         m_mw->m_scene.bgTexColor1 = c1;
         m_mw->m_scene.bgTexColor2 = c2;
@@ -5986,7 +7102,7 @@ void ScenarioTest::runShapeBackgroundScenarios()
         auto background = [&]() {
             click(ui->radioBackground);
             if (!ui->chkBoxTexture->isChecked()) click(ui->chkBoxTexture);
-            selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json"));
+            selectTexture(QStringLiteral("textures/Procedurals/Fractals/Mandelbrot.json"));
             wait(300);
             click(ui->radioSurface);
         };
@@ -6047,6 +7163,88 @@ void ScenarioTest::runShapeBackgroundScenarios()
 
         modeTab(0);
         pressNew();
+    }
+
+    // TEXTURE PROCEDURALI A SCHERMO INTERO E DOCK: lo sfondo fisso e la vista
+    // 2D della texture di superficie. Il dominio dello script e' alto 1 e largo
+    // quanto le proporzioni della vista A DOCK CHIUSI (setFullViewAspect): a
+    // dock chiusi una scacchiera ha le caselle quadrate, con un dock aperto si
+    // stringono in larghezza come un'immagine. Prima era il contrario: quadrate
+    // solo con la vista quasi quadrata (dock aperto), allungate a dock chiusi
+    // (segnalato dall'utente, 11-11, in vista 2D con il dock Script aperto).
+    // Da guardare: docks-bg-*.png, docks-flat-*.png.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Texture procedurali a schermo intero: le proporzioni della vista a dock chiusi =="));
+    if (loadSurface(kTorus)) {
+        Ui::MainWindow *ui = m_mw->ui;
+        if (m_mw->editingBackground()) ui->radioSurface->click();
+        // Larghezza e altezza medie delle caselle lungo il bordo alto e quello
+        // sinistro (sullo sfondo il toro sta al centro): la distanza fra il primo
+        // e l'ultimo cambio di colore divisa per le caselle intere che ci stanno.
+        // Il canale verde separa le due scacchiere (bianco/nero, verde/nero).
+        const auto cells = [](const QImage &img) {
+            const auto mean = [&img](bool horizontal) {
+                const int n = horizontal ? img.width() : img.height();
+                QList<int> edges;
+                bool prev = false;
+                for (int i = 0; i < n; ++i) {
+                    const QColor c = horizontal ? img.pixelColor(i, 3) : img.pixelColor(3, i);
+                    const bool light = c.green() > 100;
+                    if (i > 0 && light != prev) edges << i;
+                    prev = light;
+                }
+                return edges.size() < 2 ? 0.0 : double(edges.last() - edges.first()) / (edges.size() - 1);
+            };
+            return QPointF(mean(true), mean(false));
+        };
+        const auto docks = m_mw->findChildren<QDockWidget*>(QString(), Qt::FindDirectChildrenOnly);
+        // Caselle a dock chiusi e poi con `dock` aperto.
+        const auto docksCase = [&](const QString &what, const QString &file, QDockWidget *dock) {
+            const auto shot = [&](const QString &name) {
+                wait(600);
+                const QImage img = gl->grabFramebuffer();
+                img.save(m_outDir + QStringLiteral("/docks-%1-%2.png").arg(file, name));
+                return cells(img);
+            };
+            for (QDockWidget *d : docks) d->hide();
+            const QPointF closed = shot(QStringLiteral("closed"));
+            const float closedRef = gl->fullViewAspect();
+            const float closedView = float(gl->width()) / float(gl->height());
+            dock->show();
+            const QPointF open = shot(QStringLiteral("open"));
+            const float openRef = gl->fullViewAspect();
+            const float openView = float(gl->width()) / float(gl->height());
+            for (QDockWidget *d : docks) d->hide();
+            wait(300);
+            const double closedRatio = closed.y() > 0.0 ? closed.x() / closed.y() : 0.0;
+            const double openRatio = open.y() > 0.0 ? open.x() / open.y() : 0.0;
+            check(std::abs(closedRatio - 1.0) < 0.05 && std::abs(closedRef - closedView) < 0.01,
+                  QStringLiteral("%1, dock chiusi: caselle %2 x %3 px (rapporto %4, atteso 1), proporzioni di riferimento %5 = vista %6")
+                      .arg(what).arg(closed.x(), 0, 'f', 1).arg(closed.y(), 0, 'f', 1).arg(closedRatio, 0, 'f', 3)
+                      .arg(closedRef, 0, 'f', 3).arg(closedView, 0, 'f', 3));
+            const double expected = openView / closedRef;
+            check(openView < closedView - 0.05 && std::abs(openRef - closedRef) < 0.01
+                      && std::abs(openRatio - expected) < 0.05,
+                  QStringLiteral("%1, %2 aperto: caselle %3 x %4 px (rapporto %5, atteso %6 come un'immagine), riferimento %7 (prima %8)")
+                      .arg(what, dock->objectName()).arg(open.x(), 0, 'f', 1).arg(open.y(), 0, 'f', 1)
+                      .arg(openRatio, 0, 'f', 3).arg(expected, 0, 'f', 3).arg(openRef, 0, 'f', 3).arg(closedRef, 0, 'f', 3));
+        };
+
+        gl->setBackgroundSkyMode(GLWidget::BgFixed);
+        gl->setBackgroundFraming(1.0f, QVector2D(), 0.0f);
+        gl->loadBackgroundScript(QStringLiteral("return vec3(mod(floor(u * 8.0) + floor(v * 8.0), 2.0));"));
+        gl->setBackgroundTextureEnabled(true);
+        docksCase(QStringLiteral("sfondo fisso"), QStringLiteral("bg"), ui->dockRenders);
+        gl->setBackgroundTextureEnabled(false);
+
+        // Il caso segnalato: la scacchiera della libreria sulla superficie,
+        // vista 2D, dock Script.
+        selectTexture(QStringLiteral("textures/Procedurals/Animated Checkerboard.json"));
+        wait(600);
+        ui->btnFlatPreview->setChecked(true);
+        docksCase(QStringLiteral("vista 2D della superficie"), QStringLiteral("flat"), ui->dockScripts);
+        ui->btnFlatPreview->setChecked(false);
+        wait(300);
     }
 }
 
@@ -6566,6 +7764,93 @@ void ScenarioTest::runLibraryRenameScenarios()
     m_mw->m_cutFilePaths = keepCut;
 }
 
+void ScenarioTest::runLibraryNameClashScenarios()
+{
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Library: cartella e file con lo stesso nome =="));
+
+    // 1. Senza disco, quindi senza dipendere dall'ordine: nell'albero c'e' gia'
+    //    la voce di una texture col nome della cartella che si cerca.
+    {
+        LibraryManager lm;
+        QTreeWidget tree;
+        auto *fileItem = new QTreeWidgetItem();
+        fileItem->setText(0, QStringLiteral("Shadertoy Style"));
+        fileItem->setData(0, Qt::UserRole + 1, 0);
+        tree.addTopLevelItem(fileItem);
+        QTreeWidgetItem *folder = lm.getOrCreateSubCategory(&tree, nullptr, QStringLiteral("Shadertoy Style"));
+        check(folder && folder != fileItem && tree.topLevelItemCount() == 2,
+              QStringLiteral("texture gia' nell'albero col nome della cartella -> la cartella e' una voce nuova"));
+        check(lm.getOrCreateSubCategory(&tree, nullptr, QStringLiteral("Shadertoy Style")) == folder,
+              QStringLiteral("la ricerca successiva ritrova la cartella, non la texture"));
+    }
+
+    // 2. Dal disco, con loadFromDirectory come all'avvio. L'ordine in cui il
+    //    disco restituisce file e cartella non si sceglie: con piu' coppie
+    //    qualcuna capita col file PRIMA della cartella, il caso che si rompeva.
+    QTemporaryDir tmp;
+    if (!tmp.isValid()) {
+        check(false, QStringLiteral("cartella temporanea non creata"));
+        return;
+    }
+    const QString root = tmp.path() + QStringLiteral("/textures");
+    const int pairs = 12;
+    auto writeTexture = [](const QString &path, const QString &name) {
+        QFile f(path);
+        if (f.open(QIODevice::WriteOnly))
+            f.write(QStringLiteral("{\"type\": \"custom_texture\", \"name\": \"%1\", \"code\": \"return vec3(1.0);\"}")
+                        .arg(name).toUtf8());
+    };
+    for (int i = 0; i < pairs; ++i) {
+        const QString name = QStringLiteral("Clash %1").arg(i);
+        QDir().mkpath(root + QLatin1Char('/') + name);
+        writeTexture(root + QLatin1Char('/') + name + QStringLiteral(".json"), name);
+        writeTexture(root + QLatin1Char('/') + name + QStringLiteral("/Inner %1.json").arg(i),
+                     QStringLiteral("Inner %1").arg(i));
+    }
+    int fileFirst = 0;
+    {
+        QStringList order;
+        QDirIterator it(root, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+        while (it.hasNext()) order << QFileInfo(it.next()).fileName();
+        for (int i = 0; i < pairs; ++i) {
+            const QString name = QStringLiteral("Clash %1").arg(i);
+            if (order.indexOf(name + QStringLiteral(".json")) < order.indexOf(name)) ++fileFirst;
+        }
+    }
+
+    LibraryManager lm;
+    QTreeWidget tree;
+    lm.loadFromDirectory(root, &tree, LibraryType::Texture);
+    int good = 0;
+    QStringList bad;
+    for (int i = 0; i < pairs; ++i) {
+        const QString name = QStringLiteral("Clash %1").arg(i);
+        QTreeWidgetItem *file = nullptr;
+        QTreeWidgetItem *folder = nullptr;
+        for (int k = 0; k < tree.topLevelItemCount(); ++k) {
+            QTreeWidgetItem *it = tree.topLevelItem(k);
+            if (it->text(0) != name) continue;
+            if (it->data(0, Qt::UserRole + 1).isValid()) file = it;
+            else folder = it;
+        }
+        const bool fileOk = file && !file->data(0, Qt::UserRole + 10).isValid() && file->childCount() == 0;
+        const bool folderOk = folder
+            && QDir::cleanPath(folder->data(0, Qt::UserRole + 10).toString())
+                   == QDir::cleanPath(root + QLatin1Char('/') + name)
+            && folder->childCount() == 1
+            && folder->child(0)->text(0) == QStringLiteral("Inner %1").arg(i)
+            && folder->child(0)->data(0, Qt::UserRole + 1).isValid();
+        if (fileOk && folderOk) ++good;
+        else bad << QStringLiteral("%1 (%2%3)").arg(name, fileOk ? QString() : QStringLiteral("file fuso o mancante "),
+                                                     folderOk ? QString() : QStringLiteral("cartella senza voce propria"));
+    }
+    check(good == pairs,
+          QStringLiteral("cartelle e texture omonime dal disco: %1 su %2 a posto (%3 lette col file prima della cartella)%4")
+              .arg(good).arg(pairs).arg(fileFirst)
+              .arg(bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral(", "))));
+}
+
 void ScenarioTest::runLibraryPasteScenarios()
 {
     m_lines.append(QString());
@@ -6770,11 +8055,82 @@ void ScenarioTest::runLibraryFolderScenarios()
         QCoreApplication::sendEvent(tree->viewport(), &press);
         QCoreApplication::sendEvent(tree->viewport(), &release);
         wait(300);
-        check(folder->isSelected() && leaf->isSelected(),
-              QStringLiteral("Cmd+clic sulla cartella -> selezione multipla, preset e cartella"));
+        check(folder->isSelected() && !leaf->isSelected() && tree->currentItem() == leaf,
+              QStringLiteral("Cmd+clic sulla cartella -> selezionata la cartella; il preset a schermo esce dalla "
+                             "selezione e resta corrente (grigio)"));
         tree->selectionModel()->clearSelection();
         tree->setCurrentItem(leaf);
         wait(200);
+    }
+    // Cmd/Ctrl+clic e Shift+clic su un ALTRO PRESET: selezione multipla, non
+    // un load (prima il preset si caricava subito); il clic semplice lo carica.
+    {
+        QTreeWidgetItem *second = nullptr;
+        for (int i = 0; i < folder->childCount() && !second; ++i)
+            if (folder->child(i) != leaf && folder->child(i)->childCount() == 0) second = folder->child(i);
+        if (second) {
+            auto click = [&](Qt::KeyboardModifiers mods, Qt::KeyboardModifiers releaseMods) {
+                const QPoint pos = tree->visualItemRect(second).center();
+                const QPoint global = tree->viewport()->mapToGlobal(pos);
+                QMouseEvent press(QEvent::MouseButtonPress, pos, global, Qt::LeftButton, Qt::LeftButton, mods);
+                QMouseEvent release(QEvent::MouseButtonRelease, pos, global, Qt::LeftButton, Qt::NoButton, releaseMods);
+                m_discardOnPrompt = true;
+                QCoreApplication::sendEvent(tree->viewport(), &press);
+                QCoreApplication::sendEvent(tree->viewport(), &release);
+                wait(1200);
+                m_discardOnPrompt = false;
+            };
+            // Cmd e Shift tenuti per tutto il clic, e Cmd lasciato prima del tasto.
+            // Col Cmd il preset a schermo esce dalla selezione e resta grigio (un
+            // Delete non lo deve prendere); lo Shift prende l'intervallo, lui compreso.
+            const struct { Qt::KeyboardModifiers press, release; const char *name; bool range; } gestures[] = {
+                { Qt::ControlModifier, Qt::ControlModifier, "Cmd", false },
+                { Qt::ShiftModifier, Qt::ShiftModifier, "Shift", true },
+                { Qt::ControlModifier, Qt::NoModifier, "Cmd (lasciato prima del tasto)", false },
+            };
+            for (const auto &g : gestures) {
+                click(g.press, g.release);
+                // Lo Shift parte dall'ultima voce premuta (qui il Cmd+clic di prima):
+                // del preset a schermo si guarda solo che resti corrente.
+                const bool selected = second->isSelected() && (g.range || !leaf->isSelected())
+                                      && tree->currentItem() == leaf;
+                check(selected && m_mw->m_lastLoadedLibraryItem == leaf,
+                      QStringLiteral("%1+clic su un altro preset -> %2, il preset a schermo corrente, nessun load")
+                          .arg(QString::fromLatin1(g.name),
+                               g.range ? QStringLiteral("selezionato l'intervallo")
+                                       : QStringLiteral("selezionato lui solo, il preset a schermo fuori dalla selezione")));
+                tree->selectionModel()->clearSelection();
+                tree->setCurrentItem(leaf);
+                wait(200);
+            }
+            // Il clic che arriva con due preset selezionati: nessun load, qualunque
+            // cosa dicano i modificatori (la selezione e' la prova che non sbaglia).
+            {
+                second->setSelected(true);
+                m_discardOnPrompt = true;
+                emit tree->itemClicked(second, 0);
+                wait(1200);
+                m_discardOnPrompt = false;
+                check(m_mw->m_lastLoadedLibraryItem == leaf,
+                      QStringLiteral("clic con due preset selezionati -> nessun load"));
+                tree->selectionModel()->clearSelection();
+                tree->setCurrentItem(leaf);
+                wait(200);
+            }
+            click(Qt::NoModifier, Qt::NoModifier);
+            check(m_mw->m_lastLoadedLibraryItem == second && second->isSelected() && !leaf->isSelected(),
+                  QStringLiteral("clic semplice sull'altro preset -> caricato"));
+            // Di nuovo il primo, per il resto della sezione, e la texture
+            // evidenziata nell'altro albero (il load di una Shape la toglie).
+            m_discardOnPrompt = true;
+            tree->setCurrentItem(leaf);
+            emit tree->itemClicked(leaf, 0);
+            wait(1200);
+            m_discardOnPrompt = false;
+            if (tex) ui->treeTextures->setCurrentItem(tex);
+        } else {
+            check(false, QStringLiteral("la cartella del preset non ne ha un secondo"));
+        }
     }
 
     // Tap su mobile: il press seleziona la cartella, poi onExampleItemClicked la
@@ -6865,6 +8221,27 @@ void ScenarioTest::runLibraryFolderScenarios()
                rightClick(otherPos, QString()), other->text(0));
     onScreenOk(QStringLiteral("tasto destro su un altro preset, Copy"),
                rightClick(otherPos, QStringLiteral("Copy")), other->text(0));
+    // SELEZIONE MULTIPLA E MENU: Cmd+clic su un altro preset (il grigio resta
+    // sul preset a schermo), Copy dal menu; alla chiusura resta il solo preset
+    // a schermo (prima restavano evidenziati tutti, col grigio sull'ultimo).
+    {
+        const QPoint global = tree->viewport()->mapToGlobal(otherPos);
+        QMouseEvent press(QEvent::MouseButtonPress, otherPos, global, Qt::LeftButton, Qt::LeftButton, Qt::ControlModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease, otherPos, global, Qt::LeftButton, Qt::NoButton, Qt::ControlModifier);
+        QCoreApplication::sendEvent(tree->viewport(), &press);
+        QCoreApplication::sendEvent(tree->viewport(), &release);
+        wait(200);
+        check(!leaf->isSelected() && other->isSelected() && tree->currentItem() == leaf,
+              QStringLiteral("Cmd+clic su un altro preset: selezionato lui, il preset a schermo fuori dalla "
+                             "selezione e grigio"));
+        const QStringList during = rightClick(otherPos, QStringLiteral("Copy"));
+        check(tree->selectedItems() == QList<QTreeWidgetItem *>{ leaf } && tree->currentItem() == leaf
+                  && during.contains(other->text(0)) && !during.contains(name)
+                  && during.contains(QStringLiteral("corrente: %1 (grigio)").arg(name)),
+              QStringLiteral("selezione col Cmd, Copy: durante il menu il bersaglio e' la sola voce scelta, il preset "
+                             "a schermo grigio [%1]; a menu chiuso il solo preset a schermo (%2 voci evidenziate)")
+                  .arg(during.join(QStringLiteral(", "))).arg(tree->selectedItems().size()));
+    }
     // Area vuota: rami chiusi, cosi' sotto le cartelle c'e' spazio libero.
     tree->collapseAll();
     wait(200);
@@ -6873,8 +8250,62 @@ void ScenarioTest::runLibraryFolderScenarios()
         check(false, QStringLiteral("nessuna area vuota nell'albero delle Surfaces a rami chiusi"));
     } else {
         onScreenOk(QStringLiteral("tasto destro su un'area vuota"), rightClick(emptyPos, QString()), QString());
+        // Clic SINISTRO sul vuoto con una selezione multipla: resta il solo
+        // preset a schermo (prima si toglieva tutto, e il grigio restava dove
+        // l'avevano lasciato l'ultimo Cmd+clic o un Incolla).
+        other->setSelected(true);
+        const QPoint global = tree->viewport()->mapToGlobal(emptyPos);
+        QMouseEvent press(QEvent::MouseButtonPress, emptyPos, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease, emptyPos, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(tree->viewport(), &press);
+        QCoreApplication::sendEvent(tree->viewport(), &release);
+        wait(200);
+        check(tree->selectedItems() == QList<QTreeWidgetItem *>{ leaf } && tree->currentItem() == leaf,
+              QStringLiteral("clic sinistro sul vuoto con due preset selezionati -> resta il solo preset a schermo "
+                             "(%1 voci evidenziate)").arg(tree->selectedItems().size()));
     }
     for (QTreeWidgetItem *p = folder; p; p = p->parent()) p->setExpanded(true);
+
+    // DOPO UNA RILETTURA DELLA LIBRERIA (refreshRepositories: la fa partire il
+    // watcher della cartella, 500 ms dopo un Incolla, a menu gia' chiuso e
+    // evidenziazione gia' rimessa) il preset a schermo resta l'elemento
+    // corrente. Prima tornava la sola selezione: il primo Cmd+clic non lo
+    // toglieva piu', e i comandi del menu agivano anche su di lui (segnalato
+    // dall'utente: copia, incolla, Cmd+clic su tre voci -> quattro evidenziate).
+    // Gli item si ricostruiscono: dopo, si ritrovano per percorso.
+    {
+        const QString leafPath = LibraryTreeFocus::itemPath(leaf);
+        const QString otherPath = LibraryTreeFocus::itemPath(other);
+        tree->clearSelection();
+        leaf->setSelected(true);
+        tree->setCurrentItem(leaf);
+        m_mw->refreshRepositories();
+        wait(200);
+        QTreeWidgetItem *leafAfter = LibraryTreeFocus::itemAt(tree, leafPath);
+        QTreeWidgetItem *otherAfter = LibraryTreeFocus::itemAt(tree, otherPath);
+        check(leafAfter && tree->currentItem() == leafAfter
+                  && tree->selectedItems() == QList<QTreeWidgetItem *>{ leafAfter },
+              QStringLiteral("libreria riletta: il preset a schermo resta selezionato e corrente (corrente: %1)")
+                  .arg(tree->currentItem() ? tree->currentItem()->text(0) : QStringLiteral("-")));
+        if (leafAfter && otherAfter) {
+            tree->scrollToItem(otherAfter);
+            wait(200);
+            const QPoint pos = tree->visualItemRect(otherAfter).center();
+            const QPoint global = tree->viewport()->mapToGlobal(pos);
+            QMouseEvent press(QEvent::MouseButtonPress, pos, global, Qt::LeftButton, Qt::LeftButton, Qt::ControlModifier);
+            QMouseEvent release(QEvent::MouseButtonRelease, pos, global, Qt::LeftButton, Qt::NoButton, Qt::ControlModifier);
+            QCoreApplication::sendEvent(tree->viewport(), &press);
+            QCoreApplication::sendEvent(tree->viewport(), &release);
+            wait(200);
+            check(!leafAfter->isSelected() && otherAfter->isSelected() && tree->currentItem() == leafAfter,
+                  QStringLiteral("libreria riletta, poi Cmd+clic su un altro preset: selezionato lui solo, il preset "
+                                 "a schermo fuori dalla selezione e grigio (%1 voci evidenziate)")
+                      .arg(tree->selectedItems().size()));
+            LibraryTreeFocus::restoreHighlight(tree, LibraryTreeFocus::Highlight{ { leafPath }, leafPath });
+        } else {
+            check(false, QStringLiteral("libreria riletta: le due voci ritrovate per percorso"));
+        }
+    }
 }
 
 void ScenarioTest::runRecordTextureScenarios()
@@ -7167,6 +8598,188 @@ void ScenarioTest::runTextureTargetScenarios()
             check(m_popupsClosed == closed + 1 && m_mw->implicitMode() && m_mw->m_scene.rm.texture == rmTex,
                   QStringLiteral("texture parametrica su Ray Marching -> un avviso, scena e texture invariate"));
     }
+
+    // TEXTURE STATICHE CHE NOMINANO IL TEMPO SOLO NEI COMMENTI ("STATIC (no t)",
+    // "write ... iTime * 0.08"): dalla Library l'orologio resta spento, come dicono
+    // i tasti Run/Stop. Prima il caricamento cercava t/iTime nel testo grezzo e
+    // l'orologio partiva a vuoto.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Tempo solo nei commenti: la texture e' statica anche per il suo orologio =="));
+    auto clockAfterPick = [this, ui, gl](const char *surface, bool record, const char *texture) -> int {
+        const bool loaded = record ? loadRecord(QString::fromLatin1(surface))
+                                   : loadSurface(QString::fromLatin1(surface));
+        if (!loaded || !selectTexture(QString::fromLatin1(texture))) return -1;
+        wait(400);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        const bool runShowsStop = ui->btnRunCurrentScript->text().startsWith(QLatin1String("Stop"));
+        setScriptMode(MainWindow::ScriptModeSurface);
+        return (gl->isSurfaceTextureAnimating() ? 1 : 0) + (runShowsStop ? 2 : 0);
+    };
+    const char *torus = "surfaces/Parametric/Surfaces/Equations/R3/Torus.json";
+    int st = clockAfterPick(torus, false, "textures/Procedurals/Fractals/XOR Relief.json");
+    check(st == 0, QStringLiteral("XOR Relief (iTime solo in un commento) -> orologio %1, tasto %2")
+                       .arg(st < 0 ? QStringLiteral("?") : onOff(st & 1)).arg((st & 2) ? QStringLiteral("Stop") : QStringLiteral("Run")));
+    st = clockAfterPick(torus, false, "textures/Procedurals/Fractals/XOR Lattice.json");
+    check(st == 3, QStringLiteral("XOR Lattice (animata) -> orologio %1, tasto %2")
+                       .arg(st < 0 ? QStringLiteral("?") : onOff(st & 1)).arg((st & 2) ? QStringLiteral("Stop") : QStringLiteral("Run")));
+    // Su una superficie senza costanti: Wireframe usa lo slider F, e su un record
+    // che lo usa gia' la domanda sulla costante contesa annullerebbe la scelta.
+    st = clockAfterPick("surfaces/Implicit/3D/Gyroid.json", false, "textures/Ray Marching/Wireframe.json");
+    check(st == 0, QStringLiteral("Wireframe Ray Marching (\"STATIC (no t)\") -> orologio %1, tasto %2")
+                       .arg(st < 0 ? QStringLiteral("?") : onOff(st & 1)).arg((st & 2) ? QStringLiteral("Stop") : QStringLiteral("Run")));
+}
+
+void ScenarioTest::runTextureOwnerScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
+    const QString mark = QStringLiteral("seOwnerTest");
+    // Lo script della texture del bersaglio scritto a mano, come nell'editor.
+    auto touchScript = [this, ui, mark]() {
+        setScriptMode(MainWindow::ScriptModeTexture);
+        ui->txtScriptEditor->setPlainText(ui->txtScriptEditor->toPlainText()
+                                          + QStringLiteral("\nfloat %1 = 1.0;").arg(mark));
+        wait(300);
+    };
+    // Le texture da salvare, per nome ("background", "texture", "meshParts[2]").
+    auto dirtyOwners = [this]() {
+        QStringList l;
+        const QLatin1String tag("texture:");
+        for (const QString &k : m_mw->unsavedKeys()) {
+            if (!k.startsWith(tag)) continue;
+            const QString o = MainWindow::textureOwnerOfKey(k.mid(tag.size()));
+            if (!l.contains(o)) l << o;
+        }
+        l.sort();
+        return l.isEmpty() ? QStringLiteral("nessuna") : l.join(QStringLiteral(", "));
+    };
+    // Una scelta in Library: quante domande "vuoi salvare?" ha fatto.
+    auto pick = [this](const QString &rel) {
+        const int before = m_discardPrompts;
+        selectTexture(rel);
+        return m_discardPrompts - before;
+    };
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Superficie e sfondo: l'avviso difende la sola texture che si sostituisce =="));
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) {
+        if (!ui->radioSurface->isChecked()) click(ui->radioSurface);
+        selectTexture(QStringLiteral("textures/Procedurals/Plasma.json"));
+        touchScript();
+        QString d = dirtyOwners();
+        check(d == QLatin1String("texture"),
+              QStringLiteral("texture della superficie modificata -> da salvare: %1").arg(d));
+
+        click(ui->radioBackground);
+        int q = pick(QStringLiteral("textures/Procedurals/Soft Clouds.json"));
+        check(q == 0, QStringLiteral("sfondo dalla Library, superficie modificata -> nessuna domanda (domande: %1)").arg(q));
+        d = dirtyOwners();
+        check(d == QLatin1String("texture") && m_mw->surfaceTextureScript().contains(mark),
+              QStringLiteral("...e la texture della superficie resta modificata e da salvare (da salvare: %1)").arg(d));
+
+        touchScript();
+        d = dirtyOwners();
+        check(d == QLatin1String("background, texture"),
+              QStringLiteral("sfondo modificato anche lui -> da salvare: %1").arg(d));
+
+        click(ui->radioSurface);
+        q = pick(QStringLiteral("textures/Procedurals/Marble.json"));
+        check(q == 1, QStringLiteral("superficie dalla Library, superficie e sfondo modificati -> una domanda (domande: %1)").arg(q));
+        d = dirtyOwners();
+        check(d == QLatin1String("background") && m_mw->backgroundTextureScript().contains(mark),
+              QStringLiteral("...e lo sfondo resta modificato e da salvare (da salvare: %1)").arg(d));
+
+        // Save Texture scrive la sola texture del bersaglio.
+        touchScript();
+        click(ui->radioBackground);
+        m_mw->markTextureSaved();
+        d = dirtyOwners();
+        check(d == QLatin1String("texture"),
+              QStringLiteral("Save Texture dello sfondo -> resta da salvare la superficie (da salvare: %1)").arg(d));
+
+        q = pick(QStringLiteral("textures/Procedurals/Plasma.json"));
+        d = dirtyOwners();
+        check(q == 0 && d == QLatin1String("texture"),
+              QStringLiteral("sfondo salvato e poi sostituito dalla Library -> nessuna domanda (%1), da salvare: %2").arg(q).arg(d));
+        click(ui->radioSurface);
+        q = pick(QStringLiteral("textures/Procedurals/Wood.json"));
+        d = dirtyOwners();
+        check(q == 1 && d == QLatin1String("nessuna"),
+              QStringLiteral("superficie sostituita -> una domanda (%1), poi da salvare: %2").arg(q).arg(d));
+        setScriptMode(MainWindow::ScriptModeSurface);
+    }
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Fasce diverse: ognuna ha il suo avviso (%1) ==").arg(QString::fromLatin1(kMultiMeshRecord)));
+    if (loadRecord(QString::fromLatin1(kMultiMeshRecord))) {
+        if (!ui->radioSurface->isChecked()) click(ui->radioSurface);
+        if (!ui->radioMeshOne->isChecked()) click(ui->radioMeshOne);
+        ui->spinMeshSel->setValue(3);  wait(300);
+        touchScript();
+        // La texture della fascia e' animata: il tasto dice Stop, e il primo
+        // clic la ferma soltanto. Il Run vero e' il secondo.
+        if (ui->btnRunCurrentScript->text().startsWith(QLatin1String("Stop"))) {
+            m_mw->onRunCurrentScript();  wait(300);
+        }
+        m_mw->onRunCurrentScript();  wait(800);
+        QString d = dirtyOwners();
+        check(d == QLatin1String("meshParts[2]"),
+              QStringLiteral("texture della fascia 3 modificata -> da salvare: %1").arg(d));
+
+        ui->spinMeshSel->setValue(2);  wait(300);
+        int q = pick(QStringLiteral("textures/Procedurals/Marble.json"));
+        d = dirtyOwners();
+        check(q == 0 && d == QLatin1String("meshParts[2]"),
+              QStringLiteral("fascia 2 dalla Library, fascia 3 modificata -> nessuna domanda (%1), da salvare: %2").arg(q).arg(d));
+
+        click(ui->radioBackground);
+        q = pick(QStringLiteral("textures/Procedurals/Soft Clouds.json"));
+        d = dirtyOwners();
+        check(q == 0 && d == QLatin1String("meshParts[2]"),
+              QStringLiteral("sfondo dalla Library, fascia 3 modificata -> nessuna domanda (%1), da salvare: %2").arg(q).arg(d));
+        click(ui->radioSurface);
+
+        ui->spinMeshSel->setValue(3);  wait(300);
+        q = pick(QStringLiteral("textures/Procedurals/Wood.json"));
+        d = dirtyOwners();
+        check(q == 1 && d == QLatin1String("nessuna"),
+              QStringLiteral("fascia 3 dalla Library -> una domanda (%1), poi da salvare: %2").arg(q).arg(d));
+        click(ui->radioMeshAll);
+        setScriptMode(MainWindow::ScriptModeSurface);
+    }
+
+    // MULTI-MESH: texture su UNA mesh, Wireframe e ritorno a solido. Come sulla
+    // superficie singola la texture deve ricomparire, e la scelta seguente in
+    // Library non deve chiedere di salvare: nulla e' stato toccato (segnalato:
+    // la texture non tornava e la Library apriva l'avviso di salvataggio).
+    for (const char *rel : { "surfaces/Parametric/Surfaces/Multi Meshes/Calabi-Yau.json",
+                             "surfaces/Parametric/Solid Curves/Multi Curves/Trefoil Trio.json" }) {
+        const QString name = QFileInfo(QString::fromLatin1(rel)).baseName();
+        m_lines.append(QString());
+        m_lines.append(QStringLiteral("== Multi-mesh: texture di una mesh, Wireframe e ritorno a solido (%1) ==").arg(name));
+        if (!loadSurface(QString::fromLatin1(rel))) continue;
+        GLWidget *gl = ui->glWidget;
+        if (!ui->radioSurface->isChecked()) click(ui->radioSurface);
+        if (!ui->radioMeshOne->isChecked()) click(ui->radioMeshOne);
+        if (!ui->radioBasic->isChecked()) click(ui->radioBasic);
+        auto partTextured = [gl]() {
+            const int k = gl->activeMeshPart();
+            const auto &parts = gl->getEngine()->getMeshParts();
+            return k >= 0 && k < (int)parts.size() && parts[k].effectiveTextureEnabledMulti();
+        };
+        pick(QStringLiteral("textures/Procedurals/Plasma.json"));
+        const bool before = partTextured() && ui->chkBoxTexture->isChecked();
+        click(ui->radioWF);  wait(300);
+        click(ui->radioBasic);  wait(300);
+        const bool after = partTextured() && ui->chkBoxTexture->isChecked();
+        const QString d = dirtyOwners();
+        check(before && after && d == QLatin1String("nessuna"),
+              QStringLiteral("%1: texture sulla mesh, Wireframe, di nuovo solido -> la texture torna (prima %2, dopo %3), da salvare: %4")
+                  .arg(name, onOff(before), onOff(after), d));
+        const int q = pick(QStringLiteral("textures/Procedurals/Marble.json"));
+        check(q == 0, QStringLiteral("%1: poi un'altra texture dalla Library -> nessuna domanda (domande: %2)").arg(name).arg(q));
+        click(ui->radioMeshAll);
+    }
 }
 
 void ScenarioTest::runScriptDockScenarios()
@@ -7384,6 +8997,52 @@ void ScenarioTest::runScriptDockScenarios()
                   .arg(briefCode(m_mw->surfaceTextureScript())));
         setScriptMode(MainWindow::ScriptModeSurface);
     }
+
+    // COSTANTI IN UNA TEXTURE SHADERTOY. Lo script e' mainImage, una funzione a
+    // parte da quella generata che dichiara le costanti: D citata dava
+    // "undeclared identifier", mentre lo slider D si sbloccava lo stesso. La
+    // Nebula della libreria, che per compilare leggeva ubuf.u_mathParams2,
+    // aveva invece gli slider D/E/F bloccati. Una lettera che lo script
+    // dichiara da se' ("vec2 F") resta sua e deve compilare ancora.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Dock Script: costanti in una texture Shadertoy (superficie e sfondo) =="));
+    const QString kStToyD = QStringLiteral(
+        "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n"
+        "    fragColor = vec4(vec3(0.25 * D), 1.0);\n"
+        "}");
+    const QString kStToyOwnF = QStringLiteral(
+        "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n"
+        "    vec2 F = fragCoord / iResolution.xy;\n"
+        "    fragColor = vec4(F, 0.25 * D, 1.0);\n"
+        "}");
+    auto runShadertoy = [&](const QString &step, const QString &code, bool background) {
+        const qsizetype errorsBefore = ShaderCompileLog::pending().size();
+        type(code);
+        m_mw->onRunCurrentScript();  wait(800);
+        const qsizetype errors = ShaderCompileLog::pending().size() - errorsBefore;
+        const QString applied = background ? m_mw->m_scene.bgTextureCode : m_mw->surfaceTextureScript();
+        check(errors == 0 && applied.contains(QLatin1String("0.25 * D")) && ui->dSlider->isEnabled(),
+              QStringLiteral("%1 -> compila (errori: %2), applicata (%3), slider D sbloccato (%4)")
+                  .arg(step).arg(errors).arg(briefCode(applied), onOff(ui->dSlider->isEnabled())));
+    };
+    if (loadSurface(kTorus)) {
+        check(!ui->dSlider->isEnabled(), QStringLiteral("toro -> slider D bloccato (nessuno lo usa)"));
+        setScriptMode(MainWindow::ScriptModeTexture);
+        runShadertoy(QStringLiteral("superficie, mainImage con D"), kStToyD, false);
+        runShadertoy(QStringLiteral("superficie, mainImage con D e una sua F"), kStToyOwnF, false);
+        // Lo sfondo da solo: la superficie torna a una texture senza D.
+        if (selectTexture(QStringLiteral("textures/Procedurals/Plasma.json")))
+            check(!ui->dSlider->isEnabled(),
+                  QStringLiteral("superficie di nuovo Plasma -> slider D bloccato"));
+        click(ui->radioBackground);
+        if (selectTexture(QStringLiteral("textures/Procedurals/Plasma.json"))) {
+            setScriptMode(MainWindow::ScriptModeTexture);
+            runShadertoy(QStringLiteral("sfondo, mainImage con D"), kStToyD, true);
+            runShadertoy(QStringLiteral("sfondo, mainImage con D e una sua F"), kStToyOwnF, true);
+        }
+        click(ui->radioSurface);
+        setScriptMode(MainWindow::ScriptModeSurface);
+    }
 }
 
 void ScenarioTest::runMeshClockScenarios()
@@ -7463,6 +9122,34 @@ void ScenarioTest::runMeshImageScenarios()
 {
     Ui::MainWindow *ui = m_mw->ui;
     GLWidget *gl = ui->glWidget;
+
+    // UN PNG A 16 BIT PER CANALE si decodifica in RGBA64, 8 byte per pixel.
+    // readTextureImage ne contava 4: a 6000x6000 (288 MB veri, 144 stimati) la
+    // soglia di Qt (256 MB) non si alzava, la lettura falliva e l'avviso diceva
+    // "file corrotto". Ora si legge, come un PNG a 8 bit della stessa misura.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Immagini delle texture: PNG a 16 bit per canale, grande =="));
+    {
+        const QString path = m_outDir + QStringLiteral("/texture-16bit-6000.png");
+        {
+            QImage big(6000, 6000, QImage::Format_RGBA64);
+            big.fill(QColor::fromRgba64(40000, 20000, 60000, 65535));
+            // Un dettaglio, perche' il file non sia di un colore solo.
+            QPainter(&big).fillRect(1000, 1000, 2000, 500, QColor::fromRgba64(65535, 65535, 0, 65535));
+            QImageWriter writer(path, "png");
+            writer.setCompression(9);
+            writer.write(big);
+        }
+        const QImageReader probe(path);
+        QString reason;
+        const QImage read = GLWidget::readTextureImage(path, &reason);
+        check(probe.imageFormat() == QImage::Format_RGBA64 && !read.isNull() && read.size() == QSize(6000, 6000)
+                  && reason.isEmpty(),
+              QStringLiteral("PNG 6000x6000 a 16 bit (formato del file %1): letto %2x%3%4")
+                  .arg(int(probe.imageFormat())).arg(read.width()).arg(read.height())
+                  .arg(reason.isEmpty() ? QString() : QStringLiteral(", motivo: ") + reason));
+        QFile::remove(path);
+    }
     auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
     auto part = [gl](int n) -> const MeshPart * {   // n = numero della fascia, da 1
         const auto &parts = gl->getEngine()->getMeshParts();
@@ -8008,6 +9695,72 @@ void ScenarioTest::runMeshCountScenarios()
         if (!ui->chkBoxTexture->isChecked()) { ui->chkBoxTexture->click();  wait(600); }
         check(parts() == 1 && !gl->globalTextureActive(),
               QStringLiteral("toro (una mesh) con texture -> sulle coordinate u/v, non globale"));
+    }
+
+    // WIREFRAME SEMPRE OPACO. In wireframe la trasparenza e' spenta, ma l'alpha
+    // abbassato prima in modalita' solida passava alle linee (segnalato: alpha 0
+    // in solido, poi Wireframe -> il wireframe non appare). Il caso era quello
+    // per-mesh: l'azzeramento di updateRenderState scatta solo col wireframe
+    // GLOBALE. Il fotogramma del wireframe dopo alpha 0 deve essere quello del
+    // wireframe con la superficie opaca.
+    {
+        struct WireCase { const char *rel; bool perMesh; };
+        for (const WireCase &wc : { WireCase{ "surfaces/Parametric/Surfaces/Equations/R3/Torus.json", false },
+                                    WireCase{ "surfaces/Parametric/Surfaces/Multi Meshes/Calabi-Yau.json", false },
+                                    WireCase{ "surfaces/Parametric/Surfaces/Multi Meshes/Calabi-Yau.json", true },
+                                    WireCase{ "surfaces/Parametric/Solid Curves/Multi Curves/Trefoil Trio.json", true } }) {
+            if (!loadSurface(QString::fromLatin1(wc.rel))) continue;
+            if (m_mw->editingBackground()) click(ui->radioSurface);
+            if (parts() > 1) click(wc.perMesh ? ui->radioMeshOne : ui->radioMeshAll);
+            const QString label = QStringLiteral("%1 (%2)").arg(QFileInfo(QString::fromLatin1(wc.rel)).baseName(),
+                parts() <= 1 ? QStringLiteral("una mesh") : wc.perMesh ? QStringLiteral("Mesh") : QStringLiteral("All"));
+            // Riferimento dopo lo STESSO giro solido -> wireframe: sui tubi il
+            // ritorno al solido ricostruisce le sezioni e i contorni si spostano
+            // di un soffio (falci lungo i bordi, nulla a che fare con l'alpha).
+            click(ui->radioWF);  wait(500);
+            const QImage firstWire = gl->grabFramebuffer();
+            click(ui->radioBasic);  wait(300);
+            click(ui->radioWF);  wait(500);
+            const QImage opaqueWire = gl->grabFramebuffer();
+            click(ui->radioBasic);  wait(300);
+            ui->alphaSlider->setValue(0);  wait(300);
+            click(ui->radioWF);  wait(500);
+            const QImage afterAlpha0 = gl->grabFramebuffer();
+            const double pct = changedPct(opaqueWire, afterAlpha0);
+            qInfo().noquote() << QStringLiteral("[scenariotest] info     %1: due giri senza alpha, %2% pixel diversi")
+                                     .arg(label).arg(changedPct(firstWire, opaqueWire), 0, 'f', 2);
+            QDir().mkpath(m_outDir + QStringLiteral("/meshes"));
+            const QString shot = m_outDir + QStringLiteral("/meshes/wire-alpha-") + label.simplified().replace(QLatin1Char(' '), QLatin1Char('-'));
+            opaqueWire.save(shot + QStringLiteral("-opaque.png"));
+            afterAlpha0.save(shot + QStringLiteral("-alpha0.png"));
+            // Il fotogramma e' deterministico (0.00% nei casi giusti): soglia
+            // stretta, o una sola mesh piccola sparita (Calabi-Yau: 0.12%)
+            // passerebbe inosservata.
+            check(pct < 0.02, QStringLiteral("%1: alpha 0 in solido, poi Wireframe -> wireframe come da opaco (%2% pixel diversi)")
+                                 .arg(label).arg(pct, 0, 'f', 2));
+            ui->alphaSlider->setValue(100);  wait(200);
+        }
+    }
+
+    // LUCE ATTRAVERSO IL WIREFRAME. In wireframe lo slider Light e' spento (il
+    // ramo wireframe dello shader non usa la luce), ma il valore resta: tornando
+    // su Basic/Phong deve essere quello scelto prima (segnalato: tornava a 100%,
+    // il default, perche' updateRenderState lo azzerava insieme all'alpha).
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) {
+        if (m_mw->editingBackground()) click(ui->radioSurface);
+        for (QAbstractButton *solid : { static_cast<QAbstractButton *>(ui->radioBasic),
+                                        static_cast<QAbstractButton *>(ui->radioPhong) }) {
+            click(solid);  wait(200);
+            ui->lightSlider->setValue(60);  wait(200);
+            click(ui->radioWF);  wait(300);
+            const int inWire = ui->lightSlider->value();
+            click(solid);  wait(300);
+            const float engine = gl->globalLightIntensity();
+            check(inWire == 60 && ui->lightSlider->value() == 60 && qAbs(engine - 0.6f) < 1e-4f,
+                  QStringLiteral("Light 60% in %1, poi Wireframe (slider %2) e di nuovo %1 -> slider %3, motore %4")
+                      .arg(solid->text()).arg(inWire).arg(ui->lightSlider->value()).arg(engine));
+        }
+        ui->lightSlider->setValue(100);  wait(200);
     }
 
     // RAY MARCHING: niente copie.

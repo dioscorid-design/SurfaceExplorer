@@ -20,6 +20,7 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QFileInfo>
+#include <QImageReader>
 #include <QCoreApplication>
 #include <QPainter>
 #include <QLinearGradient>
@@ -1714,7 +1715,8 @@ void GLWidget::syncPartImages(QRhiResourceUpdateBatch *resourceUpdates)
     for (const QString &path : used) {
         if (m_partImages.contains(path)) continue;
         PartImage entry;
-        QImage img(path);
+        QString reason;
+        QImage img = readTextureImage(path, &reason);
         if (img.isNull()) {
             // Immagine non caricabile: la fascia ricade su quella della
             // SUPERFICIE (o sulla scacchiera, se non c'e' nemmeno quella), come
@@ -1723,15 +1725,16 @@ void GLWidget::syncPartImages(QRhiResourceUpdateBatch *resourceUpdates)
             // Il file MANCA (record aperto su un altro dispositivo): in
             // silenzio. Il file c'e' ma non e' un'immagine: si avvisa, come
             // loadTextureFromFile.
-            qWarning() << "GLWidget: immagine della fascia non caricabile:" << path;
+            qWarning() << "GLWidget: immagine della fascia non caricabile:" << path << reason;
             entry.failed = true;
             m_partImages.insert(path, entry);
-            if (QFileInfo::exists(path)) emit textureImageLoadFailed(path);
+            if (QFileInfo::exists(path)) emit textureImageLoadFailed(path, reason);
             continue;
         }
         // Stesso formato e stesso verso dell'immagine di superficie
         // (loadTextureFromImage).
         img = img.convertToFormat(QImage::Format_RGBA8888).flipped(Qt::Orientations(Qt::Vertical));
+        fitToGpuTextureLimit(rhi(), img);
         entry.tex = rhi()->newTexture(QRhiTexture::RGBA8, img.size(), 1);
         entry.tex->create();
         QRhiTextureSubresourceUploadDescription subresDesc(img.constBits(), img.sizeInBytes());
@@ -2028,7 +2031,26 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         m_view.setToIdentity();
         m_model.setToIdentity();
         mvp = rhi()->clipSpaceCorrMatrix();
+        // In una cattura d'immagine il quad a schermo intero si allarga e si
+        // sposta: nell'immagine entra la parte della vista sotto il riquadro
+        // guida, come per le mesh (captureViewWindow). Prima l'immagine
+        // mostrava tutto il quad, stirato sul suo rapporto.
+        {
+            const QVector4D win = captureViewWindow();
+            QMatrix4x4 window;
+            window(0, 0) = 1.0f / win.x();
+            window(1, 1) = 1.0f / win.y();
+            window(0, 3) = win.z();
+            window(1, 3) = win.w();
+            mvp = mvp * window;
+        }
         mv.setToIdentity();
+        // VISTA 2D: il quad a schermo intero non usa u_mvMatrix, che porta
+        // invece in [0][0] la LARGHEZZA del dominio di una texture procedurale
+        // (alta 1): le proporzioni della vista intera. La legge la funzione
+        // texture degli script (buildTextureFunction); un'immagine si stira
+        // sulla vista e la ignora. Vedi setFullViewAspect.
+        mv(0, 0) = fullViewTextureWidth();
     } else {
         m_projection.setToIdentity();
         // Piani near/far scalati con la distanza della camera. Un far fisso a
@@ -2065,6 +2087,14 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             m_projection.ortho(-halfWidth, halfWidth, -halfHeight, halfHeight, -farPlane, farPlane);
         } else {
             m_projection.perspective(effectiveCameraFov(), aspect, nearPlane, farPlane);
+        }
+        // IL RIQUADRO SPOSTATO di una cattura d'immagine (setCaptureShift): la
+        // stessa proiezione, traslata nel clip space. A zero niente cambia.
+        if (!m_captureShift.isNull()) {
+            QMatrix4x4 shift;
+            shift(0, 3) = m_captureShift.x();
+            shift(1, 3) = m_captureShift.y();
+            m_projection = shift * m_projection;
         }
 
         m_view.setToIdentity();
@@ -2133,6 +2163,28 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // ENTRAMBI gli shader o Adreno rifiuta il link (vedi CLAUDE.md), e qui basta
     // una componente gia' presente e inutilizzata.
     m_uboData.dummyZero.setZ(m_crossSectionP);
+    // u_mathParams2.w = quanti pixel dell'immagine vale un pixel dello SCHERMO,
+    // meno 1: 0 a schermo (il valore di sempre), diverso solo nelle catture a
+    // risoluzione fissa (immagini, video FBO). Lo leggono le macro dFdx/dFdy/
+    // fwidth di common.glsl, che riportano le derivate delle texture ai pixel
+    // della vista: la texture Wireframe tiene le linee "larghe un pixel" con
+    // fwidth, e in un'immagine piu' grande della vista restavano di UN pixel
+    // dell'immagine -- piu' sottili che a schermo, e l'immagine, vista alla
+    // stessa misura, molto piu' scura. Una componente gia' dichiarata in tutti
+    // gli shader e mai usata (D, E, F sono x, y, z): nessun campo nuovo
+    // nell'UBO, stessa ragione di dummyZero.z qui sopra.
+    // Il campo visivo e' verticale (ridotto da m_captureVerticalScale quando
+    // l'immagine e' piu' larga della vista): la scala e' quella delle altezze,
+    // la stessa delle linee del wireframe vero (ImageCapture, wireScaleFor).
+    {
+        float pixelScaleMinusOne = 0.0f;
+        if (m_hiResCapture) {
+            const double viewH = double(height()) * devicePixelRatioF() * double(m_captureVerticalScale);
+            if (viewH > 0.0 && outputSize.height() > 0)
+                pixelScaleMinusOne = float(double(outputSize.height()) / viewH) - 1.0f;
+        }
+        m_uboData.mathParams2.setW(pixelScaleMinusOne);
+    }
     m_uboData.projMode = projectionMode;
     m_uboData.renderMode = renderMode;
     m_uboData.lightingMode = is4DActive() ? m_lightingMode4D : 0;
@@ -2267,6 +2319,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
 
     if (uboPartCount <= 1) {
         // Mesh singola: un blocco solo, come da sempre.
+        // Wireframe opaco, come per le parti (vedi sotto). Qui e' una rete di
+        // sicurezza: col wireframe globale updateRenderState riporta gia'
+        // l'alpha a 1.
+        if (m_uboData.renderMode == 2) m_uboData.alpha = 1.0f;
         resourceUpdates->updateDynamicBuffer(m_ubo, 0, sizeof(UboData), &m_uboData);
     } else {
         for (int k = 0; k < uboPartCount; ++k) {
@@ -2441,6 +2497,15 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // senza questa riga una mesh in wireframe con globale Phong veniva
             // illuminata, e una mesh solida con globale wireframe usciva piatta.
             partUbo.renderMode = effectivePartRenderMode(mp);
+            // WIREFRAME OPACO. In wireframe la trasparenza e' spenta (slider in
+            // grigio, updateRenderState), ma l'alpha della parte restava quello
+            // dato in modalita' solida e il fragment lo usa sulle linee
+            // (surface.frag, ramo u_renderMode 2): alpha 0 in solido, poi
+            // Wireframe sulla mesh -> il wireframe spariva. L'azzeramento di
+            // updateRenderState scatta solo col wireframe GLOBALE, non con quello
+            // di una mesh. Le linee si disegnano opache; l'alpha della parte resta
+            // salvato e torna in vigore riportando la mesh a solido.
+            if (partUbo.renderMode == 2) partUbo.alpha = 1.0f;
 
             resourceUpdates->updateDynamicBuffer(m_ubo, k * m_uboBlockStride,
                                                  sizeof(UboData), &partUbo);
@@ -2529,6 +2594,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             m_surfaceTexture->destroy();
             delete m_surfaceTexture;
         }
+        fitToGpuTextureLimit(rhi(), m_pendingSurfaceImage);
         m_surfaceTexture = rhi()->newTexture(QRhiTexture::RGBA8, m_pendingSurfaceImage.size(), 1);
         m_surfaceTexture->create();
 
@@ -2562,6 +2628,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             delete m_backgroundTexture;
         }
 
+        fitToGpuTextureLimit(rhi(), m_pendingBackgroundImage);
         m_backgroundTexture = rhi()->newTexture(QRhiTexture::RGBA8, m_pendingBackgroundImage.size(), 1);
         m_backgroundTexture->create();
 
@@ -2638,6 +2705,12 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 eyeFromNdc(0, 0) = tanHalf * aspect;
                 eyeFromNdc(1, 1) = tanHalf;
                 eyeFromNdc(2, 2) = -1.0f;               // la camera guarda verso -Z
+                // Il riquadro spostato (setCaptureShift): il pixel guarda dove
+                // guarderebbe ndc - spostamento senza la traslazione.
+                if (!m_captureShift.isNull()) {
+                    eyeFromNdc(0, 2) = -tanHalf * aspect * m_captureShift.x();
+                    eyeFromNdc(1, 2) = -tanHalf * m_captureShift.y();
+                }
                 skyRay = viewRotInv * eyeFromNdc;
                 skyRay(3, 3) = float(m_bgSkyMode);
                 const bool isImage = !m_bgIsScript && m_backgroundTexture
@@ -2646,6 +2719,27 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                              ? float(m_backgroundTexture->pixelSize().width())
                                / float(m_backgroundTexture->pixelSize().height())
                              : 1.0f;
+            }
+            // MODALITA' FISSA (e vista piatta 2D, che mostra lo sfondo fisso):
+            // il 3x3 della direzione non serve, e (0,0) -- in GLSL
+            // u_mvpMatrix[0][0] -- porta la LARGHEZZA del dominio della texture
+            // sulla vista, alto 1 (bgBaseUV). Un'immagine si stira sulla vista:
+            // 1. Uno script ha le proporzioni della vista intera (a dock chiusi,
+            // setFullViewAspect), quindi coi dock aperti si stringe come
+            // l'immagine. Lo script che disegna con la sua void main() legge
+            // v_texCoord da se' e resta com'era.
+            // Nelle catture, la parte della vista che entra nell'immagine
+            // (captureViewWindow): k in (0,1)/(1,1), lo spostamento in
+            // (0,2)/(1,2) -- in GLSL [1][0], [1][1], [2][0], [2][1]. Senza,
+            // un'immagine col rapporto diverso dalla vista mostrava lo sfondo
+            // intero stirato su di se', e non seguiva il riquadro trascinato.
+            if (m_bgSkyMode == BgFixed || m_isFlatView) {
+                skyRay(0, 0) = m_bgIsScript ? fullViewTextureWidth() : 1.0f;
+                const QVector4D win = captureViewWindow();
+                skyRay(0, 1) = win.x();
+                skyRay(1, 1) = win.y();
+                skyRay(0, 2) = win.z();
+                skyRay(1, 2) = win.w();
             }
             memcpy(bgUboData.mvpMatrix, skyRay.constData(), 64);
 
@@ -2863,7 +2957,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // il tempo: su una superficie animata girerebbe a ogni frame.
             QByteArray shape(reinterpret_cast<const char *>(table.data()), int(table.size() * sizeof(QVector4D)));
             shape.append(reinterpret_cast<const char *>(&m_uboData.mathParams), sizeof(QVector4D));
-            shape.append(reinterpret_cast<const char *>(&m_uboData.mathParams2), sizeof(QVector4D));
+            // Di mathParams2 solo D, E, F: la .w e' la scala dei pixel delle
+            // catture (vedi sopra), che la forma non la cambia -- contandola,
+            // ogni immagine ripartiva con la sonda.
+            shape.append(reinterpret_cast<const char *>(&m_uboData.mathParams2), 3 * sizeof(float));
             shape.append(reinterpret_cast<const char *>(&m_uboData.hasExplicitW), sizeof(int));
             shape.append(reinterpret_cast<const char *>(&m_uboData.u_meshCount), sizeof(float));
             // Animata o ferma: ripartendo, la sonda riguarda piu' istanti.
@@ -4990,8 +5087,8 @@ bool GLWidget::isActiveMeshTextureAnimating() const {
 bool GLWidget::anyMeshTextureAnimating() const {
     if (!engine) return false;
     for (const MeshPart &mp : engine->getMeshParts()) {
-        if (mp.texAnimating && mp.hasCustomTexture && mp.textureEnabled
-            && !mp.textureCode.isEmpty())
+        // partTextureShown: una texture sospesa dal wireframe non e' in moto.
+        if (mp.texAnimating && partTextureShown(mp))
             return true;
     }
     return false;
@@ -5475,8 +5572,89 @@ void GLWidget::setRecordingActive(bool on)
 // TEXTURES, SCRIPTS & BACKGROUND
 // ==========================================================
 
+// Qt 6 rifiuta di decodificare un'immagine che occuperebbe piu' della sua
+// soglia di memoria (QImageReader::allocationLimit, 256 MB di default):
+// QImage(path) tornava vuota e l'avviso parlava di file corrotto. Caso reale:
+// una panoramica 14576x7100, 26 MB su disco ma 394 MB decodificata, non si
+// apriva. Qui l'immagine si legge gia' RIDOTTA quando un lato supera
+// kTextureImageMaxSide: il JPEG decodifica direttamente a scala ridotta, gli
+// altri formati decodificano intera e poi riducono, e per loro la soglia si
+// alza per la sola durata della lettura. Sotto il lato massimo nulla cambia:
+// QImageReader(path).read() e' cio' che fa QImage(path), stesso formato e
+// nessuna rotazione EXIF.
+QImage GLWidget::readTextureImage(const QString &path, QString *reason)
+{
+    QImageReader reader(path);
+    const QSize full = reader.size();
+    const int oldLimit = QImageReader::allocationLimit();
+    int limit = oldLimit;
+    if (full.isValid()) {
+        QSize decoded = full;
+        if (std::max(full.width(), full.height()) > kTextureImageMaxSide) {
+            const QSize target = full.scaled(kTextureImageMaxSide, kTextureImageMaxSide,
+                                             Qt::KeepAspectRatio);
+            reader.setScaledSize(target);
+            // Il JPEG decodifica gia' ridotto di 1/2, 1/4 o 1/8 (il piu' forte
+            // che resta sopra la misura chiesta) e poi rifinisce: la memoria e'
+            // quella della decodifica ridotta, e cosi' si aprono anche le
+            // panoramiche "original" da 20000-40000 pixel. Gli altri formati
+            // decodificano l'immagine intera.
+            const QByteArray format = reader.format();
+            if (format == "jpeg" || format == "jpg") {
+                int denom = 1;
+                while (denom < 8 && full.width() / (denom * 2) >= target.width()
+                       && full.height() / (denom * 2) >= target.height())
+                    denom *= 2;
+                decoded = QSize((full.width() + denom - 1) / denom, (full.height() + denom - 1) / denom);
+            }
+        }
+        // I byte per pixel della DECODIFICA, letti dal file senza decodificarlo:
+        // un PNG a 16 bit per canale si decodifica in RGBA64, 8 byte per pixel.
+        // Contandone sempre 4, fra circa 5800x5800 e il doppio la stima restava
+        // sotto la soglia di Qt (256 MB), la soglia non si alzava, Qt rifiutava
+        // la lettura e l'avviso parlava di file corrotto.
+        const QImage::Format decodedFormat = reader.imageFormat();
+        const int bitsPerPixel = decodedFormat != QImage::Format_Invalid
+                                     ? QImage::toPixelFormat(decodedFormat).bitsPerPixel() : 32;
+        const qint64 bytesPerPixel = std::max<qint64>(4, (bitsPerPixel + 7) / 8);
+        const qint64 mb = qint64(decoded.width()) * decoded.height() * bytesPerPixel / (1024 * 1024) + 1;
+        if (mb > kTextureImageMaxDecodeMB) {
+            if (reason)
+                *reason = QStringLiteral("The image is too large: %1 x %2 pixels would need %3 MB of "
+                                         "memory to decode (the limit is %4 MB). Reduce it to at most "
+                                         "%5 pixels per side.")
+                              .arg(full.width()).arg(full.height()).arg(mb)
+                              .arg(kTextureImageMaxDecodeMB).arg(kTextureImageMaxSide);
+            return {};
+        }
+        if (oldLimit > 0 && mb > oldLimit) limit = int(mb);
+    }
+    if (limit != oldLimit) QImageReader::setAllocationLimit(limit);
+    QImage img = reader.read();
+    if (limit != oldLimit) QImageReader::setAllocationLimit(oldLimit);
+    if (img.isNull() && reason)
+        *reason = QStringLiteral("The file exists but is not a readable image: it may be corrupted, "
+                                 "or in a format that is not supported (%1).").arg(reader.errorString());
+    return img;
+}
+
+// Il lato massimo di una texture dipende dalla GPU: 16384 sui Mac, meno su
+// alcuni dispositivi mobili. readTextureImage non lo conosce (puo' girare
+// prima che il QRhi esista), quindi si controlla qui, all'upload.
+void GLWidget::fitToGpuTextureLimit(QRhi *rhi, QImage &img)
+{
+    const int maxSide = rhi ? rhi->resourceLimit(QRhi::TextureSizeMax) : 0;
+    if (maxSide <= 0 || (img.width() <= maxSide && img.height() <= maxSide)) return;
+    // La riduzione morbida puo' cambiare formato (premoltiplicato): si torna
+    // a quello di partenza, che e' quello che l'upload si aspetta.
+    const QImage::Format format = img.format();
+    img = img.scaled(maxSide, maxSide, Qt::KeepAspectRatio, Qt::SmoothTransformation)
+              .convertToFormat(format);
+}
+
 void GLWidget::loadTextureFromFile(const QString &f) {
-    QImage img(f);
+    QString reason;
+    QImage img = readTextureImage(f, &reason);
     if (!img.isNull()) {
         loadTextureFromImage(img);
         // Immagine VERA dell'utente (da file). Distinta dalla scacchiera che
@@ -5489,10 +5667,10 @@ void GLWidget::loadTextureFromFile(const QString &f) {
         // la texture PRECEDENTE, che l'utente leggeva come "il preset ha la
         // texture di default". Il percorso e' gia' stato validato da chi
         // chiama (isReadableFile + Smart Path Resolver), quindi arrivare qui
-        // significa che il file si apre ma non contiene un'immagine valida:
-        // formato non supportato, o file corrotto.
-        qWarning() << "GLWidget: immagine non decodificabile:" << f;
-        emit textureImageLoadFailed(f);
+        // significa che il file si apre ma non se ne ricavano pixel: formato
+        // non supportato, file corrotto o immagine troppo grande (reason).
+        qWarning() << "GLWidget: immagine non decodificabile:" << f << reason;
+        emit textureImageLoadFailed(f, reason);
     }
 }
 
@@ -5590,6 +5768,17 @@ void GLWidget::setBackgroundColor(const QColor &c) {
 }
 
 
+void GLWidget::resizeEvent(QResizeEvent *e) {
+    QRhiWidget::resizeEvent(e);
+    emit viewResized();
+}
+
+float GLWidget::fullViewTextureWidth() const {
+    if (m_fullViewAspect > 0.0f) return m_fullViewAspect;
+    const QSize s = renderTarget() ? renderTarget()->pixelSize() : size();
+    return s.height() > 0 ? float(s.width()) / float(s.height()) : 1.0f;
+}
+
 void GLWidget::setBackgroundTexture(const QString &path) {
     setBackgroundImage(path);
     m_bgIsScript = false;
@@ -5602,16 +5791,18 @@ void GLWidget::setBackgroundImage(const QString &path) {
     QImage img;
 
     // 1. Tenta il percorso letterale esatto fornito (es. "background.png")
-    img.load(path);
+    // readTextureImage e non img.load(): un'immagine molto grande si legge
+    // ridotta invece di essere rifiutata dal limite di memoria di Qt.
+    img = readTextureImage(path);
 
     // 2. Tenta la risorsa interna Qt (utile se in futuro lo metti nel .qrc)
     if (img.isNull() && !path.startsWith(":/")) {
-        img.load(":/" + path);
+        img = readTextureImage(":/" + path);
     }
 
     // 3. Tenta la cartella in cui si trova l'eseguibile (.exe o AppBundle)
     if (img.isNull()) {
-        img.load(QCoreApplication::applicationDirPath() + "/" + path);
+        img = readTextureImage(QCoreApplication::applicationDirPath() + "/" + path);
     }
 
     // 4. SALVAVITA: Se l'immagine è persa, generiamo un gradiente visibile!
@@ -6359,8 +6550,23 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
     case MoveRight:   m_cameraPos += right * speed; break;
     case MoveUp:      m_cameraPos.setY(m_cameraPos.y() + speed); break;
     case MoveDown:    m_cameraPos.setY(m_cameraPos.y() - speed); break;
-    case RollLeft:    m_cameraRoll += rollSpeed; break;
-    case RollRight:   m_cameraRoll -= rollSpeed; break;
+    case RollLeft:
+    case RollRight: {
+        // A PATH FERMO la camera resta in modalita' path (m_isPathFollowing: la
+        // vista dal punto e nella direzione del path), e li' il rollio libero
+        // m_cameraRoll non entra nella vista: sui record con un path, fermato
+        // il moto, i due tasti non facevano nulla (segnalato dall'utente). Si
+        // ruota allora il rollio del path, che il path riscrive al prossimo
+        // tick quando riparte, scivolando da qui (beginPathHandoff).
+        // Segno OPPOSTO: m_cameraRoll ruota il vettore "alto" della camera
+        // (l'immagine gira nel verso contrario), m_pathRoll ruota direttamente
+        // l'immagine. Cosi' Roll Left gira la vista nello stesso verso nei due
+        // casi (verificato dal test degli scenari, sezione roll).
+        const float d = (dir == RollLeft) ? rollSpeed : -rollSpeed;
+        if (m_isPathFollowing) m_pathRoll -= d;
+        else                   m_cameraRoll += d;
+        break;
+    }
 
     case ObsMoveXPos:
         m_cameraPos4D.setX(m_cameraPos4D.x() + obsSpeed);
@@ -6751,6 +6957,20 @@ int GLWidget::maxTextureSize()
     return rhi() ? rhi()->resourceLimit(QRhi::TextureSizeMax) : 4096;
 }
 
+QVector4D GLWidget::captureViewWindow() const
+{
+    if (!m_hiResCapture) return QVector4D(1.0f, 1.0f, 0.0f, 0.0f);
+    const QSize out = renderTarget() ? renderTarget()->pixelSize() : QSize();
+    const float imageAspect = out.height() > 0 ? float(out.width()) / float(out.height()) : 1.0f;
+    const float viewAspect = height() > 0 ? float(width()) / float(height()) : imageAspect;
+    // Il campo orizzontale dell'immagine, in frazioni di quello della vista:
+    // rapporto dell'immagine per la scala verticale, diviso il rapporto della
+    // vista (1 per un'immagine piu' larga, che riduce il campo verticale).
+    const float kx = std::min(1.0f, imageAspect * m_captureVerticalScale / viewAspect);
+    const float ky = std::min(1.0f, m_captureVerticalScale);
+    return QVector4D(kx, ky, m_captureShift.x(), m_captureShift.y());
+}
+
 float GLWidget::effectiveCameraFov() const
 {
     if (m_captureVerticalScale >= 0.9999f) return m_cameraFov;
@@ -6758,13 +6978,30 @@ float GLWidget::effectiveCameraFov() const
     return 2.0f * std::atan(std::tan(halfRad) * m_captureVerticalScale) * 180.0f / float(M_PI);
 }
 
+QSize GLWidget::captureRenderSize(const QSize &out, float verticalScale) const
+{
+    if (out.isEmpty() || !m_captureResample) return out;
+    const double viewH = double(height()) * devicePixelRatioF() * double(std::clamp(verticalScale, 0.05f, 1.0f));
+    if (viewH <= 0.0 || double(out.height()) >= viewH * 0.999) return out;
+    double f = viewH / double(out.height());
+    // Il lato massimo della GPU (una vista enorme e un'uscita molto stretta).
+    const int maxSide = rhi() ? rhi()->resourceLimit(QRhi::TextureSizeMax) : 0;
+    if (maxSide > 0) f = std::min(f, double(maxSide) / double(std::max(out.width(), out.height())));
+    if (f <= 1.0) return out;
+    return QSize(int(std::lround(out.width() * f)), int(std::lround(out.height() * f)));
+}
+
 void GLWidget::beginHiResCapture(int w, int h) {
     if (w <= 0 || h <= 0) return;
     m_hiResCapture = true;
+    m_captureOutputSize = QSize(w, h);
     // Fissa il color buffer offscreen di QRhiWidget alla risoluzione di export:
-    // d'ora in poi render() disegna NATIVAMENTE a w x h (renderTarget()->pixelSize()
-    // diventa questa) e grabFramebuffer() restituisce pixel nitidi a quella misura.
-    setFixedColorBufferSize(QSize(w, h));
+    // d'ora in poi render() disegna NATIVAMENTE a quella misura (renderTarget()->
+    // pixelSize() diventa questa) e grabFramebuffer() restituisce pixel nitidi.
+    // Un'uscita piu' piccola della vista si disegna alla scala della vista e
+    // getFrameForVideo la riduce (captureRenderSize). La scala verticale delle
+    // immagini va impostata prima (ImageCapture::render lo fa).
+    setFixedColorBufferSize(captureRenderSize(QSize(w, h), m_captureVerticalScale));
     // La riconfigurazione del render target avviene al prossimo grab/render:
     // grabFramebuffer() in getFrameForVideo fa un render sincrono e raccoglie la
     // nuova dimensione. Niente processEvents (ignorato su iOS).
@@ -6773,6 +7010,7 @@ void GLWidget::beginHiResCapture(int w, int h) {
 void GLWidget::endHiResCapture() {
     if (!m_hiResCapture) return;
     m_hiResCapture = false;
+    m_captureOutputSize = QSize();
     // Torna a seguire la dimensione a schermo del widget (QSize() = dinamica).
     setFixedColorBufferSize(QSize());
     this->repaint();
@@ -6804,6 +7042,14 @@ QImage GLWidget::getFrameForVideo(int targetW, int targetH, bool useFbo) {
                      QImage::Format_RGBA8888);
         img.fill(Qt::black);
         return img;
+    }
+
+    // 2. Uscita piu' piccola della vista: disegnata alla scala della vista
+    //    (captureRenderSize), si riduce qui alla misura chiesta. Ricampionamento
+    //    morbido (media delle aree): e' la vista rimpicciolita.
+    if (m_hiResCapture && !m_captureOutputSize.isEmpty() && img.size() != m_captureOutputSize) {
+        img = img.scaled(m_captureOutputSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        img.setDevicePixelRatio(1.0);
     }
 
     // 3. In hi-res capture il buffer è GIÀ alla risoluzione di export: NON riscalare
@@ -7426,6 +7672,42 @@ QString GLWidget::createImplicitFragmentShader()
     return finalSource;
 }
 
+// LE COSTANTI A..F e S DENTRO mainImage (ramo Shadertoy di sfondo e superficie).
+// Negli altri rami lo script e' il corpo della funzione generata, che le
+// dichiara come locali; qui invece lo script e' una funzione a parte
+// (mainImage), chiamata dalla generata: le locali non le arrivano e una
+// lettera citata dava "undeclared identifier". Intanto updateConstantsUIState
+// contava la lettera come uso e sbloccava lo slider: rilevazione e compilazione
+// non coincidevano (la texture Nebula, letti D/E/F da ubuf, aveva gli slider
+// bloccati; nominandoli non compilava).
+// Si fanno GLOBALI, una per riga ("float D;": il rinominatore per mesh le
+// raccoglie come le altre globali dello script), assegnate in testa alla
+// funzione generata. Una lettera che lo script dichiara gia' (con qualunque
+// tipo o come struct, a qualunque livello: "vec2 F = fragCoord", "out vec4 O,
+// vec2 C") o definisce come macro resta sua: non e' la costante, come per
+// glslUsesConstant, e una globale omonima colliderebbe con la sua.
+// La locale omonima che `helpers` dichiara va tolta (removeFrom), altrimenti
+// l'assegnazione colpirebbe lei e non la globale.
+static void addShadertoyConstantGlobals(const QString &code, QString &globals, QString &inits,
+                                        QString &removeFrom)
+{
+    static const struct { const char *letter; const char *field; } kConsts[] = {
+        {"A", "ubuf.u_mathParams.x"}, {"B", "ubuf.u_mathParams.y"}, {"C", "ubuf.u_mathParams.z"},
+        {"S", "ubuf.u_mathParams.w"},
+        {"D", "ubuf.u_mathParams2.x"}, {"E", "ubuf.u_mathParams2.y"}, {"F", "ubuf.u_mathParams2.z"},
+    };
+    for (const auto &k : kConsts) {
+        const QString letter = QLatin1String(k.letter);
+        const QRegularExpression reOwn(
+            "\\b(?:float|int|uint|bool|[biu]?vec[234]|mat[234](?:x[234])?|sampler\\w*|void|struct)\\s+"
+            + letter + "\\b|#\\s*define\\s+" + letter + "\\b");
+        if (code.contains(reOwn)) continue;
+        globals += "float " + letter + ";\n";
+        inits += "    " + letter + " = " + QLatin1String(k.field) + ";\n";
+        removeFrom.remove("    float " + letter + " = " + QLatin1String(k.field) + ";\n");
+    }
+}
+
 QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QString &customCode)
 {
     QString fsSource;
@@ -7454,6 +7736,10 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
     // La matrice e' in u_mvpMatrix di questa copia dell'UBO (vedi render()): il
     // 3x3 porta il pixel (ndc.x, ndc.y, 1) alla direzione nel mondo, [3][3] e' la
     // modalita' (GLWidget::BgSkyMode) e [3][1] le proporzioni dell'immagine.
+    //   FISSO    -- la posizione sullo schermo; [0][0] e' la larghezza del
+    //               dominio sulla vista (1 per l'immagine, che si stira; per uno
+    //               script le proporzioni della vista intera, vedi
+    //               setFullViewAspect), centrata: l'altezza resta 0..1.
     // La forma decide solo come le DIREZIONI diventano coordinate d'immagine:
     //   SFERA    -- equirettangolare: longitudine su u, latitudine su v. Il
     //               formato dei panorami 360 (2:1); stirata ai poli.
@@ -7478,7 +7764,11 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
     const QString bgBaseUVFunc =
         "vec2 bgBaseUV() {\n"
         "    float _mode = ubuf.u_mvpMatrix[3][3];\n"
-        "    if (_mode < 0.5) return v_texCoord;\n"
+        "    if (_mode < 0.5) {\n"
+        "        vec2 _v = ((v_texCoord * 2.0 - 1.0) - vec2(ubuf.u_mvpMatrix[2][0], ubuf.u_mvpMatrix[2][1]))\n"
+        "                  * vec2(ubuf.u_mvpMatrix[1][0], ubuf.u_mvpMatrix[1][1]) * 0.5 + 0.5;\n"
+        "        return vec2((_v.x - 0.5) * ubuf.u_mvpMatrix[0][0] + 0.5, _v.y);\n"
+        "    }\n"
         "    vec2 _ndc = v_texCoord * 2.0 - 1.0;\n"
         "    vec3 _d = normalize(mat3(ubuf.u_mvpMatrix) * vec3(_ndc, 1.0));\n"
         "    if (_mode > 2.5) {\n"
@@ -7594,6 +7884,7 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
             QString stLocalHelpers = helpers;
             stLocalHelpers.remove("    vec3 u_col1 = ubuf.u_col1;\n");
             stLocalHelpers.remove("    vec3 u_col2 = ubuf.u_col2;\n");
+            addShadertoyConstantGlobals(safeCode, stHelpers, initVars, stLocalHelpers);
 
             dynamicBody = stHelpers + safeCode + "\n"
                                                  "vec3 getCustomColor(vec2 in_uv) {\n"
@@ -7896,6 +8187,17 @@ QString GLWidget::buildTextureFunction(const QString &customLogic, const QString
     if (!safeLogic.contains(QRegularExpression("\\bvec3\\s+u_col1\\b"))) helpers += "    vec3 u_col1 = ubuf.u_col1;\n";
     if (!safeLogic.contains(QRegularExpression("\\bvec3\\s+u_col2\\b"))) helpers += "    vec3 u_col2 = ubuf.u_col2;\n";
 
+    // VISTA 2D DI UNO SCRIPT: il dominio a schermo e' alto 1 e largo quanto
+    // le proporzioni della vista intera (u_mvMatrix[0][0], scritta solo in
+    // vista 2D: vedi render() e setFullViewAspect), centrato. Prima di
+    // zoom/pan/rotazione, che cosi' agiscono su coordinate a misura e la
+    // rotazione non deforma. Sulla superficie (u_isFlat 0) niente cambia.
+    // L'immagine (codice vuoto, ramo qui sotto) no: si stira sulla vista.
+    const QString scriptFlatDomain =
+        "    if (ubuf.u_isFlat != 0) in_uv.x = (in_uv.x - 0.5) * ubuf.u_mvMatrix[0][0] + 0.5;\n";
+    const QString imageHelpers = helpers;
+    helpers.prepend(scriptFlatDomain);
+
     QString codeToInject;
 
     // NB: la dichiarazione del sampler NON sta qui. E' una uniform di modulo e
@@ -7908,7 +8210,7 @@ QString GLWidget::buildTextureFunction(const QString &customLogic, const QString
         // cade sulla scacchiera procedurale mix(u_col1,u_col2), coerente col
         // ramo Shadertoy e con gli slider Color 1/2 che la governano.
         codeToInject = "vec3 " + funcName + "(vec2 in_uv) {\n" +
-                       helpers +
+                       imageHelpers +
                        "\n    return _st_sampleTex(uv).rgb;\n}";
     }
     else if (safeLogic.contains("mainImage")) {
@@ -7967,6 +8269,7 @@ QString GLWidget::buildTextureFunction(const QString &customLogic, const QString
         QString stLocalHelpers = helpers;
         stLocalHelpers.remove("    vec3 u_col1 = ubuf.u_col1;\n");
         stLocalHelpers.remove("    vec3 u_col2 = ubuf.u_col2;\n");
+        addShadertoyConstantGlobals(safeLogic, stHelpers, initVars, stLocalHelpers);
 
         QString stBody = stHelpers + safeLogic + "\n"
                          "vec3 " + funcName + "(vec2 in_uv) {\n"
@@ -8128,6 +8431,7 @@ QString GLWidget::buildTextureFunction(const QString &customLogic, const QString
         // shader non compilerebbe, facendo sparire la superficie. E' la trappola
         // gia' nota del leak delle #define.
         const QString uvTransform =
+            scriptFlatDomain +
             "    float _rad = radians(ubuf.u_rotation);\n"
             "    float _c = cos(_rad); float _s = sin(_rad);\n"
             "    vec2 _centered = in_uv - 0.5;\n"

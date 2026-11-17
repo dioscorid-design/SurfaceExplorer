@@ -193,6 +193,18 @@ void LibraryTreeFocus::setCurrentQuietly(QTreeWidget *tree, QTreeWidgetItem *ite
     tree->setAutoScroll(autoScroll);
 }
 
+LibraryTreeFocus::Highlight LibraryTreeFocus::resting(const Highlight &h)
+{
+    // Senza elemento corrente non c'e' un preset a schermo: resta la selezione.
+    // Con: lui solo, anche quando la selezione e' una voce sola ma un'altra (il
+    // primo Cmd+clic toglie il preset a schermo dalla selezione).
+    if (h.current.isEmpty()) return h;
+    Highlight r;
+    r.current = h.current;
+    r.paths << h.current;
+    return r;
+}
+
 void LibraryTreeFocus::restoreHighlight(QTreeWidget *tree, const Highlight &h)
 {
     QList<QTreeWidgetItem *> items;

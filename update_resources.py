@@ -14,9 +14,10 @@ RESOURCE_GROUPS = {
         "presets/surfaces",
         "presets/textures",
         "presets/records",  
-        "presets/sounds",
-        "shaders"
+        "presets/sounds"
     ],
+    # Gli shader si leggono solo da :/shaders/... (prefisso "/"): elencarli
+    # anche sotto "/library" li impacchettava due volte nel binario.
     "/": [
         "shaders"
     ]
@@ -61,6 +62,14 @@ DOC_CHAPTERS = [
     "modular-controls", "acknowledgments",
 ]
 STATIC_FILES += [f"docs/doc_{name}.html" for name in DOC_CHAPTERS]
+
+# Icone del foglio di stile (uistylemanager.cpp, url(:/ui/...)): spunta delle
+# checkbox e frecce degli spinbox, generate da ui/make_icons.py. Le varianti
+# @2x/@3x devono stare nel .qrc accanto alla 1x: Qt le cerca col nome.
+UI_ICONS = {"spin-up": (1, 2), "spin-down": (1, 2), "spin-up-off": (1, 2),
+            "spin-down-off": (1, 2), "check": (1, 2, 3)}
+STATIC_FILES += [f"ui/{name}{'' if s == 1 else f'@{s}x'}.png"
+                 for name, scales in UI_ICONS.items() for s in scales]
 
 def generate_qrc():
     base_dir = os.path.dirname(os.path.abspath(__file__))

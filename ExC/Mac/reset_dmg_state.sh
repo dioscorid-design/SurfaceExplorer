@@ -40,15 +40,15 @@
 # A QUALE APP SI APPLICA: a TUTTE quelle del canale DMG.
 # Non azzera "un'applicazione" ma un CANALE: le preferenze cancellate qui sono
 # condivise da qualunque bundle con id "...surfaceexplorer.dmg", ovunque si
-# trovi -- /Applications, build/Desktop_Qt_6_10-Release,
-# build/Desktop_Qt_6_10-Debug. Tutti leggono lo stesso libraryRootPath, quindi
+# trovi -- /Applications, build/Qt_6_12_0_for_macOS_Release,
+# build/Qt_6_12_0_for_macOS_Debug. Tutti leggono lo stesso libraryRootPath, quindi
 # NON serve installare il DMG per provare una modifica: basta lanciare il
 # binario appena compilato con --app.
 #
 # USO
 #   ./ExC/Mac/reset_dmg_state.sh                     azzera e basta
 #   ./ExC/Mac/reset_dmg_state.sh --run               azzera e lancia /Applications
-#   ./ExC/Mac/reset_dmg_state.sh --run --app build/Desktop_Qt_6_10-Release/SurfaceExplorer.app
+#   ./ExC/Mac/reset_dmg_state.sh --run --app build/Qt_6_12_0_for_macOS_Release/SurfaceExplorer.app
 #                                                    azzera e lancia quel bundle
 # -----------------------------------------------------------------------------
 set -euo pipefail
@@ -56,7 +56,12 @@ set -euo pipefail
 BUNDLE_ID="com.dioscorid.surfaceexplorer.dmg"
 # Dominio QSettings: NON coincide col bundle id. Vedi il commento sopra.
 QT_DOMAIN="com.dioscorid.SurfaceExplorer-dmg"
-APP="/Applications/SurfaceExplorer.app"
+# L'app del DMG ha un nome suo, con la versione (CMakeLists.txt,
+# SE_MACOS_BUNDLE_NAME): /Applications/SurfaceExplorer.app e' quella
+# dell'App Store / TestFlight, che ha un altro id e altre preferenze.
+VERSION="$(sed -nE 's/^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+).*/\1/p' \
+           "$(cd "$(dirname "$0")/../.." && pwd)/CMakeLists.txt" | head -1)"
+APP="/Applications/Surface Explorer v$VERSION.app"
 
 info() { printf '\033[36m•\033[0m %s\n' "$1"; }
 ok()   { printf '\033[32m✓\033[0m %s\n' "$1"; }
@@ -81,11 +86,13 @@ done
 #
 # Si cercano TUTTI i binari del canale, non solo quello in /Applications:
 # queste preferenze sono condivise da qualunque bundle con id "...dmg" --
-# /Applications, build/Desktop_Qt_6_10-Release, build/Desktop_Qt_6_10-Debug --
+# /Applications, build/Qt_6_12_0_for_macOS_Release, build/Qt_6_12_0_for_macOS_Debug --
 # quindi il reset si applica a tutti e tre e uno qualsiasi di essi, se in
 # esecuzione, puo' annullarlo. Guardare solo /Applications lasciava passare
 # proprio il caso di chi prova il binario appena compilato.
-RUNNING="$(pgrep -fl "SurfaceExplorer.app/Contents/MacOS/SurfaceExplorer" 2>/dev/null || true)"
+# Qualunque nome abbia la cartella .app ("SurfaceExplorer.app" in build/,
+# "Surface Explorer v1.5.app" in /Applications): conta l'eseguibile.
+RUNNING="$(pgrep -fl "\.app/Contents/MacOS/SurfaceExplorer" 2>/dev/null || true)"
 if [ -n "$RUNNING" ]; then
   printf '\033[31m✗ Surface Explorer e in esecuzione:\033[0m\n%s\n' "$RUNNING" >&2
   err "Chiudila prima: alla chiusura cfprefsd riscriverebbe le preferenze e il reset sarebbe annullato."

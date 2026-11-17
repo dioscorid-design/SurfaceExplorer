@@ -506,6 +506,16 @@ public:
     // C'e' almeno una parte con texture propria, accesa e in movimento?
     // Il master button la considera attivita' da fermare/riavviare.
     bool anyMeshTextureAnimating() const;
+    // La parte DISEGNA la sua texture? Propria, accesa, con un codice, e la
+    // parte non e' in wireframe (li' il fragment esce prima, a colore piatto).
+    // In wireframe la texture e' SOSPESA, come quella della superficie intera:
+    // resta accesa e salvata, torna uscendo dal wireframe, e intanto non conta
+    // come animazione in corso per il master.
+    bool partTextureShown(const MeshPart &mp) const {
+        const int mode = effectivePartRenderMode(mp);
+        return mp.hasCustomTexture && mp.textureEnabled && !mp.textureCode.isEmpty()
+               && mode != 2 && mode != 5;
+    }
     QString activeMeshTextureCode() const;
     // Come sopra, ma vuoto se la texture della parte e' SPENTA (lo script resta
     // conservato). E' cio' che l'editor deve mostrare: vedi la nota nel .cpp.
@@ -855,6 +865,22 @@ public:
         m_bgTexCol2 = QVector3D(c2.redF(), c2.greenF(), c2.blueF());
         m_bgTexColorsSet = true;
     }
+    // PROPORZIONI DELLA VISTA INTERA, larghezza/altezza della vista A DOCK
+    // CHIUSI: le scrive MainWindow (updateFullViewAspect) a ogni cambio di
+    // misura della vista. Servono alle texture PROCEDURALI mostrate a schermo
+    // intero -- lo sfondo in modalita' fissa (bgBaseUV) e la vista 2D di
+    // superficie e bordo (buildTextureFunction): il loro dominio e' alto 1 e
+    // largo quanto queste proporzioni, come un'immagine fatta per la vista
+    // intera. Giusta a dock chiusi, stretta con un dock aperto: lo stesso
+    // comportamento delle immagini, che si stirano sulla vista. Prima il
+    // dominio era il quadrato [0,1]^2 stirato sulla vista: giusto solo con la
+    // vista quasi quadrata (un dock aperto), allungato a dock chiusi
+    // (segnalato dall'utente, 11-11).
+    void setFullViewAspect(float aspect) { if (m_fullViewAspect == aspect) return; m_fullViewAspect = aspect; update(); }
+    float fullViewAspect() const { return m_fullViewAspect; }
+    // La larghezza di quel dominio: le proporzioni della vista intera, o quelle
+    // della vista corrente finche' MainWindow non le ha scritte.
+    float fullViewTextureWidth() const;
     void setFlatPan(float x, float y);
 
     // TRASFORMAZIONE 2D GLOBALE della texture di superficie, per la PERSISTENZA.
@@ -1126,7 +1152,24 @@ public:
     // scena viene renderizzata NATIVAMENTE a quella risoluzione e grabFramebuffer()
     // restituisce pixel nitidi senza upscale (fix wireframe sfocato nei video).
     // begin va chiamata una volta prima del loop di registrazione, end alla fine.
+    // Un'uscita PIU' PICCOLA DELLA VISTA si disegna alla scala della vista e si
+    // riduce (captureRenderSize): getFrameForVideo restituisce comunque w x h.
     void beginHiResCapture(int w, int h);
+    // LA DIMENSIONE A CUI SI DISEGNA un'uscita di `out` pixel. Uguale a `out`,
+    // tranne quando l'uscita e' piu' piccola della vista (lungo l'altezza; nelle
+    // immagini piu' larghe della vista conta la fascia ridotta da
+    // `verticalScale`): li' si disegna alla scala della vista, con le stesse
+    // proporzioni, e getFrameForVideo riduce con ricampionamento morbido.
+    // Cosi' un'immagine o un video piccoli sono la vista rimpicciolita: le
+    // texture che misurano in pixel (fwidth, dFdx: Wireframe, frattali)
+    // uscivano larghe una frazione di pixel, spezzate e granulose.
+    QSize captureRenderSize(const QSize &out, float verticalScale) const;
+    // Ricampionamento acceso o spento (spento: l'uscita si disegna alla sua
+    // misura). Acceso di default: le immagini ricampionano sempre. Il recorder lo
+    // imposta con la scelta dell'utente nel dialogo dei video (spento di default:
+    // l'esportazione e' piu' lenta) e lo riaccende a fine registrazione; i test
+    // lo spengono per confrontare.
+    void setCaptureResampling(bool on) { m_captureResample = on; }
     // Cattura di un'IMMAGINE (vedi ImageCapture): il campo visivo VERTICALE e' quello
     // della vista moltiplicato per questa scala (1 = invariato, mai oltre). Serve a
     // un'immagine piu' LARGA della vista: col campo verticale fisso mostrerebbe di
@@ -1134,6 +1177,15 @@ public:
     // quello della vista e il riquadro guida (la parte della vista che entra
     // nell'immagine) dice la verita'. Si rimette a 1 a cattura finita.
     void setCaptureVerticalScale(float scale);
+    // Cattura di un'IMMAGINE col riquadro guida SPOSTATO (trascinato nella vista,
+    // ImageCapture::captureShiftFor): l'immagine e' la parte della vista sotto il
+    // riquadro, cioe' una finestra decentrata dello stesso campo visivo. E' una
+    // traslazione nel clip space (x += dx * w, y += dy * w; NDC di OpenGL, y in
+    // alto) dopo la proiezione: la ricevono le mesh, il ray marching (che ricava
+    // i raggi dall'inversa di u_mvpMatrix) e il cielo dello sfondo, che ha la sua
+    // matrice dei raggi. Zero = centrato, il disegno di sempre. Si rimette a zero
+    // a cattura finita.
+    void setCaptureShift(const QVector2D &ndc) { m_captureShift = ndc; }
     // Spessore, in pixel dell'immagine, con cui si disegnano le linee dei wireframe
     // durante una cattura (1 = linea nativa della GPU). Le linee della GPU sono
     // sempre larghe un pixel: in un'immagine molto piu' grande della vista
@@ -1171,6 +1223,20 @@ public:
     }
     // Il lato massimo di una texture / buffer della GPU (QRhi::TextureSizeMax).
     int maxTextureSize();
+    // Lato massimo di un'immagine dell'utente caricata come texture: oltre, la
+    // si legge gia' ridotta (vedi readTextureImage). 8192x8192 RGBA = 256 MB.
+    static constexpr int kTextureImageMaxSide = 8192;
+    // Memoria massima per DECODIFICARE un'immagine (circa 16384x16384 per i
+    // formati che decodificano interi; il JPEG decodifica gia' ridotto): oltre,
+    // readTextureImage rinuncia e lo dice, invece di rischiare la memoria.
+    static constexpr qint64 kTextureImageMaxDecodeMB = 1024;
+    // Legge un'immagine dell'utente per farne una texture, ridotta se un lato
+    // supera kTextureImageMaxSide. Vuota se non si legge; in *reason il motivo,
+    // in inglese, pronto per l'avviso.
+    static QImage readTextureImage(const QString &path, QString *reason = nullptr);
+    // Riduce img al lato massimo che QUESTA GPU accetta (QRhi::TextureSizeMax).
+    // Si chiama all'upload, dove il QRhi esiste di sicuro.
+    static void fitToGpuTextureLimit(QRhi *rhi, QImage &img);
     void endHiResCapture();
     QString getShaderError() const { return m_lastCompilationError; }
     bool validateAndApplyParametricShader(const QString &customLogic);
@@ -1198,11 +1264,13 @@ signals:
     void shaderCompilationFailed(const QString &error);
     // Un'immagine di texture non si e' potuta CARICARE: il file esiste ed e'
     // leggibile (chi chiama lo verifica prima), ma Qt non ne ricava pixel —
-    // formato non supportato o file corrotto. Senza questo segnale
-    // loadTextureFromFile usciva in SILENZIO, lasciando a schermo la texture
-    // precedente: all'utente sembrava che il preset avesse una texture
-    // "sbagliata" o "di default", senza alcun indizio del perche'.
-    void textureImageLoadFailed(const QString &path);
+    // formato non supportato, file corrotto o immagine troppo grande. Senza
+    // questo segnale loadTextureFromFile usciva in SILENZIO, lasciando a
+    // schermo la texture precedente: all'utente sembrava che il preset avesse
+    // una texture "sbagliata" o "di default", senza alcun indizio del perche'.
+    // reason e' il motivo, in inglese (readTextureImage): prima l'avviso diceva
+    // sempre "corrotto", anche per un'immagine solo troppo grande.
+    void textureImageLoadFailed(const QString &path, const QString &reason);
     // Emesso dopo ogni rigenerazione della griglia, quando le parti di mesh
     // possono essere cambiate (nuovo script, nuove sezioni //MESH_BEGIN).
     // MainWindow lo usa per riallineare il selettore di mesh del dock renderer e
@@ -1226,11 +1294,16 @@ signals:
     // AUTOMATICO (advanceRotationsBy) e quindi non distingue chi ha mosso cosa.
     // MainWindow lo usa per marcare il lavoro non salvato.
     void userMovedView();
+    // Il widget ha cambiato misura (finestra ridimensionata, dock aperto o
+    // chiuso). MainWindow ricalcola le proporzioni della vista intera
+    // (setFullViewAspect); va collegato in coda, a layout dei dock finito.
+    void viewResized();
 
 protected:
     void initialize(QRhiCommandBuffer *cb) override;
     void render(QRhiCommandBuffer *cb) override;
     void releaseResources() override;
+    void resizeEvent(QResizeEvent *e) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
@@ -1731,6 +1804,7 @@ private:
     bool m_useBackgroundTexture = false;
     int m_bgSkyMode = BgFixed;      // vedi setBackgroundSkyMode
     bool m_bgIsScript = false;
+    float m_fullViewAspect = 0.0f;  // vedi setFullViewAspect
     QString m_bgImagePath;          // vedi backgroundImagePath
     QVector3D m_bgColor = QVector3D(0.3f, 0.3f, 0.3f);
     int m_lightingMode4D = 0;
@@ -1743,6 +1817,8 @@ private:
     // true tra beginHiResCapture/endHiResCapture: il color buffer è già fissato
     // alla risoluzione di export, quindi getFrameForVideo NON deve riscalare.
     bool m_hiResCapture = false;
+    QSize m_captureOutputSize;      // l'uscita chiesta a beginHiResCapture (vedi captureRenderSize)
+    bool m_captureResample = true;  // vedi setCaptureResampling
     // true durante l'esportazione video: il rendering e' frame-by-frame (con
     // cattura + scrittura su disco tra i frame), quindi gli intervalli sono
     // naturalmente lentissimi -> il watchdog di performance darebbe un FALSO
@@ -1802,9 +1878,18 @@ private:
     int m_captureLineWidth = 1;            // vedi setCaptureLineWidth
     QVector<QPoint> wireframeOffsets() const;
     float m_captureVerticalScale = 1.0f;   // vedi setCaptureVerticalScale
+    QVector2D m_captureShift;              // vedi setCaptureShift
     // Il campo visivo verticale con cui si disegna: m_cameraFov, scalato in
     // tangente durante una cattura d'immagine.
     float effectiveCameraFov() const;
+    // LA PARTE DELLA VISTA CHE ENTRA NELL'IMMAGINE, per cio' che si disegna
+    // a schermo intero senza proiezione (lo sfondo in modalita' fissa, la
+    // vista piatta 2D): (kx, ky, sx, sy) con ndc_vista = (ndc_immagine - s) * k,
+    // la stessa finestra che la proiezione da' alle mesh (rapporto
+    // dell'immagine, campo verticale ridotto, riquadro spostato). (1, 1, 0, 0)
+    // a schermo: k vale solo nelle catture e non supera mai 1 (un video piu'
+    // largo della vista stira lo sfondo come prima, invece di uscirne).
+    QVector4D captureViewWindow() const;
     bool m_externalClockActive = false; // vedi setExternalClockActive()
 
     bool m_isPathFollowing = false;   // MODALITA' camera tangent (persiste dopo stop)

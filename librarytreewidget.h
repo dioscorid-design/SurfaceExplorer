@@ -14,6 +14,16 @@ class LibraryTreeWidget : public QTreeWidget
     Q_OBJECT
 public:
     using QTreeWidget::QTreeWidget;
+    // Il clic che sta emettendo itemClicked e' una selezione multipla
+    // (Cmd/Ctrl o Shift premuti al rilascio): chi carica il preset lo salta
+    // (MainWindow::onExampleItemClicked, onSoundItemClicked).
+    bool multiSelectionClick() const { return m_multiSelectionRelease; }
+    // I modificatori della selezione multipla: Cmd su macOS e Ctrl altrove
+    // (ControlModifier), Shift, e Ctrl su macOS (MetaModifier: li' e' il tasto
+    // destro, che apre il menu). Li usano anche MainWindow::onExampleItemClicked
+    // e onSoundItemClicked (multiSelectionClick in mainwindow_library.cpp).
+    static constexpr Qt::KeyboardModifiers kMultiSelection =
+        Qt::ControlModifier | Qt::ShiftModifier | Qt::MetaModifier;
 
 protected:
     // Durante un clic semplice su una cartella: nessuna selezione, ne' alla
@@ -29,8 +39,11 @@ protected:
 
 private:
     bool isFolder(const QModelIndex &index) const;
+    void keepCurrent(const QPersistentModelIndex &current);
 
     bool m_folderPress = false;      // clic sinistro senza Cmd/Shift su una cartella, in corso
+    bool m_multiSelectionRelease = false;   // dentro il rilascio di un Cmd/Shift+clic
+    bool m_pressMulti = false;              // la pressione aveva Cmd/Shift
     QPersistentModelIndex m_folder;
     QPoint m_pressPos;
     LibraryTreeFocus::Highlight m_pressHighlight;   // prima della pressione sinistra

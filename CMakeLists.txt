@@ -4,7 +4,9 @@ cmake_minimum_required(VERSION 3.16)
 # dialogo About stampa. Prima il numero era scritto a mano anche in
 # mainwindow.cpp e restava indietro a ogni bump (bump-version.sh non poteva
 # raggiungerlo e si limitava a stampare un promemoria).
-# Info.plist resta un file a parte, aggiornato da ExC/Mac/bump-version.sh.
+# Info.plist e Info-macos.plist non contengono numeri: CFBundleShortVersionString
+# e CFBundleVersion arrivano da qui (${MACOSX_BUNDLE_SHORT_VERSION_STRING},
+# ${MACOSX_BUNDLE_BUNDLE_VERSION}, sostituiti da CMake anche col generatore Xcode).
 project(SurfaceExplorer VERSION 1.5 LANGUAGES CXX)
 
 if(WIN32)
@@ -68,6 +70,57 @@ foreach(_chap IN LISTS _doc_chapters)
     endif()
 endforeach()
 unset(_doc_chapters)
+
+# I PRESET DI FABBRICA: l'app contiene solo i file ELENCATI in resources.qrc,
+# rcc non guarda la cartella. Un preset messo in presets/ e non elencato
+# compilava lo stesso, in silenzio, e Restore Factory Presets non lo installava
+# mai (la texture Fine Grain, 2026-11-16); uno elencato e poi cancellato fermava
+# rcc con un "Cannot find file" che non dice cosa fare. La cartella e il .qrc
+# devono coincidere: se no la build si ferma, coi file e il comando. Con
+# CONFIGURE_DEPENDS la cartella si riguarda a ogni build, quindi anche un file
+# aggiunto o tolto senza toccare il .qrc rifa' il controllo. Le cartelle sono
+# quelle di update_resources.py (RESOURCE_GROUPS, "/library"), che come lui
+# salta i file nascosti (.DS_Store): tenerle allineate.
+set(_preset_dirs surfaces textures records sounds)
+set(_presets_on_disk)
+foreach(_dir IN LISTS _preset_dirs)
+    file(GLOB_RECURSE _found CONFIGURE_DEPENDS LIST_DIRECTORIES false
+         RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/presets/${_dir}/*")
+    foreach(_f IN LISTS _found)
+        get_filename_component(_name "${_f}" NAME)
+        if(NOT _name MATCHES "^\\.")
+            list(APPEND _presets_on_disk "${_f}")
+        endif()
+    endforeach()
+endforeach()
+string(REGEX MATCHALL "<file>presets/[^<]*</file>" _qrc_presets "${_qrc_content}")
+list(TRANSFORM _qrc_presets REPLACE "^<file>(.*)</file>$" "\\1")
+set(_not_in_qrc ${_presets_on_disk})
+set(_not_on_disk ${_qrc_presets})
+if(_qrc_presets)
+    list(REMOVE_ITEM _not_in_qrc ${_qrc_presets})
+endif()
+if(_presets_on_disk)
+    list(REMOVE_ITEM _not_on_disk ${_presets_on_disk})
+endif()
+if(_not_in_qrc OR _not_on_disk)
+    list(JOIN _not_in_qrc "\n  + " _list_added)
+    list(JOIN _not_on_disk "\n  - " _list_removed)
+    set(_msg "La cartella presets e resources.qrc non coincidono.\n")
+    if(_not_in_qrc)
+        string(APPEND _msg "Nella cartella ma non nel .qrc (Restore Factory Presets non li installerebbe):\n  + ${_list_added}\n")
+    endif()
+    if(_not_on_disk)
+        string(APPEND _msg "Nel .qrc ma non nella cartella:\n  - ${_list_removed}\n")
+    endif()
+    string(APPEND _msg "Rigenera il .qrc dalla cartella:  python3 update_resources.py")
+    message(FATAL_ERROR "${_msg}")
+endif()
+unset(_preset_dirs)
+unset(_presets_on_disk)
+unset(_qrc_presets)
+unset(_not_in_qrc)
+unset(_not_on_disk)
 unset(_qrc_content)
 
 qt_add_executable(SurfaceExplorer
@@ -223,7 +276,9 @@ if (IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
     set(CMAKE_XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.dioscorid.surfaceexplorer")
     # 2. Architettura e Versione
     set(CMAKE_OSX_ARCHITECTURES "arm64")
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "17.0")
+    # iOS 18: il minimo dei framework di Qt 6.12 (minos 18.0). Piu' basso, l'App
+    # Store installerebbe l'app su sistemi dove non parte.
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "18.0")
     # 3. Proprietà dell'App
     set_target_properties(SurfaceExplorer PROPERTIES
         MACOSX_BUNDLE TRUE
@@ -233,9 +288,9 @@ if (IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
         XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist"
         VERSION "${PROJECT_VERSION}"
-        MACOSX_BUNDLE_BUNDLE_VERSION "64"
+        MACOSX_BUNDLE_BUNDLE_VERSION "68"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
-        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "64"
+        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "68"
         XCODE_ATTRIBUTE_MARKETING_VERSION "${PROJECT_VERSION}"
     )
 
@@ -297,10 +352,20 @@ elseif (APPLE)
     # funzionare e la libreria si riapriva sul percorso precedente. In piu' i
     # due bundle con lo stesso id (test e /Applications) si contendevano
     # l'attivazione, da cui l'icona nel Dock sostituita da un'altra copia.
+    #
+    # E NOME DIVERSO, oltre all'id (dal 2026-11-13): i due canali installavano lo
+    # stesso file, /Applications/SurfaceExplorer.app, e chi arrivava per ultimo
+    # sostituiva l'altro (la TestFlight 1.5 ha cancellato la copia del DMG). Il
+    # DMG e' "Surface Explorer v1.5" (CFBundleName e CFBundleDisplayName, che
+    # Info-macos.plist legge da MACOSX_BUNDLE_BUNDLE_NAME, e il nome della
+    # cartella .app nel DMG, release_macos.sh). L'id del DMG resta lo stesso:
+    # chi aggiorna ritrova le sue impostazioni.
     if (CMAKE_GENERATOR STREQUAL "Xcode" OR SE_APPSTORE_ID)
         set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer")        # App Store
+        set(SE_MACOS_BUNDLE_NAME "Surface Explorer")
     else()
         set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer.dmg")    # Developer ID
+        set(SE_MACOS_BUNDLE_NAME "Surface Explorer v${PROJECT_VERSION}")
     endif()
 
     # --- CONFIGURAZIONE NOME APP MACOS ---
@@ -315,10 +380,11 @@ elseif (APPLE)
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info-macos.plist"
 
         # 1. Nome nella BARRA DEI MENU (Accanto alla Mela )
-        MACOSX_BUNDLE_BUNDLE_NAME "Surface Explorer"
+        # (diverso fra DMG e App Store: vedi SE_MACOS_BUNDLE_NAME qui sopra)
+        MACOSX_BUNDLE_BUNDLE_NAME "${SE_MACOS_BUNDLE_NAME}"
 
         # 2. Nome dell'icona nel Launchpad/Dock
-        MACOSX_BUNDLE_DISPLAY_NAME "Surface Explorer"
+        MACOSX_BUNDLE_DISPLAY_NAME "${SE_MACOS_BUNDLE_NAME}"
 
         # 3. Nome del file fisico (.app)
         OUTPUT_NAME "SurfaceExplorer"
@@ -351,11 +417,11 @@ elseif (APPLE)
     set(CMAKE_XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${SE_MACOS_BUNDLE_ID}")
 
     set_target_properties(SurfaceExplorer PROPERTIES
-        # Build number e versione marketing: stessi campi che il bump di
-        # release_testflight_mac.sh tiene allineati con Info.plist.
-        MACOSX_BUNDLE_BUNDLE_VERSION "64"
+        # Build number e versione marketing: il build number lo incrementa
+        # release_testflight_mac.sh; Info-macos.plist li legge da qui.
+        MACOSX_BUNDLE_BUNDLE_VERSION "68"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
-        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "64"
+        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "68"
         XCODE_ATTRIBUTE_MARKETING_VERSION "${PROJECT_VERSION}"
 
         # Sandbox: obbligatoria sull'App Store. Xcode firma con questi
@@ -444,9 +510,11 @@ endif()
 # e ffmpeg-kit-full-gpl non e' incorporabile (GPL incompatibile con l'App Store).
 if(APPLE AND NOT IOS)
     # Il minimo di macOS, fisso: senza, il dmg prende la versione del Mac che compila
-    # (solo Xcode eredita 13 da Qt). Stesso valore per dmg e App Store, e per
-    # LSMinimumSystemVersion (Info-macos.plist).
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0")
+    # (solo Xcode eredita il minimo da Qt). 14.4 e' il minimo dei framework di
+    # Qt 6.12 (minos 14.4): piu' basso, l'app si installerebbe su sistemi dove non
+    # parte. Stesso valore per dmg e App Store, e per LSMinimumSystemVersion
+    # (Info-macos.plist).
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "14.4")
 
     target_sources(SurfaceExplorer PRIVATE
         nativevideoencoder.h

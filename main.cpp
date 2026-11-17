@@ -11,6 +11,9 @@
 #include "scenariotest.h"
 #include "imagetest.h"
 #include "testactivity.h"
+#include <QWindow>
+#include <QDir>
+#include <QScreen>
 #endif
 
 int main(int argc, char *argv[])
@@ -111,6 +114,32 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName("SurfaceExplorer");
 #endif
 
+#ifdef SE_SELF_TESTS
+    // I TEST HANNO IMPOSTAZIONI PROPRIE. La build dei test non e' compilata con
+    // Xcode, quindi ha l'id del DMG e leggeva e scriveva le preferenze dell'app
+    // DMG installata: la libreria era quella dell'app (dal 2026-11-13 ~/presets,
+    // la libreria pulita della 1.5) e non quella passata al test, e un record con
+    // un'immagine di un altro dispositivo la cercava li' (mesh-image: la stessa
+    // immagine caricata due volte). Con un test in corso: un dominio a parte,
+    // la libreria = la radice del test (scritta prima che MainWindow la legga,
+    // cosi' non compare nemmeno il benvenuto) e niente copia dei preset di
+    // fabbrica all'avvio, perche' i test non scrivano nella libreria che usano.
+    {
+        const QStringList args = app.arguments();
+        for (const char *flag : { "--scenario-test", "--image-test", "--roundtrip-test", "--clock-test" }) {
+            const int i = args.indexOf(QLatin1String(flag));
+            if (i < 0 || i + 1 >= args.size()) continue;
+            QCoreApplication::setApplicationName(QStringLiteral("SurfaceExplorer-tests"));
+            const QString root = QDir(args.at(i + 1)).absolutePath();
+            QSettings settings;
+            settings.setValue(QStringLiteral("libraryRootPath"), root);
+            settings.sync();
+            app.setProperty("seTestRun", true);
+            break;
+        }
+    }
+#endif
+
     MainWindow w;
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
@@ -122,6 +151,27 @@ int main(int argc, char *argv[])
                      Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint |
                      Qt::WindowCloseButtonHint);
 
+#ifdef SE_SELF_TESTS
+    // I TEST SU UNO SCHERMO SCELTO: SE_TEST_SCREEN=<nome> (o una sua parte,
+    // come lo scrive QScreen::name, es. "HP") apre la finestra su quello
+    // schermo, cosi' l'altro resta libero mentre la suite gira. Se non c'e',
+    // gli schermi nel log e si resta sul principale.
+    w.winId();
+    if (const QString want = qEnvironmentVariable("SE_TEST_SCREEN"); !want.isEmpty() && w.windowHandle()) {
+        QScreen *chosen = nullptr;
+        QStringList names;
+        for (QScreen *s : QGuiApplication::screens()) {
+            names << s->name();
+            if (!chosen && s->name().contains(want, Qt::CaseInsensitive)) chosen = s;
+        }
+        if (chosen) {
+            w.windowHandle()->setScreen(chosen);
+            w.move(chosen->availableGeometry().topLeft() + QPoint(20, 20));
+        } else {
+            qWarning().noquote() << "SE_TEST_SCREEN: nessuno schermo" << want << "fra" << names.join(QStringLiteral(", "));
+        }
+    }
+#endif
     // 2. Impostiamo una dimensione di partenza ragionevole
     w.resize(1200, 800);
 

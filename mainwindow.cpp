@@ -1592,6 +1592,26 @@ void MainWindow::setupStatusBar()
                                { m_renderProgress, m_statusLabel });
 }
 
+// La vista a dock chiusi e' la vista di adesso piu' lo spazio che le tolgono i
+// dock AGGANCIATI: il rettangolo che coprono insieme al widget centrale, meno il
+// widget centrale (i suoi margini attorno alla vista restano). I dock flottanti
+// non tolgono niente. Si misura in coda a viewResized: durante il layout della
+// finestra la vista puo' avere gia' la misura nuova e i dock ancora la vecchia.
+// I dock come figli diretti della finestra: tutti, senza elenco da tenere
+// aggiornato (e lo stesso codice nella 2.0, che ha anche Objects).
+void MainWindow::updateFullViewAspect()
+{
+    if (!ui->glWidget || !centralWidget()) return;
+    const QRect central = centralWidget()->geometry();
+    QRect all = central;
+    for (QDockWidget *dock : findChildren<QDockWidget*>(QString(), Qt::FindDirectChildrenOnly))
+        if (dock->isVisible() && !dock->isFloating())
+            all |= dock->geometry();
+    const int w = ui->glWidget->width() + all.width() - central.width();
+    const int h = ui->glWidget->height() + all.height() - central.height();
+    if (w > 0 && h > 0) ui->glWidget->setFullViewAspect(float(w) / float(h));
+}
+
 // Ultimi allineamenti dell'avvio. Parte del costruttore, nell'ordine in cui la chiama.
 void MainWindow::finishStartup()
 {
@@ -1972,26 +1992,27 @@ void MainWindow::connectNavButton(QPushButton *btn, int action)
     // telecamera segue un percorso).
     m_navButtons.append(btn);
 
-    // Quando PREMI un bottone
+    // PRESSIONE: uno scatto subito, della sola azione di questo tasto. La
+    // ripetizione continua parte solo se il tasto resta premuto oltre
+    // m_navRepeatDelay. Prima navTimer partiva alla pressione e scattava ogni
+    // 30 ms: un clic normale (100-150 ms) dava da 1 a 5 scatti a caso, e
+    // contando i clic non si tornava al punto di partenza (segnalato
+    // dall'utente su T3 Villarceau: Psi non tornava all'angolo esatto, con
+    // il readout a due decimali che segnava comunque +0.00).
     connect(btn, &QPushButton::pressed, this, [this, action]() {
-        // Se è il primo tasto che premo, avvio il timer
+        // Primo tasto premuto: parte l'attesa della ripetizione.
         if (activeNavActions.isEmpty()) {
-            navTimer->start();
+            m_navRepeatDelay->start();
         }
-        // Aggiungo questa azione alla lista delle azioni attive
         activeNavActions.insert(action);
-
-        // (Opzionale) Eseguo subito uno scatto per reattività immediata
-        onNavTimerTick();
+        stepNavActions({action});
     });
 
-    // Quando RILASCI un bottone
+    // RILASCIO: nessun tasto premuto, si ferma tutto (attesa e ripetizione).
     connect(btn, &QPushButton::released, this, [this, action]() {
-        // Rimuovo l'azione dalla lista
         activeNavActions.remove(action);
-
-        // Se non ci sono più tasti premuti, fermo il timer
         if (activeNavActions.isEmpty()) {
+            m_navRepeatDelay->stop();
             navTimer->stop();
         }
     });

@@ -1,6 +1,8 @@
 #include "imagecapture.h"
 #include "glwidget.h"
 
+#include <QAction>
+#include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
@@ -18,15 +20,24 @@
 #include <QGuiApplication>
 #include <QImageWriter>
 #include <QLabel>
+#include <QLineF>
+#include <QMenu>
+#include <QMenuBar>
+#include <QMouseEvent>
 #include <QMessageBox>
 #include <QPainter>
+#include <QPointer>
 #include <QProgressDialog>
 #include <limits>
 #include <QScreen>
 #include <QSettings>
 #include <QSpinBox>
+#include <QStyleHints>
 #include <QTimer>
+#include <QTouchEvent>
+#include <QVector2D>
 #include <QVBoxLayout>
+#include <QWindow>
 #include <QtConcurrent>
 #include <algorithm>
 #include <cmath>
@@ -52,14 +63,33 @@ float ImageCapture::verticalScaleFor(double ratio, double viewRatio)
     return float(viewRatio / ratio);
 }
 
-QRect ImageCapture::guideRect(const QSize &view, double ratio)
+QRect ImageCapture::guideRect(const QSize &view, double ratio, const QPointF &position)
 {
     if (view.isEmpty() || ratio <= 0.0) return QRect();
     const double viewRatio = double(view.width()) / double(view.height());
     int w, h;
     if (ratio <= viewRatio) { h = view.height(); w = int(std::lround(h * ratio)); }
     else                    { w = view.width();  h = int(std::lround(w / ratio)); }
-    return QRect((view.width() - w) / 2, (view.height() - h) / 2, w, h);
+    // Dal centro di sempre, spostato di una frazione dello spazio libero (zero
+    // lungo il lato che il riquadro occupa tutto).
+    const auto placed = [](int room, double p) {
+        const int centred = room / 2;
+        return qBound(0, centred + int(std::lround(qBound(-1.0, p, 1.0) * room / 2.0)), std::max(0, room));
+    };
+    return QRect(placed(view.width() - w, position.x()), placed(view.height() - h, position.y()), w, h);
+}
+
+QPointF ImageCapture::captureShiftFor(double ratio, double viewRatio, const QPointF &position)
+{
+    if (ratio <= 0.0 || viewRatio <= 0.0) return QPointF();
+    // Piu' stretta della vista: l'immagine e' alta come la vista e larga ratio /
+    // viewRatio di lei. Il riquadro spostato di p * (spazio libero) / 2 porta al
+    // centro dell'immagine il punto della vista che stava li': nelle NDC
+    // dell'immagine, -p * (viewRatio / ratio - 1).
+    if (ratio <= viewRatio) return QPointF(-qBound(-1.0, position.x(), 1.0) * (viewRatio / ratio - 1.0), 0.0);
+    // Piu' larga: larga come la vista, alta viewRatio / ratio di lei (col campo
+    // verticale ridotto). In basso nella vista = y negativa nelle NDC.
+    return QPointF(0.0, qBound(-1.0, position.y(), 1.0) * (ratio / viewRatio - 1.0));
 }
 
 bool ImageCapture::isSingleColor(const QImage &im)
@@ -115,15 +145,39 @@ static double wireScaleFor(GLWidget *gl, const QSize &size, double ratio)
                                 : size.width() / std::max(1.0, gl->width() * dpr);
 }
 
-QImage ImageCapture::render(GLWidget *gl, const QSize &size, double ratio, QString *error, double wireFactor)
+// UNO SCATTO a `size` con la finestra della cattura: scala verticale, spostamento
+// del riquadro, spessore del wireframe. I valori tornano normali PRIMA di chiudere
+// la cattura: endHiResCapture ridisegna subito la vista, e con i valori della
+// cattura restava a schermo un wireframe fitto fino al primo clic.
+static QImage grabCapture(GLWidget *gl, const QSize &size, float verticalScale, const QVector2D &shift,
+                          int lineWidth)
+{
+    gl->setCaptureVerticalScale(verticalScale);
+    gl->setCaptureShift(shift);
+    gl->setCaptureLineWidth(lineWidth);
+    gl->beginHiResCapture(size.width(), size.height());
+    QImage img = gl->getFrameForVideo(size.width(), size.height(), true);
+    gl->setCaptureVerticalScale(1.0f);
+    gl->setCaptureShift(QVector2D());
+    gl->setCaptureLineWidth(1);
+    gl->endHiResCapture();
+    return img;
+}
+
+QImage ImageCapture::render(GLWidget *gl, const QSize &size, double ratio, QString *error, double wireFactor,
+                            const QPointF &position)
 {
     const double viewRatio = double(gl->width()) / double(std::max(1, gl->height()));
     const float verticalScale = verticalScaleFor(ratio, viewRatio);
+    const QVector2D shift(captureShiftFor(ratio, viewRatio, position));
     // Le linee del wireframe sono larghe un pixel qualunque sia la dimensione:
     // si ispessiscono in proporzione a quanto l'immagine e' piu' grande della vista
     // (nel verso che resta fisso: l'altezza se si taglia ai lati, la larghezza se
     // il campo verticale si riduce).
-    const double scale = wireScaleFor(gl, size, ratio);
+    // Si conta sulla dimensione a cui si DISEGNA: un'immagine piu' piccola della
+    // vista si disegna alla scala della vista e poi si riduce (GLWidget::
+    // captureRenderSize), quindi li' lo spessore e' quello dello schermo.
+    const double scale = wireScaleFor(gl, gl->captureRenderSize(size, verticalScale), ratio);
     // Ogni ridisegno costa tutto il wireframe: su una scena fitta troppi ridisegni
     // in un solo fotogramma fanno fallire la GPU (immagine tutta magenta). Si limita
     // lo spessore al costo (indici x ridisegni, al massimo 30 milioni) e, se l'immagine
@@ -150,16 +204,7 @@ QImage ImageCapture::render(GLWidget *gl, const QSize &size, double ratio, QStri
     QImage img;
     bool singleColor = false;
     for (;;) {
-        gl->setCaptureVerticalScale(verticalScale);
-        gl->setCaptureLineWidth(lineWidth);
-        gl->beginHiResCapture(size.width(), size.height());
-        img = gl->getFrameForVideo(size.width(), size.height(), true);
-        // Campo visivo e spessore tornano normali PRIMA di chiudere la cattura:
-        // endHiResCapture ridisegna subito la vista, e con i valori della cattura
-        // restava a schermo un wireframe fitto fino al primo click.
-        gl->setCaptureVerticalScale(1.0f);
-        gl->setCaptureLineWidth(1);
-        gl->endHiResCapture();
+        img = grabCapture(gl, size, verticalScale, shift, lineWidth);
         if (s_testBlankFrames > 0) {
             --s_testBlankFrames;
             img.fill(Qt::magenta);
@@ -172,12 +217,7 @@ QImage ImageCapture::render(GLWidget *gl, const QSize &size, double ratio, QStri
     // Ancora di un solo colore: un fotogramma fallito, o una scena davvero uniforme (il
     // solo sfondo). Lo dice un fotogramma piccolo, che la GPU non ha motivo di rifiutare.
     if (singleColor) {
-        const QSize probe = sizeFor(ratio, 320);
-        gl->setCaptureVerticalScale(verticalScale);
-        gl->beginHiResCapture(probe.width(), probe.height());
-        const QImage small = gl->getFrameForVideo(probe.width(), probe.height(), true);
-        gl->setCaptureVerticalScale(1.0f);
-        gl->endHiResCapture();
+        const QImage small = grabCapture(gl, sizeFor(ratio, 320), verticalScale, shift, 1);
         if (!small.isNull() && !isSingleColor(small)) img = QImage();
     }
     gl->update();
@@ -187,7 +227,9 @@ QImage ImageCapture::render(GLWidget *gl, const QSize &size, double ratio, QStri
         return QImage();
     }
     img.setDevicePixelRatio(1.0);
-    if (img.format() != QImage::Format_RGB32) img = img.convertToFormat(QImage::Format_RGB32);
+    // Sul posto (convertTo): convertToFormat ne faceva una seconda copia, circa
+    // 1 GB per un'immagine di 16384 px di lato.
+    if (img.format() != QImage::Format_RGB32) img.convertTo(QImage::Format_RGB32);
     return img;
 }
 
@@ -196,18 +238,19 @@ void ImageCapture::setTestBlankFrames(int frames) { s_testBlankFrames = frames; 
 double ImageCapture::secondsPerMegapixel(GLWidget *gl)
 {
     const QSize probe(1280, 720);
+    // Il tempo va diviso per i pixel DISEGNATI: piu' piccola della vista, la
+    // sonda si disegna alla scala della vista (GLWidget::captureRenderSize).
+    const QSize drawn = gl->captureRenderSize(probe, 1.0f);
     // Due giri: il primo paga le risorse e la riconfigurazione del buffer.
     double seconds = 0.0;
     for (int i = 0; i < 2; ++i) {
         QElapsedTimer t;
         t.start();
-        gl->beginHiResCapture(probe.width(), probe.height());
-        const QImage img = gl->getFrameForVideo(probe.width(), probe.height(), true);
-        gl->endHiResCapture();
+        const QImage img = grabCapture(gl, probe, 1.0f, QVector2D(), 1);
         seconds = double(t.nsecsElapsed()) * 1e-9;
         if (img.isNull()) return 0.0;
     }
-    return seconds / (double(probe.width()) * probe.height() / 1e6);
+    return seconds / (double(drawn.width()) * drawn.height() / 1e6);
 }
 
 // ==========================================================
@@ -221,12 +264,41 @@ class FrameGuide : public QWidget
 public:
     explicit FrameGuide(QWidget *view) : QWidget(view), m_view(view)
     {
-        setAttribute(Qt::WA_TransparentForMouseEvents);
+        // Riceve mouse e dita: il riquadro si trascina (la vista sotto, che li
+        // userebbe per girare la scena, non li vede).
+        setObjectName(QStringLiteral("imageFrameGuide"));
         setAttribute(Qt::WA_NoSystemBackground);
+        setAttribute(Qt::WA_AcceptTouchEvents);
         view->installEventFilter(this);
         setGeometry(view->rect());
+        publish();
     }
-    void setRatio(double ratio) { m_ratio = ratio; update(); }
+    void setRatio(double ratio)
+    {
+        m_ratio = ratio;
+        updateCursor();
+        update();
+    }
+    // Dove sta il riquadro lungo il lato libero (ImageCapture::guideRect).
+    QPointF position() const { return m_position; }
+    // Prima di sparire: si ridipinge trasparente, subito, cosi' nell'immagine
+    // della finestra non resta la velatura (vedi paintEvent).
+    void clearPaint()
+    {
+        m_ratio = 0.0;
+        m_clearPainted = false;
+        repaint();
+        // repaint() non sempre dipinge subito (visto nei test: a volte Qt lo
+        // rimanda, e distrutto il riquadro la velatura restava). Allora lo si
+        // chiede di nuovo e lo si aspetta, per poco, senza eventi dell'utente.
+        if (!m_clearPainted) {
+            update();
+            QElapsedTimer waited;
+            waited.start();
+            while (!m_clearPainted && waited.elapsed() < 300)
+                QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
+        }
+    }
 
 protected:
     bool eventFilter(QObject *obj, QEvent *ev) override
@@ -234,11 +306,65 @@ protected:
         if (obj == m_view && ev->type() == QEvent::Resize) setGeometry(m_view->rect());
         return QWidget::eventFilter(obj, ev);
     }
+    bool event(QEvent *ev) override
+    {
+        // IL DITO (telefono e tablet): lo stesso trascinamento del mouse, col
+        // primo punto. Accettato qui, il tocco non arriva alla vista.
+        // E IL DOPPIO TOCCO ricentra, come il doppio clic: accettando i tocchi
+        // Qt non sintetizza piu' il doppio clic, e mouseDoubleClickEvent sul
+        // dito non arrivava mai (il testo del dialogo lo prometteva).
+        switch (ev->type()) {
+        case QEvent::TouchBegin:
+        case QEvent::TouchUpdate:
+        case QEvent::TouchEnd:
+        case QEvent::TouchCancel: {
+            auto *te = static_cast<QTouchEvent *>(ev);
+            if (!te->points().isEmpty()) touch(ev->type(), te->points().first().position());
+            ev->accept();
+            return true;
+        }
+        default:
+            return QWidget::event(ev);
+        }
+    }
+    void mousePressEvent(QMouseEvent *e) override
+    {
+        if (e->button() == Qt::LeftButton) beginDrag(e->position());
+        e->accept();
+    }
+    void mouseMoveEvent(QMouseEvent *e) override
+    {
+        if (m_dragging) dragTo(e->position());
+        e->accept();
+    }
+    void mouseReleaseEvent(QMouseEvent *e) override
+    {
+        if (e->button() == Qt::LeftButton) endDrag();
+        e->accept();
+    }
+    // Doppio clic: di nuovo al centro.
+    void mouseDoubleClickEvent(QMouseEvent *e) override
+    {
+        recentre();
+        e->accept();
+    }
     void paintEvent(QPaintEvent *) override
     {
-        if (m_ratio <= 0.0) return;
-        const QRect r = ImageCapture::guideRect(size(), m_ratio);
+        // PRIMA SI CANCELLA. Sotto c'e' la vista, che si disegna da se' (una
+        // texture): nell'immagine della finestra quest'area non la ripulisce
+        // nessuno. Senza, a ogni ridisegno del trascinamento la velatura si
+        // sommava a quella vecchia, e chiuso il dialogo restava dipinta sopra
+        // la vista finche' un dock non faceva ridisegnare tutta la finestra
+        // (segnalato dall'utente, Mac e iPhone).
         QPainter p(this);
+        p.setCompositionMode(QPainter::CompositionMode_Source);
+        p.fillRect(rect(), Qt::transparent);
+        p.setCompositionMode(QPainter::CompositionMode_SourceOver);
+        if (m_ratio <= 0.0) {
+            m_clearPainted = true;
+            return;
+        }
+        const QRect r = ImageCapture::guideRect(size(), m_ratio, m_position);
         p.setPen(Qt::NoPen);
         p.setBrush(QColor(0, 0, 0, 120));
         // Fuori dal riquadro: scurito.
@@ -252,8 +378,118 @@ protected:
     }
 
 private:
+    // Lo spazio libero lungo i due lati (zero lungo quello che il riquadro occupa tutto).
+    QSize room() const
+    {
+        const QRect r = ImageCapture::guideRect(size(), m_ratio);
+        return r.isValid() ? QSize(width() - r.width(), height() - r.height()) : QSize();
+    }
+    bool movable() const
+    {
+        const QSize free = room();
+        return free.width() > 0 || free.height() > 0;
+    }
+    void updateCursor()
+    {
+        if (!movable()) unsetCursor();
+        else setCursor(m_dragging ? Qt::ClosedHandCursor : Qt::OpenHandCursor);
+    }
+    void beginDrag(const QPointF &at)
+    {
+        if (!movable()) return;
+        m_dragging = true;
+        m_pressAt = at;
+        m_pressPosition = m_position;
+        updateCursor();
+    }
+    // Il riquadro segue il puntatore: lo spostamento in pixel, in frazione di
+    // meta' dello spazio libero (la posizione va da -1 a +1).
+    void dragTo(const QPointF &at)
+    {
+        if (!m_dragging) return;
+        const QSize free = room();
+        QPointF p = m_pressPosition;
+        if (free.width() > 0) p.setX(qBound(-1.0, p.x() + 2.0 * (at.x() - m_pressAt.x()) / free.width(), 1.0));
+        if (free.height() > 0) p.setY(qBound(-1.0, p.y() + 2.0 * (at.y() - m_pressAt.y()) / free.height(), 1.0));
+        if (p == m_position) return;
+        m_position = p;
+        changed();
+    }
+    void endDrag()
+    {
+        m_dragging = false;
+        updateCursor();
+    }
+    void recentre()
+    {
+        m_position = QPointF();
+        changed();
+    }
+    // Un tocco: trascina, e due tocchi brevi e vicini entro l'intervallo del
+    // doppio clic ricentrano. Il secondo tocco di un doppio tocco non
+    // trascina; un tocco che si e' mosso o e' durato troppo non conta come
+    // primo tocco.
+    void touch(QEvent::Type type, const QPointF &at)
+    {
+        const QStyleHints *hints = QGuiApplication::styleHints();
+        const int interval = hints->mouseDoubleClickInterval();
+        const qreal reach = std::max(hints->touchDoubleTapDistance(), 1);
+        switch (type) {
+        case QEvent::TouchBegin:
+            if (m_lastTap.isValid() && m_lastTap.elapsed() <= interval
+                && QLineF(at, m_lastTapAt).length() <= reach) {
+                m_lastTap.invalidate();
+                m_secondTap = true;
+                recentre();
+                return;
+            }
+            m_secondTap = false;
+            m_touchAt = at;
+            m_touchTime.start();
+            beginDrag(at);
+            return;
+        case QEvent::TouchUpdate:
+            if (!m_secondTap) dragTo(at);
+            return;
+        case QEvent::TouchEnd:
+            endDrag();
+            if (!m_secondTap && m_touchTime.isValid() && m_touchTime.elapsed() <= interval
+                && QLineF(at, m_touchAt).length() <= reach) {
+                m_lastTap.start();
+                m_lastTapAt = at;
+            } else {
+                m_lastTap.invalidate();
+            }
+            m_secondTap = false;
+            return;
+        default:   // TouchCancel
+            endDrag();
+            m_lastTap.invalidate();
+            m_secondTap = false;
+            return;
+        }
+    }
+    void changed()
+    {
+        publish();
+        update();
+    }
+    // Per i test: la posizione si legge come proprieta' (la classe e' privata del file).
+    void publish() { setProperty("framePosition", m_position); }
+
     QWidget *m_view;
     double m_ratio = 0.0;
+    QPointF m_position;          // vedi ImageCapture::guideRect
+    bool m_dragging = false;
+    QPointF m_pressAt;
+    QPointF m_pressPosition;
+    // Il doppio tocco (touch): il primo tocco breve, dove e quando e' finito.
+    QElapsedTimer m_lastTap;
+    QPointF m_lastTapAt;
+    QElapsedTimer m_touchTime;   // il tocco in corso: quando e dove e' cominciato
+    QPointF m_touchAt;
+    bool m_secondTap = false;    // il tocco in corso e' il secondo di un doppio tocco
+    bool m_clearPainted = false; // clearPaint: il ridisegno trasparente e' arrivato
 };
 
 // Telefono (e non tablet): su iPhone e Android in verticale la finestra offre solo
@@ -313,6 +549,7 @@ public:
         for (const RatioItem &it : m_items) m_ratioCombo->addItem(it.label);
         m_ratioCombo->setCurrentIndex(qBound(0, st.value("imageRatioIndex", 0).toInt(), m_items.size() - 1));
         form->addRow(tr("Aspect ratio:"), m_ratioCombo);
+        m_ratioLabel = form->labelForField(m_ratioCombo);
 
         auto *customRow = new QWidget;
         auto *customLay = new QHBoxLayout(customRow);
@@ -328,16 +565,21 @@ public:
         m_customRow = customRow;
         form->addRow(QString(), customRow);
 
-        // --- MODO: pixel o misura di stampa (non su telefono) ---
+        // --- MODO: lato lungo in pixel, misura di stampa (non su telefono), o
+        // larghezza e altezza in pixel. Il dato di ogni voce e' il modo (ModeLong,
+        // ModePrint, ModeExact), anche in "imageSizeMode": sul telefono manca la
+        // stampa, e l'indice non direbbe piu' il modo.
         m_phone = isPhone();
-        m_modeCombo = new QComboBox(this);
-        m_modeCombo->addItems({ tr("Pixels"), tr("Print size") });
-        m_modeCombo->hide();
-        if (!m_phone) {
-            m_modeCombo->setCurrentIndex(qBound(0, st.value("imageSizeMode", 0).toInt(), 1));
-            form->addRow(tr("Size by:"), m_modeCombo);
-            m_modeCombo->setVisible(true);
-        }
+        m_modeCombo = new QComboBox;
+        m_modeCombo->addItem(tr("Long side (px)"), ModeLong);
+        if (!m_phone) m_modeCombo->addItem(tr("Print size"), ModePrint);
+        // Larghezza e altezza scritte una per una: un rapporto fra lati di
+        // migliaia di pixel non si scrive coi numeri fino a 999 di Custom (e
+        // 5461 x 5734, chiesto dall'utente, non ha fattori comuni).
+        m_modeCombo->addItem(tr("Width × height (px)"), ModeExact);
+        const int savedMode = m_modeCombo->findData(st.value("imageSizeMode", ModeLong).toInt());
+        m_modeCombo->setCurrentIndex(savedMode >= 0 ? savedMode : 0);
+        form->addRow(tr("Size by:"), m_modeCombo);
 
         // --- PIXEL ---
         m_longSpin = new QSpinBox;
@@ -358,6 +600,24 @@ public:
         pixLay->addWidget(m_presetCombo);
         form->addRow(tr("Long side (px):"), m_pixelRow);
         m_pixelLabel = form->labelForField(m_pixelRow);
+
+        // --- LARGHEZZA E ALTEZZA ---
+        const int texMax = std::max(16, m_maxTex);
+        m_exactW = new QSpinBox; m_exactW->setRange(16, texMax);
+        m_exactH = new QSpinBox; m_exactH->setRange(16, texMax);
+        m_exactW->setObjectName(QStringLiteral("imageExactW"));
+        m_exactH->setObjectName(QStringLiteral("imageExactH"));
+        m_exactW->setValue(qBound(16, st.value("imageExactW", 3840).toInt(), texMax));
+        m_exactH->setValue(qBound(16, st.value("imageExactH", 2160).toInt(), texMax));
+        m_exactRow = new QWidget;
+        auto *exLay = new QHBoxLayout(m_exactRow);
+        exLay->setContentsMargins(0, 0, 0, 0);
+        exLay->addWidget(m_exactW);
+        exLay->addWidget(new QLabel(QStringLiteral("×")));
+        exLay->addWidget(m_exactH);
+        exLay->addStretch(1);
+        form->addRow(tr("Width × height:"), m_exactRow);
+        m_exactLabel = form->labelForField(m_exactRow);
 
         // --- STAMPA ---
         m_printLen = new QDoubleSpinBox;
@@ -387,7 +647,10 @@ public:
         m_wireCombo->addItem(tr("Thin"), 0.5);
         m_wireCombo->addItem(tr("Normal"), 1.0);
         m_wireCombo->addItem(tr("Thick"), 2.0);
-        m_wireCombo->setCurrentIndex(qBound(0, st.value("imageWireWidth", 1).toInt(), 2));
+        // Ogni apertura riparte da Normal: Thin e Thick valgono per l'immagine
+        // per cui si sono scelti, e ritrovarli la volta dopo produceva linee
+        // sottili o spesse senza accorgersene (chiesto dall'utente).
+        m_wireCombo->setCurrentIndex(1);
         m_wireCombo->setToolTip(tr("Width of the wireframe lines relative to the view: Normal keeps the proportion of the screen, Thin halves it, Thick doubles it."));
         form->addRow(tr("Wireframe lines:"), m_wireCombo);
         // Senza wireframe in scena la scelta non fa niente: si spegne, col perche'.
@@ -398,6 +661,7 @@ public:
 
         // --- INFORMAZIONI ---
         m_info = new QLabel;
+        m_info->setObjectName(QStringLiteral("imageInfo"));
         m_info->setWordWrap(true);
         m_info->setTextFormat(Qt::RichText);
         form->addRow(m_info);
@@ -419,6 +683,8 @@ public:
         connect(m_wireCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, update);
         connect(m_customW, QOverload<int>::of(&QSpinBox::valueChanged), this, update);
         connect(m_customH, QOverload<int>::of(&QSpinBox::valueChanged), this, update);
+        connect(m_exactW, QOverload<int>::of(&QSpinBox::valueChanged), this, update);
+        connect(m_exactH, QOverload<int>::of(&QSpinBox::valueChanged), this, update);
         // Il menu mostra il preset che corrisponde al valore, "Preset..." (il titolo,
         // non una misura) se nessuno.
         auto syncPreset = [this]() {
@@ -444,7 +710,7 @@ public:
     double ratio() const { return m_ratio; }
     double wireFactor() const { return m_wireCombo->currentData().toDouble(); }
     // I dpi scelti, se l'immagine e' a misura di stampa (0 = a pixel).
-    int dpi() const { return (!m_phone && m_modeCombo->currentIndex() == 1) ? m_dpiSpin->value() : 0; }
+    int dpi() const { return mode() == ModePrint ? m_dpiSpin->value() : 0; }
     QSize size() const { return m_size; }
 
     void saveSettings() const
@@ -453,45 +719,95 @@ public:
         st.setValue("imageRatioIndex", m_ratioCombo->currentIndex());
         st.setValue("imageCustomW", m_customW->value());
         st.setValue("imageCustomH", m_customH->value());
-        st.setValue("imageSizeMode", m_modeCombo->currentIndex());
-        st.setValue("imageWireWidth", m_wireCombo->currentIndex());
+        st.setValue("imageSizeMode", mode());
+        st.setValue("imageExactW", m_exactW->value());
+        st.setValue("imageExactH", m_exactH->value());
+        st.remove("imageWireWidth");   // non si ricorda piu': si riparte da Normal
         st.setValue("imageLongSide", m_longSpin->value());
         st.setValue("imagePrintLength", m_printLen->value());
         st.setValue("imagePrintUnit", m_unitCombo->currentIndex());
         st.setValue("imageDpi", m_dpiSpin->value());
     }
 
+protected:
+    void showEvent(QShowEvent *e) override
+    {
+        QDialog::showEvent(e);
+        // In coda: alla prima apertura la larghezza vera arriva dopo lo show.
+        QTimer::singleShot(0, this, [this]() { fitToText(); });
+    }
+
 private:
+    enum Mode { ModeLong = 0, ModePrint = 1, ModeExact = 2 };
+    int mode() const { return m_modeCombo->currentData().toInt(); }
+
+    // L'ALTEZZA SEGUE IL TESTO. Le informazioni vanno a capo e cambiano a ogni
+    // scelta (righe che compaiono: rapporto, avvisi, trascinamento), ma il
+    // dialogo restava alto quanto all'apertura e l'ultima riga usciva tagliata
+    // ("Drag the frame in the view to choose what goes in the"). Qui l'altezza
+    // e' quella che il layout chiede per la larghezza attuale, in su e in giu'.
+    void fitToText()
+    {
+        if (!isVisible() || !layout()) return;
+        layout()->activate();
+        int need = layout()->totalHeightForWidth(width());
+        if (need <= 0) need = sizeHint().height();
+        need = std::max(need, minimumSizeHint().height());
+        if (need != height()) resize(width(), need);
+    }
+
     void refresh()
     {
+        const bool print = mode() == ModePrint;
+        const bool exact = mode() == ModeExact;
+
+        // A larghezza e altezza il rapporto viene dai due lati: menu del rapporto
+        // nascosto, e il riquadro guida segue i due numeri.
         const int idx = m_ratioCombo->currentIndex();
         const bool custom = (m_items[idx].ratio == 0.0);
-        m_customRow->setVisible(custom);
-        m_ratio = custom ? double(m_customW->value()) / double(m_customH->value()) : m_items[idx].ratio;
+        m_ratioCombo->setVisible(!exact);
+        if (m_ratioLabel) m_ratioLabel->setVisible(!exact);
+        m_customRow->setVisible(custom && !exact);
+        if (exact)
+            m_ratio = double(m_exactW->value()) / double(m_exactH->value());
+        else
+            m_ratio = custom ? double(m_customW->value()) / double(m_customH->value()) : m_items[idx].ratio;
 
-        const bool print = !m_phone && m_modeCombo->currentIndex() == 1;
-        m_pixelRow->setVisible(!print);
-        if (m_pixelLabel) m_pixelLabel->setVisible(!print);
-        m_printRow->setVisible(print && !m_phone);
-        if (m_printLabel) m_printLabel->setVisible(print && !m_phone);
+        m_pixelRow->setVisible(!print && !exact);
+        if (m_pixelLabel) m_pixelLabel->setVisible(!print && !exact);
+        m_printRow->setVisible(print);
+        if (m_printLabel) m_printLabel->setVisible(print);
+        m_exactRow->setVisible(exact);
+        if (m_exactLabel) m_exactLabel->setVisible(exact);
 
         qint64 longSide;
         if (print) {
             const double inches = (m_unitCombo->currentIndex() == 0) ? m_printLen->value() / 2.54
                                                                       : m_printLen->value();
             longSide = qint64(std::llround(inches * m_dpiSpin->value()));
+        } else if (exact) {
+            longSide = std::max(m_exactW->value(), m_exactH->value());
         } else {
             longSide = m_longSpin->value();
         }
         const bool tooBig = longSide > m_maxTex;
         longSide = std::clamp<qint64>(longSide, 16, m_maxTex);
-        m_size = ImageCapture::sizeFor(m_ratio, int(longSide));
-        bool memLimited = false;
-        while (qint64(m_size.width()) * m_size.height() > maxPixels() && longSide > 16) {
-            longSide = longSide * 95 / 100;
-            m_size = ImageCapture::sizeFor(m_ratio, int(longSide));
-            memLimited = true;
-        }
+        // I due lati scritti, esatti: sizeFor dal rapporto potrebbe arrotondare
+        // di un pixel. (I campi non superano il limite della GPU.)
+        m_size = exact ? QSize(m_exactW->value(), m_exactH->value())
+                       : ImageCapture::sizeFor(m_ratio, int(longSide));
+        // Riduce del 5% per volta finche' `fits` e' vero (o si arriva a 16 px);
+        // true se ha ridotto.
+        auto shrinkUntil = [&](const std::function<bool()> &fits) {
+            bool shrunk = false;
+            while (!fits() && longSide > 16) {
+                longSide = longSide * 95 / 100;
+                m_size = ImageCapture::sizeFor(m_ratio, int(longSide));
+                shrunk = true;
+            }
+            return shrunk;
+        };
+        const bool memLimited = shrinkUntil([&] { return qint64(m_size.width()) * m_size.height() <= maxPixels(); });
         // Wireframe sul telefono/tablet: si riduce la dimensione, non lo spessore.
         bool wireLimited = false;
         const WireLimits wl = wireLimitsForDevice();
@@ -499,22 +815,24 @@ private:
             const qint64 segments = m_gl->wireframeIndexTotal() / 2;
             const double factor = m_wireCombo->currentData().toDouble();
             auto fits = [&]() {
-                const int w = int(std::lround(wireScaleFor(m_gl, m_size, m_ratio) * factor));
+                const QSize drawn = m_gl->captureRenderSize(m_size, ImageCapture::verticalScaleFor(m_ratio, m_viewRatio));
+                const int w = int(std::lround(wireScaleFor(m_gl, drawn, m_ratio) * factor));
                 return ImageCapture::wireFits(wl.maxWidth, wl.budget, segments, w);
             };
-            while (!fits() && longSide > 16) {
-                longSide = longSide * 95 / 100;
-                m_size = ImageCapture::sizeFor(m_ratio, int(longSide));
-                wireLimited = true;
-            }
+            wireLimited = shrinkUntil(fits);
         }
         if (m_guide) m_guide->setRatio(m_ratio);
 
         const double mp = double(m_size.width()) * m_size.height() / 1e6;
-        const double seconds = m_secPerMp * mp;
-        const double gb = double(m_size.width()) * m_size.height() * 4.0 * 3.0 / 1e9;   // colore, profondita', copia
+        // Tempo e memoria sui pixel DISEGNATI: un'immagine piu' piccola della vista
+        // si disegna alla scala della vista (GLWidget::captureRenderSize).
+        const QSize drawn = m_gl->captureRenderSize(m_size, ImageCapture::verticalScaleFor(m_ratio, m_viewRatio));
+        const double seconds = m_secPerMp * double(drawn.width()) * drawn.height() / 1e6;
+        const double gb = double(drawn.width()) * drawn.height() * 4.0 * 3.0 / 1e9;   // colore, profondita', copia
         QString text = tr("<b>%1 &times; %2 px</b> (%3 megapixel)")
                            .arg(m_size.width()).arg(m_size.height()).arg(mp, 0, 'f', 1);
+        if (exact)
+            text += tr("<br>Aspect ratio %1 : 1, as shown by the frame in the view.").arg(m_ratio, 0, 'f', 4);
         if (tooBig)
             text += tr("<br><span style='color:#e8a030'>Limited to %1 px, the largest side the GPU can render.</span>").arg(m_maxTex);
         else
@@ -548,7 +866,10 @@ private:
         }
         if (qAbs(m_ratio - m_viewRatio) > 0.02 && m_ratio > m_viewRatio)
             text += tr("<br>Wider than the view: the vertical field of view is reduced so the frame shows what the guide shows.");
+        if (qAbs(m_ratio - m_viewRatio) > 0.02)
+            text += tr("<br>Drag the frame in the view to choose what goes in the image; double-click it to centre it again.");
         m_info->setText(text);
+        fitToText();
     }
 
     GLWidget *m_gl;
@@ -559,13 +880,166 @@ private:
     bool m_phone = false;
     QVector<RatioItem> m_items;
     QComboBox *m_ratioCombo, *m_modeCombo, *m_presetCombo, *m_unitCombo, *m_wireCombo;
-    QSpinBox *m_customW, *m_customH, *m_longSpin, *m_dpiSpin;
+    QSpinBox *m_customW, *m_customH, *m_longSpin, *m_dpiSpin, *m_exactW, *m_exactH;
     QDoubleSpinBox *m_printLen;
-    QWidget *m_customRow, *m_pixelRow, *m_printRow;
-    QWidget *m_pixelLabel = nullptr, *m_printLabel = nullptr;
+    QWidget *m_customRow, *m_pixelRow, *m_printRow, *m_exactRow;
+    QWidget *m_ratioLabel = nullptr, *m_pixelLabel = nullptr, *m_printLabel = nullptr, *m_exactLabel = nullptr;
     QLabel *m_info;
     double m_ratio = 1.0;
     QSize m_size;
+};
+
+}   // namespace
+
+// ==========================================================
+// LA SESSIONE DEL DIALOGO
+// ==========================================================
+namespace {
+
+// LA SESSIONE DEL DIALOGO. Il dialogo non e' modale perche' il riquadro nella
+// vista si possa trascinare: un dialogo modale blocca tutta la finestra della
+// vista, riquadro compreso. Il resto della finestra principale resta fermo come
+// con un dialogo modale, e lo tiene fermo questo filtro dell'applicazione:
+//  - mouse, dita, rotella, menu contestuali e trascinamenti vanno solo al riquadro;
+//  - tastiera e scorciatoie solo al dialogo (si giudicano al widget che le
+//    riceve, o che possiede l'azione: la QWindow le passa al widget col fuoco);
+//  - le voci della barra dei menu si spengono (sul Mac la barra sta fuori dalla
+//    finestra, e i clic li' non passano da un evento);
+//  - la finestra principale non si chiude;
+//  - il dialogo resta davanti: cliccare la vista porta avanti la sua finestra.
+// Tutto torna com'era quando la sessione finisce.
+class CaptureSession : public QObject
+{
+public:
+    CaptureSession(QWidget *mainWindow, QWidget *guide, QWidget *dialog)
+        : m_main(mainWindow), m_guide(guide), m_dialog(dialog)
+    {
+        if (QMenuBar *bar = m_main ? m_main->findChild<QMenuBar *>() : nullptr) disableActions(bar->actions());
+        qApp->installEventFilter(this);
+    }
+    ~CaptureSession() override
+    {
+        qApp->removeEventFilter(this);
+        for (const Disabled &d : m_disabled)
+            if (d.action) d.action->setEnabled(d.wasEnabled);
+    }
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override
+    {
+        switch (ev->type()) {
+        case QEvent::MouseButtonPress:
+        case QEvent::MouseButtonRelease:
+        case QEvent::MouseButtonDblClick:
+        case QEvent::MouseMove:
+        case QEvent::Wheel:
+        case QEvent::ContextMenu:
+        case QEvent::TouchBegin:
+        case QEvent::TouchUpdate:
+        case QEvent::TouchEnd:
+        case QEvent::TouchCancel:
+        case QEvent::TabletPress:
+        case QEvent::TabletMove:
+        case QEvent::TabletRelease:
+        case QEvent::NativeGesture:
+        case QEvent::Gesture:
+        case QEvent::DragEnter:
+        case QEvent::DragMove:
+        case QEvent::Drop: {
+            const bool main = inMainWindow(obj);
+            const bool guide = main && inGuide(obj);
+            if (main) keepDialogInFront(ev->type(), guide);
+            return main && !guide;
+        }
+        case QEvent::KeyPress:
+        case QEvent::KeyRelease:
+        case QEvent::ShortcutOverride:
+        case QEvent::Shortcut:
+            return widgetOf(obj) && !inDialog(obj);
+        case QEvent::Close:
+            if (obj == m_main) {
+                ev->ignore();
+                return true;
+            }
+            break;
+        case QEvent::WindowActivate:
+            if (obj == m_main && m_dialog) {
+                QPointer<QWidget> dialog = m_dialog;
+                QTimer::singleShot(0, dialog, [dialog]() { if (dialog) dialog->raise(); });
+            }
+            break;
+        default:
+            break;
+        }
+        return false;
+    }
+
+private:
+    // IL DIALOGO RESTA DAVANTI. Sul Mac ogni clic nella finestra principale la
+    // porta sopra il dialogo, che e' una finestra a se'. WindowActivate scatta
+    // solo quando la finestra principale DIVENTA attiva, cioe' al primo clic:
+    // dal secondo in poi (il doppio clic che ricentra il riquadro, o un altro
+    // trascinamento) il dialogo restava coperto, e con la sessione ancora
+    // aperta la finestra principale non riceveva clic ne' chiusura e il menu
+    // era spento -- l'app sembrava bloccata e non si chiudeva nemmeno col Quit
+    // (segnalato dall'utente). Qui a ogni clic o tocco sulla finestra
+    // principale il dialogo torna davanti, in coda all'evento (dopo che il
+    // sistema ha riordinato le finestre). Un clic fuori dal riquadro, che non
+    // fa nulla, gli da' anche la tastiera.
+    void keepDialogInFront(QEvent::Type type, bool onGuide)
+    {
+        if (type != QEvent::MouseButtonPress && type != QEvent::MouseButtonRelease
+            && type != QEvent::MouseButtonDblClick && type != QEvent::TouchBegin && type != QEvent::TouchEnd)
+            return;
+        if (!m_dialog || m_raisePending) return;
+        m_raisePending = true;
+        QPointer<QWidget> dialog = m_dialog;
+        QPointer<CaptureSession> self = this;
+        const bool activate = !onGuide;
+        QTimer::singleShot(0, this, [dialog, self, activate]() {
+            if (self) self->m_raisePending = false;
+            if (!dialog) return;
+            dialog->raise();
+            if (activate) dialog->activateWindow();
+        });
+    }
+    bool m_raisePending = false;
+
+    // Il widget che riceve l'evento, o che possiede l'azione o la scorciatoia.
+    static QWidget *widgetOf(QObject *obj)
+    {
+        for (QObject *o = obj; o; o = o->parent())
+            if (o->isWidgetType()) return static_cast<QWidget *>(o);
+        return nullptr;
+    }
+    bool inMainWindow(QObject *obj) const
+    {
+        QWidget *w = widgetOf(obj);
+        return m_main && w && w->window() == m_main;
+    }
+    bool inGuide(QObject *obj) const
+    {
+        QWidget *w = widgetOf(obj);
+        return m_guide && w && (w == m_guide || m_guide->isAncestorOf(w));
+    }
+    bool inDialog(QObject *obj) const
+    {
+        QWidget *w = widgetOf(obj);
+        return m_dialog && w && w->window() == m_dialog;
+    }
+    void disableActions(const QList<QAction *> &actions)
+    {
+        for (QAction *a : actions) {
+            if (!a || a->isSeparator()) continue;
+            m_disabled.append({ a, a->isEnabled() });
+            a->setEnabled(false);
+            if (a->menu()) disableActions(a->menu()->actions());
+        }
+    }
+
+    QPointer<QWidget> m_main, m_guide, m_dialog;
+    struct Disabled { QPointer<QAction> action; bool wasEnabled = true; };
+    QList<Disabled> m_disabled;
 };
 
 }   // namespace
@@ -578,6 +1052,23 @@ static QString s_testSavePath;
 static std::function<void(QDialog *)> s_testDialogHandler;
 void ImageCapture::setTestSavePath(const QString &path) { s_testSavePath = path; }
 void ImageCapture::setTestDialogHandler(std::function<void(QDialog *)> handler) { s_testDialogHandler = std::move(handler); }
+static bool s_testCornerDialog = false;
+void ImageCapture::setTestCornerDialog(bool on) { s_testCornerDialog = on; }
+
+// IL DIALOGO NELL'ANGOLO, sul telefono: centrato copriva buona parte della
+// vista e il riquadro guida non si vedeva (segnalato dall'utente su iPhone).
+// In alto a sinistra, dentro l'area sicura (in orizzontale l'isola dinamica
+// sta su un lato); il riquadro resta visibile e si trascina nel resto della
+// vista. Ancorato all'angolo, il dialogo cresce verso il basso e a destra
+// quando cambia il modo (righe che compaiono), senza spostarsi.
+static void placeDialogInCorner(QWidget *dlg, QWidget *mainWindow)
+{
+    if (!dlg || !mainWindow) return;
+    constexpr int kMargin = 8;
+    QMargins safe;
+    if (QWindow *w = mainWindow->windowHandle()) safe = w->safeAreaMargins();
+    dlg->move(mainWindow->geometry().topLeft() + QPoint(safe.left() + kMargin, safe.top() + kMargin));
+}
 
 bool ImageCapture::run(GLWidget *gl, QWidget *parent, const QString &defaultDir)
 {
@@ -591,9 +1082,37 @@ bool ImageCapture::run(GLWidget *gl, QWidget *parent, const QString &defaultDir)
     guide->raise();
 
     ImageDialog dlg(gl, secPerMp, guide, parent);
-    if (s_testDialogHandler) QTimer::singleShot(0, &dlg, [&dlg]() { s_testDialogHandler(&dlg); });
-    const bool accepted = (dlg.exec() == QDialog::Accepted);
+    bool accepted = false;
+    {
+        // NON MODALE, cosi' il riquadro si trascina; CaptureSession tiene fermo
+        // il resto della finestra principale finche' il dialogo e' aperto.
+        CaptureSession session(gl->window(), guide, &dlg);
+        dlg.setWindowModality(Qt::NonModal);
+        QEventLoop loop;
+        QObject::connect(&dlg, &QDialog::finished, &loop, &QEventLoop::quit);
+        if (s_testDialogHandler) QTimer::singleShot(0, &dlg, [&dlg]() { s_testDialogHandler(&dlg); });
+#ifdef Q_OS_MACOS
+        // SUL MAC UNA FINESTRA STRUMENTO (Qt::Tool, la classe "floating" di
+        // macOS): sta sempre sopra le finestre normali dell'app, quindi un
+        // clic sulla vista non la copre piu'. Prima ogni clic portava la
+        // finestra principale davanti e CaptureSession riportava su il
+        // dialogo un istante dopo: col doppio clic che ricentra il riquadro il
+        // dialogo sfarfallava due volte. Sparisce quando l'app non e' attiva,
+        // come le palette.
+        dlg.setWindowFlags((dlg.windowFlags() & ~Qt::WindowType_Mask) | Qt::Tool);
+#endif
+        dlg.show();
+        if (isPhone() || s_testCornerDialog) placeDialogInCorner(&dlg, gl->window());
+        dlg.raise();
+        dlg.activateWindow();
+        loop.exec();
+        accepted = (dlg.result() == QDialog::Accepted);
+    }
+    // Dove l'utente ha lasciato il riquadro: l'inquadratura dell'immagine.
+    const QPointF framePosition = guide->position();
+    guide->clearPaint();
     delete guide;
+    gl->update();
     if (!accepted) return false;
     dlg.saveSettings();
     const QSize size = dlg.size();
@@ -637,7 +1156,7 @@ bool ImageCapture::run(GLWidget *gl, QWidget *parent, const QString &defaultDir)
         busy.setMinimumDuration(0);
         busy.show();
         QCoreApplication::processEvents();
-        img = render(gl, size, ratio, &error, wireFactor);
+        img = render(gl, size, ratio, &error, wireFactor, framePosition);
     }
     if (img.isNull()) {
         QMessageBox::warning(parent, QObject::tr("Capture Image"), error);

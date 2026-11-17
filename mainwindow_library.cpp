@@ -2,6 +2,7 @@
 // repository, copia/incolla, salvataggi, risorse di fabbrica.
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
+#include "librarytreewidget.h"
 
 // Library: alberi, menu contestuali, osservatore del file system. Parte del costruttore, nell'ordine in cui la chiama.
 void MainWindow::setupLibraryDock()
@@ -194,11 +195,13 @@ bool MainWindow::confirmLibraryClick(QTreeWidget *src, QTreeWidgetItem *item)
     const bool isLeaf = (item && item->childCount() == 0);
 
     if (src == ui->treeTextures && isLeaf) {
-        // Si sta perdendo la sola TEXTURE, non la scena: si guarda il flag
-        // di quel modulo e il salvataggio punta al ramo textures/. Chiedere
-        // qui della scena intera (cosa che una texture pure cambia) faceva
-        // uscire un popup a ogni modifica, anche quando la texture non era
-        // stata toccata.
+        // Si sta perdendo la sola TEXTURE DEL BERSAGLIO, non la scena: si
+        // guarda il flag di quella texture e il salvataggio punta al ramo
+        // textures/. Chiedere qui della scena intera (cosa che una texture
+        // pure cambia) faceva uscire un popup a ogni modifica, anche quando la
+        // texture non era stata toccata; chiedere dell'intero modulo faceva
+        // salvare la texture della superficie caricando uno sfondo, e
+        // viceversa (vedi textureOwnerOfKey).
         // ...tranne quando la texture non puo' andare sul bersaglio: verra'
         // rifiutata con un avviso (refuseIncompatibleTexture) e nulla cambia,
         // quindi non c'e' niente da difendere.
@@ -371,10 +374,7 @@ void MainWindow::restartActiveLibraryTexture(const LibraryItem &data)
     bool isBg = editingBackground();
     // Il riclic rimette colori e inquadratura del preset: e' di nuovo la
     // texture della Library, come dopo una scelta (markTexturePicked).
-    struct TexturePickedGuard {
-        MainWindow *w;
-        ~TexturePickedGuard() { w->markTexturePicked(); }
-    } texturePickedGuard{this};
+    TexturePickedGuard texturePickedGuard(this);
 
     // RIAVVIO DALL'INIZIO. Ricliccare il preset gia' attivo lo fa
     // ripartire da capo: e' la regola della Library, che superfici,
@@ -485,8 +485,8 @@ void MainWindow::restartActiveLibraryTexture(const LibraryItem &data)
         // (~7548) per decidere l'orologio al caricamento.
         const bool isRMTex = (implicitMode());
         const bool texIsAnimated = isRMTex
-            ? (m_scene.rm.texture.contains(kReTimeVar)
-               || m_scene.rm.displacement.contains(kReTimeVar))
+            ? (hasTimeVariable(m_scene.rm.texture)
+               || hasTimeVariable(m_scene.rm.displacement))
             : (hasTimeVariable(allSurfaceTextureCode()) || anyMeshTextureCodeAnimated());
 
         // NON azzeriamo m_masterStopped (come il ramo background sopra):
@@ -522,9 +522,33 @@ void MainWindow::restartActiveLibraryTexture(const LibraryItem &data)
     updateMasterButtonState();
 }
 
+// CMD/CTRL+CLIC (o SHIFT+CLIC) SU UNA VOCE: e' la selezione multipla (Copy,
+// Cut, Delete, trascinamento), non un load. Basta una di tre prove (con la
+// sola prima il preset si caricava ancora col Cmd premuto, 2026-11-08):
+//  - i modificatori del clic, alla pressione o al rilascio (LibraryTreeWidget);
+//  - quelli della tastiera adesso;
+//  - la selezione dopo il clic: un preset si carica solo se e' selezionato ed
+//    e' il solo selezionato del suo albero. Cmd+clic e Shift+clic ne lasciano
+//    piu' d'uno, o tolgono proprio quello cliccato. Non vale per le cartelle,
+//    che il clic semplice non seleziona (LibraryTreeWidget), ne' per la
+//    selezione singola di mobile.
+static bool multiSelectionClick(QObject *sender, QTreeWidgetItem *item)
+{
+    if (QGuiApplication::keyboardModifiers() & LibraryTreeWidget::kMultiSelection)
+        return true;
+    if (const auto *tree = qobject_cast<const LibraryTreeWidget *>(sender); tree && tree->multiSelectionClick())
+        return true;
+    QTreeWidget *tree = item ? item->treeWidget() : nullptr;
+    if (!tree || tree->selectionMode() == QAbstractItemView::SingleSelection
+        || item->childCount() > 0 || item->data(0, Qt::UserRole + 10).isValid())
+        return false;
+    return !item->isSelected() || tree->selectedItems().size() > 1;
+}
+
 void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
 {
     Q_UNUSED(column);
+    if (multiSelectionClick(sender(), item)) return;
 
     // Azzeramento incrociato ASIMMETRICO. Prima un click su QUALSIASI albero
     // azzerava tutti gli altri: cosi' caricare una texture dopo una superficie
@@ -1150,6 +1174,7 @@ void MainWindow::onSaveMotionClicked() {
 void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
 {
     Q_UNUSED(column);
+    if (multiSelectionClick(sender(), item)) return;   // selezione multipla, non un suono da caricare
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     if (item->childCount() > 0) {
@@ -1485,10 +1510,14 @@ void MainWindow::setupDefaultFolders()
     QDir().mkpath(sndDirUser);
 
     // --- ESTRAZIONE RISORSE ---
-    LibraryFolders::syncResources(":/library/presets/surfaces", surfDirUser, false, nullptr, this);
-    LibraryFolders::syncResources(":/library/presets/textures", texDirUser, false, nullptr, this);
-    LibraryFolders::syncResources(":/library/presets/records", recDirUser, false, nullptr, this);
-    LibraryFolders::syncResources(":/library/presets/sounds", sndDirUser, false, nullptr, this);
+    // Non durante un test (main.cpp, SE_SELF_TESTS): la libreria e' quella
+    // passata al test, e i test non ci scrivono.
+    if (!qApp->property("seTestRun").toBool()) {
+        LibraryFolders::syncResources(":/library/presets/surfaces", surfDirUser, false, nullptr, this);
+        LibraryFolders::syncResources(":/library/presets/textures", texDirUser, false, nullptr, this);
+        LibraryFolders::syncResources(":/library/presets/records", recDirUser, false, nullptr, this);
+        LibraryFolders::syncResources(":/library/presets/sounds", sndDirUser, false, nullptr, this);
+    }
 
     // --- AMNESIA FORZATA: PULIZIA VECCHIA MEMORIA ---
     settings.remove("pathSurfaces");
@@ -1543,11 +1572,17 @@ void MainWindow::refreshRepositories()
         return path;
     };
 
-    // 2. SALVATAGGIO STATO ESPANSIONE E SELEZIONE (Ora basato sul percorso univoco)
+    // 2. SALVATAGGIO STATO ESPANSIONE, SELEZIONE ed ELEMENTO CORRENTE (Ora
+    // basato sul percorso univoco). L'elemento corrente e' il preset a schermo
+    // (LibraryTreeFocus::resting, LibraryTreeWidget::mousePressEvent): senza,
+    // dopo la rilettura che il watcher fa partire dopo un Incolla, il primo
+    // Cmd+clic non toglieva piu' il preset a schermo dalla selezione e i comandi
+    // del menu agivano anche su di lui.
     QSet<QString> expSurfaces, expTextures, expMotions, expSounds;
     QSet<QString> selSurfaces, selTextures, selMotions, selSounds;
+    QString curSurfaces, curTextures, curMotions, curSounds;
 
-    auto saveState = [&](QTreeWidget* tree, QSet<QString>& expSet, QSet<QString>& selSet) {
+    auto saveState = [&](QTreeWidget* tree, QSet<QString>& expSet, QSet<QString>& selSet, QString& cur) {
         QTreeWidgetItemIterator it(tree);
         while (*it) {
             QString path = getItemPath(*it);
@@ -1555,12 +1590,13 @@ void MainWindow::refreshRepositories()
             if ((*it)->isSelected()) selSet.insert(path);
             ++it;
         }
+        if (tree->currentItem()) cur = getItemPath(tree->currentItem());
     };
 
-    saveState(ui->treeSurfaces, expSurfaces, selSurfaces);
-    saveState(ui->treeTextures, expTextures, selTextures);
-    saveState(ui->treeMotions, expMotions, selMotions);
-    saveState(ui->treeSounds, expSounds, selSounds);
+    saveState(ui->treeSurfaces, expSurfaces, selSurfaces, curSurfaces);
+    saveState(ui->treeTextures, expTextures, selTextures, curTextures);
+    saveState(ui->treeMotions, expMotions, selMotions, curMotions);
+    saveState(ui->treeSounds, expSounds, selSounds, curSounds);
 
     // 3. SALVATAGGIO POSIZIONE BARRE DI SCORRIMENTO (Impedisce il salto visivo)
     int scrollSurfaces = ui->treeSurfaces->verticalScrollBar()->value();
@@ -1648,21 +1684,26 @@ void MainWindow::refreshRepositories()
         }
     }
 
-    // 6. RIPRISTINO STATO ESPANSIONE E SELEZIONE
-    auto restoreState = [&](QTreeWidget* tree, const QSet<QString>& expSet, const QSet<QString>& selSet) {
+    // 6. RIPRISTINO STATO ESPANSIONE, SELEZIONE ed ELEMENTO CORRENTE
+    auto restoreState = [&](QTreeWidget* tree, const QSet<QString>& expSet, const QSet<QString>& selSet,
+                            const QString& cur) {
+        QTreeWidgetItem *current = nullptr;
         QTreeWidgetItemIterator it(tree);
         while (*it) {
             QString path = getItemPath(*it);
             if (expSet.contains(path)) (*it)->setExpanded(true);
             if (selSet.contains(path)) (*it)->setSelected(true);
+            if (!current && !cur.isEmpty() && path == cur) current = *it;
             ++it;
         }
+        // Senza toccare la selezione e senza autoscroll (la barra si rimette qui sotto).
+        if (current) LibraryTreeFocus::setCurrentQuietly(tree, current);
     };
 
-    restoreState(ui->treeSurfaces, expSurfaces, selSurfaces);
-    restoreState(ui->treeTextures, expTextures, selTextures);
-    restoreState(ui->treeMotions, expMotions, selMotions);
-    restoreState(ui->treeSounds, expSounds, selSounds);
+    restoreState(ui->treeSurfaces, expSurfaces, selSurfaces, curSurfaces);
+    restoreState(ui->treeTextures, expTextures, selTextures, curTextures);
+    restoreState(ui->treeMotions, expMotions, selMotions, curMotions);
+    restoreState(ui->treeSounds, expSounds, selSounds, curSounds);
 
     // 7. RIPRISTINO BARRE DI SCORRIMENTO
     ui->treeSurfaces->verticalScrollBar()->setValue(scrollSurfaces);
