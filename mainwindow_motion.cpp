@@ -439,14 +439,14 @@ bool MainWindow::viewResetChangesSomething() const
 {
     const GLWidget::Framing target = viewResetFraming();
     const GLWidget::Framing now = ui->glWidget->framing();
-    auto near = [](float a, float b) { return std::abs(a - b) < 1e-3f; };
+    auto approxEq = [](float a, float b) { return std::abs(a - b) < 1e-3f; };
     const bool same = (now.cameraPos - target.cameraPos).length() < 1e-3f
-                      && near(now.yaw, target.yaw) && near(now.pitch, target.pitch)
-                      && near(now.roll, target.roll)
+                      && approxEq(now.yaw, target.yaw) && approxEq(now.pitch, target.pitch)
+                      && approxEq(now.roll, target.roll)
                       && (now.observerPos - target.observerPos).length() < 1e-3f
-                      && near(now.crossSectionP, target.crossSectionP)
+                      && approxEq(now.crossSectionP, target.crossSectionP)
                       // Il FOV lo rimette solo la superficie sola (resetView).
-                      && (ui->glWidget->objectCount() > 1 || near(m_scene.fov, m_startFov));
+                      && (ui->glWidget->objectCount() > 1 || approxEq(m_scene.fov, m_startFov));
     if (!same) return true;
     // La camera d'apertura esatta (una scena passata da H3): anche alto e
     // rollio, che a path fermo la Framing non vede.

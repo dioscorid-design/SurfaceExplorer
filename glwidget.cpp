@@ -2191,14 +2191,14 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             m_projection.setToIdentity();
             double d = H3::distance(H3::origin(), m_h3Camera * H3::origin());
             if (d < 0.1 * m_h3RadiiPerSceneUnit) d = 4.0 * m_h3RadiiPerSceneUnit;   // come camDist sopra
-            const float far = 1.001f;
+            const float farPlane = 1.001f;
             if (projectionMode == Ortho4D) {
                 const float halfH = hyperbolicOrthoHalfHeight();
                 const QVector2D q = hyperbolicOutsideOffset();
                 m_projection.ortho(q.x() - halfH * aspect, q.x() + halfH * aspect, q.y() - halfH, q.y() + halfH,
-                                   -far, far);
+                                   -farPlane, farPlane);
             } else {
-                m_projection.perspective(effectiveCameraFov(), aspect, float(std::min(0.0025 * d, 0.01)), far);
+                m_projection.perspective(effectiveCameraFov(), aspect, float(std::min(0.0025 * d, 0.01)), farPlane);
             }
         }
         // IL RIQUADRO SPOSTATO di una cattura d'immagine (setCaptureShift): la

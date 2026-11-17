@@ -275,8 +275,8 @@ void testParallelism()
     double worst = 0.0, closest = 0.0;
     for (double d : {0.5, 1.0, 2.0, 3.0}) {
         const Matrix m = translation({d, 0.0, 0.0});
-        const Vec4 far = m * expAtOrigin({0.0, 40.0, 0.0});
-        const double seen = std::atan2(far.y, far.x);
+        const Vec4 farPoint = m * expAtOrigin({0.0, 40.0, 0.0});
+        const double seen = std::atan2(farPoint.y, farPoint.x);
         const double expected = std::atan(1.0 / std::sinh(d));
         worst = std::max(worst, std::abs(seen - expected));
         closest = std::max(closest, std::abs(distance(origin(), m * origin()) - d));
@@ -901,18 +901,18 @@ void testRenormalization()
     const Matrix step = translation({0.0, 0.0, -0.01}) * rotation({0.0, 1.0, 0.0}, 0.02);
     const Matrix stepF = roundedToFloat(step);
     Matrix camD = Matrix::identity(), camF = Matrix::identity();
-    double far = 0.0;
+    double farthest = 0.0;
     for (int frame = 1; frame <= 216000; ++frame) {
         camD = camD * step;
         camF = roundedToFloat(camF * stepF);
-        far = std::max(far, distance(origin(), camD * origin()));
+        farthest = std::max(farthest, distance(origin(), camD * origin()));
         if (frame == 3600)
             info(format("dopo un minuto a 60 fps: deriva %.1e in float, %.1e in double", isometryError(camF),
                         isometryError(camD)));
     }
     info(format("dopo un'ora: deriva %.1e in float, %.1e in double; la camera resta entro %.3f dall'origine",
-                isometryError(camF), isometryError(camD), far));
-    check(isometryError(camD) < 1e-9 && isometryError(renormalized(camF)) < 1e-12 && far < 1.2,
+                isometryError(camF), isometryError(camD), farthest));
+    check(isometryError(camD) < 1e-9 && isometryError(renormalized(camF)) < 1e-12 && farthest < 1.2,
           "camera in double per un'ora senza raddrizzare; quella in float si raddrizza");
 }
 

@@ -5658,10 +5658,10 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
                 for (int t = 0; t < 4; ++t) {
                     const int e = q * 4 + t;
                     if (sideLen[e] < 1e-3f) continue;   // polo
-                    bool far = false;
-                    for (int c = 0; c < 4 && !far; ++c)
-                        far = boxLo[e][c] > myHi[c] + margin || boxHi[e][c] < myLo[c] - margin;
-                    if (far) continue;
+                    bool farAway = false;
+                    for (int c = 0; c < 4 && !farAway; ++c)
+                        farAway = boxLo[e][c] > myHi[c] + margin || boxHi[e][c] < myLo[c] - margin;
+                    if (farAway) continue;
                     const bool self = q == p && t == side;
                     float arc = 0.0f, longest = 0.0f;
                     int from = -1, bestFrom = 0, bestTo = 0;
@@ -7192,11 +7192,11 @@ void ScenarioTest::runImageCaptureScenarios()
                 for (int x = 3; x + 3 < sz.width(); ++x) {
                     if (!inked(a, x, y)) continue;
                     ++n.first;
-                    bool near = false;
-                    for (int dy = -3; dy <= 3 && !near; ++dy)
-                        for (int dx = -3; dx <= 3 && !near; ++dx)
-                            near = ink[(y + dy) * sz.width() + x + dx];
-                    if (!near) ++n.second;
+                    bool hasInkNearby = false;
+                    for (int dy = -3; dy <= 3 && !hasInkNearby; ++dy)
+                        for (int dx = -3; dx <= 3 && !hasInkNearby; ++dx)
+                            hasInkNearby = ink[(y + dy) * sz.width() + x + dx];
+                    if (!hasInkNearby) ++n.second;
                 }
             return n;
         };
@@ -7211,11 +7211,11 @@ void ScenarioTest::runImageCaptureScenarios()
                 for (int x = 3; x + 3 < sw.width(); ++x) {
                     if (!inked(a, x, y)) continue;
                     ++n.first;
-                    bool near = false;
-                    for (int dy = -3; dy <= 3 && !near; ++dy)
-                        for (int dx = -3; dx <= 3 && !near; ++dx)
-                            near = ink[(y + dy) * sw.width() + x + dx];
-                    if (!near) ++n.second;
+                    bool hasInkNearby = false;
+                    for (int dy = -3; dy <= 3 && !hasInkNearby; ++dy)
+                        for (int dx = -3; dx <= 3 && !hasInkNearby; ++dx)
+                            hasInkNearby = ink[(y + dy) * sw.width() + x + dx];
+                    if (!hasInkNearby) ++n.second;
                 }
             return n;
         };
@@ -9895,7 +9895,7 @@ void ScenarioTest::runPathFrameScenarios()
     m_lines.append(QStringLiteral("== Riferimento del path della camera: un oggetto fisso, in 3D e in H3, sblocco, Remove, Save/Load =="));
     const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
     const QString kSphere = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
-    const auto near = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 2e-3f; };
+    const auto isNear = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 2e-3f; };
     const auto text = [](const QVector3D &v) {
         return QStringLiteral("(%1, %2, %3)").arg(v.x(), 0, 'f', 3).arg(v.y(), 0, 'f', 3).arg(v.z(), 0, 'f', 3);
     };
@@ -9933,18 +9933,18 @@ void ScenarioTest::runPathFrameScenarios()
           QStringLiteral("casella Path around: Environment e il toro, riferimento il centro della scena"));
     if (!m_mw->m_pathFrameCombo) return;
     cameraPathCircle();
-    check(near(gl->getCameraPos(), QVector3D(1.0f, 0.0f, 0.0f)),
+    check(isNear(gl->getCameraPos(), QVector3D(1.0f, 0.0f, 0.0f)),
           QStringLiteral("dal centro della scena, t = 0: camera in %1").arg(text(gl->getCameraPos())));
     m_mw->m_pathFrameCombo->setCurrentIndex(1);
     emit m_mw->m_pathFrameCombo->activated(1);
     wait(100);
     check(gl->cameraPathFrame() == 1, QStringLiteral("scelto il toro: cameraPathFrame = %1").arg(gl->cameraPathFrame()));
     m_mw->m_paths->applyCameraAt(CameraPaths::Path3D, 0.0f);
-    check(near(gl->getCameraPos(), QVector3D(2.0f, 1.0f, 0.0f)) && near(gl->m_pathTarget, QVector3D(2.0f, 0.0f, 0.0f)),
+    check(isNear(gl->getCameraPos(), QVector3D(2.0f, 1.0f, 0.0f)) && isNear(gl->m_pathTarget, QVector3D(2.0f, 0.0f, 0.0f)),
           QStringLiteral("dal toro girato di 90 gradi, t = 0: (1,0,0) diventa %1, bersaglio %2")
               .arg(text(gl->getCameraPos()), text(gl->m_pathTarget)));
     m_mw->m_paths->applyCameraAt(CameraPaths::Path3D, float(M_PI / 2.0));
-    check(near(gl->getCameraPos(), QVector3D(1.0f, 0.0f, 0.0f)),
+    check(isNear(gl->getCameraPos(), QVector3D(1.0f, 0.0f, 0.0f)),
           QStringLiteral("t = pi/2: (0,1,0) girato e' (-1,0,0), dal toro %1").arg(text(gl->getCameraPos())));
 
     // Save e Load: per nome.
@@ -10007,13 +10007,13 @@ void ScenarioTest::runPathFrameScenarios()
     const H3::Vec3 ahead = H3::logAtOrigin(toFrame * H3::expAtOrigin({0.0, 0.0, -0.5 * k}));
     const QVector3D atUnits(float(at.x / k), float(at.y / k), float(at.z / k));
     const QVector3D aheadUnits(float(ahead.x / k), float(ahead.y / k), float(ahead.z / k));
-    check(near(atUnits, QVector3D(1.0f, 0.0f, 0.0f)) && near(aheadUnits, QVector3D(0.5f, 0.0f, 0.0f)),
+    check(isNear(atUnits, QVector3D(1.0f, 0.0f, 0.0f)) && isNear(aheadUnits, QVector3D(0.5f, 0.0f, 0.0f)),
           QStringLiteral("H3, nel riferimento del toro: camera a %1 unita', mezzo passo avanti %2 (verso il centro)")
               .arg(text(atUnits), text(aheadUnits)));
     m_mw->m_paths->applyCameraAt(CameraPaths::Path3D, float(M_PI / 2.0));
     const H3::Vec3 at2 = H3::logAtOrigin(H3::inverse(gl->hyperbolicObjectPlacement(1)) * gl->hyperbolicCamera() * H3::origin());
     const QVector3D at2Units(float(at2.x / k), float(at2.y / k), float(at2.z / k));
-    check(near(at2Units, QVector3D(0.0f, 1.0f, 0.0f)),
+    check(isNear(at2Units, QVector3D(0.0f, 1.0f, 0.0f)),
           QStringLiteral("H3, t = pi/2: camera a %1 unita' nel riferimento del toro").arg(text(at2Units)));
 
     // LA SCENA D'ESEMPIO "Fixed Torus Ride" (copia della libreria, dell'utente):
@@ -10056,7 +10056,7 @@ void ScenarioTest::runObjectFrameScenarios()
     m_lines.append(QStringLiteral("== Riferimento di un oggetto: posizione e path attorno a un oggetto fisso, in 3D e in H3, regole, Save/Load =="));
     const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
     const QString kSphere = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
-    const auto near = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 2e-3f; };
+    const auto isNear = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 2e-3f; };
     const auto text = [](const QVector3D &v) {
         return QStringLiteral("(%1, %2, %3)").arg(v.x(), 0, 'f', 3).arg(v.y(), 0, 'f', 3).arg(v.z(), 0, 'f', 3);
     };
@@ -10084,7 +10084,7 @@ void ScenarioTest::runObjectFrameScenarios()
     emit m_mw->m_objectFrameCombo->activated(1);
     wait(100);
     gl->setObjectPosition(QVector3D(1.0f, 0.0f, 0.0f));
-    check(gl->objectFrame(2) == 1 && near(worldOf(2), QVector3D(2.0f, 1.0f, 0.0f)),
+    check(gl->objectFrame(2) == 1 && isNear(worldOf(2), QVector3D(2.0f, 1.0f, 0.0f)),
           QStringLiteral("sfera in (1,0,0) attorno al toro girato di 90 gradi: nel mondo %1").arg(text(worldOf(2))));
     check(m_mw->m_objectList->item(2)->text().contains(QStringLiteral("around Torus")),
           QStringLiteral("nell'elenco: \"%1\"").arg(m_mw->m_objectList->item(2)->text()));
@@ -10114,7 +10114,7 @@ void ScenarioTest::runObjectFrameScenarios()
     if (!loadSurface(kSphere)) return;
     const bool loaded = m_mw->loadSceneFile(path);
     wait(1500);
-    check(loaded && gl->objectCount() == 3 && gl->objectFrame(2) == 1 && near(worldOf(2), QVector3D(2.0f, 1.0f, 0.0f)),
+    check(loaded && gl->objectCount() == 3 && gl->objectFrame(2) == 1 && isNear(worldOf(2), QVector3D(2.0f, 1.0f, 0.0f)),
           QStringLiteral("Load: la sfera torna attorno al toro, nel mondo %1").arg(text(worldOf(2))));
 
     // Sblocco del toro: il riferimento resta, la sfera gli resta attorno.
@@ -10122,7 +10122,7 @@ void ScenarioTest::runObjectFrameScenarios()
     wait(100);
     m_mw->m_objectFixed->setChecked(false);
     wait(200);
-    check(gl->objectFrame(2) == 1 && near(worldOf(2), QVector3D(2.0f, 1.0f, 0.0f)),
+    check(gl->objectFrame(2) == 1 && isNear(worldOf(2), QVector3D(2.0f, 1.0f, 0.0f)),
           QStringLiteral("toro sbloccato: la sfera resta attorno al toro, in %1").arg(text(worldOf(2))));
     // Remove scorre gli indici: una seconda sfera (3) fissa, la sfera (2)
     // attorno a lei, tolto il toro (1) la sfera e' 1 e il suo riferimento 2.
@@ -10162,7 +10162,7 @@ void ScenarioTest::runObjectFrameScenarios()
     const H3::Vec3 rel = H3::logAtOrigin(H3::inverse(gl->hyperbolicObjectPlacement(1)) * gl->hyperbolicObjectPlacement(2)
                                          * H3::origin());
     const QVector3D relUnits(float(rel.x / k), float(rel.y / k), float(rel.z / k));
-    check(near(relUnits, QVector3D(1.0f, 0.0f, 0.0f)),
+    check(isNear(relUnits, QVector3D(1.0f, 0.0f, 0.0f)),
           QStringLiteral("H3: la sfera e' a %1 unita' nel riferimento del toro").arg(text(relUnits)));
 
     // LA SCENA D'ESEMPIO "Fixed Torus Ride 2" (copia della libreria): nodo e
@@ -10198,7 +10198,7 @@ void ScenarioTest::runMovingFrameScenarios()
     m_lines.append(QStringLiteral("== Riferimenti mobili: catene, cicli, oggetti e camera attorno a un oggetto che si muove (3D, H3, passo del REC) =="));
     const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
     const QString kSphere = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
-    const auto near = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 2e-3f; };
+    const auto isNear = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 2e-3f; };
     const auto text = [](const QVector3D &v) {
         return QStringLiteral("(%1, %2, %3)").arg(v.x(), 0, 'f', 3).arg(v.y(), 0, 'f', 3).arg(v.z(), 0, 'f', 3);
     };
@@ -10247,12 +10247,12 @@ void ScenarioTest::runMovingFrameScenarios()
     place(1, QVector3D(2.0f, 0.0f, 0.0f), 90.0f);
     place(2, QVector3D(1.0f, 0.0f, 0.0f), 0.0f);
     place(3, QVector3D(0.5f, 0.0f, 0.0f), 0.0f);
-    check(near(worldOf(2), QVector3D(2.0f, 1.0f, 0.0f)) && near(worldOf(3), QVector3D(2.0f, 1.5f, 0.0f)),
+    check(isNear(worldOf(2), QVector3D(2.0f, 1.0f, 0.0f)) && isNear(worldOf(3), QVector3D(2.0f, 1.5f, 0.0f)),
           QStringLiteral("pianeta in (2,0,0) girato di 90 gradi: luna %1, satellite %2").arg(text(worldOf(2)), text(worldOf(3))));
     // Il pianeta si sposta e la luna gira: il satellite li segue tutti e due.
     place(1, QVector3D(0.0f, 2.0f, 0.0f), 90.0f);
     place(2, QVector3D(1.0f, 0.0f, 0.0f), 90.0f);
-    check(near(worldOf(2), QVector3D(0.0f, 3.0f, 0.0f)) && near(worldOf(3), QVector3D(-0.5f, 3.0f, 0.0f)),
+    check(isNear(worldOf(2), QVector3D(0.0f, 3.0f, 0.0f)) && isNear(worldOf(3), QVector3D(-0.5f, 3.0f, 0.0f)),
           QStringLiteral("pianeta spostato, luna girata: luna %1, satellite %2").arg(text(worldOf(2)), text(worldOf(3))));
     // Nel dock: sul satellite si offrono pianeta e luna; sul pianeta nessuno
     // (chiuderebbe un ciclo). La camera puo' girare attorno a chiunque.
@@ -11874,11 +11874,11 @@ void ScenarioTest::runSceneH3Scenarios()
         const QImage img = gl->grabFramebuffer();
         img.save(m_outDir + QStringLiteral("/scene-h3-ortho-sky.png"));
         const QColor bg = QColor::fromRgbF(gl->m_bgColor.x(), gl->m_bgColor.y(), gl->m_bgColor.z());
-        const auto near = [](QColor a, QColor b) {
+        const auto isNear = [](QColor a, QColor b) {
             return std::abs(a.red() - b.red()) <= 2 && std::abs(a.green() - b.green()) <= 2 && std::abs(a.blue() - b.blue()) <= 2;
         };
-        const bool cornerEmpty = near(img.pixelColor(2, 2), bg) && near(img.pixelColor(2, img.height() / 2), bg);
-        const bool centerSky = !near(img.pixelColor(img.width() / 2, img.height() / 2), bg);
+        const bool cornerEmpty = isNear(img.pixelColor(2, 2), bg) && isNear(img.pixelColor(2, img.height() / 2), bg);
+        const bool centerSky = !isNear(img.pixelColor(img.width() / 2, img.height() / 2), bg);
         gl->setProjectionMode(1);
         gl->setBackgroundTextureEnabled(false);
         check(cornerEmpty && centerSky,
@@ -12439,7 +12439,7 @@ void ScenarioTest::runSceneH3Scenarios()
         m_mw->toggleProjection();   // Stereographic
         m_mw->toggleProjection();   // Orthogonal
         const QColor bg = QColor::fromRgbF(gl->m_bgColor.x(), gl->m_bgColor.y(), gl->m_bgColor.z());
-        const auto near = [](QColor a, QColor b) {
+        const auto isNear = [](QColor a, QColor b) {
             return std::abs(a.red() - b.red()) <= 2 && std::abs(a.green() - b.green()) <= 2 && std::abs(a.blue() - b.blue()) <= 2;
         };
         gl->update();
@@ -12450,7 +12450,7 @@ void ScenarioTest::runSceneH3Scenarios()
         double edge = 0.0;
         for (int y = 0; y < plain.height(); ++y)
             for (int x = 0; x < plain.width(); ++x)
-                if (!near(plain.pixelColor(x, y), bg)) edge = std::max(edge, std::hypot(x + 0.5 - cx, y + 0.5 - cy));
+                if (!isNear(plain.pixelColor(x, y), bg)) edge = std::max(edge, std::hypot(x + 0.5 - cx, y + 0.5 - cy));
         const double d = distance();
         const double xp = std::sinh(d) * std::tan(double(gl->effectiveCameraFov()) * 0.5 * M_PI / 180.0);
         const double halfH = 1.05 * (xp < 1.0 ? xp / (1.0 + std::sqrt(1.0 - xp * xp)) : 1.0);
@@ -12484,7 +12484,7 @@ void ScenarioTest::runSceneH3Scenarios()
         int farRing = 0;
         for (int x = int(cx + 0.95 * cy / halfH); x < int(cx + 0.985 * cy / halfH); ++x)
             for (int y = int(cy) - 40; y <= int(cy) + 40; ++y)
-                if (!near(lattice.pixelColor(x, y), bg)) ++farRing;
+                if (!isNear(lattice.pixelColor(x, y), bg)) ++farRing;
         latticeDensity->setValue(0);
         gl->update();
         wait(500);
@@ -12561,7 +12561,7 @@ void ScenarioTest::runScenePathScenarios()
     const QString spherePath = shapePath(kSphere);
     const int sphere = gl->selectedObject();
     const QVector3D base = gl->objectPosition();
-    auto near = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 1e-3f; };
+    auto isNear = [](const QVector3D &a, const QVector3D &b) { return (a - b).length() < 1e-3f; };
     Ui::MainWindow *ui = m_mw->ui;
     // I campi del dock 3D e l'Invio vero (filtro tastiera, isPathEquationField).
     auto setPathFields = [this, ui](const QString &x, const QString &y, const QString &z) {
@@ -12643,7 +12643,7 @@ void ScenarioTest::runScenePathScenarios()
               && !m_mw->m_paths->anyRunning(),
           QStringLiteral("Departure: path 2*t, mod(t,2), 0.7*floor(t) compilato e in corsa, il master lo conta, "
                          "la camera non parte"));
-    check(near(gl->objectEffectivePosition(sphere), base),
+    check(isNear(gl->objectEffectivePosition(sphere), base),
           QStringLiteral("t = 0: la sfera e' nella sua posizione"));
 
     // A tempo controllato (come nel REC): l'orologio del path e' dell'oggetto,
@@ -12659,11 +12659,11 @@ void ScenarioTest::runScenePathScenarios()
     const QImage moved = gl->grabFramebuffer();
     const QVector3D at15 = gl->objectEffectivePosition(sphere);
     check(qAbs(gl->objectPathTime(sphere) - 1.5f) < 1e-4f && gl->sceneTime() == 0.0f
-              && near(at15, base + QVector3D(3.0f, 1.5f, 0.7f)) && moved != before,
+              && isNear(at15, base + QVector3D(3.0f, 1.5f, 0.7f)) && moved != before,
           QStringLiteral("t = 1.5 (T = %4): spostamento (%1, %2, %3), atteso (3, 1.5, 0.7)")
               .arg(at15.x() - base.x()).arg(at15.y() - base.y()).arg(at15.z() - base.z()).arg(gl->sceneTime()));
     gl->advanceClocksBy(1.0f);
-    check(near(gl->objectEffectivePosition(sphere), base + QVector3D(5.0f, 0.5f, 1.4f)),
+    check(isNear(gl->objectEffectivePosition(sphere), base + QVector3D(5.0f, 0.5f, 1.4f)),
           QStringLiteral("t = 2.5: mod(t,2) torna a 0.5"));
 
     // LA VELOCITA' e' dell'oggetto e di quel path, indipendente dalla camera:
@@ -12721,7 +12721,7 @@ void ScenarioTest::runScenePathScenarios()
     m_mw->onResetClicked();
     wait(200);
     check(m_lastPopup.isEmpty() && gl->objectPathTime(sphere) == 0.0f
-              && near(gl->objectEffectivePosition(sphere), base),
+              && isNear(gl->objectEffectivePosition(sphere), base),
           QStringLiteral("RESET dell'oggetto: t = 0, sfera al suo posto, nessun popup"));
 
     // Fuori dalla sua finestra il path non avanza (T fermo a 0, In 5 s).
@@ -12856,7 +12856,7 @@ void ScenarioTest::runScenePathScenarios()
     const QImage shifted = gl->grabFramebuffer();
     check(gl->objectPath(sphere4D, SurfaceEngine::ObjectPath4D).value(3) == QLatin1String("1.5")
               && gl->isObjectPathRunning(sphere4D, SurfaceEngine::ObjectPath4D)
-              && near(gl->objectEffectivePosition(sphere4D), gl->objectPosition()) && shifted != plain,
+              && isNear(gl->objectEffectivePosition(sphere4D), gl->objectPosition()) && shifted != plain,
           QStringLiteral("P(t) = 1.5: la sfera cambia a schermo, la posizione 3D no"));
 
     // I DUE PATH SI ESCLUDONO, come quelli della camera, ognuno con le sue
@@ -12872,7 +12872,7 @@ void ScenarioTest::runScenePathScenarios()
               && !gl->isObjectPathRunning(sphere4D, SurfaceEngine::ObjectPath4D)
               && go3D->text() == QLatin1String("STOP") && go->text() == QLatin1String("DEPARTURE")
               && qAbs(gl->objectPathTime(sphere4D) - 0.5f) < 1e-4f
-              && near(gl->objectEffectivePosition(sphere4D), gl->objectPosition() + QVector3D(0.5f, 0.0f, 0.0f)),
+              && isNear(gl->objectEffectivePosition(sphere4D), gl->objectPosition() + QVector3D(0.5f, 0.0f, 0.0f)),
           QStringLiteral("Departure 3D ferma il 4D: t proprio da capo (%1), X = t, P non conta")
               .arg(gl->objectPathTime(sphere4D)));
     ui->speed4DSlider->setValue(15);
