@@ -1,4 +1,4 @@
-# Surface Explorer 1.3
+# Surface Explorer 1.5
 **A high-performance multi-backend 4D surface visualizer built with Qt6 and Qt RHI.**
 
 Surface Explorer is built on the Qt RHI architecture and adds two major rendering and visualization capabilities: a **Ray Marching engine** for implicit surfaces and signed-distance fields, and a **Geodesic Flow** solver for intrinsic geometry on curved manifolds. By relying on the **Qt Rendering Hardware Interface (RHI)**, the application remains hardware-agnostic, automatically leveraging the most efficient graphics API available on your system: **Vulkan**, **Metal**, **Direct3D**, or **OpenGL**. This version is designed for high-precision visualization of complex mathematical surfaces in 4D space ($x, y, z, p$), providing a seamless bridge between abstract geometry and real-time GPU performance.
@@ -11,6 +11,7 @@ Surface Explorer is built on the Qt RHI architecture and adds two major renderin
 * **Qt RHI Engine**: Native support for **Vulkan** (Linux/Windows), **Metal** (macOS), and **Direct3D** (Windows), ensuring smoother performance and future-proof compatibility.
 * **4D Spatial Exploration**: Native support for four-dimensional coordinate systems with dedicated controls for hyperspatial rotation (Omega, Phi, Psi) and projection.
 * **4D Lighting Models**: Advanced lighting modes specifically designed for hyperspace, including **Directional**, **Observer**, and **Slice** lighting.
+* **Image and video export**: REC → *Image* saves a PNG at any size or print resolution (dpi), with the framing chosen by dragging a frame on the view; video export has all its settings in one window, with a *Downscaling* option that keeps fine textures sharp.
 * **Dynamic GLSL Scripting**: Integrated engine to write custom shaders for procedural textures or surface logic directly within the built-in editor, with discrete constants and lower bounds (`A := int(1,10)`, `A := min(1.0)`).
 * **On-screen hints**: presets, records and textures can show a short overlay message on load, naming which sliders are live.
 * **Optimized for Fedora & Wayland**: Full integration with modern Linux desktops, including specific optimizations for **AMD GPU** drivers and **Wayland** compositors.
