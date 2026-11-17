@@ -360,13 +360,13 @@ bool MainWindow::viewResetChangesSomething() const
 {
     const GLWidget::Framing target = m_startFraming;
     const GLWidget::Framing now = ui->glWidget->framing();
-    auto near = [](float a, float b) { return std::abs(a - b) < 1e-3f; };
+    auto approxEq = [](float a, float b) { return std::abs(a - b) < 1e-3f; };
     const bool same = (now.cameraPos - target.cameraPos).length() < 1e-3f
-                      && near(now.yaw, target.yaw) && near(now.pitch, target.pitch)
-                      && near(now.roll, target.roll)
+                      && approxEq(now.yaw, target.yaw) && approxEq(now.pitch, target.pitch)
+                      && approxEq(now.roll, target.roll)
                       && (now.observerPos - target.observerPos).length() < 1e-3f
-                      && near(now.crossSectionP, target.crossSectionP)
-                      && near(m_scene.fov, m_startFov);
+                      && approxEq(now.crossSectionP, target.crossSectionP)
+                      && approxEq(m_scene.fov, m_startFov);
     return !same;
 }
 

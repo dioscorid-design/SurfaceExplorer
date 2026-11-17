@@ -5291,10 +5291,10 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
                 for (int t = 0; t < 4; ++t) {
                     const int e = q * 4 + t;
                     if (sideLen[e] < 1e-3f) continue;   // polo
-                    bool far = false;
-                    for (int c = 0; c < 4 && !far; ++c)
-                        far = boxLo[e][c] > myHi[c] + margin || boxHi[e][c] < myLo[c] - margin;
-                    if (far) continue;
+                    bool farAway = false;
+                    for (int c = 0; c < 4 && !farAway; ++c)
+                        farAway = boxLo[e][c] > myHi[c] + margin || boxHi[e][c] < myLo[c] - margin;
+                    if (farAway) continue;
                     const bool self = q == p && t == side;
                     float arc = 0.0f, longest = 0.0f;
                     int from = -1, bestFrom = 0, bestTo = 0;
@@ -5672,11 +5672,11 @@ void ScenarioTest::runImageCaptureScenarios()
                     for (int x = 3; x + 3 < sw.width(); ++x) {
                         if (!inked(a, x, y)) continue;
                         ++n.first;
-                        bool near = false;
-                        for (int dy = -3; dy <= 3 && !near; ++dy)
-                            for (int dx = -3; dx <= 3 && !near; ++dx)
-                                near = ink[(y + dy) * sw.width() + x + dx];
-                        if (!near) ++n.second;
+                        bool hasInkNearby = false;
+                        for (int dy = -3; dy <= 3 && !hasInkNearby; ++dy)
+                            for (int dx = -3; dx <= 3 && !hasInkNearby; ++dx)
+                                hasInkNearby = ink[(y + dy) * sw.width() + x + dx];
+                        if (!hasInkNearby) ++n.second;
                     }
                 return n;
             };
