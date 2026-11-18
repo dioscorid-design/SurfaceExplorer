@@ -69,11 +69,17 @@ static QSize videoResolutionSize(int index)
 // della vista e ridotte sono la vista rimpicciolita, ma l'esportazione e' piu'
 // lenta (circa 1,5 volte, misurato). Quando non conta la casella e' spenta e
 // la riga sotto dice perche'.
+// MAI SPUNTATA ALL'APERTURA, e tolta la spunta quando si spegne: si spunta solo
+// quando conta. Prima ripartiva dalla scelta salvata (lastRecResample), e una
+// casella spenta ma spuntata sembrava accesa (iPad, 4K piu' grande della
+// vista: "Not needed" con la spunta, 2026-11-18); lo stile :disabled cambia
+// sfondo e bordo ma lascia l'immagine della spunta.
 static void refreshResampleOption(GLWidget* gl, int resIndex, bool nativeEngine, QCheckBox* box, QLabel* hint)
 {
     const QSize wanted = videoResolutionSize(resIndex);
     const bool smaller = !wanted.isEmpty() && gl->captureRenderSize(wanted, 1.0f) != wanted;
     box->setEnabled(nativeEngine && smaller);
+    if (!box->isEnabled()) box->setChecked(false);
     hint->setText(!nativeEngine ? "Only with the Native Resolution engine."
                   : !smaller ? "Not needed: the video is not smaller than the view."
                   : "The video is smaller than the view: tick the box above to draw fine textures "
@@ -212,9 +218,8 @@ public:
         form->addRow("Render Engine:", comboEngine);
 
         // RICAMPIONAMENTO (refreshResampleOption, come sul desktop): un video piu'
-        // piccolo della vista disegnato alla scala della vista e ridotto. Spento
-        // di default (esportazione piu' veloce); lo stato lo mette chi apre il
-        // dialogo.
+        // piccolo della vista disegnato alla scala della vista e ridotto. Mai
+        // spuntata all'apertura (esportazione piu' veloce); si spunta quando conta.
         chkResample = new QCheckBox("Draw at view size and downscale", scrollContent);
         chkResample->setStyleSheet("font-size: 14px;");
         form->addRow("Downscaling:", chkResample);
@@ -442,10 +447,9 @@ public:
         // che misurano in pixel (linee del Wireframe, frattali) uscirebbero larghe
         // una frazione di pixel, spezzate e granulose; disegnate alla scala della
         // vista e ridotte sono la vista rimpicciolita, ma l'esportazione e' piu'
-        // lenta (circa 1,5 volte, misurato). Spento di default. Quando non conta
-        // la casella e' spenta e la riga sotto dice perche'.
+        // lenta (circa 1,5 volte, misurato). Mai spuntata all'apertura; quando
+        // non conta la casella e' spenta e la riga sotto dice perche'.
         chkResample = new QCheckBox("Draw at view size and downscale");
-        chkResample->setChecked(st.value("lastRecResample", false).toBool());
         form->addRow("Downscaling:", chkResample);
         resampleHint = new QLabel;
         resampleHint->setObjectName("videoResampleHint");
@@ -481,8 +485,8 @@ public:
     // Ricampionare: casella accesa (quando conta, refreshResampleOption) e spuntata.
     bool resample() const { return chkResample->isEnabled() && chkResample->isChecked(); }
 
-    // Le scelte per la prossima volta. La casella si ricorda anche quando e'
-    // spenta: e' la preferenza, vale quando torna a contare.
+    // Le scelte per la prossima volta. La casella del Downscaling no: si apre
+    // sempre senza spunta (refreshResampleOption).
     void saveSettings() const
     {
         QSettings st;
@@ -491,7 +495,6 @@ public:
         st.setValue("lastRecResIndex", comboRes->currentIndex());
         st.setValue("lastRecFormat", comboFormat->currentIndex());
         st.setValue("lastRecEngine", comboEngine->currentIndex());
-        st.setValue("lastRecResample", chkResample->isChecked());
     }
 
 private:
@@ -703,7 +706,6 @@ void VideoRecorder::toggleRecord()
     int defRes = settings.value("lastRecResIndex", 1).toInt();
 
     MobileVideoSaveDialog pathDialog(m_mainWindow->ui->glWidget, defaultVideoDir, defDur, defFps, defRes, m_mainWindow);
-    pathDialog.chkResample->setChecked(settings.value("lastRecResample", false).toBool());
     if (s_testVideoDialogHandler) QTimer::singleShot(0, &pathDialog, [&pathDialog]() { s_testVideoDialogHandler(&pathDialog); });
     if (pathDialog.exec() != QDialog::Accepted) {
         restoreState();
@@ -715,7 +717,6 @@ void VideoRecorder::toggleRecord()
     resIndex = pathDialog.comboRes->currentIndex();
     userSelectedFile = pathDialog.getSelectedPath();
     useFBO = (pathDialog.comboEngine->currentIndex() == 0);
-    settings.setValue("lastRecResample", pathDialog.chkResample->isChecked());
     resample = pathDialog.resample();
 
 #if defined(Q_OS_IOS)

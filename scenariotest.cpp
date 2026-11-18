@@ -6867,7 +6867,9 @@ void ScenarioTest::runVideoFrameScenarios()
 #if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
     // IL DIALOGO DEL VIDEO SUL DESKTOP: un dialogo solo con tutte le impostazioni
     // (prima fino a sei QInputDialog in fila), che riparte dalle scelte
-    // dell'ultima volta; il Downscaling si accende solo quando conta. Dopo,
+    // dell'ultima volta; il Downscaling si accende solo quando conta e non e'
+    // mai spuntato all'apertura (anche con la vecchia chiave lastRecResample
+    // salvata accesa), e si spegne senza spunta. Dopo,
     // il selettore del file. Il REC vero: la scelta Video/Image e il selettore
     // del file li chiude il watcher dei popup (Video, poi Annulla), il dialogo
     // l'handler.
@@ -6880,7 +6882,7 @@ void ScenarioTest::runVideoFrameScenarios()
         st.setValue("lastRecResIndex", 0);   // la vista: la riga del Downscaling corta
         st.setValue("lastRecFormat", 1);
         st.setValue("lastRecEngine", 0);
-        st.setValue("lastRecResample", true);
+        st.setValue("lastRecResample", true);   // la vecchia preferenza: non deve contare
     }
     // Le finestre modali le chiude il watcher dei popup (Annulla), la scelta
     // Video/Image con m_popupAnswer; questo timer, piu' svelto, le annota soltanto.
@@ -6898,8 +6900,8 @@ void ScenarioTest::runVideoFrameScenarios()
     for (const bool accept : { false, true }) {
         modalsSeen.clear();
         fileDialogSeen = false;
-        bool restored = false, gateOk = false, hintVisible = false;
-        QString title, gateText, hintText;
+        bool restored = false, gateOk = false, hintVisible = false, checkOk = false;
+        QString title, gateText, hintText, checkText;
         VideoRecorder::setTestDialogHandler([&](QDialog *d) {
             m_leaveOpen = d;
             title = d->windowTitle();
@@ -6909,7 +6911,8 @@ void ScenarioTest::runVideoFrameScenarios()
             if (spins.size() != 2 || combos.size() != 3 || !chk) { m_leaveOpen = nullptr; d->reject(); return; }
             QComboBox *res = combos[0], *format = combos[1], *engine = combos[2];
             restored = spins[0]->value() == 7 && spins[1]->value() == 30 && res->currentIndex() == 0
-                       && format->currentIndex() == 1 && engine->currentIndex() == 0 && chk->isChecked();
+                       && format->currentIndex() == 1 && engine->currentIndex() == 0;
+            const bool openedUnchecked = !chk->isChecked();
             // La casella si accende solo col motore nativo e un video piu' piccolo della vista.
             // Si apre sulla vista (riga corta); 1080p la allunga se il video e'
             // piu' piccolo della vista.
@@ -6922,6 +6925,18 @@ void ScenarioTest::runVideoFrameScenarios()
             engine->setCurrentIndex(0);
             const bool on1080 = chk->isEnabled();
             gateOk = on1080 == smaller1080 && !onView && !onUpscale;
+            // Accesa si spunta; tornando alla vista si spegne e perde la spunta.
+            bool checkable = true;
+            if (on1080) {
+                chk->setChecked(true);
+                checkable = chk->isChecked();
+                res->setCurrentIndex(0);
+                res->setCurrentIndex(1);
+            }
+            const bool clearedOff = on1080 ? !chk->isChecked() : true;
+            checkOk = openedUnchecked && checkable && clearedOff;
+            checkText = QStringLiteral("aperta senza spunta %1, si spunta accesa %2, spenta perde la spunta %3")
+                            .arg(openedUnchecked).arg(checkable).arg(clearedOff);
             // Dalla riga corta a quella lunga: il dialogo cresce e la riga si
             // legge tutta (alta quanto chiede alla sua larghezza, sopra i tasti).
             wait(300);
@@ -6957,6 +6972,7 @@ void ScenarioTest::runVideoFrameScenarios()
                   .arg(accept ? QStringLiteral("Capture") : QStringLiteral("Cancel"), title, modalsSeen.join(QStringLiteral(" > ")))
                   .arg(restored));
         check(gateOk, QStringLiteral("Downscaling acceso solo quando conta: %1").arg(gateText));
+        check(checkOk, QStringLiteral("Downscaling mai spuntato all'apertura: %1").arg(checkText));
         check(hintVisible, QStringLiteral("la riga del Downscaling si legge tutta quando si allunga (%1)").arg(hintText));
         if (accept) {
             const int saved = QSettings().value("lastRecDuration").toInt();
