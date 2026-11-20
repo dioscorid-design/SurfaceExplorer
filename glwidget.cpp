@@ -7636,8 +7636,101 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
 // (prepareObjectUniforms): lo spostamento visto a schermo va riportato li'.
 void GLWidget::moveObjectOnScreen(const QVector3D &delta)
 {
-    setObjectPosition(m_obj->position + placementRotation(*m_obj).conjugated().rotatedVector(delta));
+    placeObjectByUser(m_obj->position + placementRotation(*m_obj).conjugated().rotatedVector(delta));
+}
+
+void GLWidget::placeObjectByUser(const QVector3D &position)
+{
+    const float l = kObjectPositionLimit;
+    setObjectPosition(QVector3D(std::clamp(position.x(), -l, l), std::clamp(position.y(), -l, l),
+                                std::clamp(position.z(), -l, l)));
     emit objectPositionChangedByUser(m_obj->position);
+}
+
+H3::Vec4 GLWidget::objectCentreInView(int index)
+{
+    if (m_hyperbolic)
+        return H3::inverse(hyperbolicViewer(m_h3Camera)) * (hyperbolicObjectPlacement(index) * H3::origin());
+    // In euclideo w = 1: la carta (xyz / w, sotto) e' il punto della vista.
+    const QVector3D v = m_view.map(objectPlacement(index).map(QVector3D()));
+    return { double(v.x()), double(v.y()), double(v.z()), 1.0 };
+}
+
+bool GLWidget::objectScreenPoint(int index, QPointF *pixel)
+{
+    if (index < 0 || index >= int(m_objects.size()) || m_isFlatView || width() <= 0 || height() <= 0) return false;
+    const H3::Vec4 p = objectCentreInView(index);
+    // La carta del vertex shader (hyperbolicChart): Klein, o il punto stesso
+    // in euclideo, = xyz / w; Poincare' nella vista da fuori, xyz / (1 + w).
+    const double d = hyperbolicOutsideView() ? 1.0 + p.w : p.w;
+    const QVector4D clip = m_projection * QVector4D(float(p.x / d), float(p.y / d), float(p.z / d), 1.0f);
+    if (!(clip.w() > 1e-6f)) return false;
+    *pixel = QPointF((1.0 + double(clip.x() / clip.w())) * 0.5 * width(),
+                     (1.0 - double(clip.y() / clip.w())) * 0.5 * height());
+    return true;
+}
+
+// LO SPOSTAMENTO COL MOUSE: il centro dell'oggetto resta sotto il puntatore.
+// Un pixel vale 2/W in NDC, e la proiezione da' x_ndc = (P00 x + P02 z) / w
+// + P03 / w, con w = -z in prospettiva e 1 in ortogonale: a z fermo lo
+// spostamento nella vista e' 2 dx w / (W P00). Senza passare dalla NDC z
+// avanti e indietro: in float, a 50 unita', la profondita' riletta sbagliava
+// di centesimi a ogni evento e l'oggetto scivolava in profondita'.
+// - In euclideo (3D e 4D) sul piano dello schermo per il centro, alla stessa
+//   profondita': lo spostamento dei tasti (moveObjectOnScreen), lungo.
+// - In H3 in prospettiva alla STESSA DISTANZA dalla camera, nella direzione
+//   del pixel nuovo: il piano dello schermo per il centro arriva all'infinito
+//   dentro la vista (a 2 raggi circa al 40% della mezza larghezza), e
+//   l'oggetto sarebbe sparito a meta' gesto. Cosi' segue il puntatore
+//   ovunque, grande com'era.
+// - Nella vista da fuori di H3 sul piano dello schermo della palla di
+//   Poincare', fino al suo bordo (l'infinito, che li' si vede).
+// In H3 il punto nuovo torna alla posizione dal centro della scena (mappa
+// esponenziale, dentro le pose che precedono l'oggetto), path escluso.
+bool GLWidget::dragObjectOnScreen(float dx, float dy)
+{
+    if (!objectDragActive() || m_isFlatView || width() <= 0 || height() <= 0) return false;
+    const QMatrix4x4 &proj = m_projection;
+    if (proj(0, 0) == 0.0f || proj(1, 1) == 0.0f) return false;
+    const double ndcX = 2.0 * double(dx) / double(width());
+    const double ndcY = -2.0 * double(dy) / double(height());   // lo schermo scende, la NDC sale
+    const int k = selectedObject();
+    const H3::Vec4 p = objectCentreInView(k);
+
+    H3::Vec4 moved;   // in H3: il centro nuovo, nel riferimento di chi guarda
+    if (!m_hyperbolic) {
+        const double w = double(proj(3, 2)) * p.z + double(proj(3, 3));
+        if (!(w > 1e-9)) return false;   // dietro la camera
+        const float sx = float(ndcX * w / double(proj(0, 0)));
+        const float sy = float(ndcY * w / double(proj(1, 1)));
+        if (sx == 0.0f && sy == 0.0f) return false;
+        moveObjectOnScreen(m_view.row(0).toVector3D() * sx + m_view.row(1).toVector3D() * sy);
+        return true;
+    }
+    if (hyperbolicOutsideView()) {
+        const H3::Vec3 b = H3::toPoincare(p);
+        const H3::Vec3 b2{ b.x + ndcX / double(proj(0, 0)), b.y + ndcY / double(proj(1, 1)), b.z };
+        if (!(b2.x * b2.x + b2.y * b2.y + b2.z * b2.z < 1.0 - 1e-9)) return false;   // oltre il bordo
+        moved = H3::fromPoincare(b2);
+    } else {
+        // La direzione dalla camera: x/(-z), y/(-z) sono cio' che la
+        // prospettiva moltiplica per P00 e P11. La distanza resta: sinh nella
+        // parte spaziale, cosh in w.
+        const double s = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+        if (!(p.z < 0.0) || s < 1e-12) return false;   // dietro la camera, o nella camera
+        const double ax = p.x / -p.z + ndcX / double(proj(0, 0));
+        const double ay = p.y / -p.z + ndcY / double(proj(1, 1));
+        const double n = std::sqrt(ax * ax + ay * ay + 1.0);
+        moved = { s * ax / n, s * ay / n, -s / n, p.w };
+    }
+    SurfaceObject &o = *m_obj;
+    const H3::Vec4 inScene = H3::inverse(hyperbolicPlacementPrefix(o)) * (hyperbolicViewer(m_h3Camera) * moved);
+    const H3::Vec3 t = H3::logAtOrigin(inScene);
+    const double unit = m_h3RadiiPerSceneUnit;
+    if (!std::isfinite(t.x) || !std::isfinite(t.y) || !std::isfinite(t.z) || unit <= 0.0) return false;
+    const QVector3D centre(float(t.x / unit), float(t.y / unit), float(t.z / unit));
+    placeObjectByUser(o.position + (centre - effectivePosition(o)));
+    return true;
 }
 
 // Attorno alla direzione di vista (la riga z della vista esce dallo schermo:

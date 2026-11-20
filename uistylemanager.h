@@ -78,6 +78,13 @@ public:
     // con una tastiera che ha l'Invio, che conferma e la chiude. No-op su desktop.
     static void installMobileSpinButtons(QAbstractSpinBox* spin, int fieldWidth = 36,
                                          bool editable = false);
+    // MOBILE: il solo campo, senza i due tasti (la prima meta' di
+    // installMobileSpinButtons): frecce native nascoste, numero centrato e,
+    // con editable, la tastiera numeri e punteggiatura, con l'Invio che
+    // conferma e la chiude; senza, sola lettura e niente focus. Da sola dove i
+    // tasti non stanno: i campi in fila del dock Objects (X Y Z, In Out, come
+    // sul desktop; decisione dell'utente, 2026-11-20). No-op su desktop.
+    static void setupMobileSpinField(QAbstractSpinBox* spin, bool editable);
     static void styleMobileMenuButton(QPushButton* button);
     static void styleMobileOverflowMenu(QMenu* menu);
     static void applyRecordButtonStyle(QPushButton* btn);

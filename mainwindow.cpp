@@ -1046,8 +1046,9 @@ void MainWindow::setupDockLayout()
     if (ui->dock4D) UiStyleManager::addScrollToDock(ui->dock4D, m_dockTabs);
     if (ui->dockScripts) UiStyleManager::addScrollToDock(ui->dockScripts, m_dockTabs);
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
-    // Objects su mobile: un campo per riga coi tasti freccia (setupObjectsDock)
-    // lo allunga oltre l'altezza del telefono. Il suo contenuto non ha il
+    // Objects su mobile: elenco, campi, riferimenti, T e reticolo vanno oltre
+    // l'altezza del telefono (prima anche i campi uno per riga coi tasti
+    // freccia, setupObjectsDock). Il suo contenuto non ha il
     // minimo di 400 degli altri (non passa da setupDockScroll): segue la vista,
     // quindi niente margine per la barra.
     UiStyleManager::addScrollToDock(m_dockObjects, true);

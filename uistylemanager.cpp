@@ -194,10 +194,24 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
            ESCLUSO il caso mobile: li' le frecce native non ci sono
            (installMobileSpinButtons -> NoButtons + due QPushButton esterni) e
            un padding a destra scentrerebbe il numero, che invece e' impostato
-           su AlignCenter. La proprieta' "mobileSpinButtons" la mette proprio
-           quella funzione; il ramo mobile la rimette a 0 subito sotto. */
+           su AlignCenter. La proprieta' "mobileSpinButtons" la mette
+           setupMobileSpinField (anche dentro installMobileSpinButtons, e da
+           sola sui campi senza tasti del dock Objects).
+           I CAMPI MOBILI ERANO VUOTI su iPhone e iPad da Qt 6.12 (screenshot
+           dell'utente, 2026-11-20): QStyleSheetStyle (subControlRect,
+           SC_SpinBoxEditField) toglie dal campo di testo i rettangoli delle
+           frecce, e con NoButtons li vale QRect(0,0,0,0); con le frecce a
+           destra (top right / bottom right, piu' sotto) il taglio a destra
+           finisce in x = 0, e il campo di testo e' largo 1px sul bordo
+           sinistro: del numero restava una striscia. Con le frecce (nascoste)
+           a SINISTRA il lato destro non si taglia e il campo va da 0 alla fine
+           del contenuto; il padding a destra a 0 lo tiene centrato (il lato
+           sinistro parte gia' da 0, sopra bordo e padding). Sul desktop le
+           frecce ci sono e la regola non vale. */
         %3
-        QAbstractSpinBox[mobileSpinButtons="true"] { padding-right: 4px; }
+        QAbstractSpinBox[mobileSpinButtons="true"] { padding-right: 0px; }
+        QAbstractSpinBox[mobileSpinButtons="true"]::up-button { subcontrol-position: top left; }
+        QAbstractSpinBox[mobileSpinButtons="true"]::down-button { subcontrol-position: bottom left; }
 
         /* --- FRECCE DEI QSPINBOX ---
            La regola qui sopra mette QSpinBox insieme ai QLineEdit per dargli il
@@ -1094,22 +1108,26 @@ void UiStyleManager::applyRecordButtonStyle(QPushButton* btn) {
 // responder del plugin ma non gli impediscono di prendere il focus.
 // Qui invece il campo diventa non editabile e senza focus, e il valore si
 // cambia con due bottoni veri, che col plugin non hanno alcun rapporto.
-void UiStyleManager::installMobileSpinButtons(QAbstractSpinBox* spin, int fieldWidth, bool editable)
+void UiStyleManager::setupMobileSpinField(QAbstractSpinBox* spin, bool editable)
 {
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
     if (!spin || spin->property("mobileSpinButtons").toBool()) return;
     spin->setProperty("mobileSpinButtons", true);
     // Il QSS e' gia' stato applicato quando arriviamo qui: Qt non rivaluta i
-    // selettori su proprieta' da solo, va forzato. Serve alla regola
-    // QAbstractSpinBox[mobileSpinButtons="true"] che toglie il padding riservato alle
-    // frecce native (qui assenti), altrimenti il numero resta scentrato
-    // nonostante l'AlignCenter poco sotto.
+    // selettori su proprieta' da solo, va forzato. Serve alle regole
+    // QAbstractSpinBox[mobileSpinButtons="true"] (applyDarkTheme): le frecce
+    // nascoste a sinistra, senza le quali con Qt 6.12 il campo di testo e'
+    // largo 1px e il numero non si vede, e il padding a destra a 0, che lo
+    // tiene centrato.
     spin->style()->unpolish(spin);
     spin->style()->polish(spin);
 
     // Il campo resta come sola casella del numero: niente frecce native.
     spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
     spin->setAlignment(Qt::AlignCenter);
+    // Un bersaglio per il dito alto quanto i tasti freccia (32px, sotto): da
+    // solo, senza i tasti accanto, il campo restava di 25.
+    spin->setMinimumHeight(32);
     QLineEdit* le = spin->findChild<QLineEdit*>();
     if (editable) {
         // CAMPO SCRITTO A TASTIERA (dock Objects: posizione, scala, In/Out). Il
@@ -1137,6 +1155,17 @@ void UiStyleManager::installMobileSpinButtons(QAbstractSpinBox* spin, int fieldW
             le->setContextMenuPolicy(Qt::PreventContextMenu);
         }
     }
+#else
+    Q_UNUSED(spin);
+    Q_UNUSED(editable);
+#endif
+}
+
+void UiStyleManager::installMobileSpinButtons(QAbstractSpinBox* spin, int fieldWidth, bool editable)
+{
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    if (!spin || spin->property("mobileSpinButtons").toBool()) return;
+    setupMobileSpinField(spin, editable);
 
     QWidget* parent = spin->parentWidget();
     if (!parent) return;

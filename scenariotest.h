@@ -343,6 +343,14 @@ private:
     // 2.0: l'alto della camera del path 4D dopo un salto delle equazioni (Invio
     // su gamma a path in corsa, Klein Racing). Da sola: --scenario-only path-up.
     void runPathUpScenarios();
+    // 2.0: lo spostamento col mouse dell'oggetto selezionato (tasto destro):
+    // il centro resta sotto il puntatore in 3D (prospettiva, ortogonale, scena
+    // girata, attorno a un oggetto girato, a path in corsa), in 4D e in H3
+    // (prospettiva alla stessa distanza dalla camera, vista da fuori), anche
+    // nell'immagine; dock, scena da salvare, limite dei campi; e quando non
+    // sposta (ambiente, fisso, REC; il sinistro gira). Da sola:
+    // --scenario-only object-drag.
+    void runObjectDragScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
     // accesi i comandi del dock RENDERER. Il Run lo sganciava solo per le

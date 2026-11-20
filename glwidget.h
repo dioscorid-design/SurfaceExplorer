@@ -262,6 +262,19 @@ public:
     bool objectZoomActive() const {
         return m_objects.size() > 1 && m_obj != m_objects.front().get() && !m_obj->fixed;
     }
+    // LO SPOSTAMENTO COL MOUSE (tasto destro, InputHandler) E COL TOCCO (due
+    // dita, il loro punto medio; richieste dell'utente, 2026-11-20): accanto
+    // ai tasti del dock 3D e ai campi X Y Z
+    // del dock Objects, alle stesse condizioni dei tasti (anche a path in
+    // corsa). Non durante il REC, come la traiettoria del path: il loop legge
+    // gli eventi ogni 5 fotogrammi e il gesto entrerebbe nel video a scatti.
+    bool objectDragActive() const { return objectZoomActive() && !m_isRecording; }
+    // Il centro dell'oggetto selezionato va dove va il puntatore, (dx, dy)
+    // pixel della vista, alla stessa profondita'. Falso se non si sposta
+    // (dietro la camera, oltre l'infinito di H3).
+    bool dragObjectOnScreen(float dx, float dy);
+    // Il limite dei campi X Y Z del dock Objects: tasti e mouse non lo passano.
+    static constexpr float kObjectPositionLimit = 100.0f;
     void setObjectScale(float s);
     float objectScale() const { return m_obj->scale; }
     // Di un oggetto qualunque, senza selezionarlo (il limite di zoom in H3).
@@ -2480,6 +2493,20 @@ private:
     // e il rollio come si vedono a schermo.
     void moveObjectOnScreen(const QVector3D &delta);
     void rollObjectOnScreen(float angle);
+    // La posizione nuova data da tasti o mouse: entro kObjectPositionLimit, e
+    // il dock la mostra (objectPositionChangedByUser).
+    void placeObjectByUser(const QVector3D &position);
+    // IL CENTRO DI UN OGGETTO NEL RIFERIMENTO DI CHI GUARDA, come lo disegna
+    // il vertex shader: in euclideo il punto della vista (m_view per la posa,
+    // objectPlacement) con w = 1; in H3 il punto dell'iperboloide nel
+    // riferimento di hyperbolicViewer (la camera, o la palla nella vista da
+    // fuori), in double: vicino all'infinito il float perde la profondita'.
+    // Una sede per lo spostamento col mouse e per la sua verifica (scenario
+    // object-drag).
+    H3::Vec4 objectCentreInView(int index);
+    // Lo stesso punto a schermo, in pixel della vista dall'alto a sinistra.
+    // Falso dietro la camera.
+    bool objectScreenPoint(int index, QPointF *pixel);
     // In H3 la scena segue l'ambiente anche senza oggetti: la scena e' il
     // mondo, col reticolo e il cielo (hyperbolicWorldCamera).
     bool sceneFollowsEnvironment(const SurfaceObject &o) const {

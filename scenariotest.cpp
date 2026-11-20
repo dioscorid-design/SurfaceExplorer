@@ -2250,6 +2250,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("object-drag")) {
+        runObjectDragScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-seek")) {
         runSceneSeekScenarios();
         finish();
@@ -4128,6 +4133,7 @@ void ScenarioTest::run()
     runSceneSeekScenarios();
     runPathReshapeScenarios();
     runPathUpScenarios();
+    runObjectDragScenarios();
     runVideoFrameScenarios();
     runImageCaptureScenarios();
     runAnimatedLoadScenarios();
@@ -16911,5 +16917,338 @@ void ScenarioTest::runPathUpScenarios()
               QStringLiteral("Stop e Departure senza modifiche -> la camera non si gira (%1)").arg(text3(gl->m_pathUp)));
     }
     if (m_mw->isAnythingMoving()) m_mw->performMasterStop();
+    m_discardOnPrompt = false;
+}
+
+void ScenarioTest::runObjectDragScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Lo spostamento col mouse dell'oggetto selezionato: il centro sotto il puntatore in "
+                                  "3D, 4D e H3; dock, limiti, quando non sposta =="));
+    const QString kSphere = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
+    const QString kClifford = QStringLiteral("surfaces/Parametric/Surfaces/Equations/S3/Clifford's Torus.json");
+    const auto text2 = [](const QPointF &p) {
+        return QStringLiteral("(%1, %2)").arg(p.x(), 0, 'f', 2).arg(p.y(), 0, 'f', 2);
+    };
+    const auto text3 = [](const QVector3D &v) {
+        return QStringLiteral("(%1, %2, %3)").arg(v.x(), 0, 'f', 3).arg(v.y(), 0, 'f', 3).arg(v.z(), 0, 'f', 3);
+    };
+    const auto gap = [](const QPointF &a, const QPointF &b) { return std::hypot(a.x() - b.x(), a.y() - b.y()); };
+    // Un gesto vero sulla vista dal punto `from`: press, 6 passi interi
+    // (delta multiplo di 6), release.
+    const auto drag = [&](Qt::MouseButton button, const QPoint &from, const QPoint &delta) {
+        QMouseEvent press(QEvent::MouseButtonPress, QPointF(from), gl->mapToGlobal(QPointF(from)), button, button,
+                          Qt::NoModifier);
+        QCoreApplication::sendEvent(gl, &press);
+        for (int i = 1; i <= 6; ++i) {
+            const QPointF p(from.x() + delta.x() * i / 6, from.y() + delta.y() * i / 6);
+            QMouseEvent move(QEvent::MouseMove, p, gl->mapToGlobal(p), Qt::NoButton, button, Qt::NoModifier);
+            QCoreApplication::sendEvent(gl, &move);
+            wait(20);
+        }
+        const QPointF to(from + delta);
+        QMouseEvent release(QEvent::MouseButtonRelease, to, gl->mapToGlobal(to), button, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(gl, &release);
+        wait(150);
+    };
+    const auto screenOf = [gl](int k) {
+        QPointF p(qQNaN(), qQNaN());
+        gl->objectScreenPoint(k, &p);
+        return p;
+    };
+    // Col destro dal centro dell'oggetto selezionato: quanto il centro resta
+    // lontano dal punto in cui e' arrivato il puntatore, in pixel.
+    const auto followMiss = [&](const QPoint &delta) {
+        const int k = gl->selectedObject();
+        const QPointF p0 = screenOf(k);
+        drag(Qt::RightButton, p0.toPoint(), delta);
+        return gap(screenOf(k), p0 + QPointF(delta));
+    };
+    // Il centro dell'oggetto k nell'IMMAGINE (verifica che non passa dai conti
+    // della proiezione di GLWidget): il baricentro dei pixel che cambiano
+    // togliendolo dalla scena (In oltre T), in pixel della vista.
+    const auto imageCentre = [&](int k, QPointF *c) {
+        gl->setObjectWindow(k, 0.0f, 0.0f);
+        const QImage with = gl->grabFramebuffer().convertToFormat(QImage::Format_RGB32);
+        gl->setObjectWindow(k, 3000.0f, 0.0f);
+        const QImage without = gl->grabFramebuffer().convertToFormat(QImage::Format_RGB32);
+        gl->setObjectWindow(k, 0.0f, 0.0f);
+        if (with.isNull() || with.size() != without.size()) return false;
+        double sx = 0.0, sy = 0.0;
+        qint64 n = 0;
+        for (int y = 0; y < with.height(); ++y) {
+            const QRgb *a = reinterpret_cast<const QRgb *>(with.constScanLine(y));
+            const QRgb *b = reinterpret_cast<const QRgb *>(without.constScanLine(y));
+            for (int x = 0; x < with.width(); ++x) {
+                const int d = std::max({ std::abs(qRed(a[x]) - qRed(b[x])), std::abs(qGreen(a[x]) - qGreen(b[x])),
+                                         std::abs(qBlue(a[x]) - qBlue(b[x])) });
+                if (d > 40) { sx += x + 0.5; sy += y + 0.5; ++n; }
+            }
+        }
+        if (n < 100) return false;
+        *c = QPointF(sx / double(n) * gl->width() / with.width(), sy / double(n) * gl->height() / with.height());
+        return true;
+    };
+    // Trascina col destro e confronta lo spostamento dell'oggetto
+    // nell'immagine con quello del puntatore. La sfera piccola: in
+    // prospettiva la sagoma di una sfera fuori asse si allunga verso
+    // l'esterno, e il suo baricentro corre 1/cos^2 del raggio angolare piu'
+    // del centro (la sfera di raggio 1 a distanza 4: 6.7%, misurato); a un
+    // quarto lo 0.4%, sotto il mezzo pixel.
+    const auto imageFollows = [&](const QString &what, const QPoint &delta, const QString &png) {
+        const int k = gl->selectedObject();
+        const float scale = gl->objectScale();
+        gl->setObjectScale(0.25f * scale);
+        wait(200);
+        QPointF c0, c1;
+        const bool seen0 = imageCentre(k, &c0);
+        drag(Qt::RightButton, screenOf(k).toPoint(), delta);
+        wait(200);
+        const bool seen1 = imageCentre(k, &c1);
+        gl->grabFramebuffer().save(m_outDir + QLatin1Char('/') + png);
+        gl->setObjectScale(scale);
+        wait(100);
+        const QPointF moved = c1 - c0;
+        check(seen0 && seen1 && gap(moved, QPointF(delta)) < 1.5,
+              QStringLiteral("%1: nell'immagine l'oggetto si sposta di %2, il puntatore di %3")
+                  .arg(what, text2(moved), text2(QPointF(delta))));
+    };
+
+    // ---------------------------------------------------------------- 3D
+    if (!buildScene(false, { kSphere })) return;
+    m_mw->selectSceneObject(1);
+    gl->setObjectPosition(QVector3D());
+    gl->setProjectionMode(1);   // prospettiva
+    wait(300);
+    {
+        const QVector3D cam0 = gl->getCameraPos();
+        const QQuaternion rot0 = gl->orientation().rotation;
+        const double z0 = gl->objectCentreInView(1).z;
+        m_mw->markWholeSceneClean();
+        const double miss = followMiss(QPoint(90, -60));
+        check(miss < 0.25 && std::abs(gl->objectCentreInView(1).z - z0) < 1e-4,
+              QStringLiteral("3D, prospettiva: col destro il centro resta sotto il puntatore (a %1 px), alla stessa "
+                             "profondita' (%2 -> %3)").arg(miss).arg(z0).arg(gl->objectCentreInView(1).z));
+        check(gl->getCameraPos() == cam0 && QQuaternion::dotProduct(gl->orientation().rotation, rot0) > 0.99999f,
+              QStringLiteral("il destro sposta soltanto: camera e orientamento dell'oggetto fermi"));
+        const QVector3D p = gl->objectPosition();
+        check(std::abs(m_mw->m_objectPos[0]->value() - p.x()) < 0.006 && std::abs(m_mw->m_objectPos[1]->value() - p.y()) < 0.006
+                  && std::abs(m_mw->m_objectPos[2]->value() - p.z()) < 0.006 && p.x() > 0.0f && p.y() > 0.0f
+                  && m_mw->hasUnsavedWork(),
+              QStringLiteral("il dock mostra la posizione %1 e la scena e' da salvare").arg(text3(p)));
+        imageFollows(QStringLiteral("3D, prospettiva"), QPoint(-120, 48), QStringLiteral("object-drag-3d.png"));
+
+        gl->setProjectionMode(0);   // ortogonale
+        wait(300);
+        const double zo = gl->objectCentreInView(1).z;
+        const double missOrtho = followMiss(QPoint(-60, 30));
+        check(missOrtho < 0.25 && std::abs(gl->objectCentreInView(1).z - zo) < 1e-4,
+              QStringLiteral("3D, ortogonale: il centro sotto il puntatore (a %1 px), stessa profondita'").arg(missOrtho));
+        gl->setProjectionMode(1);
+        wait(300);
+
+        // A scena girata di 90 gradi attorno a Z la destra dello schermo e' la
+        // -Y dell'oggetto, come per il tasto Right.
+        gl->setObjectPosition(QVector3D());
+        const GLWidget::SceneRotation sceneRot = gl->sceneRotation();
+        GLWidget::SceneRotation turned = sceneRot;
+        turned.rotation = QQuaternion::fromAxisAndAngle(0.0f, 0.0f, 1.0f, 90.0f);
+        gl->setSceneRotation(turned);
+        wait(200);
+        const double missTurned = followMiss(QPoint(60, 0));
+        const QVector3D t = gl->objectPosition();
+        check(missTurned < 0.25 && t.y() < -0.05f && std::abs(t.x()) < 1e-3f,
+              QStringLiteral("scena girata: segue lo schermo (a %1 px), la posizione va verso -Y %2")
+                  .arg(missTurned).arg(text3(t)));
+        gl->setSceneRotation(sceneRot);
+        gl->setObjectPosition(QVector3D());
+        wait(200);
+
+        // Il sinistro gira, non sposta.
+        const QQuaternion rotL = gl->orientation().rotation;
+        drag(Qt::LeftButton, screenOf(1).toPoint(), QPoint(60, 0));
+        check(gl->objectPosition() == QVector3D() && QQuaternion::dotProduct(gl->orientation().rotation, rotL) < 0.999f,
+              QStringLiteral("il sinistro gira l'oggetto e non lo sposta"));
+
+        // I limiti dei campi: 100 unita', anche col mouse.
+        gl->setObjectPosition(QVector3D(99.9f, 0.0f, 0.0f));
+        wait(100);
+        drag(Qt::RightButton, QPoint(gl->width() / 2, gl->height() / 2), QPoint(120, 0));
+        check(gl->objectPosition().x() == GLWidget::kObjectPositionLimit
+                  && m_mw->m_objectPos[0]->value() == double(GLWidget::kObjectPositionLimit),
+              QStringLiteral("oltre il limite dei campi: X si ferma a %1 (dock %2)")
+                  .arg(gl->objectPosition().x()).arg(m_mw->m_objectPos[0]->value()));
+        gl->setObjectPosition(QVector3D());
+        wait(100);
+
+        // Quando il destro non sposta: l'ambiente, un oggetto fisso, il REC.
+        const QPoint centre(gl->width() / 2, gl->height() / 2);
+        const QVector3D camE = gl->getCameraPos();
+        m_mw->selectSceneObject(0);
+        wait(200);
+        drag(Qt::RightButton, centre, QPoint(60, 60));
+        m_mw->selectSceneObject(1);
+        wait(200);
+        check(gl->objectPosition() == QVector3D() && gl->getCameraPos() == camE,
+              QStringLiteral("ambiente selezionato: il destro non sposta niente"));
+        m_mw->m_objectFixed->setChecked(true);
+        wait(200);
+        drag(Qt::RightButton, centre, QPoint(60, 60));
+        check(gl->objectPosition() == QVector3D() && gl->getCameraPos() == camE,
+              QStringLiteral("oggetto fisso: il destro non lo sposta"));
+        m_mw->m_objectFixed->setChecked(false);
+        wait(200);
+        gl->setRecordingActive(true);
+        drag(Qt::RightButton, centre, QPoint(60, 60));
+        gl->setRecordingActive(false);
+        check(gl->objectPosition() == QVector3D(), QStringLiteral("durante il REC il destro non sposta"));
+
+        // IL TOCCO (iPhone, iPad): due dita spostano l'oggetto col loro punto
+        // medio; il pinch fermo sul centro ne cambia solo la scala.
+        const auto touch2 = [&](const QPointF &a0, const QPointF &b0, const QPointF &a1, const QPointF &b1) {
+            const auto send = [&](QEvent::Type type, QEventPoint::State state, const QPointF &a, const QPointF &b) {
+                QEventPoint pa(1, state, a, gl->mapToGlobal(a)), pb(2, state, b, gl->mapToGlobal(b));
+                QMutableEventPoint::setPosition(pa, a);   // il costruttore non scrive position()
+                QMutableEventPoint::setPosition(pb, b);
+                QTouchEvent te(type, nullptr, Qt::NoModifier, { pa, pb });
+                QCoreApplication::sendEvent(gl, &te);
+            };
+            send(QEvent::TouchBegin, QEventPoint::Pressed, a0, b0);
+            for (int i = 1; i <= 6; ++i) {
+                const double f = i / 6.0;
+                send(QEvent::TouchUpdate, QEventPoint::Updated, a0 + (a1 - a0) * f, b0 + (b1 - b0) * f);
+                wait(20);
+            }
+            send(QEvent::TouchEnd, QEventPoint::Released, a1, b1);
+            wait(150);
+        };
+        {
+            const QPointF c0 = screenOf(1);
+            const QPointF side(40.0, 0.0), delta(54.0, -36.0);
+            const float scale0 = gl->objectScale();
+            touch2(c0 - side, c0 + side, c0 - side + delta, c0 + side + delta);
+            const double miss = gap(screenOf(1), c0 + delta);
+            check(miss < 0.25 && gl->objectScale() == scale0 && gl->getCameraPos() == camE,
+                  QStringLiteral("tocco, due dita: l'oggetto segue il loro punto medio (a %1 px), scala e camera ferme")
+                      .arg(miss));
+            check(std::abs(m_mw->m_objectPos[0]->value() - gl->objectPosition().x()) < 0.006,
+                  QStringLiteral("tocco: il dock mostra la posizione nuova (X %1)").arg(m_mw->m_objectPos[0]->value()));
+            const QVector3D afterPan = gl->objectPosition();
+            const QPointF c1 = screenOf(1);
+            touch2(c1 - side, c1 + side, c1 - side * 2.0, c1 + side * 2.0);
+            check(gl->objectScale() > scale0 && (gl->objectPosition() - afterPan).length() < 1e-5f,
+                  QStringLiteral("tocco, pinch fermo sul centro: cambia la scala (%1 -> %2), non la posizione")
+                      .arg(scale0).arg(gl->objectScale()));
+            gl->setObjectScale(scale0);
+            m_mw->selectSceneObject(0);
+            wait(200);
+            touch2(c1 - side, c1 + side, c1 - side + delta, c1 + side + delta);
+            m_mw->selectSceneObject(1);
+            wait(200);
+            check(gl->objectPosition() == afterPan,
+                  QStringLiteral("tocco con l'ambiente selezionato: due dita non spostano l'oggetto"));
+            gl->setObjectPosition(QVector3D());
+            wait(100);
+        }
+
+        // Attorno a un oggetto girato (Placed around): segue lo schermo.
+        m_mw->addShapeToScene(shapePath(kSphere));
+        wait(500);
+        if (gl->objectCount() != 3) {
+            check(false, QStringLiteral("la seconda sfera non entra nella scena"));
+            return;
+        }
+        m_mw->selectSceneObject(1);
+        wait(100);
+        gl->setRotationQuat(QQuaternion::fromAxisAndAngle(0.0f, 0.0f, 1.0f, 90.0f));
+        m_mw->selectSceneObject(2);
+        wait(100);
+        gl->setObjectFrame(2, 1);
+        gl->setObjectPosition(QVector3D(0.5f, 0.0f, 0.0f));
+        wait(200);
+        const double missFrame = followMiss(QPoint(48, 36));
+        check(gl->objectFrame(2) == 1 && missFrame < 0.25,
+              QStringLiteral("attorno a un oggetto girato: il centro sotto il puntatore (a %1 px)").arg(missFrame));
+
+        // A path della camera in corsa, come i tasti.
+        m_mw->selectSceneObject(0);
+        wait(200);
+        m_mw->setPathViewModes(ModeTangential, ModeCentered);
+        ui->lineX_P3D->setText(QStringLiteral("4*cos(t)"));
+        ui->lineY_P3D->setText(QStringLiteral("4*sin(t)"));
+        ui->lineZ_P3D->setText(QStringLiteral("1"));
+        m_mw->setPathSpeed3D(1);   // t quasi fermo: la camera si sposta appena fra un evento e l'altro
+        wait(100);
+        m_mw->onDeparture3DClicked();
+        wait(400);
+        m_mw->selectSceneObject(1);
+        wait(200);
+        const QVector3D before = gl->objectPosition();
+        const double missPath = followMiss(QPoint(-48, 30));
+        check(gl->isPathAnimating() && missPath < 2.0 && gl->objectPosition() != before,
+              QStringLiteral("a path in corsa il destro sposta l'oggetto (a %1 px dal puntatore)").arg(missPath));
+        if (m_mw->isAnythingMoving()) m_mw->performMasterStop();
+        wait(200);
+    }
+
+    // ---------------------------------------------------------------- 4D
+    if (!buildScene(true, { kClifford })) return;
+    m_mw->selectSceneObject(1);
+    wait(300);
+    {
+        const double z0 = gl->objectCentreInView(1).z;
+        const double miss = followMiss(QPoint(72, 42));
+        check(miss < 0.25 && std::abs(gl->objectCentreInView(1).z - z0) < 1e-4,
+              QStringLiteral("4D: il centro sotto il puntatore (a %1 px), stessa profondita'").arg(miss));
+    }
+
+    // ---------------------------------------------------------------- H3
+    m_discardOnPrompt = true;
+    m_mw->onNewSceneClicked();
+    wait(300);
+    m_mw->startScene(MainWindow::SceneSpace::SpaceH3);
+    wait(300);
+    m_mw->addShapeToScene(shapePath(kSphere));
+    wait(500);
+    if (!m_mw->sceneStarted() || gl->objectCount() != 2 || !gl->hyperbolicSpace()) {
+        check(false, QStringLiteral("H3: la scena con la sfera non parte"));
+        m_discardOnPrompt = false;
+        return;
+    }
+    m_mw->selectSceneObject(1);
+    gl->setObjectPosition(QVector3D());
+    gl->setProjectionMode(1);
+    wait(300);
+    {
+        const auto distance = [gl] { return std::acosh(std::max(1.0, gl->objectCentreInView(1).w)); };
+        const double d0 = distance();
+        const double miss = followMiss(QPoint(90, -60));
+        check(miss < 0.25 && std::abs(distance() - d0) < 1e-6,
+              QStringLiteral("H3, prospettiva: il centro sotto il puntatore (a %1 px), alla stessa distanza dalla "
+                             "camera (%2 -> %3 raggi)").arg(miss).arg(d0).arg(distance()));
+        // Lontano dal centro dello schermo: il piano dello schermo per il
+        // centro sarebbe gia' arrivato all'infinito.
+        const int far = (gl->width() * 2 / 5) / 6 * 6;
+        const double missFar = followMiss(QPoint(far, 0));
+        check(missFar < 0.5 && std::abs(distance() - d0) < 1e-6,
+              QStringLiteral("H3: segue il puntatore anche a %1 px di lato (a %2 px), sempre a %3 raggi")
+                  .arg(far).arg(missFar).arg(distance()));
+        gl->setObjectPosition(QVector3D());
+        wait(200);
+        imageFollows(QStringLiteral("H3, prospettiva"), QPoint(-96, 48), QStringLiteral("object-drag-h3.png"));
+
+        gl->setProjectionMode(0);   // la vista da fuori
+        wait(300);
+        const auto ballZ = [gl] { return H3::toPoincare(gl->objectCentreInView(1)).z; };
+        const double bz = ballZ();
+        const double missOut = followMiss(QPoint(-60, -42));
+        check(missOut < 0.25 && std::abs(ballZ() - bz) < 1e-6,
+              QStringLiteral("H3, vista da fuori: il centro sotto il puntatore (a %1 px), stessa profondita' nella "
+                             "palla").arg(missOut));
+        gl->setProjectionMode(1);
+        wait(300);
+    }
     m_discardOnPrompt = false;
 }

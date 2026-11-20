@@ -1379,32 +1379,22 @@ void MainWindow::setupObjectsDock()
     m_objectList = new QListWidget(w);
     lay->addWidget(m_objectList, 1);
 
-    // I campi numerici: sul desktop X Y Z in una riga e In Out nell'altra. Su
-    // mobile coi tasti freccia da dito del selettore Multi Mesh
-    // (installMobileSpinButtons, in fondo): le frecce native erano quasi
-    // irraggiungibili. E uno per riga, etichette in colonna (pareggiate in
-    // fondo): tre campi coi tasti chiedono ~630px, il dock ne ha 400 su iPad e
-    // ~345 sul telefono (provato: la riga sbordava).
-#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
-    const bool fieldPerRow = true;
-#else
-    const bool fieldPerRow = false;
-#endif
-    // La riga del campo: un gruppo nuovo, o ogni campo sul telefono, la apre.
+    // I campi numerici: X Y Z in una riga e In Out nell'altra, anche su
+    // iPhone e iPad (decisione dell'utente, 2026-11-20). Su mobile senza
+    // tasti freccia (setupMobileSpinField, in fondo): coi tasti da dito del
+    // selettore Multi Mesh la riga X Y Z chiedeva almeno 468px, il dock ne ha
+    // 374 sull'iPad (400 meno la barra) e ~345 sul telefono, e i campi
+    // stavano uno per riga. Si scrivono a tastiera; la posizione si sposta
+    // anche coi tasti del dock 3D.
     QHBoxLayout *row = nullptr;
     auto fieldRow = [&](bool newGroup) {
-        if (!row || newGroup || fieldPerRow) {
+        if (!row || newGroup) {
             row = new QHBoxLayout();
             lay->addLayout(row);
         }
         return row;
     };
-    QList<QLabel*> rowLabels;
-    auto rowLabel = [w, &rowLabels](const QString &text) {
-        auto *label = new QLabel(text, w);
-        rowLabels << label;
-        return label;
-    };
+    auto rowLabel = [w](const QString &text) { return new QLabel(text, w); };
 
     // POSIZIONE del selezionato (l'ambiente resta nell'origine: i path della
     // camera sono suoi).
@@ -1413,7 +1403,10 @@ void MainWindow::setupObjectsDock()
         QHBoxLayout *posRow = fieldRow(i == 0);
         posRow->addWidget(rowLabel(QLatin1String(axes[i])));
         m_objectPos[i] = new QDoubleSpinBox(w);
-        m_objectPos[i]->setRange(-100.0, 100.0);
+        m_objectPos[i]->setRange(-GLWidget::kObjectPositionLimit, GLWidget::kObjectPositionLimit);
+        m_objectPos[i]->setToolTip(QStringLiteral("Position of the selected object, in scene units. The arrows of the "
+                                                  "3D dock move it as seen on screen, and so does dragging it with the "
+                                                  "right mouse button: its centre stays under the pointer."));
         m_objectPos[i]->setSingleStep(0.1);
         m_objectPos[i]->setDecimals(2);
         m_objectPos[i]->setLocale(QLocale::c());   // il punto, come i campi delle equazioni
@@ -1662,7 +1655,8 @@ void MainWindow::setupObjectsDock()
         m_sceneObjectsChanged = true;
         clampHyperbolicObjectScales();
     });
-    // La posizione spostata dai tasti del dock 3D (GLWidget::virtualMove).
+    // La posizione spostata dai tasti del dock 3D (GLWidget::virtualMove) e
+    // dal trascinamento col destro (GLWidget::dragObjectOnScreen).
     connect(ui->glWidget, &GLWidget::objectPositionChangedByUser, this, [this](const QVector3D &p) {
         m_sceneObjectsChanged = true;
         if (!m_objectPos[0]) return;
@@ -1686,24 +1680,13 @@ void MainWindow::setupObjectsDock()
         m_objectList->setMaximumHeight(m_objectList->fontMetrics().lineSpacing() * 5
                                        + 2 * m_objectList->frameWidth());
     }
-    // Colonna delle etichette larga quanto la piu' lunga, misurata con lo
-    // stile applicato: col font del testo d'aiuto una piu' lunga sforava di
-    // 10px e la sua riga restava sfalsata.
-    if (fieldPerRow) {
-        int labelWidth = 0;
-        for (QLabel *label : std::as_const(rowLabels)) {
-            label->ensurePolished();
-            labelWidth = qMax(labelWidth, label->sizeHint().width());
-        }
-        for (QLabel *label : std::as_const(rowLabels)) label->setMinimumWidth(labelWidth);
-    }
-    // Dopo che i campi sono nelle loro righe: il tasto sostituisce lo spinbox
-    // nel suo layout. No-op su desktop. I campi restano scrivibili (prima su
-    // mobile cambiavano solo con le frecce): vedi installMobileSpinButtons.
+    // Su mobile il campo senza tasti: frecce native nascoste (da dito erano
+    // quasi irraggiungibili), la tastiera con l'Invio che conferma e la
+    // chiude. No-op su desktop.
     for (QDoubleSpinBox *box : { m_objectPos[0], m_objectPos[1], m_objectPos[2],
                                  m_objectWindowIn, m_objectWindowOut }) {
         editLikePathFields(box);
-        UiStyleManager::installMobileSpinButtons(box, 0, /*editable=*/true);
+        UiStyleManager::setupMobileSpinField(box, /*editable=*/true);
     }
     m_dockObjects->setWidget(w);
 

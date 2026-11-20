@@ -60,6 +60,7 @@ private:
     // Stato Touch
     QPointF m_lastTouchPos;
     float m_lastPinchDist = 0.0f;
+    QPointF m_lastPinchCentre;   // punto medio delle due dita: sposta l'oggetto selezionato
     float m_lastTouchAngle = 0.0f;
     int m_lastPointCount = 0;
 };

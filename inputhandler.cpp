@@ -108,6 +108,15 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
             }
         }
     }
+    // IL DESTRO SPOSTA L'OGGETTO SELEZIONATO (GLWidget::dragObjectOnScreen):
+    // il suo centro resta sotto il puntatore. Alle condizioni dei tasti del
+    // dock 3D, path in corsa compreso; non sull'ambiente ne' su un oggetto
+    // fisso, non durante il REC (objectDragActive). Nessuna deadzone, come
+    // sulla traiettoria.
+    else if ((event->buttons() & Qt::RightButton) && m_glWidget->objectDragActive()) {
+        if ((dx != 0 || dy != 0) && m_glWidget->dragObjectOnScreen(float(dx), float(dy)) && m_mouseGestureActive)
+            m_mouseMovedView = true;
+    }
     // Mentre un path anima la telecamera (MOUSE: SCENE) la rotazione manuale
     // 3D/4D e' bloccata (la vista 2D del dock Script sopra resta invece libera).
     else if (!m_glWidget->isPathAnimating()) {
@@ -174,6 +183,7 @@ bool InputHandler::handleTouch(QEvent* e)
             QPointF p1 = points[0].position();
             QPointF p2 = points[1].position();
             m_lastPinchDist = QLineF(p1, p2).length();
+            m_lastPinchCentre = (p1 + p2) / 2.0;
             m_isClickCandidate = false;            // Con due dita si annulla il Tap
         }
         m_lastPointCount = pointCount;
@@ -220,12 +230,24 @@ bool InputHandler::handleTouch(QEvent* e)
         m_lastTouchPos = currentPos;
     }
 
-    // --- DUE DITA: SOLO ZOOM ---
+    // --- DUE DITA: ZOOM, E SPOSTAMENTO DELL'OGGETTO SELEZIONATO ---
     else if (pointCount == 2) {
         QPointF p1 = points[0].position();
         QPointF p2 = points[1].position();
         float currentDist = QLineF(p1, p2).length();
         float deltaDist = currentDist - m_lastPinchDist;
+
+        // IL PUNTO MEDIO DELLE DITA SPOSTA L'OGGETTO SELEZIONATO (richiesta
+        // dell'utente, 2026-11-20: su iPhone e iPad non c'e' il tasto destro
+        // del mouse): il gemello del trascinamento col destro, alle stesse
+        // condizioni (GLWidget::objectDragActive), insieme al pinch che ne
+        // cambia la scala. Il centro dell'oggetto segue le dita.
+        const QPointF centre = (p1 + p2) / 2.0;
+        const QPointF moved = centre - m_lastPinchCentre;
+        m_lastPinchCentre = centre;
+        if (!m_glWidget->isFlatView() && m_glWidget->objectDragActive() && !moved.isNull()
+            && m_glWidget->dragObjectOnScreen(float(moved.x()), float(moved.y())))
+            m_touchMovedView = true;
 
         if (std::abs(deltaDist) > 0.5f) {
             if (m_glWidget->isFlatView()) {
