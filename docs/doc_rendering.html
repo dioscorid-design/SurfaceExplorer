@@ -76,15 +76,15 @@ float g = cos(v * 10.0);
 return vec3(r, g, 0.5);</pre>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Putting an Image on a Single Mesh</b></p></td></tr></table>
-            <p>Like procedural textures, <strong>an image can be given to one grid at a time</strong>. With the Multi&nbsp;Mesh scope on <em>Mesh</em>, select a grid and load an image from <em>Textures &gt; Images</em>: it lands on that grid only, motionless, and the rest of the surface keeps what it had. Select another grid, load another image, and each grid keeps its own. Records save them grid by grid.</p>
+            <p>Like procedural textures, <strong>an image can be given to one grid at a time</strong>. With the Multi&nbsp;Mesh scope on <em>Mesh</em>, select a grid and load an image from the <em>Textures</em> tab of the Library: it lands on that grid only, motionless, and the rest of the surface keeps what it had. Select another grid, load another image, and each grid keeps its own. Records save them grid by grid.</p>
             <p>With the scope on <em>All</em> an image covers the entire surface, as always, and the images of the single grids are set aside until you go back to <em>Mesh</em>.</p>
-            <p><strong>Animating it.</strong> The <strong>Animated Images</strong> folder, under <em>Textures &gt; Procedurals</em> in the Library, holds procedural scripts that redisplay an image rather than generating a pattern of their own. Two steps:</p>
+            <p><strong>Animating it.</strong> A procedural texture script can redisplay an image rather than generate a pattern of its own: it samples the image and moves it (see the <a href="script_guide.html">Scripting Guide</a>). Two steps:</p>
             <ol>
-                <li>With the scope on <strong>Mesh</strong>, select a grid and load its image from <em>Textures &gt; Images</em>.</li>
-                <li>On the same grid, apply one of the <em>Animated Images</em> presets: it moves that grid's image.</li>
+                <li>With the scope on <strong>Mesh</strong>, select a grid and load its image from the <em>Textures</em> tab.</li>
+                <li>On the same grid, apply a texture script of this kind: it moves that grid's image.</li>
             </ol>
             <p>Every grid keeps its own image, its own framing and its own movement &mdash; so one photograph can drift on one branch of a surface while a different one rotates on another. A grid without an image of its own shows, through these scripts, the image of the whole surface (the one loaded with the scope on <em>All</em>).</p>
-            <p><strong>Choosing the preset.</strong> <em>Still Image</em> shows the image motionless &mdash; the way to bring the surface's image onto a single grid without loading it again. Each script carries its parameters (speed, amount) at the top of its code.</p>
+            <p><strong>Choosing the script.</strong> A script that shows the image motionless is the way to bring the surface's image onto a single grid without loading it again. A script of this kind can carry its parameters (speed, amount) at the top of its code.</p>
 
 <hr>
 <p style="font-size: 15px; margin-top: 30px;"><a href="doc_raymarching.html">&larr; Implicit Surfaces (Ray Marching)</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_audio.html">Sounds &amp; Audio &rarr;</a></p>

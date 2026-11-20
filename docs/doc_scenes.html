@@ -45,7 +45,7 @@
             <ul>
                 <li>a <strong>3D</strong> scene does not accept objects with the P coordinate (they need a 4D scene);</li>
                 <li>a <strong>4D</strong> scene does not accept Ray Marching Shapes, Cross Sections included;</li>
-                <li>an <strong>H&sup3;</strong> scene does not accept objects with the P coordinate, Cross Sections (a slice of a 4D shape has no meaning in hyperbolic space) or the Shapes of the H3 folders, which are already pictures of hyperbolic space.</li>
+                <li>an <strong>H&sup3;</strong> scene does not accept objects with the P coordinate, Cross Sections (a slice of a 4D shape has no meaning in hyperbolic space) or Shapes that are already pictures of hyperbolic space (saved as H&sup3; Shapes, for example in the Poincar&eacute; ball).</li>
             </ul>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Selecting: the Environment or an Object</b></p></td></tr></table>
@@ -80,7 +80,7 @@
             </ul>
             <p>In the list it appears as <code>Torus   (fixed)</code>. Unchecking the box makes it a normal object again, to modify or remove. The scene file remembers it (key <code>fixed</code>).</p>
             <p>A practical consequence: with a fixed object selected, the <strong>Path</strong> fields of the 3D and 4D docks are its own, and they are off. The <strong>camera</strong> path is written with the environment selected (<code>1/5 Environment</code> in the selector), and fixing or freeing an object does not touch it. A path written on a free object moves the object, not the camera; fixing the object stops it.</p>
-            <p>The factory scene <strong>Fixed Torus World</strong> (H&sup3;) is the example: the camera sits inside the tube of a fixed torus, and the actual objects live in the tube (a spinning sphere, a knot, a bead on a path). <strong>Projection</strong> shows the same scene from outside, in the Poincar&eacute; ball.</p>
+            <p>For example, an H&sup3; scene can put the camera inside the tube of a fixed torus, with the actual objects living in the tube (a spinning sphere, a knot, a bead on a path). <strong>Projection</strong> shows the same scene from outside, in the Poincar&eacute; ball.</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Around an Object: Reference Frames</b></p></td></tr></table>
             <p>The coordinates of a path or of a position are read from a point. Usually it is the centre of the scene; you can choose the centre of an <strong>object</strong> instead, and then the coordinates are read from it, turned as it is turned. In Euclidean space this is a convenience; in H&sup3; it is necessary, because there the chart that reads the coordinates has a base point, and &ldquo;c + circle&rdquo; read from the centre of the scene is not a circle around c. Read from the object, a circle stays a circle around it.</p>
@@ -90,21 +90,14 @@
             </ul>
             <p>The reference can be any object, <strong>fixed or moving</strong>. Whatever sits around it follows its position, path included, and its rotation, GO included: a moon around an earth running on its path follows it, and a satellite placed around the moon, with no path of its own, turns with it. Chains are allowed (the satellite around the moon around the earth); choices that would close a loop are not offered. A fixed object can also sit around a moving one: it has no motions of its own, but it follows its reference (a ring around a planet). The camera follows a moving reference while its path runs, exactly at every frame, videos included; with the path stopped it stays where it is.</p>
             <p>The scene file remembers them by name (<code>cameraPathFrame</code> of the scene, <code>frame</code> of the object). When the reference is removed, whatever sat around it is read from the centre of the scene again. In the dock list: <code>Moon   around Earth</code>. <strong>Duplicate</strong> does not copy the reference, as it does not copy position and path. In a 4D scene the reference carries only the 3D part of the pose (3D position and rotation).</p>
-            <p>The factory scenes, all in H&sup3;:</p>
-            <table cellpadding="6">
-                <tr><th>Scene</th><th>What it shows</th></tr>
-                <tr><td><strong>Fixed Torus Ride</strong></td><td>the camera around a fixed torus, moved and tilted, inside its tube</td></tr>
-                <tr><td><strong>Fixed Torus Ride 2</strong></td><td>objects and camera around the same fixed torus</td></tr>
-                <tr><td><strong>Moving Frame Orbits</strong></td><td>the moon around the moving earth, a satellite around the moon</td></tr>
-                <tr><td><strong>Moving Torus Ride</strong></td><td>the camera inside a torus that travels and turns, with the objects in the hole</td></tr>
-            </table>
+            <p>A typical use: the camera riding inside the tube of a torus, fixed or travelling and turning, while other objects move around it or in its hole.</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>The Objects Dock</b></p></td></tr></table>
             <table cellpadding="6">
                 <tr><th>Command</th><th>What it does</th></tr>
                 <tr><td>list</td><td>the environment and the objects; an object with a time window shows it next to its name</td></tr>
-                <tr><td><strong>X, Y, Z</strong></td><td>the position of the selected object (the environment stays at the centre)</td></tr>
-                <tr><td><strong>In, Out</strong></td><td>the time window of the selected object, in seconds of T (see below); <code>start</code> and <code>end</code> mean always</td></tr>
+                <tr><td><strong>X, Y, Z</strong></td><td>the position of the selected object (the environment stays at the centre), from &minus;100 to 100. Type a value and press Enter; the 3D dock arrows, the right mouse button and, on iPhone and iPad, two fingers move the object as seen on screen, and the fields follow</td></tr>
+                <tr><td><strong>In, Out</strong></td><td>the time window of the selected object, in seconds of T (see below); <code>start</code> and <code>end</code> mean always. Type a value and press Enter</td></tr>
                 <tr><td><strong>Fixed (part of the environment)</strong></td><td>makes the selected object fixed, or frees it (see <em>Fixed Objects</em>)</td></tr>
                 <tr><td><strong>Camera path around</strong></td><td>where the camera's 3D path is read from: the centre of the scene or an object, fixed or moving</td></tr>
                 <tr><td><strong>Placed around</strong></td><td>where the position and path of the selected object are read from: the centre of the scene or another object, fixed or moving</td></tr>
@@ -112,6 +105,7 @@
                 <tr><td><strong>Duplicate</strong></td><td>adds a copy of the selected object's Shape as it is now (equations, constants, colors), which enters at the centre as a new object; textures, motions, paths and time window are not copied</td></tr>
                 <tr><td><strong>Remove</strong></td><td>removes the selected object and selects the one before it</td></tr>
             </table>
+            <p>On iPhone and iPad the fields sit in the same rows as on a computer, X, Y, Z in one and In, Out in the next, without arrows: tap a field, type the value with the keyboard and press Enter, which also closes the keyboard.</p>
             <p>In an H&sup3; scene the dock also shows <strong>Curvature radius</strong> and the <strong>Lattice {4,3,5}</strong> panel; in a 3D scene, the <strong>Lattice {4,3,4}</strong> panel (see below).</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Time: T and the Windows</b></p></td></tr></table>
@@ -165,7 +159,7 @@
             <ul>
                 <li>Version 2.0, with scenes, is for now a <strong>beta for macOS</strong>.</li>
                 <li>Records are not added to a scene directly: you add their Shape.</li>
-                <li>A hyperbolic scene does not accept Cross Sections, objects with the P coordinate or the Shapes of the H3 folders, and it has no 4D commands.</li>
+                <li>A hyperbolic scene does not accept Cross Sections, objects with the P coordinate or Shapes that are already pictures of hyperbolic space, and it has no 4D commands.</li>
                 <li>In <strong>stereographic</strong> projection, a Ray Marching object in an image wider than the view does not exactly follow the frame.</li>
             </ul>
 

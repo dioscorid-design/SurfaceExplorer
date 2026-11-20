@@ -359,7 +359,7 @@ return vec4(mix(u_col1, u_col2, w), 1.0);</pre>
         <strong>In a procedural texture the constants work, but are best left alone.</strong> The seven
         sliders are a single set shared by the whole scene: the same <code>A</code> reaches the equations,
         the surface texture and the background at once. A procedural texture can be applied to either the
-        surface or the background &mdash; many in the library are used both ways &mdash; so a constant it
+        surface or the background &mdash; the same texture often serves both &mdash; so a constant it
         claims may already mean something else elsewhere in the same scene, and one slider would then drive
         two unrelated things. Reach for the <em>2D panel</em> (zoom, pan, rotation) and the <em>Color 1/2</em>
         pickers first, and edit the numbers in the script for anything finer. Ray Marching textures are freer &mdash; they belong to the
@@ -379,8 +379,8 @@ return vec4(mix(u_col1, u_col2, w), 1.0);</pre>
     exactly what you want, so the notice offers <em>Apply anyway</em> and that is the default. To
     give the texture a slider of its own instead, edit its script to use one of the free letters and
     load it again.</p>
-    <p>The presets that ship with the app never clash, so the notice only appears once you start
-    combining a surface and a texture written apart from each other.</p>
+    <p>The notice mostly appears when you combine a surface and a texture written apart from each
+    other.</p>
 
     <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Telling the user what a slider does</b></p></td></tr></table>
     <p>A slider that unlocks on its own says nothing about <em>what</em> it changes in that particular texture.
@@ -392,9 +392,9 @@ Slider E: energy scale and speed</pre>
     <p>Surfaces and records carry a hint of their own; a texture's message is added to the scene's rather than
     replacing it, so loading a texture never overwrites what the surface had to say. Leave the field empty for
     no message. The hint is never recorded into exported videos.</p>
-    <p>Since the sliders belong to Ray Marching textures, that is where the hint earns its place. The
-    procedural textures in the library carry none: what they expose is the 2D panel and the two colour
-    pickers, and the values worth changing are commented in the script itself.</p>
+    <p>Since the sliders belong to Ray Marching textures, that is where the hint earns its place. A
+    procedural texture usually needs none: what it exposes is the 2D panel and the two colour pickers,
+    and the values worth changing are best commented in the script itself.</p>
 
     <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Using the Renderer color pickers</b></p></td></tr></table>
     <p>Two ready-made colors are available as <code>vec3 u_col1</code> and <code>vec3 u_col2</code>: they mirror
@@ -408,28 +408,27 @@ return vec4(mix(u_col1, u_col2, w), 1.0);</pre>
     <p>To use an image file instead of code, the directive <code>//IMG: path/to/image.png</code> is injected
     automatically when you load an image from the Library.</p>
 
-    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Images on a single mesh, and <em>Animated Images</em></b></p></td></tr></table>
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Images on a single mesh, and scripts that move them</b></p></td></tr></table>
     <p>Each grid of a multi-mesh surface can have <strong>an image of its own</strong>. It is named the same way as
     the surface's: by the <code>//IMG:</code> line at the top of the grid's texture script, which the application
     writes when you load an image from the Library with the Multi&nbsp;Mesh scope on <em>Mesh</em> and a grid
     selected. A script that is only that line shows the image as it is.</p>
-    <p>The presets in <em>Textures &gt; Procedurals &gt; Animated Images</em> are ordinary per-mesh texture scripts
-    that <strong>resample an image</strong>, reading it through <code>iChannel0</code>. On a grid, <code>iChannel0</code>
+    <p>An ordinary per-mesh texture script can <strong>resample an image</strong>, reading it through
+    <code>iChannel0</code>. On a grid, <code>iChannel0</code>
     is the grid's own image when its script carries an <code>//IMG:</code> line, and the image of the whole surface
     otherwise. The workflow is two steps:</p>
     <ol>
-        <li>with the scope on <strong>Mesh</strong>, pick a grid and load its image (<em>Textures &gt; Images</em>);</li>
-        <li>on the same grid, apply one of the <em>Animated Images</em> scripts: the <code>//IMG:</code> line stays
+        <li>with the scope on <strong>Mesh</strong>, pick a grid and load its image (the <em>Textures</em> tab of the Library);</li>
+        <li>on the same grid, apply a texture script that samples <code>iChannel0</code>: the <code>//IMG:</code> line stays
         on top of it.</li>
     </ol>
     <p>Each grid gets its own image, its own framing and its own motion, while the grids you leave alone stay in
     flat colour. A script that does not sample an image drops the grid's <code>//IMG:</code> line when it is applied
-    from the Library. <em>Still Image</em> is the static case (identity matrix, no animation); <em>Drifting</em>,
-    <em>Rotating</em>, <em>Breathing</em>, <em>Shearing</em> and <em>Squished</em> are the same script with a
-    different time-dependent 2&times;2 matrix applied to the texture coordinates &mdash; so they double as a
-    starting point for writing your own.</p>
+    from the Library. The simplest such script shows the image as it is (identity matrix, no animation); a
+    time-dependent 2&times;2 matrix applied to the texture coordinates makes the image drift, rotate, breathe,
+    shear or squash &mdash; a good starting point for writing your own.</p>
     <div style="background-color: #2a2a00; padding: 10px; margin-top: 8px;">
-        <strong>Two rules of the Shadertoy branch</strong>, which these scripts follow and yours should too:
+        <strong>Two rules of the Shadertoy form</strong>, which every script of this kind must follow:
         the sliders <code>A..F</code> and <code>t</code> are <em>not</em> usable inside <code>mainImage()</code>
         &mdash; unlike every other texture form, where they are &mdash; because the engine declares them as
         locals of <code>getCustomColor()</code> and <code>mainImage</code> is a separate function, so you would
