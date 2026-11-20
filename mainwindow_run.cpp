@@ -202,6 +202,7 @@ void MainWindow::applyStartSideEffects()
             stopPathAnimations();   // esclusive coi path, come il GO
             gl->setObjectRotating(0, true);
             m_scene.lastCameraMotion = "rotation";
+            refreshPathReshapeButtons();   // la camera non e' piu' di un path
         };
         QString pick = m_scene.lastCameraMotion;
         if (pick == "rotation" && !envHasSpeed) pick.clear();
@@ -1768,6 +1769,7 @@ void MainWindow::onStopClicked() {
         if (cameraMotion) {
             m_scene.lastCameraMotion = "rotation";
             m_userStoppedCameraMotion = false;
+            refreshPathReshapeButtons();   // la camera non e' piu' di un path
         }
         if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
     }

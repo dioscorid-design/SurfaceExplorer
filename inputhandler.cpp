@@ -93,8 +93,23 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
     // =========================================================
     // --- GESTIONE VISTA 3D / 4D  ---
     // =========================================================
-    // Mentre un path anima la telecamera, la rotazione manuale 3D/4D e' bloccata
-    // (la vista 2D del dock Script sopra resta invece libera).
+    // Il mouse sulla TRAIETTORIA del path della camera (tasto MOUSE: PATH, vedi
+    // GLWidget::setPathReshapeGate), in corsa o fermo. Sinistro: rotazione,
+    // con Maiuscole (Shift) verso W; destro: spostamento. Nessuna deadzone:
+    // anche i primi pixel muovono.
+    else if (m_glWidget->pathReshapeActive()) {
+        if (dx != 0 || dy != 0) {
+            if (event->buttons() & Qt::LeftButton) {
+                const bool towardW = event->modifiers() & Qt::ShiftModifier;
+                m_glWidget->requestPathReshape(towardW ? GLWidget::ReshapeRotateW : GLWidget::ReshapeRotate,
+                                               float(dx), float(dy));
+            } else if (event->buttons() & Qt::RightButton) {
+                m_glWidget->requestPathReshape(GLWidget::ReshapeTranslate, float(dx), float(dy));
+            }
+        }
+    }
+    // Mentre un path anima la telecamera (MOUSE: SCENE) la rotazione manuale
+    // 3D/4D e' bloccata (la vista 2D del dock Script sopra resta invece libera).
     else if (!m_glWidget->isPathAnimating()) {
         // TASTO SINISTRO: Precession + Nutation (Invariato)
         if (event->buttons() & Qt::LeftButton) {
@@ -246,6 +261,11 @@ bool InputHandler::handleWheel(QWheelEvent* event)
         float zoomFactor = (delta > 0) ? 1.15f : (1.0f / 1.15f);
 
         m_glWidget->setFlatZoom(currentZoom * zoomFactor);
+        return true;
+    }
+    // MOUSE: PATH: la rotella scala la traiettoria (vedi handleMouseMove).
+    else if (m_glWidget->pathReshapeActive()) {
+        m_glWidget->requestPathReshape(GLWidget::ReshapeScale, 0.0f, delta);
         return true;
     }
     // --- GESTIONE ZOOM 3D / 4D ---

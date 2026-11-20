@@ -20,9 +20,10 @@ public:
     void handleMousePress(QMouseEvent* event);
     void handleMouseMove(QMouseEvent* event);
     void handleMouseRelease(QMouseEvent* event);
-    // true = la rotellina ha davvero zoomato la vista. Falso per gli eventi a
-    // delta verticale nullo (scroll orizzontale, fine gesto del trackpad) e per
-    // lo zoom 3D bloccato durante un path: la vista non cambia e non c'e'
+    // true = la rotellina ha davvero zoomato la vista, o scalato la traiettoria
+    // del path in corsa. Falso per gli eventi a delta verticale nullo (scroll
+    // orizzontale, fine gesto del trackpad) e per lo zoom 3D bloccato durante
+    // un path che non si puo' modellare: la vista non cambia e non c'e'
     // niente da segnalare con userMovedView().
     bool handleWheel(QWheelEvent* event);
     bool handleTouch(QEvent* event);

@@ -336,6 +336,13 @@ private:
     void runDisabledLookScenarios();
     void runScenePathScenarios();
     void runSceneSeekScenarios();
+    // 2.0: la traiettoria del path della camera modellata col mouse (rotazione,
+    // Maiuscole verso W, spostamento, rotella, RESET, REC, oggetto
+    // selezionato). Da sola: --scenario-only path-reshape.
+    void runPathReshapeScenarios();
+    // 2.0: l'alto della camera del path 4D dopo un salto delle equazioni (Invio
+    // su gamma a path in corsa, Klein Racing). Da sola: --scenario-only path-up.
+    void runPathUpScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
     // accesi i comandi del dock RENDERER. Il Run lo sganciava solo per le

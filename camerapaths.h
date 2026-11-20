@@ -11,6 +11,7 @@
 #pragma once
 
 #include <QObject>
+#include <QVector4D>
 #include <functional>
 
 class GLWidget;
@@ -68,6 +69,13 @@ public:
     void advance(Path p, float ticks);
     // La camera del path al tempo t: UNICA implementazione (tick e video).
     void applyCameraAt(Path p, float t);
+
+    // La rotazione 4D dell'ambiente (omega XW, phi YW, psi ZW, in quest'ordine
+    // come surface.vert) applicata a un vettore sulla CPU: con essa il path 4D
+    // porta la camera nello spazio della superficie ruotata. `inverse` la
+    // disfa: dallo spazio a schermo alle coordinate delle equazioni del path
+    // (MainWindow::pathScreenAxes).
+    static QVector4D environmentRotation4D(QVector4D v, float omega, float phi, float psi, bool inverse = false);
 
 private:
     void applyCamera4DAt(float t);

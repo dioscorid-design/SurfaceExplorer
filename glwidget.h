@@ -1259,6 +1259,35 @@ public:
     // o del path); hyperbolicPlacement: una camera di H3 col raggio di adesso.
     QMatrix4x4 cameraPlacement() const;
     QMatrix4x4 hyperbolicPlacement(const H3::Matrix &camera) const;
+    // IL RIFERIMENTO DELLA CAMERA DEL PATH 3D NELLE COORDINATE DELLE SUE
+    // EQUAZIONI: la posa grezza (X, Y, Z, R al tempo dell'ultimo tick), prima
+    // del riferimento di un oggetto (cameraPathFrame) e della scivolata
+    // d'avvio. Colonne: lato, alto, indietro, posizione. E' cio' che serve per
+    // modellare la traiettoria col mouse (MainWindow::pathScreenAxes): gli assi
+    // dello schermo scritti nelle stesse coordinate dei campi, esatti anche con
+    // un riferimento mobile o girato (la sua posa e' rigida: lascia gli assi
+    // come sono). Falso senza una posa del path, o se e' degenere.
+    bool rawPathPlacement(QMatrix4x4 *placement) const;
+    // LE EQUAZIONI DEL PATH 4D CAMBIANO DI COLPO (Invio su un campo a path in
+    // corsa, Departure dopo una modifica da fermo, RESET della traiettoria): i
+    // prossimi fotogrammi prendono l'alto della traiettoria nuova, come alla
+    // partenza, senza confrontarlo con quello della traiettoria di prima (vedi
+    // l'anti-ribaltamento in setCameraFrom4DVectors). I cambi continui (il
+    // mouse sulla traiettoria, le costanti) confrontano come sempre.
+    void markPathUpJump() { m_pathUpJumpFrames = 2; }
+
+    // LA TRAIETTORIA DEL PATH MODELLATA COL MOUSE (vedi pathreshape.h). Col
+    // tasto MOUSE: PATH il trascinamento sinistro ruota la traiettoria (con
+    // Maiuscole, nel path 4D, verso W), il destro la sposta, la rotella la
+    // scala, a path in corsa o fermo: InputHandler lo chiede qui e MainWindow
+    // riscrive i campi. Il cancello lo decide MainWindow (MOUSE: PATH, la
+    // camera su un path, ambiente selezionato, niente REC); chiuso, il mouse e'
+    // quello di sempre (bloccato a path in corsa).
+    enum PathReshapeGesture { ReshapeRotate, ReshapeRotateW, ReshapeTranslate, ReshapeScale };
+    void setPathReshapeGate(std::function<bool()> gate) { m_pathReshapeGate = std::move(gate); }
+    bool pathReshapeActive() const { return m_pathReshapeGate && m_pathReshapeGate(); }
+    // dx, dy: pixel del trascinamento; per la rotella dy e' il suo angleDelta.
+    void requestPathReshape(PathReshapeGesture gesture, float dx, float dy) { emit pathReshapeRequested(gesture, dx, dy); }
     // La camera libera euclidea (posizione, yaw, pitch, roll) e il suo
     // riferimento, nei due versi. La camera libera non arriva dappertutto: il
     // suo alto e' (-sin roll, cos roll, 0), nel piano xy, quindi guardando in
@@ -1807,6 +1836,9 @@ signals:
     // AUTOMATICO (advanceRotationsBy) e quindi non distingue chi ha mosso cosa.
     // MainWindow lo usa per marcare il lavoro non salvato.
     void userMovedView();
+    // Un gesto del mouse sulla traiettoria del path (PathReshapeGesture, vedi
+    // requestPathReshape).
+    void pathReshapeRequested(int gesture, float dx, float dy);
     // Il widget ha cambiato misura (finestra ridimensionata, dock aperto o
     // chiuso). MainWindow ricalcola le proporzioni della vista intera
     // (setFullViewAspect); va collegato in coda, a layout dei dock finito.
@@ -2405,6 +2437,13 @@ private:
     // stessa che legge cameraPlacement.
     void updateViewMatrix();
     QMatrix4x4 euclideanView() const;
+    // La vista di una posa di path: lookAt e poi il rollio. Unica formula per
+    // la camera del path (euclideanView) e per la sua posa grezza
+    // (rawPathPlacement).
+    static QMatrix4x4 pathLookAtView(const QVector3D &pos, const QVector3D &target, const QVector3D &up,
+                                     float rollDeg);
+    // Chi permette di modellare la traiettoria col mouse: vedi setPathReshapeGate.
+    std::function<bool()> m_pathReshapeGate;
     // Un riferimento della camera (cameraPlacement) come camera di H3, col
     // raggio di adesso, entro la distanza massima dal centro.
     H3::Matrix hyperbolicCameraFromPlacement(const QMatrix4x4 &placement) const;
@@ -2514,6 +2553,9 @@ private:
 
     QVector3D m_lastValidUp{0.0f, 1.0f, 0.0f};
     bool m_isFirstPathRun{true};
+    // L'anti-ribaltamento del path 4D (setCameraFrom4DVectors): i fotogrammi
+    // che restano dopo un salto delle equazioni (markPathUpJump).
+    int m_pathUpJumpFrames = 0;
 
     float m_lastRealTime = 0.0f;
     // Orologio dello SFONDO, della vista; quelli di geometria e texture sono

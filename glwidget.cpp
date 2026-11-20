@@ -5666,6 +5666,9 @@ float GLWidget::advancePathHandoff()
     return k * k * (3.0f - 2.0f * k);  // smoothstep
 }
 
+// L'alto della posa grezza del path 3D, prima del riferimento e del rollio.
+static const QVector3D kRawPathUp(0.0f, 0.0f, 1.0f);
+
 void GLWidget::setCameraPosAndDirection3D(const QVector3D& pos, const QVector3D& targetPoint, float roll)
 {
     // La posa GREZZA del path: se c'e' un riferimento (cameraPathFrame) il
@@ -5683,7 +5686,7 @@ void GLWidget::applyCameraPathPose(bool fromTick)
     QVector3D finalPos = m_rawPathPos;
     QVector3D finalTarget = m_rawPathTarget;
     // 1. RIPRISTINA L'UP VECTOR ORIGINALE
-    QVector3D finalUp(0.0f, 0.0f, 1.0f);
+    QVector3D finalUp = kRawPathUp;
     // NEL RIFERIMENTO DI UN OGGETTO (cameraPathFrame): posizione, bersaglio e
     // alto del path letti dal suo centro, girati come lui, e riscritti dal
     // centro della scena (framePathPose, esatta anche in H3): da qui in poi
@@ -5752,10 +5755,23 @@ void GLWidget::setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &t
         finalUp3D.normalize();
     }
 
-    // 5. ANTI-FLIP VISIVO
+    // 5. ANTI-FLIP VISIVO: l'alto del path cambia verso passando da una
+    // posizione degenere, e la camera non deve ribaltarsi: si tiene quello piu'
+    // vicino all'alto del fotogramma prima. DOPO UN SALTO DELLE EQUAZIONI
+    // (markPathUpJump) il fotogramma prima e' di un'altra traiettoria, e un
+    // rovesciamento preso su quella non ha senso su questa: l'alto e' quello
+    // del path, come alla partenza, per DUE fotogrammi (la proiezione usa
+    // l'osservatore del fotogramma prima, assegnato in fondo, e il salto
+    // finisce di arrivare a schermo al secondo). Confrontando, togliere
+    // gamma = t a Klein Racing (che a meta' giro rovescia l'alto del path)
+    // lasciava la camera capovolta, e il moto pareva girare al contrario.
     if (m_isFirstPathRun) {
         m_lastValidUp = finalUp3D;
         m_isFirstPathRun = false;
+        m_pathUpJumpFrames = 0;
+    } else if (m_pathUpJumpFrames > 0) {
+        m_lastValidUp = finalUp3D;
+        --m_pathUpJumpFrames;
     } else {
         if (QVector3D::dotProduct(finalUp3D, m_lastValidUp) < 0.0f) {
             finalUp3D = -finalUp3D;
@@ -7155,14 +7171,37 @@ static QMatrix4x4 freeCameraView(const QVector3D &pos, float yawDeg, float pitch
 QMatrix4x4 GLWidget::euclideanView() const
 {
     if (!m_isPathFollowing) return freeCameraView(m_cameraPos, m_cameraYaw, m_cameraPitch, m_cameraRoll);
+    return pathLookAtView(m_cameraPos, m_pathTarget, m_pathUp, m_pathRoll);
+}
+
+QMatrix4x4 GLWidget::pathLookAtView(const QVector3D &pos, const QVector3D &target, const QVector3D &up,
+                                    float rollDeg)
+{
     QMatrix4x4 view;
-    view.lookAt(m_cameraPos, m_pathTarget, m_pathUp);
-    if (m_pathRoll != 0.0f) {
+    view.lookAt(pos, target, up);
+    if (rollDeg != 0.0f) {
         QMatrix4x4 rollMat;
-        rollMat.rotate(m_pathRoll, 0.0f, 0.0f, 1.0f);
+        rollMat.rotate(rollDeg, 0.0f, 0.0f, 1.0f);
         view = rollMat * view;
     }
     return view;
+}
+
+bool GLWidget::rawPathPlacement(QMatrix4x4 *placement) const
+{
+    if (!m_rawPathValid) return false;
+    // L'alto grezzo e il rollio come li usa applyCameraPathPose.
+    const QMatrix4x4 m = pathLookAtView(m_rawPathPos, m_rawPathTarget, kRawPathUp,
+                                        qRadiansToDegrees(m_rawPathRoll)).inverted();
+    // Bersaglio sulla camera o sguardo lungo l'alto: lookAt degenera.
+    for (int c = 0; c < 3; ++c) {
+        const QVector3D axis = m.column(c).toVector3D();
+        if (!std::isfinite(axis.x()) || !std::isfinite(axis.y()) || !std::isfinite(axis.z())
+            || std::abs(axis.lengthSquared() - 1.0f) > 1e-3f)
+            return false;
+    }
+    *placement = m;
+    return true;
 }
 
 void GLWidget::updateViewMatrix()

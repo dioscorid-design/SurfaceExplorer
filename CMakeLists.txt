@@ -154,6 +154,8 @@ qt_add_executable(SurfaceExplorer
     docsearch.h
     camerapaths.cpp
     camerapaths.h
+    pathreshape.cpp
+    pathreshape.h
     texturecode.cpp
     texturecode.h
     texthelpers.h

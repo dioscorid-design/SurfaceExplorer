@@ -252,43 +252,10 @@ void CameraPaths::applyCamera4DAt(float t)
     // Gli oggetti della scena: la stessa compensazione, sulla loro base.
     m_view->setViewRotation4D(m_baseViewOmega, m_baseViewPhi - gamma, m_baseViewPsi - beta);
 
-    // 3. Funzione helper per ruotare la CPU Camera
-    // NB: stesso ordine dello shader (surface.vert): XW -> YW -> ZW
-    auto transformCPU = [&](QVector4D v) {
-        // A. Rotazione XW (Omega base)
-        if (std::abs(rotOmega) > 1e-6f) {
-            float c = std::cos(rotOmega);
-            float s = std::sin(rotOmega);
-            float x = v.x();
-            float w = v.w();
-            v.setX( x * c + w * s);
-            v.setW(-x * s + w * c);
-        }
-        // B. Rotazione YW (Phi / Gamma Fix)
-        if (std::abs(rotPhi) > 1e-6f) {
-            float c = std::cos(rotPhi);
-            float s = std::sin(rotPhi);
-            float y = v.y();
-            float w = v.w();
-            v.setY( y * c + w * s);
-            v.setW(-y * s + w * c);
-        }
-        // C. Rotazione ZW (Psi / Beta Fix)
-        if (std::abs(rotPsi) > 1e-6f) {
-            float c = std::cos(rotPsi);
-            float s = std::sin(rotPsi);
-            float z = v.z();
-            float w = v.w();
-            v.setZ( z * c + w * s);
-            v.setW(-z * s + w * c);
-        }
-        return v;
-    };
-
-    // 4. Applichiamo la trasformazione ai vettori camera
-    QVector4D rotPos    = transformCPU(finalPos4D);
-    QVector4D rotTarget = transformCPU(finalTarget4D);
-    QVector4D rotUp     = transformCPU(finalUp4D);
+    // 3-4. La stessa rotazione sulla CPU, ai vettori della camera.
+    QVector4D rotPos    = environmentRotation4D(finalPos4D, rotOmega, rotPhi, rotPsi);
+    QVector4D rotTarget = environmentRotation4D(finalTarget4D, rotOmega, rotPhi, rotPsi);
+    QVector4D rotUp     = environmentRotation4D(finalUp4D, rotOmega, rotPhi, rotPsi);
 
     // 5. Invio finale
     m_view->setCameraFrom4DVectors(rotPos, rotTarget, rotUp);
@@ -299,6 +266,31 @@ void CameraPaths::applyCamera4DAt(float t)
     // numeri che l'utente non stava toccando, perdendo per giunta il conto degli
     // scatti dati. L'unico aggiornamento sta in MainWindow::stepNavActions,
     // lo scatto dei tasti premuti.
+}
+
+QVector4D CameraPaths::environmentRotation4D(QVector4D v, float omega, float phi, float psi, bool inverse)
+{
+    // Rotazione nel piano (asse i, W). NB: stesso ordine dello shader
+    // (surface.vert): XW -> YW -> ZW; l'inversa lo ripercorre all'indietro.
+    const auto plane = [&v](int i, float angle) {
+        if (std::abs(angle) <= 1e-6f) return;
+        const float c = std::cos(angle);
+        const float s = std::sin(angle);
+        const float a = v[i];
+        const float w = v.w();
+        v[i] = a * c + w * s;
+        v.setW(-a * s + w * c);
+    };
+    if (!inverse) {
+        plane(0, omega);   // XW (Omega base)
+        plane(1, phi);     // YW (Phi / Gamma Fix)
+        plane(2, psi);     // ZW (Psi / Beta Fix)
+    } else {
+        plane(2, -psi);
+        plane(1, -phi);
+        plane(0, -omega);
+    }
+    return v;
 }
 
 void CameraPaths::applyCamera3DAt(float t)

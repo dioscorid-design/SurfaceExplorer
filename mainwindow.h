@@ -18,6 +18,7 @@
 #include "glwidget.h"
 #include "scenestate.h"
 #include "camerapaths.h"
+#include "pathreshape.h"
 #include "texturecode.h"
 #include "libraryfolders.h"
 #include "librarytreefocus.h"
@@ -1142,6 +1143,54 @@ private:
     // (EXC_BAD_ACCESS in QBindingStorage::registerDependency).
     CameraPaths *m_paths = nullptr;
     bool pathRunning(CameraPaths::Path p) const { return m_paths && m_paths->isRunning(p); }
+
+    // LA TRAIETTORIA DEI PATH DELLA CAMERA MODELLATA COL MOUSE (pathreshape.h).
+    // Col tasto MOUSE: PATH (seconda riga dei dock dei path, accanto a RESET),
+    // con l'ambiente selezionato e fuori dal REC, il mouse ruota (sinistro; con
+    // Maiuscole verso W nel path 4D), sposta (destro) e scala (rotella) la
+    // traiettoria del path che ha la camera, in corsa o fermo; il risultato si
+    // riscrive nei campi e si ricompila al volo (fermo, la camera va subito
+    // sulla traiettoria nuova, allo stesso t). A path in corsa il tasto e'
+    // spento su PATH (SCENE non farebbe nulla); lo Stop torna a SCENE, il
+    // mouse di sempre. RESET riporta i campi di prima del
+    // primo gesto. Solo l'ambiente: con un oggetto selezionato i campi sono i
+    // suoi e il mouse resta quello di prima.
+    PathReshape m_reshape3D{3};
+    PathReshape m_reshape4D{4};
+    // I testi dell'ultima compilazione riuscita del path 4D
+    // (compilePath4DFromFields): un Invio o un Departure che li cambia e' un
+    // salto della traiettoria (GLWidget::markPathUpJump); il mouse la cambia a
+    // piccoli passi.
+    QStringList m_compiledPath4D;
+    QPushButton *m_btnPathReset3D = nullptr;
+    QPushButton *m_btnPathReset4D = nullptr;
+    QPushButton *m_btnPathMouse3D = nullptr;
+    QPushButton *m_btnPathMouse4D = nullptr;
+    bool m_mouseShapesPath = false;      // MOUSE: PATH
+    bool m_reshapeSawRunning = false;    // un path era in corsa al refresh di prima
+    void setupPathReshape();
+    // Il path da modellare e' quello che ha la camera (cameraPath).
+    bool pathReshapeAllowed() const;
+    void onPathReshapeGesture(int gesture, float dx, float dy);
+    PathReshape &pathReshape(CameraPaths::Path p) { return p == CameraPaths::Path4D ? m_reshape4D : m_reshape3D; }
+    // Le coordinate della traiettoria nello stato della scena: X, Y, Z (e W
+    // nel 4D) dell'ambiente.
+    QList<QString *> pathReshapeSlots(CameraPaths::Path p);
+    QStringList pathReshapeFields(CameraPaths::Path p);
+    // Scrive i campi (a segnali bloccati: e' il programma che scrive) e, a
+    // path in corsa, ricompila come l'Invio.
+    void writePathReshapeTexts(CameraPaths::Path p, const QStringList &texts);
+    void resetPathReshape(CameraPaths::Path p);
+    // Sessione nuova (load, NEW): le modifiche di prima non si riportano piu'.
+    void forgetPathReshapes();
+    // RESET acceso solo se c'e' una modifica ancora nei campi; una modifica
+    // che non e' piu' nei campi (digitati, caricati) si dimentica qui.
+    void refreshPathReshapeButtons();
+    // Gli assi dello schermo (lato, alto, indietro; nel 4D anche W) nelle
+    // coordinate delle equazioni del path, e quanto vale un pixel alla
+    // distanza della camera dal centro delle equazioni.
+    struct PathAxes { QVector4D right, up, back, ana; float pixel = 0.0f; };
+    bool pathScreenAxes(CameraPaths::Path p, PathAxes *axes);
 
     // Avanzamento per tick dei due path. STATO: m_scene.pathSpeed3D/4D, in unita'
     // dello slider (1..100); speed3DSlider/speed4DSlider ne sono la vista

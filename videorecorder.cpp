@@ -781,6 +781,8 @@ void VideoRecorder::toggleRecord()
     // 3. PREPARAZIONE REGISTRAZIONE
     // ==============================================================
     m_mainWindow->m_isRecording = true;
+    // Durante il REC il mouse non modella la traiettoria dei path: RESET spento.
+    m_mainWindow->refreshPathReshapeButtons();
     // Sopprime il watchdog di performance durante l'export (rendering frame-by-frame
     // = intervalli lentissimi per costruzione, non falso allarme da carico GPU).
     m_mainWindow->ui->glWidget->setRecordingActive(true);
@@ -1279,6 +1281,7 @@ void VideoRecorder::toggleRecord()
     // 5. RIPRISTINO E PULIZIA
     // ==============================================================
     m_mainWindow->m_isRecording = false;
+    m_mainWindow->refreshPathReshapeButtons();
     // Clock esterno spento INSIEME a m_isRecording: i timer dei moti (rimasti
     // attivi per tutto il REC) riprendono ad avanzare live da qui, proseguendo
     // dallo stato in cui il video e' finito.

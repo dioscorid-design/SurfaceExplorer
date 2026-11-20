@@ -156,6 +156,21 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
             color: #666;
             border: 1px solid #444;
         }
+        /* Disabilitato ma ACCESO (come i radio piu' sotto): un tasto premuto
+           che non si puo' cambiare resta incassato come quelli accesi, col
+           testo appena piu' grigio. Es. MOUSE: PATH a path in corsa: il mouse
+           e' sul path, e in corsa non puo' essere altrimenti. */
+        QPushButton:checked:disabled {
+            background-color: #222222;
+            color: #B4B4B4;
+            border: 2px solid #252526;
+            border-top-color: #111;
+            border-left-color: #111;
+            border-right-color: #555;
+            border-bottom-color: #555;
+            padding-top: 7px;
+            padding-left: 13px;
+        }
 
         /* --- INPUT 3D (SUNKEN/INCASSATI) --- */
         QLineEdit, QPlainTextEdit, QTextEdit, QAbstractSpinBox {

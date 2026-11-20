@@ -1380,6 +1380,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // (vedi applyMotionExample): un futuro Departure riparte da t=0 e
     // da orientamento neutro.
     m_paths->resetSession();
+    forgetPathReshapes();   // come al load di un record
     // ...e i comandi dei path (vista, velocita', ultimo moto, path compilato).
     resetMotionControls();
 
@@ -2091,6 +2092,9 @@ void MainWindow::stopMotionForRecordLoad()
     // non dal tempo RESIDUO del moto precedente (che altrimenti farebbe
     // ripartire la traiettoria da una fase arbitraria a ogni ricarica).
     m_paths->resetSession();
+    // Le traiettorie modellate col mouse erano del record di prima: RESET non
+    // le riporta piu' (anche se il record nuovo ha gli stessi campi).
+    forgetPathReshapes();
 
     if (m_btnStart) m_btnStart->setText("START");
     if (ui->btnStart_2) ui->btnStart_2->setText("GO");
@@ -2692,6 +2696,7 @@ void MainWindow::startRecordCameraMotion(const LibraryItem &data)
             if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
             ui->glWidget->resumeMotion();
             m_scene.lastCameraMotion = "rotation";
+            refreshPathReshapeButtons();   // la camera non e' piu' di un path
         }
         if (hasPath4D) onDepartureClicked();
         else if (hasPath3D) onDeparture3DClicked();

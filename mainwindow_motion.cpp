@@ -3,6 +3,8 @@
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
 
+#include <QGridLayout>
+
 // Dock 3D e 4D: rotazioni, path, navigazione. Parte del costruttore, nell'ordine in cui la chiama.
 void MainWindow::setupMotionDocks()
 {
@@ -70,6 +72,8 @@ void MainWindow::setupMotionDocks()
         if (pathFieldsShowObject()) onObjectPathGoClicked(SurfaceEngine::ObjectPath3D);
         else onDeparture3DClicked();
     });
+    // Il mouse sulla traiettoria a path in corsa, e i RESET accanto ai Departure.
+    setupPathReshape();
 
     m_scene.pathViewMode4D = ModeTangential;
     m_scene.pathViewMode3D = ModeTangential;
@@ -511,6 +515,8 @@ void MainWindow::resetView()
     // path 3D) torna comunque all'apertura.
     for (CameraPaths::Path p : { CameraPaths::Path4D, CameraPaths::Path3D })
         if (pathRunning(p)) m_paths->applyCameraAt(p, m_paths->time(p));
+    // Un path fermo ha lasciato la camera: il tasto MOUSE non ha piu' un path.
+    refreshPathReshapeButtons();
 
     // Il FOV della scena, slider compreso: anche lui e' uno zoom.
     // Il CAMPO VISIVO d'apertura solo con una superficie sola (come dalla
@@ -815,7 +821,12 @@ void MainWindow::commitPathFieldOnEnter(const QString& fieldName)
         if (!m_paths) return;
         if (pathRunning(CameraPaths::Path4D)) {
             if (!hasPath4DInput()) onDepartureClicked();
-            else                   compilePath4DFromFields();
+            else {
+                // Un salto della traiettoria, se il testo e' cambiato davvero:
+                // la camera prende l'alto della traiettoria nuova.
+                const QStringList before = m_compiledPath4D;
+                if (compilePath4DFromFields() && m_compiledPath4D != before) ui->glWidget->markPathUpJump();
+            }
         } else if (hasPath4DInput()) {
             onDepartureClicked();
         }
@@ -861,6 +872,7 @@ bool MainWindow::compilePath4DFromFields()
             QMessageBox::warning(this, "Error", "Path 4D compilation error .\nCheck the syntax.");
         return false;
     }
+    m_compiledPath4D = { eqX, eqY, eqZ, eqP, eqAlpha, eqBeta, eqGamma };
     // Il path compilato e' a schermo: le costanti che usa si sbloccano ora
     // (con modifiche in sospeso lo slider aspetta che sia applicato).
     updateConstantsUIState();
@@ -903,6 +915,277 @@ bool MainWindow::compilePath3DFromFields()
     return true;
 }
 
+// =============================================================================
+// LA TRAIETTORIA DEI PATH MODELLATA COL MOUSE (pathreshape.h)
+// =============================================================================
+
+void MainWindow::setupPathReshape()
+{
+    // LA SECONDA RIGA DEI TASTI DEL PATH, sotto View e Departure: MOUSE sotto
+    // View, RESET sotto Departure, nelle stesse colonne.
+    const auto secondRow = [](QPushButton *view, QPushButton *departure, const QString &suffix,
+                                  QPushButton **mouseOut, QPushButton **resetOut) {
+        QWidget *panel = departure->parentWidget();
+        auto *mouse = new QPushButton(QStringLiteral("MOUSE: SCENE"), panel);
+        mouse->setObjectName(QStringLiteral("btnPathMouse") + suffix);
+        mouse->setCheckable(true);
+        mouse->setEnabled(false);
+        mouse->setToolTip(QStringLiteral(
+            "What the mouse does in the view while the path is stopped.\n"
+            "SCENE: it turns and zooms the scene, as always.\n"
+            "PATH: it changes this path: drag to turn it (Shift: toward W, path 4D), "
+            "right-drag to move it, scroll to resize it.\n"
+            "While the path runs the mouse always changes it; STOP goes back to SCENE."));
+        auto *reset = new QPushButton(QStringLiteral("RESET"), panel);
+        reset->setObjectName(QStringLiteral("btnPathReset") + suffix);
+        reset->setEnabled(false);
+        reset->setToolTip(QStringLiteral("Back to the path as it was written before the mouse changed it."));
+        *mouseOut = mouse;
+        *resetOut = reset;
+        auto *grid = qobject_cast<QGridLayout *>(panel->layout());
+        const int viewIndex = grid ? grid->indexOf(view) : -1;
+        const int departureIndex = grid ? grid->indexOf(departure) : -1;
+        if (viewIndex < 0 || departureIndex < 0) return;
+        int vr = 0, vc = 0, vrs = 1, vcs = 1, dr = 0, dc = 0, drs = 1, dcs = 1;
+        grid->getItemPosition(viewIndex, &vr, &vc, &vrs, &vcs);
+        grid->getItemPosition(departureIndex, &dr, &dc, &drs, &dcs);
+        // La riga subito sotto, se e' libera; altrimenti in fondo.
+        int row = std::max(vr + vrs, dr + drs);
+        for (int c = 0; c < grid->columnCount(); ++c)
+            if (grid->itemAtPosition(row, c)) { row = grid->rowCount(); break; }
+        grid->addWidget(mouse, row, vc, 1, vcs);
+        grid->addWidget(reset, row, dc, 1, dcs);
+        // Il tasto MOUSE si allarga come il View sopra di lui.
+        mouse->setSizePolicy(view->sizePolicy());
+    };
+    secondRow(ui->pushView3D, ui->btnDeparture3D, QStringLiteral("3D"), &m_btnPathMouse3D, &m_btnPathReset3D);
+    secondRow(ui->pushView, ui->btnDeparture, QStringLiteral("4D"), &m_btnPathMouse4D, &m_btnPathReset4D);
+    connect(m_btnPathReset3D, &QPushButton::clicked, this, [this] { resetPathReshape(CameraPaths::Path3D); });
+    connect(m_btnPathReset4D, &QPushButton::clicked, this, [this] { resetPathReshape(CameraPaths::Path4D); });
+    for (QPushButton *mouse : { m_btnPathMouse3D, m_btnPathMouse4D }) {
+        connect(mouse, &QPushButton::clicked, this, [this](bool on) {
+            m_mouseShapesPath = on;
+            refreshPathReshapeButtons();
+        });
+    }
+
+    ui->glWidget->setPathReshapeGate([this] { return pathReshapeAllowed(); });
+    connect(ui->glWidget, &GLWidget::pathReshapeRequested, this, &MainWindow::onPathReshapeGesture);
+}
+
+bool MainWindow::pathReshapeAllowed() const
+{
+    // Niente durante il REC: il loop non va in tempo reale e legge gli eventi
+    // ogni 5 fotogrammi, quindi un gesto entrerebbe nel video a scatti e con
+    // una durata diversa dalla sua. La traiettoria si modella prima: il REC
+    // la legge dai campi.
+    return m_mouseShapesPath && !m_isRecording && !pathFieldsShowObject() && cameraPath().has_value();
+}
+
+QList<QString *> MainWindow::pathReshapeSlots(CameraPaths::Path p)
+{
+    if (p == CameraPaths::Path4D)
+        return { &m_scene.path.x, &m_scene.path.y, &m_scene.path.z, &m_scene.path.p };
+    return { &m_scene.path.x3D, &m_scene.path.y3D, &m_scene.path.z3D };
+}
+
+QStringList MainWindow::pathReshapeFields(CameraPaths::Path p)
+{
+    QStringList fields;
+    for (const QString *text : pathReshapeSlots(p)) fields << *text;
+    return fields;
+}
+
+bool MainWindow::pathScreenAxes(CameraPaths::Path p, PathAxes *axes)
+{
+    GLWidget *gl = ui->glWidget;
+    QMatrix4x4 placement;
+    if (p == CameraPaths::Path3D) {
+        // La posa grezza: gli assi sono gia' nelle coordinate dei campi, anche
+        // col path attorno a un oggetto (vedi GLWidget::rawPathPlacement).
+        if (!gl->rawPathPlacement(&placement)) return false;
+        axes->right = QVector4D(placement.column(0).toVector3D(), 0.0f);
+        axes->up    = QVector4D(placement.column(1).toVector3D(), 0.0f);
+        axes->back  = QVector4D(placement.column(2).toVector3D(), 0.0f);
+        axes->ana   = QVector4D();
+    } else {
+        // Il path 4D porta la camera nello spazio della superficie ruotata
+        // (CameraPaths::applyCamera4DAt) e lo schermo e' la proiezione di quello
+        // spazio: i suoi assi tornano alle coordinate delle equazioni con la
+        // rotazione inversa.
+        placement = gl->cameraPlacement();
+        const float omega = gl->environmentOmega(), phi = gl->environmentPhi(), psi = gl->environmentPsi();
+        const auto toEquations = [&](const QVector3D &v) {
+            return CameraPaths::environmentRotation4D(QVector4D(v, 0.0f), omega, phi, psi, /*inverse=*/true)
+                .toVector3D();
+        };
+        // I CAMPI PRIMA DELLO SCHERMO: con l'ambiente girato in 4D (angoli del
+        // preset, del moto GO, compensazioni di beta e gamma) le direzioni dello
+        // schermo hanno una parte in W, e un trascinamento senza Maiuscole
+        // cambiava anche il campo W. Senza Maiuscole si gira solo in X, Y, Z:
+        // gli assi dello schermo ristretti a X, Y, Z e rifatti ortonormali
+        // (prima "indietro", la direzione del centro; poi il lato; l'alto e'
+        // il terzo). W e' quello dei campi.
+        QVector3D back = toEquations(placement.column(2).toVector3D());
+        QVector3D right = toEquations(placement.column(0).toVector3D());
+        const QVector3D up0 = toEquations(placement.column(1).toVector3D());
+        if (back.lengthSquared() < 1e-6f) back = QVector3D::crossProduct(right, up0);
+        if (back.lengthSquared() < 1e-6f) return false;
+        back.normalize();
+        right -= back * QVector3D::dotProduct(right, back);
+        if (right.lengthSquared() < 1e-6f) right = QVector3D::crossProduct(up0, back);
+        if (right.lengthSquared() < 1e-6f) return false;
+        right.normalize();
+        const QVector3D up = QVector3D::crossProduct(back, right);   // lato x alto = indietro
+        axes->right = QVector4D(right, 0.0f);
+        axes->up    = QVector4D(up, 0.0f);
+        axes->back  = QVector4D(back, 0.0f);
+        axes->ana   = QVector4D(0.0f, 0.0f, 0.0f, 1.0f);
+    }
+    for (const QVector4D &axis : { axes->right, axes->up, axes->back }) {
+        if (!std::isfinite(axis.lengthSquared()) || std::abs(axis.lengthSquared() - 1.0f) > 1e-3f) return false;
+    }
+    // Un pixel alla distanza della camera dal centro delle equazioni: lo
+    // spostamento li' segue il puntatore.
+    const float distance = std::max(placement.column(3).toVector3D().length(), 0.5f);
+    const float halfFov = qDegreesToRadians(gl->cameraFov()) * 0.5f;
+    axes->pixel = 2.0f * distance * std::tan(halfFov) / float(std::max(1, gl->height()));
+    return true;
+}
+
+void MainWindow::onPathReshapeGesture(int gesture, float dx, float dy)
+{
+    if (!pathReshapeAllowed()) return;
+    const CameraPaths::Path p = *cameraPath();
+    // A path fermo la camera torna sulla posa del path al suo t (lo zoom a
+    // path fermo la sposta), cosi' gli assi sono quelli della traiettoria.
+    if (!pathRunning(p)) m_paths->applyCameraAt(p, m_paths->time(p));
+    PathAxes axes;
+    if (!pathScreenAxes(p, &axes)) return;
+    PathReshape &shape = pathReshape(p);
+    // Il primo gesto, o il primo dopo che i campi sono cambiati per altre vie:
+    // i campi di ora sono gli originali da cui ricomporre e a cui torna RESET.
+    const QStringList fields = pathReshapeFields(p);
+    if (!shape.matches(fields)) shape.begin(fields);
+
+    // LA TRAIETTORIA GIRA ATTORNO AL CENTRO DELLE EQUAZIONI, sugli assi dello
+    // schermo: trascinando a destra la camera va a sinistra, in giu' sale. Con
+    // la camera che guarda il centro (vista Center) la scena segue il
+    // puntatore, come trascinando la superficie a path fermo. Stessa
+    // sensibilita' (0.3 gradi per pixel, InputHandler).
+    const double perPixel = qDegreesToRadians(0.3);
+    switch (gesture) {
+    case GLWidget::ReshapeRotateW:
+        if (p == CameraPaths::Path4D) {
+            shape.rotate(axes.right, axes.ana, dx * perPixel);
+            shape.rotate(axes.up, axes.ana, -dy * perPixel);
+            break;
+        }
+        [[fallthrough]];   // il path 3D non ha W: la rotazione di sempre
+    case GLWidget::ReshapeRotate:
+        shape.rotate(axes.right, axes.back, dx * perPixel);
+        shape.rotate(axes.back, axes.up, dy * perPixel);
+        break;
+    case GLWidget::ReshapeTranslate:
+        shape.translate((axes.up * dy - axes.right * dx) * axes.pixel);
+        break;
+    case GLWidget::ReshapeScale:
+        // Rotella in avanti (delta positivo) = piu' vicino, come lo zoom a path
+        // fermo: la traiettoria si stringe verso il centro, ~6% a scatto.
+        shape.scale(std::exp(-double(dy) * 0.0005));
+        break;
+    default:
+        return;
+    }
+    writePathReshapeTexts(p, shape.compose());
+}
+
+void MainWindow::writePathReshapeTexts(CameraPaths::Path p, const QStringList &texts)
+{
+    const QList<QString *> targets = pathReshapeSlots(p);
+    const auto table = lineFieldTable();
+    for (int i = 0; i < targets.size() && i < texts.size(); ++i) {
+        if (*targets[i] == texts[i]) continue;
+        setLineText(*targets[i], texts[i]);
+        // L'inizio di un'espressione lunga, come showPathFields.
+        for (const auto &f : table)
+            if (f.second == targets[i] && f.first) f.first->setCursorPosition(0);
+    }
+    // Se la camera e' di questo path entra subito, con la stessa compilazione
+    // dell'Invio (commitPathFieldOnEnter): in corsa la prende il prossimo
+    // tick; fermo, la camera va sulla traiettoria nuova allo stesso t, come la
+    // sposta il cursore del tempo. Altrimenti la compila il prossimo Departure.
+    if (cameraPath() == p) {
+        const bool ok = (p == CameraPaths::Path4D) ? compilePath4DFromFields() : compilePath3DFromFields();
+        // Non dovrebbe succedere (gli originali si compilavano): si torna a loro.
+        if (!ok && pathReshape(p).active()) {
+            const QStringList originals = pathReshape(p).originals();
+            pathReshape(p).forget();
+            writePathReshapeTexts(p, originals);
+            return;
+        }
+        if (ok && !pathRunning(p)) m_paths->applyCameraAt(p, m_paths->time(p));
+    }
+    if (p == CameraPaths::Path4D) checkPathFields();
+    else checkPath3DFields();
+    updateMasterButtonState();
+}
+
+void MainWindow::resetPathReshape(CameraPaths::Path p)
+{
+    PathReshape &shape = pathReshape(p);
+    if (!shape.matches(pathReshapeFields(p))) {
+        shape.forget();
+        refreshPathReshapeButtons();
+        return;
+    }
+    const QStringList originals = shape.originals();
+    shape.forget();
+    // Un salto della traiettoria (il mouse la cambia invece a piccoli passi).
+    if (p == CameraPaths::Path4D) ui->glWidget->markPathUpJump();
+    writePathReshapeTexts(p, originals);
+}
+
+void MainWindow::forgetPathReshapes()
+{
+    m_reshape3D.forget();
+    m_reshape4D.forget();
+    m_mouseShapesPath = false;
+    refreshPathReshapeButtons();
+}
+
+void MainWindow::refreshPathReshapeButtons()
+{
+    // A path in corsa il mouse e' sempre PATH: SCENE non farebbe nulla (la
+    // camera e' del path), quindi il tasto e' spento. Lo Stop torna a SCENE
+    // (chiamata a ogni avvio e stop, da updateViewButtonsEnabled); a path
+    // fermo decide il tasto. Senza un path con la camera non c'e' niente da
+    // modellare.
+    const bool running = pathRunning(CameraPaths::Path3D) || pathRunning(CameraPaths::Path4D);
+    if (running) m_mouseShapesPath = true;
+    else if (m_reshapeSawRunning) m_mouseShapesPath = false;   // lo Stop
+    m_reshapeSawRunning = running;
+    const std::optional<CameraPaths::Path> camera = cameraPath();
+    if (!camera) m_mouseShapesPath = false;
+    const bool environment = !pathFieldsShowObject();
+    for (CameraPaths::Path p : { CameraPaths::Path3D, CameraPaths::Path4D }) {
+        PathReshape &shape = pathReshape(p);
+        // I campi dell'ambiente stanno nello stato anche con un oggetto
+        // selezionato: una modifica che non c'e' piu' si dimentica comunque.
+        if (shape.active() && !shape.matches(pathReshapeFields(p))) shape.forget();
+        QPushButton *reset = (p == CameraPaths::Path4D) ? m_btnPathReset4D : m_btnPathReset3D;
+        if (reset) reset->setEnabled(environment && !m_isRecording && shape.active());
+        QPushButton *mouse = (p == CameraPaths::Path4D) ? m_btnPathMouse4D : m_btnPathMouse3D;
+        if (!mouse) continue;
+        const bool usable = environment && !m_isRecording && camera == p;
+        const bool shaping = usable && m_mouseShapesPath;
+        mouse->setEnabled(usable && !running);
+        const QSignalBlocker blocker(mouse);
+        mouse->setChecked(shaping);
+        mouse->setText(shaping ? QStringLiteral("MOUSE: PATH") : QStringLiteral("MOUSE: SCENE"));
+    }
+}
+
 void MainWindow::onDepartureClicked()
 {
     // NB: funziona anche DURANTE il REC — i timer restano attivi (tick no-op)
@@ -931,9 +1214,13 @@ void MainWindow::onDepartureClicked()
     }
     stopRotationMotion();
 
+    const QStringList compiledBefore = m_compiledPath4D;
     if (!compilePath4DFromFields()) {
         return; // Errore matematico o di compilazione: niente avvio
     }
+    // Equazioni cambiate da fermo: un salto, la camera prende l'alto della
+    // traiettoria nuova. Le stesse di prima: si riparte continui.
+    if (m_compiledPath4D != compiledBefore) ui->glWidget->markPathUpJump();
 
     // Base 4D per le compensazioni del tick (vedi CameraPaths::captureBase4D):
     // con le equazioni APPENA compilate qui sopra.
@@ -1116,6 +1403,8 @@ void MainWindow::updateViewButtonsEnabled()
     // I comandi mouse 3D (rotazione/zoom) sono bloccati a parte in InputHandler
     // via GLWidget::isPathAnimating().
     setNavControlsEnabled(!(path4D || path3D));
+    // Il RESET della traiettoria modellata col mouse, nella riga del Departure.
+    refreshPathReshapeButtons();
 }
 
 void MainWindow::setNavControlsEnabled(bool enabled)
@@ -1207,6 +1496,7 @@ void MainWindow::resetMotionControls()
     setPathSpeed3D(10);
     setPathSpeed4D(10);
     m_scene.lastCameraMotion.clear();
+    m_compiledPath4D.clear();
     if (ui->glWidget && ui->glWidget->getEngine())
         ui->glWidget->environmentEngine()->clearPathEquations();
 }
