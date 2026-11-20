@@ -8181,6 +8181,65 @@ void ScenarioTest::runImageCaptureScenarios()
         clearImageSettings();
         pressNew();
     }
+
+    // RAY MARCHING IN STEREOGRAFICA (raymarch_template.txt): i raggi li
+    // costruisce lo shader, con un angolo fisso di 45 gradi fino al
+    // 2026-11-20. Lo slider Fov non faceva niente, e un'immagine piu' larga
+    // della vista mostrava la vista intera invece della fascia del riquadro.
+    // Una sfera al centro: in stereografica il suo raggio a schermo e'
+    // tan(alfa/2) / tan(campo/4), quindi da 45 a 63 gradi la larghezza scala di
+    // tan(11.25) / tan(15.75) = 0.705, qualunque sia la sfera.
+    if (loadSurface(QStringLiteral("surfaces/Implicit/3D/Sphere.json"))) {
+        gl->stopAllTimers();
+        const float fov0 = gl->cameraFov();
+        gl->setProjectionMode(2);   // stereografica
+        m_mw->applyCameraFov(45.0f);
+        wait(300);
+        const double w45 = spanFraction(gl->grabFramebuffer());
+        m_mw->applyCameraFov(63.0f);
+        wait(300);
+        const double w63 = spanFraction(gl->grabFramebuffer());
+        const double expected = std::tan(qDegreesToRadians(45.0 / 4.0)) / std::tan(qDegreesToRadians(63.0 / 4.0));
+        check(w45 > 0.1 && std::abs(w63 / w45 - expected) < 0.03,
+              QStringLiteral("Ray Marching in stereografica: il Fov cambia l'inquadratura (larghezza della sfera da "
+                             "45 a 63 gradi: x%1, attesa x%2)").arg(w63 / w45, 0, 'f', 3).arg(expected, 0, 'f', 3));
+
+        // L'immagine 4:1 e' la fascia del riquadro: lo schermo ritagliato e
+        // portato alla sua dimensione. La sfera, tagliata sopra e sotto dalla
+        // fascia, deve uscire uguale (prima: intera e piccola).
+        const double ratio = 4.0;
+        const QSize size = ImageCapture::sizeFor(ratio, 1600);
+        QString e;
+        const QImage cap = ImageCapture::render(gl, size, ratio, &e);
+        wait(200);
+        const QImage screen = gl->grabFramebuffer().convertToFormat(QImage::Format_RGB32);
+        const QRect band = ImageCapture::guideRect(gl->size(), ratio);
+        const double dpr = double(screen.width()) / double(std::max(1, gl->width()));
+        const QImage crop = screen.copy(QRect(int(std::lround(band.x() * dpr)), int(std::lround(band.y() * dpr)),
+                                              int(std::lround(band.width() * dpr)), int(std::lround(band.height() * dpr))))
+                                .scaled(size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        double diff = 255.0;
+        if (!cap.isNull() && cap.size() == crop.size()) {
+            const QImage c = cap.convertToFormat(QImage::Format_RGB32);
+            qint64 sum = 0;
+            for (int y = 0; y < c.height(); ++y)
+                for (int x = 0; x < c.width(); ++x) {
+                    const QRgb p = c.pixel(x, y), q = crop.pixel(x, y);
+                    sum += std::abs(qRed(p) - qRed(q)) + std::abs(qGreen(p) - qGreen(q)) + std::abs(qBlue(p) - qBlue(q));
+                }
+            diff = double(sum) / (3.0 * double(c.width()) * double(c.height()));
+        }
+        cap.save(m_outDir + QStringLiteral("/rm-stereo-capture.png"));
+        crop.save(m_outDir + QStringLiteral("/rm-stereo-band.png"));
+        const double fCap = cap.isNull() ? 0.0 : spanFraction(cap), fBand = spanFraction(crop);
+        check(!cap.isNull() && diff < 6.0 && fBand > 0.05 && std::abs(fCap - fBand) < 0.03 * fBand + 0.004,
+              QStringLiteral("Ray Marching in stereografica, immagine 4:1: e' la fascia del riquadro (differenza media "
+                             "%1 per canale; larghezza della sfera %2 contro %3 nella fascia) %4")
+                  .arg(diff, 0, 'f', 2).arg(fCap, 0, 'f', 3).arg(fBand, 0, 'f', 3).arg(e));
+        m_mw->applyCameraFov(fov0);
+        gl->setProjectionMode(1);
+        pressNew();
+    }
     gl->setClocksDrivenByRecorder(false);
 }
 

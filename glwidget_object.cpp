@@ -55,6 +55,9 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
     m_uboData.u_wireHalfWidth = 0.5f * float(m_captureLineWidth);
     m_uboData.u_wireViewW = float(renderTarget()->pixelSize().width());
     m_uboData.u_wireViewH = float(renderTarget()->pixelSize().height());
+    // La fascia della vista che una cattura piu' larga mostra (1 a schermo):
+    // il ray marching in stereografica la riporta sui raggi della vista.
+    m_uboData.u_captureVerticalScale = m_captureVerticalScale;
 
     // POSA DELL'OGGETTO: il modello e' suo, proiezione e vista della camera.
     QMatrix4x4 mvp;

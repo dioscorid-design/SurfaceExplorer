@@ -197,7 +197,14 @@ struct UboData {
     float u_wireHalfWidth;
     float u_wireViewW;
     float u_wireViewH;
-    float _pad4[3];
+    // LA FASCIA DI UNA CATTURA PIU' LARGA DELLA VISTA (m_captureVerticalScale,
+    // 1 a schermo): la parte dell'altezza della vista che l'immagine mostra. La
+    // legge il ray marching in stereografica, che costruisce i raggi da se' e
+    // non dalla proiezione (raymarch_template.txt). Primo posto di _pad4: il
+    // blocco resta di 512 byte. Dichiarato in ENTRAMBI gli shader parametrici
+    // (regola Adreno, vedi CLAUDE.md), che non lo usano.
+    float u_captureVerticalScale;
+    float _pad4[2];
 };
 
 class GLWidget : public QRhiWidget

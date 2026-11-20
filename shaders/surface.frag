@@ -126,6 +126,10 @@ layout(std140, binding = 0) uniform SceneUBO {
     float u_wireHalfWidth;
     float u_wireViewW;
     float u_wireViewH;
+    // La fascia di una cattura piu' larga della vista: NON USATO QUI (lo legge
+    // il ray marching in stereografica), dichiarato per la regola Adreno.
+    // Ultimo campo di UboData.
+    float u_captureVerticalScale;
 } ubuf;
 
 // --- PLACEHOLDER PER CODICE TEXTURE CUSTOM ---

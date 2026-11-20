@@ -3147,7 +3147,8 @@ static_assert(offsetof(UboData, u_tubeFrameBlend) == 476, "UboData: u_tubeFrameB
 static_assert(offsetof(UboData, u_sharedEdgesOn) == 480, "UboData: u_sharedEdgesOn fuori posto");
 static_assert(offsetof(UboData, u_globalTexture) == 484, "UboData: u_globalTexture fuori posto");
 static_assert(offsetof(UboData, u_wireHalfWidth) == 488, "UboData: u_wireHalfWidth fuori posto");
-static_assert(sizeof(UboData) == 512, "UboData: dopo u_globalTexture, i tre campi del wireframe e _pad4 il blocco e' di 512 byte");
+static_assert(offsetof(UboData, u_captureVerticalScale) == 500, "UboData: u_captureVerticalScale fuori posto");
+static_assert(sizeof(UboData) == 512, "UboData: dopo u_globalTexture, i tre campi del wireframe, la fascia della cattura e _pad4 il blocco e' di 512 byte");
 static_assert(sizeof(UboData) % 16 == 0, "UboData: dimensione non multipla di 16 (std140)");
 
 bool GLWidget::setTubeCurve(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq,
