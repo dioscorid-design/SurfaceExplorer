@@ -42,6 +42,12 @@ private:
     void keepCurrent(const QPersistentModelIndex &current);
 
     bool m_folderPress = false;      // clic sinistro senza Cmd/Shift su una cartella, in corso
+    // IL DITO CHE SCORRE SU UNA VOCE (alberi senza trascinamento: mobile). La
+    // pressione la seleziona come sempre (il tap carica al rilascio); se il dito
+    // si allontana oltre la soglia del trascinamento l'evidenziazione torna su
+    // quella di prima e il rilascio non carica niente.
+    bool m_touchPress = false;
+    bool m_touchMoved = false;
     bool m_multiSelectionRelease = false;   // dentro il rilascio di un Cmd/Shift+clic
     bool m_pressMulti = false;              // la pressione aveva Cmd/Shift
     QPersistentModelIndex m_folder;

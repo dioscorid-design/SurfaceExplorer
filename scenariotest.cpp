@@ -14663,6 +14663,84 @@ void ScenarioTest::runLibraryFolderScenarios()
     };
 
     focusOk(QStringLiteral("preset caricato"));
+
+    // IL DITO CHE SCORRE SULL'ELENCO (iPhone e iPad: alberi senza trascinamento,
+    // selezione singola, initTree). Prima la selezione seguiva il dito voce
+    // dopo voce e il rilascio su un'altra voce non caricava: l'evidenziato non
+    // era piu' il preset a schermo. Ora il dito che si allontana oltre la
+    // soglia del trascinamento non sposta niente e non carica; il tap resta.
+    {
+        QTreeWidgetItem *other = nullptr;
+        for (int i = 0; i < folder->childCount() && !other; ++i)
+            if (folder->child(i) != leaf && folder->child(i)->childCount() == 0) other = folder->child(i);
+        if (!other) {
+            check(false, QStringLiteral("dito che scorre: serve un secondo preset nella cartella di '%1'").arg(name));
+        } else {
+            const auto dragMode = tree->dragDropMode();
+            const auto selMode = tree->selectionMode();
+            tree->setDragDropMode(QAbstractItemView::NoDragDrop);
+            tree->setSelectionMode(QAbstractItemView::SingleSelection);
+            tree->scrollToItem(other);
+            wait(200);
+            int clicks = 0;
+            const auto conn = QObject::connect(tree, &QTreeWidget::itemClicked, tree, [&clicks]() { ++clicks; });
+            auto moveTo = [&](const QPoint &pos) {
+                QMouseEvent move(QEvent::MouseMove, pos, tree->viewport()->mapToGlobal(pos), Qt::NoButton,
+                                 Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(tree->viewport(), &move);
+            };
+            const QPoint start = tree->visualItemRect(other).center();
+            const int step = std::max(QApplication::startDragDistance(), 4);
+            // Giu' di qualche voce e di nuovo sulla voce premuta, poi il rilascio:
+            // Qt emetteva itemClicked (stessa voce alla pressione e al rilascio).
+            mouse(QEvent::MouseButtonPress, other);
+            const bool pressSelects = other->isSelected();
+            for (int k = 1; k <= 4; ++k) moveTo(start + QPoint(0, k * step * 2));
+            const bool backAtPress = leaf->isSelected() && !other->isSelected() && tree->currentItem() == leaf;
+            for (int k = 3; k >= 0; --k) moveTo(start + QPoint(0, k * step * 2));
+            mouse(QEvent::MouseButtonRelease, other);
+            wait(300);
+            check(pressSelects && backAtPress && clicks == 0,
+                  QStringLiteral("dito che scorre da '%1' e ci torna: alla pressione la voce si evidenzia (%2), appena il "
+                                 "dito si muove l'evidenziazione torna sul preset a schermo (%3), il rilascio non carica "
+                                 "(%4 clic)").arg(other->text(0)).arg(pressSelects).arg(backAtPress).arg(clicks));
+            focusOk(QStringLiteral("dito che scorre e torna sulla voce premuta"));
+            // Il dito che si ferma su un'altra voce: niente.
+            mouse(QEvent::MouseButtonPress, other);
+            for (int k = 1; k <= 6; ++k) moveTo(start + QPoint(0, -k * step * 2));
+            {
+                const QPoint end = start + QPoint(0, -12 * step);
+                QMouseEvent release(QEvent::MouseButtonRelease, end, tree->viewport()->mapToGlobal(end), Qt::LeftButton,
+                                    Qt::NoButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(tree->viewport(), &release);
+            }
+            wait(300);
+            check(clicks == 0, QStringLiteral("dito che scorre e si ferma su un'altra voce: nessun load (%1 clic)").arg(clicks));
+            focusOk(QStringLiteral("dito che scorre e si ferma altrove"));
+            // Il tap carica, come sempre.
+            m_discardOnPrompt = true;
+            mouse(QEvent::MouseButtonPress, other);
+            mouse(QEvent::MouseButtonRelease, other);
+            wait(1200);
+            check(clicks == 1 && other->isSelected() && tree->currentItem() == other,
+                  QStringLiteral("tap su '%1': carica e lo evidenzia (%2 clic)").arg(other->text(0)).arg(clicks));
+            QObject::disconnect(conn);
+            // Di nuovo il preset di prima, e l'albero com'era.
+            tree->setCurrentItem(leaf);
+            emit tree->itemClicked(leaf, 0);
+            wait(1200);
+            m_discardOnPrompt = false;
+            tree->setDragDropMode(dragMode);
+            tree->setSelectionMode(selMode);
+            tree->scrollToItem(folder);
+            // I load hanno riallineato l'albero delle texture: la texture
+            // evidenziata del test torna com'era (vedi sopra).
+            if (tex) ui->treeTextures->setCurrentItem(tex);
+            wait(200);
+            focusOk(QStringLiteral("di nuovo il preset di prima, albero come sul desktop"));
+        }
+    }
+
     doubleClick(folder);
     check(!folder->isExpanded(), QStringLiteral("doppio clic sulla cartella -> si chiude"));
     focusOk(QStringLiteral("cartella chiusa col doppio clic"));
