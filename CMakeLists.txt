@@ -56,20 +56,31 @@ endif()
 # Stessa guardia per i capitoli del manuale: documentation.html è ormai solo
 # l'INDICE, e ogni voce punta a un doc_*.html. Se uno di questi non finisce nel
 # .qrc la sua voce di indice apre una pagina vuota, senza alcun errore visibile.
-# La lista sta in update_resources.py (DOC_CHAPTERS): tenerle allineate.
-set(_doc_chapters
-    intro quickstart interface interaction projection dimensions equations
-    geodesic raymarching rendering audio animation scripting
-    library-management modular-controls acknowledgments)
-foreach(_chap IN LISTS _doc_chapters)
-    if(NOT _qrc_content MATCHES "doc_${_chap}\\.html")
+# I capitoli si LEGGONO dall'indice, come fa update_resources.py, invece di
+# stare in una lista a mano: quella di prima aveva perso "scenes" e nell'app il
+# capitolo 15 usciva vuoto senza che la build se ne accorgesse.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS docs/documentation.html)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/docs/documentation.html" _doc_index)
+string(REGEX MATCHALL "href=\"doc_[A-Za-z0-9_-]+\\.html\"" _doc_links "${_doc_index}")
+if(NOT _doc_links)
+    message(FATAL_ERROR
+        "docs/documentation.html non contiene link a doc_*.html: l'indice del "
+        "manuale e' cambiato forma e questa guardia non vede piu' i capitoli.")
+endif()
+foreach(_link IN LISTS _doc_links)
+    string(REGEX REPLACE "^href=\"(.*)\"$" "\\1" _page "${_link}")
+    string(FIND "${_qrc_content}" "<file>docs/${_page}</file>" _pos)
+    if(_pos EQUAL -1)
         message(FATAL_ERROR
-            "resources.qrc non contiene <file>doc_${_chap}.html</file>: la voce "
+            "resources.qrc non contiene <file>docs/${_page}</file>: la voce "
             "corrispondente nell'indice della documentazione aprirebbe una pagina "
             "vuota. Rigenera il .qrc con update_resources.py.")
     endif()
 endforeach()
-unset(_doc_chapters)
+unset(_doc_index)
+unset(_doc_links)
+unset(_page)
+unset(_pos)
 
 # I PRESET DI FABBRICA: l'app contiene solo i file ELENCATI in resources.qrc,
 # rcc non guarda la cartella. Un preset messo in presets/ e non elencato

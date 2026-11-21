@@ -111,9 +111,16 @@ application, where the viewer is a `QTextBrowser`. That engine ignores most CSS
 `bgcolor` tables, `<hr>` and inline `font-size`. See the comment at
 `mainwindow.cpp:1129`.
 
-Adding or removing a chapter also means updating `CMakeLists.txt`
-(`_doc_chapters`) and `update_resources.py` (`DOC_CHAPTERS`): both carry a guard
-that fails the build when a page is missing from the `.qrc`.
+The list of chapters is read from the links of `documentation.html`, by both
+`update_resources.py` (which puts every linked `doc_*.html` in the `.qrc`) and
+`CMakeLists.txt` (whose guard fails the build when a linked page is missing from
+the `.qrc`). To add a chapter, link it from the index and run
+`python3 update_resources.py`: there is no list to edit by hand.
+
+The navigation bar at the top of these pages on the site comes from
+`site-nav.js`: put `<script src="site-nav.js"></script>` right after `<body>`
+in every new page. The app does not run JavaScript, so the bar never shows in
+its manual; the script is not in the `.qrc`.
 
 ---
 
