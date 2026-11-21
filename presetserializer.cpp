@@ -557,6 +557,8 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     // attivo, cosi' il load sa cosa ripristinare.
     d.isImplicitMode = (mw->implicitMode());
     d.implicitEq = mw->m_scene.rm.equation;
+    // Lo spazio della Shape ("H3"), com'era nel file (ObjectState::space).
+    d.space = mw->m_scene.space;
     d.usesCrossSection = d.isImplicitMode && mw->crossSectionTab();
     d.crossSectionEq = mw->m_scene.rm.crossSection;
 

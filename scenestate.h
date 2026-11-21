@@ -85,6 +85,12 @@ struct ObjectState {
     // Numero di copie (campo Meshes del pannello Multi Mesh): un numero o
     // un'espressione con le costanti, come i limiti. "1" = una sola.
     QString meshCount = QStringLiteral("1");
+    // Lo spazio in cui la Shape e' definita, la chiave "space" del file: "H3"
+    // per le Shape gia' disegnate nella palla di Poincare' (una scena H3 le
+    // rifiuta, vedi MainWindow::sceneRefusesH3), vuoto per le euclidee. Viaggia
+    // con la Shape: la legge il load, la riscrive il Save (prima il Save la
+    // perdeva, e una Shape H3 risalvata entrava in H3 una seconda volta).
+    QString space;
 
     // Scelte
     bool implicitMode = false;          // Parametric / Implicit (vista: tabModeSelector)

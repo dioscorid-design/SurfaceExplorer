@@ -502,6 +502,7 @@ QStringList PresetRoundTrip::diffScene(const MainWindow::SceneState &want, const
     SE_CMP(textureLibName); SE_CMP(bgTextureLibName); SE_CMP(soundLibName);
     SE_CMP(tube.x); SE_CMP(tube.y); SE_CMP(tube.z); SE_CMP(tube.p); SE_CMP(tube.thickness);
     SE_CMP(meshCount);
+    SE_CMP(space);
 #undef SE_CMP
     cmpInt("surfaceTextureState", want.surfaceTextureState, got.surfaceTextureState);
     // Domini delle costanti, in ordine di lettera.
