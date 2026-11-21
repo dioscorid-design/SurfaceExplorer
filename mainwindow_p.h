@@ -93,8 +93,7 @@
 
 // Versione marketing iniettata dal build (project(... VERSION ...) nel
 // CMakeLists -> target_compile_definitions). La guardia serve alle build che
-// non passano la define, es. il vecchio SurfaceExplorer.pro (qmake): senza,
-// il dialogo About non compilerebbe.
+// non passano la define: senza, il dialogo About non compilerebbe.
 #ifndef APP_VERSION
 #define APP_VERSION "dev"
 #endif
