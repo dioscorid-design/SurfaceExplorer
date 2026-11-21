@@ -1,8 +1,11 @@
 #include "inputhandler.h"
 #include "glwidget.h"
 #include "surfaceengine.h"
+#include "cameradrive.h"
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
+#include <algorithm>
 #include <cmath>
 
 InputHandler::InputHandler(GLWidget* parentWidget)
@@ -11,9 +14,43 @@ InputHandler::InputHandler(GLWidget* parentWidget)
     m_isClickCandidate = false;
 }
 
+DriveControls* InputHandler::driveControls() const
+{
+    return m_glWidget->driveActive() ? m_glWidget->driveControls() : nullptr;
+}
+
+namespace {
+// LA CLOCHE DELLA GUIDA: lo scostamento in pixel dal punto premuto, in frazioni
+// del raggio (CameraDrive::kStickRadius), con una zona morta di 4 pixel al
+// centro (la mano non sta mai ferma del tutto) e il pieno oltre il raggio.
+float stickAxis(qreal pixels)
+{
+    constexpr float kDeadZone = 4.0f;
+    const float d = float(pixels);
+    if (std::abs(d) <= kDeadZone) return 0.0f;
+    const float v = (d - std::copysign(kDeadZone, d)) / (CameraDrive::kStickRadius - kDeadZone);
+    return std::clamp(v, -1.0f, 1.0f);
+}
+}
+
 void InputHandler::handleMousePress(QMouseEvent* event)
 {
     m_lastMousePos = event->pos();
+
+    // LA GUIDA LIBERA: il sinistro prende la cloche, il destro il rollio, dal
+    // punto premuto. Niente gesto della vista: la camera la muove la guida.
+    if (DriveControls* c = driveControls()) {
+        if (event->button() == Qt::LeftButton) {
+            c->stick = true;
+            c->stickX = c->stickY = 0.0f;
+            m_drivePress = event->position();
+        } else if (event->button() == Qt::RightButton) {
+            c->rollStick = true;
+            c->rollX = 0.0f;
+            m_driveRollPress = event->position();
+        }
+        return;
+    }
 
     // Inizio del gesto: solo il PRIMO tasto premuto lo apre (un secondo tasto
     // durante un trascinamento lo prosegue, non ne azzera l'esito).
@@ -31,6 +68,19 @@ void InputHandler::handleMousePress(QMouseEvent* event)
 
 void InputHandler::handleMouseRelease(QMouseEvent* event)
 {
+    // La guida: la cloche lasciata torna al centro.
+    if (DriveControls* c = driveControls()) {
+        if (event->button() == Qt::LeftButton) {
+            c->stick = false;
+            c->stickX = c->stickY = 0.0f;
+        } else if (event->button() == Qt::RightButton) {
+            c->rollStick = false;
+            c->rollX = 0.0f;
+        }
+        if (event->buttons() == Qt::NoButton) m_mouseGestureActive = false;
+        return;
+    }
+
     // Release ORFANO (il press non e' arrivato qui): non chiude nessun gesto
     // della vista. Senza questa guardia in 2D un m_isClickCandidate rimasto
     // vero dall'ultimo clic ruotava la texture di 90 gradi.
@@ -52,6 +102,18 @@ void InputHandler::handleMouseRelease(QMouseEvent* event)
 
 void InputHandler::handleMouseMove(QMouseEvent* event)
 {
+    // La guida: la cloche (sinistro) e il rollio (destro) seguono lo
+    // scostamento dal punto premuto.
+    if (DriveControls* c = driveControls()) {
+        if (c->stick) {
+            c->stickX = stickAxis(event->position().x() - m_drivePress.x());
+            c->stickY = stickAxis(event->position().y() - m_drivePress.y());
+        }
+        if (c->rollStick) c->rollX = stickAxis(event->position().x() - m_driveRollPress.x());
+        m_lastMousePos = event->pos();
+        return;
+    }
+
     int dx = event->position().x() - m_lastMousePos.x();
     int dy = event->position().y() - m_lastMousePos.y();
 
@@ -275,6 +337,15 @@ bool InputHandler::handleWheel(QWheelEvent* event)
     float delta = event->angleDelta().y();
     if (delta == 0) return false;
 
+    // La guida: la rotella e' l'acceleratore (uno scatto = 120). Non e' uno
+    // zoom: la vista mossa la segnala la guida (CameraDrive::userDrove). La
+    // coda d'inerzia del trackpad (ScrollMomentum, dopo aver alzato le dita)
+    // non conta: continuava ad accelerare da sola.
+    if (DriveControls* c = driveControls()) {
+        if (event->phase() != Qt::ScrollMomentum) c->wheelSteps += delta / 120.0f;
+        return false;
+    }
+
     // --- GESTIONE ZOOM 2D (TEXTURE) ---
     if (m_glWidget->isFlatView()) {
         float currentZoom = m_glWidget->getFlatZoom();
@@ -299,4 +370,49 @@ bool InputHandler::handleWheel(QWheelEvent* event)
         return true;
     }
     return false;
+}
+
+bool InputHandler::handleKey(QKeyEvent* event, bool pressed)
+{
+    DriveControls* c = driveControls();
+    if (!c) return false;
+    bool* key = nullptr;
+    switch (event->key()) {
+    case Qt::Key_W:     key = &c->throttleUp; break;
+    case Qt::Key_S:     key = &c->throttleDown; break;
+    case Qt::Key_A:
+    case Qt::Key_Left:  key = &c->yawLeft; break;
+    case Qt::Key_D:
+    case Qt::Key_Right: key = &c->yawRight; break;
+    case Qt::Key_Up:    key = &c->pitchUp; break;
+    case Qt::Key_Down:  key = &c->pitchDown; break;
+    case Qt::Key_Q:     key = &c->rollLeft; break;
+    case Qt::Key_E:     key = &c->rollRight; break;
+    case Qt::Key_R:     key = &c->liftUp; break;
+    case Qt::Key_F:     key = &c->liftDown; break;
+    case Qt::Key_X:     key = &c->wPlus; break;
+    case Qt::Key_Z:     key = &c->wMinus; break;
+    case Qt::Key_Space: key = &c->brake; break;
+    case Qt::Key_Shift: key = &c->boost; break;
+    case Qt::Key_Escape:
+        if (pressed && !event->isAutoRepeat()) m_glWidget->requestDriveExit();
+        return true;
+    // + e -: tutte le velocita' per due o a meta' (anche = per il + senza
+    // Maiuscole delle tastiere americane, e il tastierino).
+    case Qt::Key_Plus:
+    case Qt::Key_Equal:
+    case Qt::Key_Minus:
+        if (pressed && !event->isAutoRepeat()) {
+            const bool up = event->key() != Qt::Key_Minus;
+            c->speedScale = std::clamp(up ? c->speedScale * 2.0f : c->speedScale * 0.5f,
+                                       DriveControls::kMinSpeedScale, DriveControls::kMaxSpeedScale);
+        }
+        return true;
+    default:
+        return false;
+    }
+    // La ripetizione automatica (premuto/rilasciato a raffica, su macOS) non
+    // cambia lo stato: il tasto e' premuto finche' non si rilascia davvero.
+    if (!event->isAutoRepeat()) *key = pressed;
+    return true;
 }

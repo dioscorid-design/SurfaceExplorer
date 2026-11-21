@@ -1,4 +1,7 @@
 #include "glwidget.h"
+#include "cameradrive.h"
+#include <QKeyEvent>
+#include <QFocusEvent>
 #include "geometrybuilder.h"
 #include "inputhandler.h"
 #include "surfaceengine.h"
@@ -2145,8 +2148,17 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         // e a camDist=4 si riottengono esattamente i valori storici.
         float camDist = m_cameraPos.length();
         if (camDist < 0.1f) camDist = 4.0f;
-        const float nearPlane = camDist * 0.0025f;
-        const float farPlane  = camDist * 25.0f;
+        float nearPlane = camDist * 0.0025f;
+        float farPlane  = camDist * 25.0f;
+        // LA CAMERA DELLA GUIDA LIBERA va dappertutto, centro della scena
+        // compreso: li' il far qui sopra si stringeva a poche unita' e tagliava
+        // gli oggetti intorno. Il far copre la scena da qualunque punto
+        // (distanza dal centro piu' 4, la camera d'apertura), il near resta
+        // quello storico a 4 unita', piu' fine vicino al centro.
+        if (m_driveCamera) {
+            nearPlane = 0.0025f * std::clamp(camDist, 1.0f, 4.0f);
+            farPlane = (camDist + 4.0f) * 25.0f;
+        }
         if (projectionMode == Ortho4D) {
             float halfHeight = camDist * std::tan(effectiveCameraFov() * 0.5f * M_PI / 180.0f);
             float halfWidth = halfHeight * aspect;
@@ -2845,6 +2857,30 @@ void GLWidget::mouseReleaseEvent(QMouseEvent *event) {
 
     // Usiamo QRhiWidget invece di QOpenGLWidget
     return QRhiWidget::mouseReleaseEvent(event);
+}
+
+void GLWidget::keyPressEvent(QKeyEvent *event)
+{
+    if (m_inputHandler && m_inputHandler->handleKey(event, true)) {
+        event->accept();
+        return;
+    }
+    QRhiWidget::keyPressEvent(event);
+}
+
+void GLWidget::keyReleaseEvent(QKeyEvent *event)
+{
+    if (m_inputHandler && m_inputHandler->handleKey(event, false)) {
+        event->accept();
+        return;
+    }
+    QRhiWidget::keyReleaseEvent(event);
+}
+
+void GLWidget::focusOutEvent(QFocusEvent *event)
+{
+    if (m_driveControls) m_driveControls->releaseAll();
+    QRhiWidget::focusOutEvent(event);
 }
 
 
@@ -5823,6 +5859,14 @@ void GLWidget::setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &t
 // crescono come e^d, e lo sfondo, in float, degenera sul bordo della palla (a 6
 // il raggio nella palla e' tanh 3 = 0.995).
 static constexpr double kH3MaxCameraDistance = 6.0;
+
+double GLWidget::maxHyperbolicCameraDistance() { return kH3MaxCameraDistance; }
+
+void GLWidget::setDriveHyperbolicCamera(const H3::Matrix &camera)
+{
+    m_h3Camera = H3::renormalized(camera);
+    update();
+}
 
 void GLWidget::setHyperbolicSpace(bool on)
 {

@@ -23,6 +23,7 @@ void MainWindow::performMasterStop()
     // tornerebbe a center view al primo render (es. resize/fullscreen).
     if (pathRunning(CameraPaths::Path4D)) onDepartureClicked();
     if (pathRunning(CameraPaths::Path3D)) onDeparture3DClicked();
+    if (driveRunning()) stopDrive();
     if (ui->glWidget) ui->glWidget->setPathAnimating(false);
     updateViewButtonsEnabled();
 
@@ -200,6 +201,7 @@ void MainWindow::applyStartSideEffects()
             if (gl->isObjectRotating(0)) return;
             if (gl->selectedObject() == 0) { onStopClicked(); return; }
             stopPathAnimations();   // esclusive coi path, come il GO
+            releaseDriveCamera();   // e con la guida libera
             gl->setObjectRotating(0, true);
             m_scene.lastCameraMotion = "rotation";
             refreshPathReshapeButtons();   // la camera non e' piu' di un path
@@ -209,7 +211,10 @@ void MainWindow::applyStartSideEffects()
         if (pick == "path4D" && !hasPath4D) pick.clear();
         if (pick == "path3D" && !hasPath3D) pick.clear();
 
-        if (pick == "rotation") {
+        if (driveOwnsCamera()) {
+            // La camera e' della guida libera: riparte lei.
+            if (!driveRunning()) startDrive();
+        } else if (pick == "rotation") {
             startEnvironmentRotation();
         } else if (pick == "path4D") {
             if (!pathRunning(CameraPaths::Path4D)) onDepartureClicked();
@@ -1764,6 +1769,7 @@ void MainWindow::onStopClicked() {
 
         // Mutua esclusivita': avviando GO fermiamo i due percorsi camera.
         if (cameraMotion) stopPathAnimations();
+        if (cameraMotion) releaseDriveCamera();
 
         ui->glWidget->resumeMotion();
         if (cameraMotion) {
@@ -1887,6 +1893,11 @@ MainWindow::MasterActivity MainWindow::masterActivity() const
         // Il path dell'oggetto selezionato (dock Objects).
         a.objectPathAvailable = gl->objectHasPath(gl->selectedObject());
         a.objectPathRunning = gl->isObjectPathRunning(gl->selectedObject());
+    }
+    // LA GUIDA LIBERA (2.1): quando ha la camera, il moto della camera e' lei.
+    if (driveOwnsCamera()) {
+        a.cameraAvailable = true;
+        a.cameraRunning = driveRunning();
     }
 
     // SUONO: START suona sceneAudioSource(), che e' il testo in cui CERCARE le

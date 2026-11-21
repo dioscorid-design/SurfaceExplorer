@@ -18,6 +18,7 @@
 #include "glwidget.h"
 #include "scenestate.h"
 #include "camerapaths.h"
+class CameraDrive;
 #include "pathreshape.h"
 #include "texturecode.h"
 #include "libraryfolders.h"
@@ -1143,6 +1144,29 @@ private:
     // (EXC_BAD_ACCESS in QBindingStorage::registerDependency).
     CameraPaths *m_paths = nullptr;
     bool pathRunning(CameraPaths::Path p) const { return m_paths && m_paths->isRunning(p); }
+
+    // LA GUIDA LIBERA (2.1, cameradrive.h, mainwindow_drive.cpp). Il tasto
+    // DRIVE nella barra di stato, accanto a Perspective, la accende e la
+    // spegne (anche Esc sulla vista, e il master STOP). E' il terzo moto della
+    // camera dell'ambiente, esclusivo col path e con le rotazioni
+    // dell'ambiente: accenderla li ferma (in una scena gli altri oggetti
+    // continuano), e un Departure o un GO dell'ambiente la congedano col suo
+    // volo (releaseDriveCamera), come una scena nuova. Spenta tiene la camera
+    // come un path fermo: il cursore T e il RESET muovono il volo registrato.
+    CameraDrive *m_drive = nullptr;
+    QPushButton *m_btnDrive = nullptr;
+    QLabel *m_driveHud = nullptr;       // l'indicatore sulla vista (non entra nei video)
+    bool driveRunning() const;
+    bool driveOwnsCamera() const;
+    void setupDrive();
+    void onDriveClicked();
+    void startDrive();
+    void stopDrive();
+    void releaseDriveCamera();
+    void refreshDriveButton();
+    void refreshDriveHud();
+    // Verso W si va dove vanno i tasti P+/P- del dock 4D.
+    bool driveMovesW() const;
 
     // LA TRAIETTORIA DEI PATH DELLA CAMERA MODELLATA COL MOUSE (pathreshape.h).
     // Col tasto MOUSE: PATH (seconda riga dei dock dei path, accanto a RESET),

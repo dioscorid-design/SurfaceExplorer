@@ -1479,6 +1479,15 @@ void MainWindow::setupStatusBar()
     m_btnProjection->setFont(fontBold);
     connect(m_btnProjection, &QPushButton::clicked, this, &MainWindow::toggleProjection);
 
+    // 2.1: LA GUIDA LIBERA, accanto a Perspective (setupDrive la collega). Per
+    // ora tastiera e mouse: sui dispositivi a tocco non c'e'.
+    m_btnDrive = new QPushButton("DRIVE", this);
+    m_btnDrive->setFlat(true);
+    m_btnDrive->setFont(fontBold);
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    m_btnDrive->setVisible(false);
+#endif
+
     m_btnRec = new QPushButton("REC", this);
     m_btnRec->setFlat(true);
     m_btnRec->setFont(fontBold);
@@ -1498,6 +1507,7 @@ void MainWindow::setupStatusBar()
     ui->statusbar->addWidget(m_btnNew);
     ui->statusbar->addWidget(m_btnResetView);
     ui->statusbar->addWidget(m_btnProjection);
+    ui->statusbar->addWidget(m_btnDrive);
     // 2.0: lo spazio della scena, sempre occupato: il tasto Scene o, a scena
     // avviata, 3D/4D, selettore e T (refreshSceneSlot).
     m_btnScene = new QPushButton("Scene", this);

@@ -336,6 +336,8 @@ private:
     void runDisabledLookScenarios();
     void runScenePathScenarios();
     void runSceneSeekScenarios();
+    // La guida libera (2.1, scenariotest_drive.cpp).
+    void runDriveScenarios();
     // 2.0: la traiettoria del path della camera modellata col mouse (rotazione,
     // Maiuscole verso W, spostamento, rotella, RESET, REC, oggetto
     // selezionato). Da sola: --scenario-only path-reshape.

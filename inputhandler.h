@@ -10,6 +10,8 @@ class QMouseEvent;
 class QTouchEvent;
 class QWheelEvent;
 class QEvent;
+class QKeyEvent;
+struct DriveControls;
 
 class InputHandler : public QObject
 {
@@ -27,6 +29,10 @@ public:
     // niente da segnalare con userMovedView().
     bool handleWheel(QWheelEvent* event);
     bool handleTouch(QEvent* event);
+    // I TASTI DELLA GUIDA LIBERA (GLWidget::driveActive): true = il tasto e'
+    // suo (anche la ripetizione automatica, che non cambia nulla), e non va
+    // oltre. Fuori dalla guida la tastiera non tocca la vista.
+    bool handleKey(QKeyEvent* event, bool pressed);
     // true = il gesto del mouse appena concluso ha davvero MOSSO la vista
     // (rotazione oltre la deadzone, rotazione o pan 2D). Gemello di
     // takeTouchMovedView. Vale solo per un gesto INIZIATO sulla vista: un
@@ -46,7 +52,13 @@ public:
     bool takeTouchMovedView() { bool v = m_touchMovedView; m_touchMovedView = false; return v; }
 
 private:
+    // I comandi della guida, se e' accesa (GLWidget::driveActive).
+    DriveControls* driveControls() const;
+
     GLWidget* m_glWidget;
+    // La guida: dove sono stati premuti il sinistro (cloche) e il destro (rollio).
+    QPointF m_drivePress;
+    QPointF m_driveRollPress;
 
     // Stato Mouse
     QPoint m_lastMousePos;

@@ -142,6 +142,7 @@ qt_add_executable(SurfaceExplorer
     mainwindow_equations.cpp
     mainwindow_run.cpp
     mainwindow_motion.cpp
+    mainwindow_drive.cpp
     mainwindow_texture.cpp
     mainwindow_render.cpp
     mainwindow_script.cpp
@@ -154,6 +155,8 @@ qt_add_executable(SurfaceExplorer
     docsearch.h
     camerapaths.cpp
     camerapaths.h
+    cameradrive.cpp
+    cameradrive.h
     pathreshape.cpp
     pathreshape.h
     texturecode.cpp
@@ -573,6 +576,7 @@ if((CMAKE_BUILD_TYPE STREQUAL "Debug" OR SE_SELF_TESTS) AND NOT ANDROID AND NOT 
         clocktest.cpp
         scenariotest.h
         scenariotest.cpp
+        scenariotest_drive.cpp
         imagetest.h
         imagetest.cpp
         testactivity.h

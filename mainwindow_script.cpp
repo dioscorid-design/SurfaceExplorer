@@ -28,8 +28,11 @@ void MainWindow::setupScriptDock()
             ui->alphaSlider->setEnabled(true);
         }
 
+        // La vista 2D e' della texture: la guida libera si spegne.
+        if (checked && driveRunning()) stopDrive();
         ui->glWidget->setFlatView(checked);
         ui->glWidget->update();
+        refreshDriveButton();
     });
 
     updateFlatPreviewButton();

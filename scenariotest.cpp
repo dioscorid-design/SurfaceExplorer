@@ -2260,6 +2260,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("drive")) {
+        runDriveScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-reset")) {
         runSceneResetScenarios();
         finish();
@@ -4131,6 +4136,7 @@ void ScenarioTest::run()
     runDisabledLookScenarios();
     runScenePathScenarios();
     runSceneSeekScenarios();
+    runDriveScenarios();
     runPathReshapeScenarios();
     runPathUpScenarios();
     runObjectDragScenarios();

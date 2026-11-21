@@ -19,6 +19,7 @@
 #include "glsltranslator.h"
 #include "videorecorder.h"
 #include "statusbarscroller.h"
+#include "cameradrive.h"
 #include "librarymenucontroller.h"
 #include "presetserializer.h"
 #include "libraryfileoperations.h"

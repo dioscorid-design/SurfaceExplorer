@@ -23,6 +23,7 @@
 #include <QHash>
 
 class InputHandler;
+struct DriveControls;
 class SurfaceEngine;
 
 struct UboData {
@@ -1308,6 +1309,30 @@ public:
     bool pathReshapeActive() const { return m_pathReshapeGate && m_pathReshapeGate(); }
     // dx, dy: pixel del trascinamento; per la rotella dy e' il suo angleDelta.
     void requestPathReshape(PathReshapeGesture gesture, float dx, float dy) { emit pathReshapeRequested(gesture, dx, dy); }
+
+    // LA GUIDA LIBERA (2.1, cameradrive.h). A DRIVE acceso (il cancello, che
+    // decide MainWindow) InputHandler scrive i comandi del mouse e dei tasti in
+    // `controls`, invece di girare la scena; CameraDrive li legge a ogni passo.
+    // Esc chiede di spegnerla (driveExitRequested).
+    void setDriveControls(DriveControls *controls, std::function<bool()> gate)
+    {
+        m_driveControls = controls;
+        m_driveGate = std::move(gate);
+    }
+    bool driveActive() const { return m_driveControls && m_driveGate && m_driveGate(); }
+    DriveControls *driveControls() const { return m_driveControls; }
+    void requestDriveExit() { emit driveExitRequested(); }
+    // La camera e' della guida: i piani near/far non seguono piu' la sola
+    // distanza dal centro della scena (render), che volando vicino al centro
+    // stringeva il far fino a tagliare gli oggetti a qualche unita'.
+    void setDriveCamera(bool on) { if (m_driveCamera != on) { m_driveCamera = on; update(); } }
+    // La camera di H3 scritta dalla guida (non e' quella d'apertura, che resta).
+    void setDriveHyperbolicCamera(const H3::Matrix &camera);
+    // Oltre questa distanza dal centro (in raggi) la camera di H3 non va.
+    static double maxHyperbolicCameraDistance();
+    // La W dell'osservatore 4D (e della camera 4D, che fuori dal path 4D
+    // coincide), come i tasti P+/P-: va nell'UBO, la mesh non cambia.
+    void setObserverW(float w) { m_observerPos.setW(w); m_cameraPos4D.setW(w); update(); }
     // La camera libera euclidea (posizione, yaw, pitch, roll) e il suo
     // riferimento, nei due versi. La camera libera non arriva dappertutto: il
     // suo alto e' (-sin roll, cos roll, 0), nel piano xy, quindi guardando in
@@ -1856,6 +1881,8 @@ signals:
     // AUTOMATICO (advanceRotationsBy) e quindi non distingue chi ha mosso cosa.
     // MainWindow lo usa per marcare il lavoro non salvato.
     void userMovedView();
+    // Esc a DRIVE acceso (InputHandler): MainWindow spegne la guida.
+    void driveExitRequested();
     // Un gesto del mouse sulla traiettoria del path (PathReshapeGesture, vedi
     // requestPathReshape).
     void pathReshapeRequested(int gesture, float dx, float dy);
@@ -1905,6 +1932,12 @@ protected:
     void wheelEvent(QWheelEvent *event) override;
     bool event(QEvent *e) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    // I tasti della guida (InputHandler::handleKey); gli altri proseguono. Il
+    // focus perso li rilascia tutti: un tasto lasciato fuori dalla vista
+    // resterebbe premuto per sempre.
+    void keyPressEvent(QKeyEvent *event) override;
+    void keyReleaseEvent(QKeyEvent *event) override;
+    void focusOutEvent(QFocusEvent *event) override;
 
 public slots:
     void rebuildBackgroundShader(bool isTextureMode, const QString &customCode = "");
@@ -2464,6 +2497,10 @@ private:
                                      float rollDeg);
     // Chi permette di modellare la traiettoria col mouse: vedi setPathReshapeGate.
     std::function<bool()> m_pathReshapeGate;
+    // La guida libera: i comandi, chi li accende, e se la camera e' sua (vedi setDriveControls).
+    DriveControls *m_driveControls = nullptr;
+    std::function<bool()> m_driveGate;
+    bool m_driveCamera = false;
     // Un riferimento della camera (cameraPlacement) come camera di H3, col
     // raggio di adesso, entro la distanza massima dal centro.
     H3::Matrix hyperbolicCameraFromPlacement(const QMatrix4x4 &placement) const;

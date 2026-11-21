@@ -328,6 +328,9 @@ void MainWindow::advanceSceneBy(double dt, bool selectedGeoFlow)
         m_paths->advance(p, float(dt * 1000.0 / std::max(1, m_paths->interval(p))));
         break;   // uno solo: i due path sono esclusivi
     }
+    // La guida libera, esclusiva coi path: lo stesso passo del tick dal vivo
+    // (CameraDrive::advance), senza comandi.
+    if (driveRunning()) m_drive->advance(dt, /*live=*/false);
     // Rotazioni: lo stesso predicato del tick live (rotationTimer in corsa e
     // almeno un GO acceso) e la stessa cinematica (advanceRotationsBy, ogni
     // oggetto col suo GO). FUORI dalla catena dei path: in una scena gli
@@ -348,6 +351,13 @@ void MainWindow::seekSceneTime(float target)
     std::optional<CameraPaths::Path> path = cameraPath();
     if (!gl || m_isRecording) return;
     target = std::max(0.0f, target);
+    // La camera della guida libera: il volo registrato al tempo T.
+    if (driveOwnsCamera()) {
+        m_drive->seekTo(target);
+        m_sceneTimeReached = std::max(m_sceneTimeReached, target);
+        refreshSceneTimeLabel();
+        return;
+    }
     // Path e rotazioni dell'ambiente si escludono: il cursore muove quello che ha
     // la camera. Un path scritto e fermo con il GO acceso (cameraPath() lo
     // restituisce lo stesso, e' l'ultimo moto avviato) non conta: muove la rotazione.
@@ -415,7 +425,7 @@ void MainWindow::refreshSceneTimeSlider()
     m_sceneTimeReached = std::max(m_sceneTimeReached, t);
     // Il cursore muove il moto della camera dell'ambiente: un path, o le sue
     // rotazioni (anche a GO spento).
-    m_sceneTimeSlider->setEnabled((cameraPath().has_value() || gl->objectHasRotationSpeed(0))
+    m_sceneTimeSlider->setEnabled((cameraPath().has_value() || gl->objectHasRotationSpeed(0) || driveOwnsCamera())
                                   && !m_isRecording);
     // Le finestre contano su T: senza un moto della camera T non corre.
     // Un oggetto fisso e' sempre in scena: niente finestra.
@@ -729,6 +739,9 @@ void MainWindow::switchSceneSpace(SceneSpace space)
         }
         stopEnvironment4DMotions();
     }
+    // Il volo della guida libera e' scritto nello spazio di prima: la camera
+    // resta dov'e' (la porta carryCameraTo), il volo no.
+    releaseDriveCamera();
     // La camera di adesso e quella d'apertura, nello spazio di partenza (in R3
     // quella esatta, se la Framing libera non la sapeva dire).
     const QMatrix4x4 camera = gl->cameraPlacement();
@@ -1235,6 +1248,8 @@ void MainWindow::resetToSingleObject()
 {
     GLWidget *gl = ui->glWidget;
     if (m_loadingAsObject) return;
+    // Una scena nuova: il volo della guida libera era di quella di prima.
+    releaseDriveCamera();
     setSceneSpace(SceneSpace::None);
     if (gl->objectCount() <= 1) return;
     selectSceneObject(0);
@@ -2167,7 +2182,7 @@ void MainWindow::refreshPathControls()
 bool MainWindow::sceneTimeCanRun() const
 {
     return hasPath4DInput() || hasPath3DInput()
-           || (ui->glWidget && ui->glWidget->objectHasRotationSpeed(0));
+           || (ui->glWidget && ui->glWidget->objectHasRotationSpeed(0)) || driveOwnsCamera();
 }
 
 void MainWindow::refreshSceneSlot()

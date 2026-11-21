@@ -74,6 +74,8 @@ void MainWindow::setupMotionDocks()
     });
     // Il mouse sulla traiettoria a path in corsa, e i RESET accanto ai Departure.
     setupPathReshape();
+    // La guida libera (2.1, mainwindow_drive.cpp).
+    setupDrive();
 
     m_scene.pathViewMode4D = ModeTangential;
     m_scene.pathViewMode3D = ModeTangential;
@@ -320,6 +322,14 @@ void MainWindow::onResetClicked()
         resetSelectedObject();
         return;
     }
+    // LA CAMERA E' DELLA GUIDA LIBERA (2.1), accesa o spenta: come col path
+    // qui sotto, i moti senza domande, e la camera all'inizio del volo
+    // (resetMotions). Prima della scena vuota: un volo in una scena senza
+    // oggetti ha comunque da dove ripartire.
+    if (driveOwnsCamera()) {
+        resetMotions(std::nullopt);
+        return;
+    }
     // SCENA VUOTA DI NEW: niente da rimettere, e lo si dice come START e
     // Projection (prima non succedeva nulla, senza una parola). Resta il
     // RESET di uno sfondo che si muove: animato (Motions ne azzera
@@ -414,6 +424,9 @@ std::optional<CameraPaths::Path> MainWindow::cameraPath() const
 {
     if (pathRunning(CameraPaths::Path4D)) return CameraPaths::Path4D;
     if (pathRunning(CameraPaths::Path3D)) return CameraPaths::Path3D;
+    // La camera della guida libera non e' di un path, anche quando la sua posa
+    // passa dalla modalita' path di GLWidget (isPathFollowing).
+    if (driveOwnsCamera()) return std::nullopt;
     if (!ui->glWidget || !ui->glWidget->isPathFollowing()) return std::nullopt;
     if (m_scene.lastCameraMotion == QLatin1String("path4D")) return CameraPaths::Path4D;
     if (m_scene.lastCameraMotion == QLatin1String("path3D")) return CameraPaths::Path3D;
@@ -576,6 +589,8 @@ void MainWindow::resetMotions(std::optional<CameraPaths::Path> camPath)
     // restano come sono.
     ui->glWidget->resetAllClocks();
     ui->glWidget->setSceneTime(0.0f);   // la timeline da capo
+    // La guida libera: la camera all'inizio del volo registrato.
+    if (driveOwnsCamera()) m_drive->applyAt(0.0f);
     m_geoTime = 0.0;
 
     // Le animazioni in t leggono l'orologio nello shader al prossimo frame; il
@@ -1218,6 +1233,9 @@ void MainWindow::onDepartureClicked()
     if (!compilePath4DFromFields()) {
         return; // Errore matematico o di compilazione: niente avvio
     }
+    // Il path prende la camera: la guida libera e il suo volo se ne vanno
+    // (dopo la compilazione: un path che non parte non costa il volo).
+    releaseDriveCamera();
     // Equazioni cambiate da fermo: un salto, la camera prende l'alto della
     // traiettoria nuova. Le stesse di prima: si riparte continui.
     if (m_compiledPath4D != compiledBefore) ui->glWidget->markPathUpJump();
@@ -1322,6 +1340,8 @@ void MainWindow::onDeparture3DClicked()
     if (!compilePath3DFromFields()) {
         return; // Errore matematico o di compilazione: niente avvio
     }
+    // Come nel path 4D: la guida libera se ne va a path compilato.
+    releaseDriveCamera();
 
     if (handoffFrom4D && ui->glWidget) ui->glWidget->beginPathHandoff();
 
@@ -1402,7 +1422,7 @@ void MainWindow::updateViewButtonsEnabled()
     // path (in coppia con setPathAnimating), quindi resta sempre sincronizzato.
     // I comandi mouse 3D (rotazione/zoom) sono bloccati a parte in InputHandler
     // via GLWidget::isPathAnimating().
-    setNavControlsEnabled(!(path4D || path3D));
+    setNavControlsEnabled(!(path4D || path3D || driveRunning()));
     // Il RESET della traiettoria modellata col mouse, nella riga del Departure.
     refreshPathReshapeButtons();
 }
