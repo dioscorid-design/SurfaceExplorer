@@ -21,15 +21,28 @@ DriveControls* InputHandler::driveControls() const
 
 namespace {
 // LA CLOCHE DELLA GUIDA: lo scostamento in pixel dal punto premuto, in frazioni
-// del raggio (CameraDrive::kStickRadius), con una zona morta di 4 pixel al
-// centro (la mano non sta mai ferma del tutto) e il pieno oltre il raggio.
-float stickAxis(qreal pixels)
+// del raggio (CameraDrive::kStickRadius, o kTouchStickRadius per gli stick a
+// tocco), con una zona morta di 4 pixel al centro (la mano non sta mai ferma
+// del tutto) e il pieno oltre il raggio.
+float stickAxis(qreal pixels, float radius = CameraDrive::kStickRadius)
 {
     constexpr float kDeadZone = 4.0f;
     const float d = float(pixels);
     if (std::abs(d) <= kDeadZone) return 0.0f;
-    const float v = (d - std::copysign(kDeadZone, d)) / (CameraDrive::kStickRadius - kDeadZone);
+    const float v = (d - std::copysign(kDeadZone, d)) / (radius - kDeadZone);
     return std::clamp(v, -1.0f, 1.0f);
+}
+
+// Il comando tenuto da un tastino a tocco.
+bool *touchButtonControl(DriveControls *c, int button)
+{
+    switch (button) {
+    case CameraDrive::TouchLiftUp:   return &c->liftUp;
+    case CameraDrive::TouchLiftDown: return &c->liftDown;
+    case CameraDrive::TouchWPlus:    return &c->wPlus;
+    case CameraDrive::TouchWMinus:   return &c->wMinus;
+    default:                         return nullptr;
+    }
 }
 }
 
@@ -209,6 +222,17 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
 
 bool InputHandler::handleTouch(QEvent* e)
 {
+    // LA GUIDA A TOCCO: le dita sono stick e tastini, la scena non gira.
+    if (DriveControls* c = driveControls()) {
+        if (e->type() == QEvent::TouchCancel) {
+            releaseDriveTouches(c);
+            return true;
+        }
+        if (e->type() == QEvent::TouchBegin || e->type() == QEvent::TouchUpdate || e->type() == QEvent::TouchEnd) {
+            handleDriveTouch(static_cast<QTouchEvent*>(e), c);
+            return true;
+        }
+    }
     if (e->type() != QEvent::TouchBegin &&
         e->type() != QEvent::TouchUpdate &&
         e->type() != QEvent::TouchEnd) {
@@ -415,4 +439,91 @@ bool InputHandler::handleKey(QKeyEvent* event, bool pressed)
     // cambia lo stato: il tasto e' premuto finche' non si rilascia davvero.
     if (!event->isAutoRepeat()) *key = pressed;
     return true;
+}
+
+void InputHandler::releaseDriveTouches(DriveControls* c)
+{
+    for (auto it = m_driveTouches.constBegin(); it != m_driveTouches.constEnd(); ++it)
+        if (bool* held = touchButtonControl(c, it->role - kDriveButton)) *held = false;
+    m_driveTouches.clear();
+    c->touchLeft = c->touchRight = false;
+    c->touchLeftX = c->touchLeftY = c->touchRightX = c->touchRightY = 0.0f;
+}
+
+void InputHandler::handleDriveTouch(QTouchEvent* event, DriveControls* c)
+{
+    if (!m_driveTouchClock.isValid()) m_driveTouchClock.start();
+    const qint64 now = m_driveTouchClock.elapsed();
+    const QSizeF view = m_glWidget->size();
+    // Un tocco breve e fermo; due a poca distanza di tempo e di spazio sono il
+    // doppio tocco che frena.
+    constexpr qint64 kTapMs = 250, kDoubleTapMs = 350;
+    constexpr qreal kTapMove = 12.0, kDoubleTapDistance = 50.0;
+    for (const QEventPoint &p : event->points()) {
+        const int id = p.id();
+        const QPointF pos = p.position();
+        if (p.state() == QEventPoint::Pressed) {
+            DriveTouch t;
+            t.pressPos = pos;
+            t.pressMs = now;
+            const int button = CameraDrive::touchButtonAt(pos, view, m_glWidget->driveTouchButtons());
+            bool taken = false;
+            for (const DriveTouch &other : std::as_const(m_driveTouches)) {
+                if (other.role == (pos.x() < view.width() / 2.0 ? kDriveLeft : kDriveRight)) taken = true;
+            }
+            if (button >= 0) {
+                t.role = kDriveButton + button;
+                if (bool* held = touchButtonControl(c, button)) *held = true;
+            } else if (!taken && pos.x() < view.width() / 2.0) {
+                t.role = kDriveLeft;
+                c->touchLeft = true;
+                c->touchLeftOrigin = pos;
+                c->touchLeftX = c->touchLeftY = 0.0f;
+            } else if (!taken) {
+                t.role = kDriveRight;
+                c->touchRight = true;
+                c->touchRightOrigin = pos;
+                c->touchRightX = c->touchRightY = 0.0f;
+            }
+            // Il secondo tocco di un doppio tocco (sugli stick, non sui tastini).
+            if (button < 0 && m_driveLastTapMs >= 0 && now - m_driveLastTapMs < kDoubleTapMs
+                && QLineF(pos, m_driveLastTapPos).length() < kDoubleTapDistance) {
+                c->brakeTap = true;
+                m_driveLastTapMs = -1;
+            }
+            m_driveTouches.insert(id, t);
+            continue;
+        }
+        auto it = m_driveTouches.find(id);
+        if (it == m_driveTouches.end()) continue;
+        DriveTouch &t = it.value();
+        if (QLineF(pos, t.pressPos).length() > kTapMove) t.moved = true;
+        if (p.state() == QEventPoint::Released) {
+            if (t.role == kDriveLeft) {
+                c->touchLeft = false;
+                c->touchLeftX = c->touchLeftY = 0.0f;
+            } else if (t.role == kDriveRight) {
+                c->touchRight = false;
+                c->touchRightX = c->touchRightY = 0.0f;
+            } else if (bool* held = touchButtonControl(c, t.role - kDriveButton)) {
+                *held = false;
+            }
+            if ((t.role == kDriveLeft || t.role == kDriveRight) && !t.moved && now - t.pressMs < kTapMs) {
+                m_driveLastTapMs = now;
+                m_driveLastTapPos = pos;
+            }
+            m_driveTouches.erase(it);
+            continue;
+        }
+        // Il dito si muove: lo stick segue lo scostamento dal punto d'appoggio.
+        if (t.role == kDriveLeft) {
+            c->touchLeftX = stickAxis(pos.x() - t.pressPos.x(), CameraDrive::kTouchStickRadius);
+            c->touchLeftY = stickAxis(pos.y() - t.pressPos.y(), CameraDrive::kTouchStickRadius);
+        } else if (t.role == kDriveRight) {
+            c->touchRightX = stickAxis(pos.x() - t.pressPos.x(), CameraDrive::kTouchStickRadius);
+            c->touchRightY = stickAxis(pos.y() - t.pressPos.y(), CameraDrive::kTouchStickRadius);
+        }
+    }
+    // Fine del tocco: nessun dito resta, qualunque cosa abbia perso l'evento.
+    if (event->type() == QEvent::TouchEnd) releaseDriveTouches(c);
 }

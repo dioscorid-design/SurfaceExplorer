@@ -4,12 +4,15 @@
 #include <QObject>
 #include <QPoint>
 #include <QPointF>
+#include <QElapsedTimer>
+#include <QHash>
 
 class GLWidget;
 class QMouseEvent;
 class QTouchEvent;
 class QWheelEvent;
 class QEvent;
+class QTouchEvent;
 class QKeyEvent;
 struct DriveControls;
 
@@ -54,11 +57,29 @@ public:
 private:
     // I comandi della guida, se e' accesa (GLWidget::driveActive).
     DriveControls* driveControls() const;
+    // IL TOCCO DELLA GUIDA: gli stick, i tastini e il doppio tocco
+    // (DriveControls). Ogni dito ha il suo ruolo dal momento in cui si appoggia.
+    void handleDriveTouch(QTouchEvent* event, DriveControls* c);
+    void releaseDriveTouches(DriveControls* c);
 
     GLWidget* m_glWidget;
     // La guida: dove sono stati premuti il sinistro (cloche) e il destro (rollio).
     QPointF m_drivePress;
     QPointF m_driveRollPress;
+    // Le dita sulla vista a guida accesa: che cosa comanda ciascuna (stick
+    // sinistro, destro, o un tastino), dove si e' appoggiata e quando, e se si
+    // e' mossa (un tocco breve e fermo conta per il doppio tocco).
+    struct DriveTouch {
+        int role = -1;          // kDriveLeft, kDriveRight, o kDriveButton + tastino
+        QPointF pressPos;
+        qint64 pressMs = 0;
+        bool moved = false;
+    };
+    static constexpr int kDriveLeft = 0, kDriveRight = 1, kDriveButton = 10;
+    QHash<int, DriveTouch> m_driveTouches;
+    QElapsedTimer m_driveTouchClock;
+    qint64 m_driveLastTapMs = -1;
+    QPointF m_driveLastTapPos;
 
     // Stato Mouse
     QPoint m_lastMousePos;

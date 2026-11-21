@@ -1479,14 +1479,11 @@ void MainWindow::setupStatusBar()
     m_btnProjection->setFont(fontBold);
     connect(m_btnProjection, &QPushButton::clicked, this, &MainWindow::toggleProjection);
 
-    // 2.1: LA GUIDA LIBERA, accanto a Perspective (setupDrive la collega). Per
-    // ora tastiera e mouse: sui dispositivi a tocco non c'e'.
+    // 2.1: LA GUIDA LIBERA, accanto a Perspective (setupDrive la collega):
+    // tastiera e mouse, e sui dispositivi a tocco gli stick sulla vista.
     m_btnDrive = new QPushButton("DRIVE", this);
     m_btnDrive->setFlat(true);
     m_btnDrive->setFont(fontBold);
-#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
-    m_btnDrive->setVisible(false);
-#endif
 
     m_btnRec = new QPushButton("REC", this);
     m_btnRec->setFlat(true);

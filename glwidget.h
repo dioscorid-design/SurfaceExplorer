@@ -1322,6 +1322,12 @@ public:
     bool driveActive() const { return m_driveControls && m_driveGate && m_driveGate(); }
     DriveControls *driveControls() const { return m_driveControls; }
     void requestDriveExit() { emit driveExitRequested(); }
+    // I TASTINI A TOCCO della guida sulla vista (CameraDrive::touchButtonRect):
+    // quanti ce ne sono (0 = nessuno, 2 su e giu', 4 anche W). Li disegna
+    // MainWindow; il tocco li trova qui (InputHandler), perche' su iOS un widget
+    // figlio della vista il tocco non lo riceve.
+    void setDriveTouchButtons(int count) { m_driveTouchButtons = count; }
+    int driveTouchButtons() const { return m_driveTouchButtons; }
     // La camera e' della guida: i piani near/far non seguono piu' la sola
     // distanza dal centro della scena (render), che volando vicino al centro
     // stringeva il far fino a tagliare gli oggetti a qualche unita'.
@@ -2501,6 +2507,7 @@ private:
     DriveControls *m_driveControls = nullptr;
     std::function<bool()> m_driveGate;
     bool m_driveCamera = false;
+    int m_driveTouchButtons = 0;
     // Un riferimento della camera (cameraPlacement) come camera di H3, col
     // raggio di adesso, entro la distanza massima dal centro.
     H3::Matrix hyperbolicCameraFromPlacement(const QMatrix4x4 &placement) const;

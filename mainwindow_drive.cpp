@@ -6,9 +6,80 @@
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
 
+#include <QPainter>
+
+namespace {
+// GLI STICK E I TASTINI DELLA GUIDA A TOCCO, disegnati sopra la vista: figlio
+// del GLWidget come l'indicatore (fuori dai video, che si compongono
+// offscreen). Il tocco non lo riceve (su iOS un widget figlio della vista non
+// lo riceverebbe comunque): lo gestisce InputHandler sulla vista, con le stesse
+// misure (CameraDrive::touchButtonRect, kTouchStickRadius).
+class DriveTouchOverlay : public QWidget
+{
+public:
+    DriveTouchOverlay(GLWidget *view, const DriveControls *controls)
+        : QWidget(view), m_view(view), m_controls(controls)
+    {
+        setObjectName(QStringLiteral("driveTouchOverlay"));
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        setAttribute(Qt::WA_NoSystemBackground, true);
+        setAttribute(Qt::WA_TranslucentBackground, true);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        const DriveControls &c = *m_controls;
+        // I tastini: su, giu', e nel 4D W+ e W-. Piu' scuri mentre si tengono.
+        static const char *const kLabels[CameraDrive::TouchButtonCount] = { "\u25B2", "\u25BC", "W+", "W\u2212" };
+        const bool held[CameraDrive::TouchButtonCount] = { c.liftUp, c.liftDown, c.wPlus, c.wMinus };
+        QFont font = p.font();
+        font.setBold(true);
+        font.setPixelSize(17);
+        p.setFont(font);
+        for (int b = 0; b < m_view->driveTouchButtons() && b < CameraDrive::TouchButtonCount; ++b) {
+            const QRectF r = CameraDrive::touchButtonRect(b, size());
+            p.setPen(QPen(QColor(255, 255, 255, 150), 1.5));
+            p.setBrush(QColor(0, 0, 0, held[b] ? 210 : 110));
+            p.drawEllipse(r);
+            p.setPen(Qt::white);
+            p.drawText(r, Qt::AlignCenter, QString::fromUtf8(kLabels[b]));
+        }
+        // Gli stick, dove sono nati: il cerchio del raggio e il pomello.
+        const auto stick = [&p](bool on, const QPointF &origin, float x, float y) {
+            if (!on) return;
+            const qreal radius = CameraDrive::kTouchStickRadius;
+            p.setPen(QPen(QColor(255, 255, 255, 120), 2.0));
+            p.setBrush(QColor(0, 0, 0, 60));
+            p.drawEllipse(origin, radius, radius);
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(255, 255, 255, 150));
+            p.drawEllipse(origin + QPointF(x, y) * radius, 22.0, 22.0);
+        };
+        stick(c.touchLeft, c.touchLeftOrigin, c.touchLeftX, c.touchLeftY);
+        stick(c.touchRight, c.touchRightOrigin, c.touchRightX, c.touchRightY);
+    }
+
+private:
+    GLWidget *m_view;
+    const DriveControls *m_controls;
+};
+} // namespace
+
 bool MainWindow::driveRunning() const { return m_drive && m_drive->isOn(); }
 
 bool MainWindow::driveOwnsCamera() const { return m_drive && m_drive->ownsCamera(); }
+
+bool MainWindow::driveTouchUi() const
+{
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    return true;
+#else
+    return m_driveTouchUiForced;
+#endif
+}
 
 bool MainWindow::driveMovesW() const
 {
@@ -40,6 +111,8 @@ void MainWindow::setupDrive()
             "R / F: up / down; Z / X: toward W (4D). Shift: faster.\n"
             "+ / -: double or halve all the speeds (for large or small scenes).\n"
             "Mouse: drag as a stick to steer, right-drag to roll, wheel for speed.\n"
+            "Touch: the left thumb sets speed and turns, the right thumb pitches and rolls; "
+            "double tap to brake; the buttons on the right go up and down (and toward W).\n"
             "Esc or DRIVE again: stop. The flight is recorded on the scene time T: "
             "RESET goes back to its start, and the T slider and REC play it again."));
         connect(m_btnDrive, &QPushButton::clicked, this, &MainWindow::onDriveClicked);
@@ -114,7 +187,21 @@ void MainWindow::refreshDriveHud()
     if (!gl || !m_drive) return;
     if (!driveRunning()) {
         if (m_driveHud) m_driveHud->hide();
+        if (m_driveTouchOverlay) m_driveTouchOverlay->hide();
+        gl->setDriveTouchButtons(0);
         return;
+    }
+    // I comandi a tocco: tastini su e giu', e W dove si va verso W.
+    const bool touch = driveTouchUi();
+    gl->setDriveTouchButtons(!touch ? 0 : driveMovesW() ? 4 : 2);
+    if (touch) {
+        if (!m_driveTouchOverlay) m_driveTouchOverlay = new DriveTouchOverlay(gl, &m_drive->controls());
+        if (m_driveTouchOverlay->geometry() != gl->rect()) m_driveTouchOverlay->setGeometry(gl->rect());
+        m_driveTouchOverlay->show();
+        m_driveTouchOverlay->raise();
+        m_driveTouchOverlay->update();
+    } else if (m_driveTouchOverlay) {
+        m_driveTouchOverlay->hide();
     }
     if (!m_driveHud) {
         // Figlio della vista come il messaggio della scena (SceneHintOverlay):
@@ -144,13 +231,30 @@ void MainWindow::refreshDriveHud()
     if (driveMovesW())
         status += QStringLiteral("   W %1").arg(double(gl->cutsSection() ? s.sectionP : s.observerW), 0, 'f', 2);
     if (m_drive->replaying()) status += QStringLiteral("   REPLAY: touch a control to take over");
-    QString keys = QStringLiteral("W/S speed  A/D turn  Up/Down pitch  Q/E roll  R/F up/down");
-    if (driveMovesW()) keys += QStringLiteral("  Z/X toward W");
-    keys += QStringLiteral("  Space brake  Shift faster  +/- scale  Esc stop");
+    QString keys;
+    if (touch) {
+        keys = QStringLiteral("Left thumb: speed and turn   Right thumb: pitch and roll   Double tap: brake   "
+                              "\u25B2 \u25BC up / down");
+        if (driveMovesW()) keys += QStringLiteral("   W+ W\u2212 toward W");
+    } else {
+        keys = QStringLiteral("W/S speed  A/D turn  Up/Down pitch  Q/E roll  R/F up/down");
+        if (driveMovesW()) keys += QStringLiteral("  Z/X toward W");
+        keys += QStringLiteral("  Space brake  Shift faster  +/- scale  Esc stop");
+    }
     const QString text = status + QLatin1Char('\n') + keys;
-    if (m_driveHud->text() != text) {
+    // Su una riga se ci sta; altrimenti a capo entro la vista (un telefono),
+    // lasciando libera la colonna dei tastini a tocco.
+    const int maxWidth = std::max(120, gl->width() - 24 - (touch ? 80 : 0));
+    if (m_driveHud->text() != text || m_driveHud->width() > maxWidth) {
         m_driveHud->setText(text);
-        m_driveHud->adjustSize();
+        m_driveHud->setWordWrap(false);
+        const QSize oneLine = m_driveHud->sizeHint();
+        if (oneLine.width() <= maxWidth) {
+            m_driveHud->resize(oneLine);
+        } else {
+            m_driveHud->setWordWrap(true);
+            m_driveHud->resize(maxWidth, m_driveHud->heightForWidth(maxWidth));
+        }
     }
     m_driveHud->move(12, std::max(0, gl->height() - m_driveHud->height() - 12));
     m_driveHud->show();

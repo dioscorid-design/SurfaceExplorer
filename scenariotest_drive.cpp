@@ -19,6 +19,9 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
+#include <QTouchEvent>
+#include <QWindow>
+#include <QtGui/private/qeventpoint_p.h>
 #include <cmath>
 
 void ScenarioTest::runDriveScenarios()
@@ -358,6 +361,110 @@ void ScenarioTest::runDriveScenarios()
     check(!m_mw->driveOwnsCamera() && !gl->m_driveCamera, QStringLiteral("NEW: il volo non c'e' piu'"));
 
     runDriveFlightFileScenarios();
+    runDriveTouchScenarios();
+}
+
+// IL TOCCO (iPhone, iPad): gli stick che nascono sotto il dito, i tastini sulla
+// vista e il doppio tocco, coi QTouchEvent veri che arrivano alla vista. Sul
+// desktop i comandi a tocco si accendono a mano (m_driveTouchUiForced).
+void ScenarioTest::runDriveTouchScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    CameraDrive *drive = m_mw->m_drive;
+    DriveControls &c = drive->controls();
+    const float dt = 1.0f / 60.0f;
+    auto fly = [&](int frames) { for (int i = 0; i < frames; ++i) drive->advance(dt, true); };
+    auto camPos = [&]() { return gl->cameraPlacement().column(3).toVector3D(); };
+    auto camUp = [&]() { return gl->cameraPlacement().column(1).toVector3D().normalized(); };
+    struct Finger { int id; QEventPoint::State state; QPointF at; };
+    auto touch = [&](QEvent::Type type, const QList<Finger> &fingers) {
+        QList<QEventPoint> points;
+        for (const Finger &f : fingers) {
+            QEventPoint pt(f.id, f.state, f.at, gl->mapToGlobal(f.at));
+            QMutableEventPoint::setPosition(pt, f.at);
+            points << pt;
+        }
+        QTouchEvent e(type, nullptr, Qt::NoModifier, points);
+        QCoreApplication::sendEvent(gl, &e);
+    };
+    const qreal R = CameraDrive::kTouchStickRadius;
+    const float kAxis = float((50.0 - 4.0) / (R - 4.0));   // 50 punti dallo stick, zona morta 4
+
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    m_mw->m_driveTouchUiForced = true;
+    m_mw->m_btnDrive->click();
+    QWidget *overlay = gl->findChild<QWidget *>(QStringLiteral("driveTouchOverlay"));
+    check(m_mw->driveRunning() && gl->driveTouchButtons() == 4 && overlay && overlay->isVisible()
+              && m_mw->m_driveHud->text().contains(QLatin1String("Left thumb")),
+          QStringLiteral("DRIVE coi comandi a tocco: stick e quattro tastini (su, giu', W+, W-) disegnati sulla "
+                         "vista, l'indicatore dice i comandi a tocco"));
+
+    // Lo stick sinistro, dove si appoggia il pollice: in su, la crociera sale.
+    const QPointF left(gl->width() * 0.25, gl->height() * 0.6);
+    touch(QEvent::TouchBegin, { { 1, QEventPoint::Pressed, left } });
+    touch(QEvent::TouchUpdate, { { 1, QEventPoint::Updated, left + QPointF(0.0, -50.0) } });
+    const float leftY = c.touchLeftY;
+    const bool leftStick = c.touchLeft && c.touchLeftOrigin == left && std::abs(leftY + kAxis) < 1e-3f
+                           && c.touchLeftX == 0.0f;
+    const float cruise0 = drive->current().cruise;
+    fly(60);
+    const float cruise1 = drive->current().cruise;
+    touch(QEvent::TouchEnd, { { 1, QEventPoint::Released, left + QPointF(0.0, -50.0) } });
+    fly(1);
+    check(leftStick && cruise1 > cruise0 + 0.2f && !c.touchLeft && std::abs(drive->current().cruise - cruise1) < 0.02f,
+          QStringLiteral("stick sinistro in su di 50 punti (asse %1): la crociera sale (%2 -> %3) e resta lasciato "
+                         "il dito").arg(double(leftY)).arg(double(cruise0)).arg(double(cruise1)));
+
+    // I due pollici insieme: il destro verso destra rolla, il sinistro resta suo.
+    const QPointF right(gl->width() * 0.6, gl->height() * 0.5);
+    const QVector3D up0 = camUp();
+    touch(QEvent::TouchBegin, { { 1, QEventPoint::Pressed, left } });
+    touch(QEvent::TouchUpdate, { { 1, QEventPoint::Stationary, left }, { 2, QEventPoint::Pressed, right } });
+    touch(QEvent::TouchUpdate, { { 1, QEventPoint::Stationary, left },
+                                 { 2, QEventPoint::Updated, right + QPointF(50.0, 0.0) } });
+    const bool both = c.touchLeft && c.touchRight && c.touchRightOrigin == right
+                      && std::abs(c.touchRightX - kAxis) < 1e-3f && c.touchLeftX == 0.0f;
+    fly(60);
+    const float rolled = qRadiansToDegrees(std::acos(std::clamp(QVector3D::dotProduct(camUp(), up0), -1.0f, 1.0f)));
+    touch(QEvent::TouchEnd, { { 1, QEventPoint::Released, left }, { 2, QEventPoint::Released, right } });
+    check(both && rolled > 3.0f && !c.touchLeft && !c.touchRight,
+          QStringLiteral("due pollici: lo stick destro a destra rolla la camera di %1 gradi in un secondo, il "
+                         "sinistro resta suo; alzate le dita, niente resta premuto").arg(double(rolled)));
+
+    // Il doppio tocco frena.
+    {
+        const QPointF at(gl->width() * 0.3, gl->height() * 0.4);
+        touch(QEvent::TouchBegin, { { 3, QEventPoint::Pressed, at } });
+        touch(QEvent::TouchEnd, { { 3, QEventPoint::Released, at } });
+        touch(QEvent::TouchBegin, { { 4, QEventPoint::Pressed, at + QPointF(5.0, 5.0) } });
+        const bool tapped = c.brakeTap;
+        fly(1);
+        touch(QEvent::TouchEnd, { { 4, QEventPoint::Released, at + QPointF(5.0, 5.0) } });
+        check(tapped && !c.brakeTap && drive->current().cruise == 0.0f,
+              QStringLiteral("doppio tocco: la crociera a zero, e il comando si consuma (crociera %1)")
+                  .arg(double(drive->current().cruise)));
+    }
+
+    // Il tastino su: tenuto, la camera sale lungo il suo alto.
+    {
+        fly(90);   // si ferma
+        const QPointF button = CameraDrive::touchButtonRect(CameraDrive::TouchLiftUp, gl->size()).center();
+        const QVector3D p0 = camPos();
+        const QVector3D upAxis = camUp();
+        touch(QEvent::TouchBegin, { { 5, QEventPoint::Pressed, button } });
+        const bool held = c.liftUp && !c.touchRight;
+        fly(60);
+        touch(QEvent::TouchEnd, { { 5, QEventPoint::Released, button } });
+        const float rose = QVector3D::dotProduct(camPos() - p0, upAxis);
+        check(held && !c.liftUp && rose > 0.1f,
+              QStringLiteral("tastino su: tenuto (%1) la camera sale di %2 lungo il suo alto; lasciato, si rilascia")
+                  .arg(held).arg(double(rose)));
+    }
+
+    m_mw->stopDrive();
+    check(!overlay->isVisible() && gl->driveTouchButtons() == 0,
+          QStringLiteral("guida spenta: stick e tastini spariscono, e il tocco torna alla scena"));
+    m_mw->m_driveTouchUiForced = false;
 }
 
 // IL VOLO NEL FILE: Save di un record e di una scena H3 col volo, e di nuovo

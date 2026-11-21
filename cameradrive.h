@@ -33,6 +33,9 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
+#include <QPointF>
+#include <QRectF>
+#include <QSizeF>
 #include <QQuaternion>
 #include <QVector3D>
 #include <functional>
@@ -65,6 +68,18 @@ struct DriveControls {
     // Rotella: scatti dell'acceleratore non ancora consumati (anche frazioni,
     // il trackpad ne manda di piccole).
     float wheelSteps = 0.0f;
+    // IL TOCCO (iPhone, iPad): due stick che nascono dove si appoggia il dito.
+    // Il SINISTRO (meta' sinistra della vista): su e giu' la crociera, come W
+    // e S tenuti a meta' o del tutto, destra e sinistra la virata. Il DESTRO:
+    // su e giu' il beccheggio (in su = muso in su), destra e sinistra il
+    // rollio. Assi -1..1 in frazioni di CameraDrive::kTouchStickRadius, come
+    // la cloche; l'origine serve a disegnarli. Un doppio tocco frena
+    // (brakeTap, consumato al passo). I tastini sulla vista
+    // (CameraDrive::touchButtonRect) tengono liftUp/liftDown e wPlus/wMinus.
+    bool touchLeft = false, touchRight = false;
+    float touchLeftX = 0.0f, touchLeftY = 0.0f, touchRightX = 0.0f, touchRightY = 0.0f;
+    QPointF touchLeftOrigin, touchRightOrigin;
+    bool brakeTap = false;
     // LA SCALA DELLE VELOCITA' (tasti + e -, per due): avanti, su/giu' e verso
     // W, per scene piu' grandi o piu' piccole. Le virate no. Non e' un tasto
     // tenuto: resta quando i comandi si rilasciano.
@@ -90,6 +105,15 @@ public:
     // Il passo fisso della fisica (s) e il raggio della cloche (pixel).
     static constexpr float kStep = 1.0f / 60.0f;
     static constexpr float kStickRadius = 200.0f;
+    // GLI STICK E I TASTINI A TOCCO: il raggio di uno stick (punti, piu' corto
+    // della cloche: e' il pollice) e i tastini in colonna sul bordo destro,
+    // centrati in altezza: su, giu', e nel 4D W+ e W-. Le stesse misure per chi
+    // li disegna (MainWindow) e per chi li tocca (InputHandler).
+    static constexpr float kTouchStickRadius = 70.0f;
+    enum TouchButton { TouchLiftUp, TouchLiftDown, TouchWPlus, TouchWMinus, TouchButtonCount };
+    static QRectF touchButtonRect(int button, const QSizeF &view);
+    // Il tastino sotto il punto, fra i primi `count`; -1 se nessuno.
+    static int touchButtonAt(const QPointF &pos, const QSizeF &view, int count);
 
     // LO STATO DEL VEICOLO in un istante. La posa e' quella della camera
     // (camera -> mondo; guarda lungo -z, alto +y) nello spazio della traccia:

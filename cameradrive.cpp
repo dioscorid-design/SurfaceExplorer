@@ -96,7 +96,25 @@ bool DriveControls::any() const
     // Le Maiuscole da sole non comandano nulla: non prendono il posto del volo.
     return throttleUp || throttleDown || yawLeft || yawRight || pitchUp || pitchDown || rollLeft
            || rollRight || liftUp || liftDown || wPlus || wMinus || brake || stick || rollStick
-           || wheelSteps != 0.0f;
+           || wheelSteps != 0.0f || touchLeft || touchRight || brakeTap;
+}
+
+QRectF CameraDrive::touchButtonRect(int button, const QSizeF &view)
+{
+    constexpr qreal kSize = 52.0, kGap = 10.0, kMargin = 14.0;
+    // Sempre quattro posti: i tastini di W, quando ci sono, non spostano gli altri.
+    const qreal column = TouchButtonCount * kSize + (TouchButtonCount - 1) * kGap;
+    const qreal top = std::max(kMargin, (view.height() - column) / 2.0);
+    return QRectF(view.width() - kMargin - kSize, top + button * (kSize + kGap), kSize, kSize);
+}
+
+int CameraDrive::touchButtonAt(const QPointF &pos, const QSizeF &view, int count)
+{
+    for (int b = 0; b < std::min(count, int(TouchButtonCount)); ++b) {
+        // Un po' piu' largo del disegno: il dito non e' un puntatore.
+        if (touchButtonRect(b, view).adjusted(-6, -6, 6, 6).contains(pos)) return b;
+    }
+    return -1;
 }
 
 CameraDrive::CameraDrive(GLWidget *view, std::function<bool()> recording, std::function<bool()> movesW,
@@ -303,17 +321,23 @@ void CameraDrive::appendStep(const DriveControls &c)
     }
 
     // I COMANDI -> gli obiettivi, poi l'inerzia.
-    s.cruise = std::clamp(s.cruise + (c.wheelSteps * kWheelStep
-                                      + axis(c.throttleUp, c.throttleDown) * kThrottleRate * h) * scale,
+    // Lo stick sinistro a tocco come W e S, a meta' o del tutto (in su = piu' veloce).
+    const float throttle = axis(c.throttleUp, c.throttleDown) + (c.touchLeft ? -c.touchLeftY : 0.0f);
+    s.cruise = std::clamp(s.cruise + (c.wheelSteps * kWheelStep + throttle * kThrottleRate * h) * scale,
                           -kMaxCruise * scale, kMaxCruise * scale);
-    if (c.brake) s.cruise = 0.0f;
+    if (c.brake || c.brakeTap) s.cruise = 0.0f;
     s.speed = approach(s.speed, s.cruise * boost, c.brake ? kBrakeTau : kSpeedTau, h);
     // La cloche: il mouse verso l'alto (y negativo a schermo) alza il muso,
     // verso destra vira a destra (rotazione negativa attorno all'alto).
+    // Gli stick a tocco con gli stessi versi: il sinistro vira, il destro
+    // beccheggia (in su = muso in su) e rolla (a destra = rollio a destra).
     const QVector3D turnTarget(
-        axis(c.pitchUp, c.pitchDown) * kTurnRate - (c.stick ? stickCurve(c.stickY) * kStickRate : 0.0f),
-        axis(c.yawLeft, c.yawRight) * kTurnRate - (c.stick ? stickCurve(c.stickX) * kStickRate : 0.0f),
-        axis(c.rollLeft, c.rollRight) * kRollRate - (c.rollStick ? stickCurve(c.rollX) * kRollRate : 0.0f));
+        axis(c.pitchUp, c.pitchDown) * kTurnRate - (c.stick ? stickCurve(c.stickY) * kStickRate : 0.0f)
+            - (c.touchRight ? stickCurve(c.touchRightY) * kStickRate : 0.0f),
+        axis(c.yawLeft, c.yawRight) * kTurnRate - (c.stick ? stickCurve(c.stickX) * kStickRate : 0.0f)
+            - (c.touchLeft ? stickCurve(c.touchLeftX) * kStickRate : 0.0f),
+        axis(c.rollLeft, c.rollRight) * kRollRate - (c.rollStick ? stickCurve(c.rollX) * kRollRate : 0.0f)
+            - (c.touchRight ? stickCurve(c.touchRightX) * kRollRate : 0.0f));
     s.turn = approach(s.turn, turnTarget, kTurnTau, h);
     s.lift = approach(s.lift, axis(c.liftUp, c.liftDown) * kLiftRate * boost * scale, kLiftTau, h);
     const bool w = m_movesW && m_movesW();
@@ -359,8 +383,11 @@ void CameraDrive::extendTo(float t, const DriveControls *live)
     static const DriveControls none;
     while (m_track.back().t < t - 1e-6f) {
         appendStep(live ? *live : none);
-        // La rotella si consuma al primo passo.
-        if (live) m_controls.wheelSteps = 0.0f;
+        // La rotella e il doppio tocco si consumano al primo passo.
+        if (live) {
+            m_controls.wheelSteps = 0.0f;
+            m_controls.brakeTap = false;
+        }
     }
 }
 

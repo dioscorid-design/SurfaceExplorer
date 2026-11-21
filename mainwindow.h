@@ -1156,6 +1156,11 @@ private:
     CameraDrive *m_drive = nullptr;
     QPushButton *m_btnDrive = nullptr;
     QLabel *m_driveHud = nullptr;       // l'indicatore sulla vista (non entra nei video)
+    // GLI STICK E I TASTINI A TOCCO sulla vista (iPhone, iPad, Android): li
+    // disegna un pannello trasparente, il tocco lo gestisce InputHandler.
+    QWidget *m_driveTouchOverlay = nullptr;
+    bool m_driveTouchUiForced = false;  // i test li accendono anche sul desktop
+    bool driveTouchUi() const;
     bool driveRunning() const;
     bool driveOwnsCamera() const;
     void setupDrive();
