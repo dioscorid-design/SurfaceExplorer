@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.16)
 # Info.plist e Info-macos.plist non contengono numeri: CFBundleShortVersionString
 # e CFBundleVersion arrivano da qui (${MACOSX_BUNDLE_SHORT_VERSION_STRING},
 # ${MACOSX_BUNDLE_BUNDLE_VERSION}, sostituiti da CMake anche col generatore Xcode).
-project(SurfaceExplorer VERSION 2.0 LANGUAGES CXX)
+project(SurfaceExplorer VERSION 2.1 LANGUAGES CXX)
 
 if(WIN32)
     enable_language(RC)
