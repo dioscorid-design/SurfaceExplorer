@@ -39,6 +39,10 @@ public:
         bool rotating = false;
         bool path4D   = false;
         bool path3D   = false;
+        // 2.1: il volo della guida libera nel record dell'ambiente. Non
+        // nell'impronta della scena (MainWindow::sceneFingerprint): e' una
+        // posa nel tempo, la seguono gli eventi come la camera.
+        bool driveFlight = true;
     };
 
     // Il JSON che Save Surface / Save Record scriverebbero adesso, senza dialoghi

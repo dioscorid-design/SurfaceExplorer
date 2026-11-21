@@ -301,6 +301,9 @@ struct LibraryItem {
     QString textureLibName;         // texture["libName"]: ancora in libreria
     QString soundLibName;           // "soundLibName": solo se il record ha audio
     QString activeMotion;           // moto camera da riavviare al load
+    // 2.1: il volo della guida libera (CameraDrive::toJson), solo nel record
+    // dell'ambiente; vuoto = nessun volo, chiave assente.
+    QJsonObject driveFlight;
     int pathMode4D = 0;             // "pathMode"   (vista del path 4D)
     int pathMode3D = 0;             // "pathMode3D" (vista del path 3D)
     int speedPath3D = 0;            // speeds["path3D"] (slider)

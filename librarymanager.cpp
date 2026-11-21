@@ -688,6 +688,7 @@ LibraryItem LibraryManager::parseJsonObject(const QJsonObject &root, LibraryType
         }
         // Moto camera da riavviare. "none" resta "none": lo interpreta il load.
         d.activeMotion = root["activeMotion"].toString();
+        d.driveFlight = root["driveFlight"].toObject();
         d.observer4D = (float)root["observer4D"].toDouble(4.0);
         // Il record porta DUE messaggi: quello della scena (hintText, comune) e
         // quello della sua TEXTURE. I record salvati prima hanno solo il primo.
@@ -1184,6 +1185,7 @@ QJsonObject LibraryManager::toJson(const LibraryItem &d)
         root["pathMode"] = d.pathMode4D;
         root["pathMode3D"] = d.pathMode3D;
         root["activeMotion"] = d.activeMotion;
+        if (!d.driveFlight.isEmpty()) root["driveFlight"] = d.driveFlight;
 
         QJsonObject tex;
         tex["enabled"] = d.textureEnabled;

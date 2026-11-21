@@ -1,4 +1,5 @@
 #include "presetserializer.h"
+#include "cameradrive.h"
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "libraryfileoperations.h"
@@ -804,6 +805,12 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
                    : run.rotating ? QStringLiteral("rotation")
                    : !mw->m_scene.lastCameraMotion.isEmpty() ? mw->m_scene.lastCameraMotion
                                                        : QStringLiteral("none");
+    // 2.1: la camera della guida libera (accesa o spenta col suo volo) e' il
+    // moto della camera dell'ambiente: "drive", e il volo.
+    if (gl->selectedObject() == 0 && mw->driveOwnsCamera()) {
+        d.activeMotion = QStringLiteral("drive");
+        if (run.driveFlight) d.driveFlight = mw->m_drive->toJson();
+    }
 
     // Codice delle texture parametriche: lo SCRIPT (surfaceTextureScript /
     // backgroundTextureScript), cioe' l'editor se le mostra, altrimenti il loro

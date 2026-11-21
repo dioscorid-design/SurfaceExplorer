@@ -63,6 +63,7 @@ void MainWindow::startDrive()
     stopPathAnimations();
     stopRotationMotion();
     m_userStoppedCameraMotion = false;
+    m_scene.lastCameraMotion = QStringLiteral("drive");
     m_drive->start();
     // I tasti arrivano alla vista.
     gl->setFocus(Qt::OtherFocusReason);
@@ -70,6 +71,8 @@ void MainWindow::startDrive()
     updateMasterButtonState();
     refreshDriveButton();
     refreshDriveHud();
+    // Il cursore T muove ora il volo: subito, non al prossimo giro del suo timer.
+    refreshSceneTimeLabel();
 }
 
 void MainWindow::stopDrive()
@@ -82,15 +85,18 @@ void MainWindow::stopDrive()
     updateMasterButtonState();
     refreshDriveButton();
     refreshDriveHud();
+    refreshSceneTimeLabel();
 }
 
 void MainWindow::releaseDriveCamera()
 {
     if (!driveOwnsCamera()) return;
     m_drive->release();
+    if (m_scene.lastCameraMotion == QLatin1String("drive")) m_scene.lastCameraMotion.clear();
     updateViewButtonsEnabled();
     refreshDriveButton();
     refreshDriveHud();
+    refreshSceneTimeLabel();
 }
 
 void MainWindow::refreshDriveButton()
@@ -149,4 +155,16 @@ void MainWindow::refreshDriveHud()
     m_driveHud->move(12, std::max(0, gl->height() - m_driveHud->height() - 12));
     m_driveHud->show();
     m_driveHud->raise();
+}
+
+void MainWindow::applyDriveFlight(const LibraryItem &d)
+{
+    if (!m_drive || d.driveFlight.isEmpty() || !ui->glWidget) return;
+    // Di un altro spazio (un volo di H3 in un record fuori da una scena) o un
+    // file guasto: nessun volo, la camera e' quella salvata.
+    if (!m_drive->loadJson(d.driveFlight)) return;
+    m_drive->applyAt(ui->glWidget->sceneTime());
+    if (d.activeMotion == QLatin1String("drive")) startDrive();
+    refreshDriveButton();
+    refreshSceneTimeLabel();
 }

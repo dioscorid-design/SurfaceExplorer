@@ -154,6 +154,7 @@ MainWindow::SceneFingerprint MainWindow::sceneFingerprint() const
     run.rotating = ui->glWidget->isAnimating();
     run.path4D   = pathRunning(CameraPaths::Path4D);
     run.path3D   = pathRunning(CameraPaths::Path3D);
+    run.driveFlight = false;   // il volo e' una posa: la seguono gli eventi
     // Senza il suono dentro il codice della texture: e' un modulo a parte.
     QJsonObject root = m_presetSerializer->buildMotionJson(QString(), run, /*includeSound=*/false);
 
@@ -2683,8 +2684,11 @@ void MainWindow::startRecordCameraMotion(const LibraryItem &data)
     if (pick == "rotation" && !hasRotation) pick.clear();
     if (pick == "path4D" && !hasPath4D) pick.clear();
     if (pick == "path3D" && !hasPath3D) pick.clear();
+    // 2.1: il volo della guida libera lo rimette applyDriveFlight, qui sotto.
+    if (pick == "drive" && data.driveFlight.isEmpty()) pick.clear();
 
-    if (pick == "rotation") {
+    if (pick == "drive") {
+    } else if (pick == "rotation") {
         if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
         ui->glWidget->resumeMotion();
     } else if (pick == "path4D") {
@@ -2715,6 +2719,10 @@ void MainWindow::startRecordCameraMotion(const LibraryItem &data)
     applyCameraFov(resolveSavedFov(data.cameraFov, data.fov3D, data.fov4D));
     if (pathRunning(CameraPaths::Path4D)) m_paths->tick(CameraPaths::Path4D);
     else if (pathRunning(CameraPaths::Path3D)) m_paths->tick(CameraPaths::Path3D);
+    // 2.1: il volo della guida libera, camera al suo inizio (qui arriva solo
+    // il record dell'ambiente). In una scena lo rimette loadSceneFile, a spazio
+    // della scena deciso (H3).
+    if (!m_loadingSceneFile) applyDriveFlight(data);
 
     ui->glWidget->setProjectionMode(data.projectionMode);
     updateProjectionButtonText();

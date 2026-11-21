@@ -1167,6 +1167,10 @@ private:
     void refreshDriveHud();
     // Verso W si va dove vanno i tasti P+/P- del dock 4D.
     bool driveMovesW() const;
+    // Il volo di un record o di una scena (LibraryItem::driveFlight): la
+    // camera all'inizio del volo, e col moto "drive" la guida riparte, come
+    // il path di un record.
+    void applyDriveFlight(const LibraryItem &d);
 
     // LA TRAIETTORIA DEI PATH DELLA CAMERA MODELLATA COL MOUSE (pathreshape.h).
     // Col tasto MOUSE: PATH (seconda riga dei dock dei path, accanto a RESET),

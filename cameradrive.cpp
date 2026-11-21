@@ -125,6 +125,7 @@ void CameraDrive::start()
     if (!m_owns || m_track.empty() || m_trackHyperbolic != hyperbolic()) {
         // Un volo nuovo, da fermi, dalla camera di adesso.
         m_track.clear();
+        m_loadedFlight = QJsonObject();
         m_trackHyperbolic = hyperbolic();
         m_track.push_back(stateFromView(t, State()));
     } else if (t >= trackEnd()) {
@@ -136,6 +137,7 @@ void CameraDrive::start()
                                                 : (now.pos - last.pos).length() < 1e-4f
                                                       && std::abs(QQuaternion::dotProduct(now.rot, last.rot)) > 1.0f - 1e-6f;
         if (t > last.t || !samePose) m_track.push_back(now);
+        if (!samePose) m_changedSinceLoad = true;
     }
     // Dentro il volo: lo si rifa' da T (applyAt qui sotto).
     m_owns = true;
@@ -152,9 +154,15 @@ void CameraDrive::stop()
     if (!isOn()) return;
     m_timer->stop();
     m_controls.releaseAll();
-    // Il veicolo si ferma dov'e': oltre questo T il volo resta fermo (cursore
-    // e REC, finche' non si riaccende).
     const float t = m_view->sceneTime();
+    // Dentro il volo registrato (lo si stava rifacendo) e' una pausa, come lo
+    // Stop di un path: il volo resta intero.
+    if (trackEnd() > t + kStep) {
+        emit stepped();
+        return;
+    }
+    // Alla fine, dove si guidava: il veicolo si ferma dov'e', e oltre questo T
+    // il volo resta fermo (cursore e REC, finche' non si riaccende).
     truncateAt(t);
     State rest = stateAt(t);
     rest.t = t;
@@ -170,6 +178,8 @@ void CameraDrive::release()
     m_timer->stop();
     m_controls.releaseAll();
     m_track.clear();
+    m_loadedFlight = QJsonObject();
+    m_changedSinceLoad = false;
     m_owns = false;
     m_written = false;
     m_view->setDriveCamera(false);
@@ -195,6 +205,7 @@ void CameraDrive::advance(double dt, bool live)
     adoptExternalMove();
     const float t0 = m_view->sceneTime();
     if (live && m_controls.any()) {
+        m_changedSinceLoad = true;
         if (!m_droveSinceStart) {
             m_droveSinceStart = true;
             emit userDrove();
@@ -255,9 +266,16 @@ CameraDrive::State CameraDrive::stateAt(float t) const
     const float span = b.t - a.t;
     const float f = span > 0.0f ? (t - a.t) / span : 1.0f;
     if (f <= 0.0f) return a;
-    State s = a;
+    State s = interpolate(a, b, f);
     s.t = t;
+    return s;
+}
+
+CameraDrive::State CameraDrive::interpolate(const State &a, const State &b, float f) const
+{
+    State s = a;
     const auto mix = [f](float x, float y) { return x + (y - x) * f; };
+    s.t = mix(a.t, b.t);
     s.pos = a.pos + (b.pos - a.pos) * f;
     s.rot = QQuaternion::slerp(a.rot, b.rot, f);
     if (m_trackHyperbolic) s.h3 = interpolateH3(a.h3, b.h3, f);
@@ -389,4 +407,258 @@ void CameraDrive::adoptExternalMove()
     truncateAt(now.t);
     m_track.push_back(now);
     m_current = now;
+    m_changedSinceLoad = true;
+}
+
+// =============================================================================
+// IL VOLO NEL FILE (toJson / loadJson)
+// =============================================================================
+
+namespace {
+// Le tolleranze dello sfoltimento: un campione si toglie se l'interpolazione
+// fra i vicini lo rifa' entro queste (unita' della scena, radianti, W).
+constexpr float kPosTolerance = 3e-4f;
+constexpr float kRotTolerance = 2e-4f;
+constexpr float kWTolerance = 3e-4f;
+// Un campione almeno ogni due secondi, anche in linea retta.
+constexpr int kMaxGap = 120;
+
+double rounded(double v) { return std::round(v * 1e6) / 1e6; }
+
+// L'angolo di una rotazione piccola, dalla parte vettoriale (acos vicino a 1
+// non distingue gli angoli sotto il millesimo di radiante, in float).
+float rotationAngle(const QQuaternion &q)
+{
+    return 2.0f * std::atan2(q.vector().length(), std::abs(q.scalar()));
+}
+
+// La parte di rotazione di un'isometria di H3 che fissa l'origine, come
+// quaternione, e il suo angolo in doppia precisione.
+QQuaternion h3Rotation(const H3::Matrix &r)
+{
+    QMatrix3x3 m;
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) m(i, j) = float(r.m[i][j]);
+    return QQuaternion::fromRotationMatrix(m).normalized();
+}
+
+double h3RotationAngle(const H3::Matrix &r)
+{
+    const double c = (r.m[0][0] + r.m[1][1] + r.m[2][2] - 1.0) / 2.0;
+    const double sx = r.m[2][1] - r.m[1][2], sy = r.m[0][2] - r.m[2][0], sz = r.m[1][0] - r.m[0][1];
+    return std::atan2(0.5 * std::sqrt(sx * sx + sy * sy + sz * sz), c);
+}
+
+// Il riferimento di una camera di H3 come lo scrive il file: la posizione dal
+// centro in unita' della scena (k raggi per unita') e la rotazione portata nel
+// centro, come GLWidget::hyperbolicPlacement e hyperbolicCameraFromPlacement.
+void h3ToPlacement(const H3::Matrix &m, double k, QVector3D *pos, QQuaternion *rot)
+{
+    const H3::Vec4 p = m * H3::origin();
+    const H3::Vec3 v = H3::logAtOrigin(p);
+    *pos = QVector3D(float(v.x / k), float(v.y / k), float(v.z / k));
+    *rot = h3Rotation(H3::inverse(H3::translationTo(p)) * m);
+}
+
+H3::Matrix h3FromPlacement(const QVector3D &pos, const QQuaternion &rot, double k)
+{
+    H3::Matrix r = H3::Matrix::identity();
+    const QMatrix3x3 m = rot.toRotationMatrix();
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) r.m[i][j] = m(i, j);
+    return H3::renormalized(H3::translation({pos.x() * k, pos.y() * k, pos.z() * k}) * r);
+}
+} // namespace
+
+float CameraDrive::poseError(const State &x, const State &y) const
+{
+    float e = 0.0f;
+    if (m_trackHyperbolic) {
+        const double k = 1.0 / m_view->hyperbolicCurvatureRadius();
+        const H3::Matrix d = H3::inverse(x.h3) * y.h3;
+        const H3::Vec4 p = d * H3::origin();
+        const double dist = H3::distance(H3::origin(), p) / k;
+        const double angle = h3RotationAngle(H3::inverse(H3::translationTo(p)) * d);
+        e = float(std::max(dist / kPosTolerance, std::abs(angle) / kRotTolerance));
+    } else {
+        e = std::max((x.pos - y.pos).length() / kPosTolerance,
+                     rotationAngle(x.rot.conjugated() * y.rot) / kRotTolerance);
+    }
+    return std::max({ e, std::abs(x.observerW - y.observerW) / kWTolerance,
+                      std::abs(x.sectionP - y.sectionP) / kWTolerance });
+}
+
+QJsonArray CameraDrive::poseToJson(const State &s) const
+{
+    QVector3D pos = s.pos;
+    QQuaternion rot = s.rot;
+    if (m_trackHyperbolic) h3ToPlacement(s.h3, 1.0 / m_view->hyperbolicCurvatureRadius(), &pos, &rot);
+    return { rounded(s.t), rounded(pos.x()), rounded(pos.y()), rounded(pos.z()),
+             rounded(rot.x()), rounded(rot.y()), rounded(rot.z()), rounded(rot.scalar()),
+             rounded(s.observerW), rounded(s.sectionP) };
+}
+
+CameraDrive::State CameraDrive::poseFromJson(const QJsonArray &a) const
+{
+    State s;
+    s.t = float(a.at(0).toDouble());
+    s.pos = QVector3D(float(a.at(1).toDouble()), float(a.at(2).toDouble()), float(a.at(3).toDouble()));
+    s.rot = QQuaternion(float(a.at(7).toDouble()), float(a.at(4).toDouble()), float(a.at(5).toDouble()),
+                        float(a.at(6).toDouble())).normalized();
+    if (m_trackHyperbolic) s.h3 = h3FromPlacement(s.pos, s.rot, 1.0 / m_view->hyperbolicCurvatureRadius());
+    s.observerW = float(a.at(8).toDouble());
+    s.sectionP = float(a.at(9).toDouble());
+    return s;
+}
+
+QJsonObject CameraDrive::toJson() const
+{
+    if (!m_owns || m_track.empty()) return QJsonObject();
+    // Caricato e mai toccato: com'era nel file (la coda che si allunga da sola
+    // rifacendolo e' la stessa fisica senza comandi, la rifa' il prossimo load).
+    if (!m_loadedFlight.isEmpty() && !m_changedSinceLoad) return m_loadedFlight;
+
+    // LO SFOLTIMENTO, in avanti: dall'ultimo campione tenuto si salta finche'
+    // l'interpolazione rifa' tutti quelli in mezzo entro la tolleranza.
+    const std::vector<State> &tr = m_track;
+    const int n = int(tr.size());
+    std::vector<int> keep{ 0 };
+    int anchor = 0;
+    for (int j = 1; j < n; ++j) {
+        if (tr[j].t <= tr[j - 1].t) {
+            // Un taglio: i due campioni allo stesso T restano tutti e due.
+            if (keep.back() != j - 1) keep.push_back(j - 1);
+            keep.push_back(j);
+            anchor = j;
+            continue;
+        }
+        if (j + 1 >= n) break;
+        bool ok = j + 1 - anchor <= kMaxGap && tr[j + 1].t > tr[j].t;
+        const float span = tr[j + 1].t - tr[anchor].t;
+        for (int k = anchor + 1; ok && k <= j; ++k)
+            ok = poseError(tr[k], interpolate(tr[anchor], tr[j + 1], (tr[k].t - tr[anchor].t) / span)) <= 1.0f;
+        if (!ok) {
+            keep.push_back(j);
+            anchor = j;
+        }
+    }
+    if (keep.back() != n - 1) keep.push_back(n - 1);
+
+    QJsonArray poses;
+    for (int i : keep) poses.append(poseToJson(tr[i]));
+    const State &last = tr.back();
+    QJsonObject end;
+    end[QStringLiteral("speed")] = rounded(last.speed);
+    end[QStringLiteral("cruise")] = rounded(last.cruise);
+    end[QStringLiteral("turn")] = QJsonArray{ rounded(last.turn.x()), rounded(last.turn.y()), rounded(last.turn.z()) };
+    end[QStringLiteral("lift")] = rounded(last.lift);
+    end[QStringLiteral("wSpeed")] = rounded(last.wSpeed);
+    QJsonObject flight;
+    flight[QStringLiteral("version")] = 1;
+    flight[QStringLiteral("space")] = m_trackHyperbolic ? QStringLiteral("H3") : QStringLiteral("R3");
+    flight[QStringLiteral("poses")] = poses;
+    flight[QStringLiteral("end")] = end;
+    return flight;
+}
+
+bool CameraDrive::loadJson(const QJsonObject &flight)
+{
+    if (flight.value(QStringLiteral("version")).toInt() != 1) return false;
+    const bool h3 = flight.value(QStringLiteral("space")).toString() == QLatin1String("H3");
+    if (h3 != hyperbolic()) return false;
+    const QJsonArray poses = flight.value(QStringLiteral("poses")).toArray();
+    if (poses.isEmpty()) return false;
+
+    // Le pose del file, in ordine di T.
+    const bool wasHyperbolic = m_trackHyperbolic;
+    m_trackHyperbolic = h3;   // poseFromJson legge nello spazio del volo
+    std::vector<State> keys;
+    for (const QJsonValue &v : poses) {
+        const QJsonArray a = v.toArray();
+        if (a.size() < 10 || (!keys.empty() && float(a.at(0).toDouble()) < keys.back().t)) {
+            m_trackHyperbolic = wasHyperbolic;
+            return false;
+        }
+        keys.push_back(poseFromJson(a));
+    }
+
+    m_timer->stop();
+    m_controls.releaseAll();
+    // IL RICAMPIONAMENTO al passo fisso, con la stessa interpolazione della
+    // traccia: i campioni cadono sui tratti fra le pose del file.
+    m_track.clear();
+    for (size_t i = 0; i + 1 < keys.size(); ++i) {
+        const State &a = keys[i];
+        const State &b = keys[i + 1];
+        m_track.push_back(a);
+        const float span = b.t - a.t;
+        if (span <= 0.0f) continue;   // un taglio
+        for (int m = 1;; ++m) {
+            const float t = a.t + float(m) * kStep;
+            if (t >= b.t - 0.25f * kStep) break;
+            State s = interpolate(a, b, (t - a.t) / span);
+            s.t = t;
+            m_track.push_back(s);
+        }
+    }
+    m_track.push_back(keys.back());
+    deriveVelocities();
+    // Lo stato del veicolo alla fine: prosegue da li' (cursore, REC, guida).
+    const QJsonObject end = flight.value(QStringLiteral("end")).toObject();
+    State &last = m_track.back();
+    last.speed = float(end.value(QStringLiteral("speed")).toDouble());
+    last.cruise = float(end.value(QStringLiteral("cruise")).toDouble());
+    const QJsonArray turn = end.value(QStringLiteral("turn")).toArray();
+    last.turn = QVector3D(float(turn.at(0).toDouble()), float(turn.at(1).toDouble()), float(turn.at(2).toDouble()));
+    last.lift = float(end.value(QStringLiteral("lift")).toDouble());
+    last.wSpeed = float(end.value(QStringLiteral("wSpeed")).toDouble());
+
+    m_owns = true;
+    m_written = false;
+    m_current = m_track.front();
+    m_loadedFlight = flight;
+    m_changedSinceLoad = false;
+    m_view->setDriveCamera(true);
+    return true;
+}
+
+void CameraDrive::deriveVelocities()
+{
+    const double k = m_trackHyperbolic ? 1.0 / m_view->hyperbolicCurvatureRadius() : 1.0;
+    for (size_t i = 0; i + 1 < m_track.size(); ++i) {
+        State &a = m_track[i];
+        const State &b = m_track[i + 1];
+        const float dt = b.t - a.t;
+        if (dt <= 0.0f) {
+            // L'ultimo campione prima di un taglio: le velocita' di quello prima.
+            if (i > 0) {
+                const State &before = m_track[i - 1];
+                a.speed = before.speed;
+                a.cruise = before.cruise;
+                a.turn = before.turn;
+                a.lift = before.lift;
+                a.wSpeed = before.wSpeed;
+            }
+            continue;
+        }
+        QVector3D v;
+        QQuaternion turn;
+        if (m_trackHyperbolic) {
+            const H3::Matrix d = H3::inverse(a.h3) * b.h3;
+            const H3::Vec4 p = d * H3::origin();
+            const H3::Vec3 l = H3::logAtOrigin(p);
+            v = QVector3D(float(l.x / k), float(l.y / k), float(l.z / k)) / dt;
+            turn = h3Rotation(H3::inverse(H3::translationTo(p)) * d);
+        } else {
+            v = a.rot.conjugated().rotatedVector(b.pos - a.pos) / dt;
+            turn = (a.rot.conjugated() * b.rot).normalized();
+        }
+        a.speed = a.cruise = -v.z();
+        a.lift = v.y();
+        QVector3D axis;
+        float angleDeg = 0.0f;
+        turn.getAxisAndAngle(&axis, &angleDeg);
+        a.turn = axis.lengthSquared() > 1e-12f ? axis.normalized() * qDegreesToRadians(angleDeg) / dt : QVector3D();
+        a.wSpeed = ((b.observerW - a.observerW) + (b.sectionP - a.sectionP) / kSectionScale) / dt;
+    }
 }

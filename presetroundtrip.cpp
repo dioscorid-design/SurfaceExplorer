@@ -617,6 +617,11 @@ QString PresetRoundTrip::drivenByMotion(const QString &key, const QJsonObject &s
     if (path4D && (key.startsWith(QLatin1String("angles/"))
                    || key == QLatin1String("observer4D")))
         return QStringLiteral("4D guidato dal path");
+    // 2.1: la guida libera rifa' il suo volo dal load: camera e W sono la foto
+    // di un istante del volo.
+    if (motion == QLatin1String("drive")
+        && (key.startsWith(QLatin1String("camera3D/")) || key == QLatin1String("observer4D")))
+        return QStringLiteral("camera guidata dal volo");
     // Rotazioni in corso: orientamento e angoli 4D sono la foto di un moto.
     // Il confronto fra due catture a 250 ms non basta a riconoscerlo quando
     // la rotazione e' molto lenta (Hyperbolic Mobius Band).

@@ -8,6 +8,12 @@
 #include "ui_mainwindow.h"
 #include "glwidget.h"
 #include "cameradrive.h"
+#include "librarymanager.h"
+#include "presetserializer.h"
+
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
 
 #include <QCoreApplication>
 #include <QKeyEvent>
@@ -350,4 +356,128 @@ void ScenarioTest::runDriveScenarios()
     m_mw->stopDrive();
     pressNew();
     check(!m_mw->driveOwnsCamera() && !gl->m_driveCamera, QStringLiteral("NEW: il volo non c'e' piu'"));
+
+    runDriveFlightFileScenarios();
+}
+
+// IL VOLO NEL FILE: Save di un record e di una scena H3 col volo, e di nuovo
+// aperti. Il volo riparte da solo, la scena e' pulita, il cursore rifa' le
+// pose del volo dal vivo (entro la tolleranza dello sfoltimento), e un volo
+// riaperto e non toccato si riscrive identico.
+void ScenarioTest::runDriveFlightFileScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
+    const QString kSphere = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
+    CameraDrive *drive = m_mw->m_drive;
+    DriveControls &c = drive->controls();
+    const float dt = 1.0f / 60.0f;
+    auto camPos = [&]() { return gl->cameraPlacement().column(3).toVector3D(); };
+    auto camFront = [&]() { return -gl->cameraPlacement().column(2).toVector3D().normalized(); };
+    auto text = [](const QJsonObject &o) { return QJsonDocument(o).toJson(QJsonDocument::Compact); };
+    auto writeJson = [&](const QString &path, const QJsonObject &o) {
+        QFile f(path);
+        return f.open(QIODevice::WriteOnly) && f.write(QJsonDocument(o).toJson()) > 0;
+    };
+
+    // --- UN RECORD -------------------------------------------------------------
+    if (!loadSurface(kTorus)) return;
+    m_mw->m_btnDrive->click();
+    struct Shot { float t; QVector3D pos, front; H3::Matrix h3; };
+    std::vector<Shot> shots;
+    auto flyShooting = [&](int frames) {
+        for (int i = 0; i < frames; ++i) {
+            drive->advance(dt, true);
+            if (i % 20 == 19) shots.push_back({ gl->sceneTime(), camPos(), camFront(), gl->hyperbolicCamera() });
+        }
+    };
+    c.throttleUp = c.yawLeft = true;
+    flyShooting(240);
+    c.throttleUp = c.yawLeft = false;
+    c.pitchUp = c.rollRight = true;
+    flyShooting(120);
+    c.pitchUp = c.rollRight = false;
+    flyShooting(60);
+    m_mw->stopDrive();
+    const int samples = int(drive->track().size());
+    PresetSerializer::MotionRunState run;
+    const QJsonObject rec = m_mw->m_presetSerializer->buildMotionJson(QStringLiteral("Drive Flight"), run, false);
+    const QJsonObject flight = rec.value(QStringLiteral("driveFlight")).toObject();
+    const int poses = flight.value(QStringLiteral("poses")).toArray().size();
+    const QString recPath = m_outDir + QStringLiteral("/drive-flight.json");
+    check(rec.value(QStringLiteral("activeMotion")).toString() == QLatin1String("drive") && poses > 1
+              && poses < samples / 2 && writeJson(recPath, rec),
+          QStringLiteral("Save Record: moto \"drive\", il volo sfoltito (%1 pose per %2 campioni, %3 byte)")
+              .arg(poses).arg(samples).arg(text(flight).size()));
+    // Di nuovo aperto, dopo un altro preset.
+    if (!loadSurface(kSphere)) return;
+    LibraryManager lm;
+    const LibraryItem item = lm.parseJson(recPath, LibraryType::Motion);
+    m_mw->applyMotionExample(item);
+    const bool replaying = m_mw->driveRunning() && m_mw->driveOwnsCamera() && !item.driveFlight.isEmpty();
+    const bool cleanAtLoad = !m_mw->hasUnsavedWork();
+    wait(300);   // il volo riparte da solo
+    const bool cleanAfter = !m_mw->hasUnsavedWork();
+    float err = 0.0f;
+    for (const Shot &s : shots) {
+        m_mw->seekSceneTime(s.t);
+        err = std::max({ err, (camPos() - s.pos).length(), (camFront() - s.front).length() });
+    }
+    check(replaying && cleanAtLoad && cleanAfter && err < 2e-3f,
+          QStringLiteral("record riaperto: la guida rifa' il volo da sola (%1), scena pulita (%2, %3), il cursore "
+                         "ritrova le pose del volo dal vivo (scarto massimo %4)")
+              .arg(replaying).arg(cleanAtLoad).arg(cleanAfter).arg(double(err)));
+    const QJsonObject again = m_mw->m_presetSerializer->buildMotionJson(QStringLiteral("Drive Flight"), run, false)
+                                  .value(QStringLiteral("driveFlight")).toObject();
+    check(text(again) == text(item.driveFlight),
+          QStringLiteral("Save del record riaperto e non toccato: lo stesso volo del file"));
+    m_mw->stopDrive();
+
+    // --- UNA SCENA H3 ------------------------------------------------------------
+    pressNew();
+    m_discardOnPrompt = true;
+    m_mw->startScene(MainWindow::SceneSpace::SpaceH3);
+    wait(300);
+    m_discardOnPrompt = false;
+    m_mw->addShapeToScene(shapePath(kSphere));
+    wait(500);
+    if (!gl->hyperbolicSpace() || gl->objectCount() != 2) {
+        check(false, QStringLiteral("scena H3 con la sfera: non parte"));
+        return;
+    }
+    m_mw->selectSceneObject(0);
+    m_mw->m_btnDrive->click();
+    shots.clear();
+    c.throttleUp = c.yawRight = true;
+    flyShooting(200);
+    c.throttleUp = c.yawRight = false;
+    c.pitchDown = true;
+    flyShooting(100);
+    c.pitchDown = false;
+    m_mw->stopDrive();
+    const QJsonObject sceneJson = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Drive H3"), run, false);
+    const QJsonObject sceneFlight = sceneJson.value(QStringLiteral("environment")).toObject()
+                                        .value(QStringLiteral("driveFlight")).toObject();
+    const QString scenePath = m_outDir + QStringLiteral("/drive-flight-h3-scene.json");
+    check(sceneFlight.value(QStringLiteral("space")).toString() == QLatin1String("H3") && writeJson(scenePath, sceneJson),
+          QStringLiteral("Save della scena H3: il volo nel record dell'ambiente, nello spazio H3 (%1 pose)")
+              .arg(sceneFlight.value(QStringLiteral("poses")).toArray().size()));
+    pressNew();
+    m_discardOnPrompt = true;
+    const bool loaded = m_mw->loadSceneFile(scenePath);
+    m_discardOnPrompt = false;
+    wait(300);
+    const bool sceneReplaying = loaded && gl->hyperbolicSpace() && gl->objectCount() == 2 && m_mw->driveRunning();
+    double h3Err = 0.0;
+    for (const Shot &s : shots) {
+        m_mw->seekSceneTime(s.t);
+        const H3::Matrix &now = gl->hyperbolicCamera();
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j) h3Err = std::max(h3Err, std::abs(now.m[i][j] - s.h3.m[i][j]));
+    }
+    check(sceneReplaying && h3Err < 2e-3,
+          QStringLiteral("scena H3 riaperta: la guida rifa' il volo (%1), il cursore ritrova le camere del volo dal "
+                         "vivo (scarto massimo %2)").arg(sceneReplaying).arg(h3Err));
+    m_mw->stopDrive();
+    pressNew();
 }

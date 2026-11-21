@@ -30,6 +30,8 @@
 #include "hyperbolicspace.h"
 
 #include <QElapsedTimer>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QObject>
 #include <QQuaternion>
 #include <QVector3D>
@@ -143,6 +145,22 @@ public:
     // Lo stato a cui e' la camera (l'ultimo applicato): velocita' e W per l'indicatore.
     const State &current() const { return m_current; }
 
+    // IL VOLO NEL FILE (record e scene, chiave "driveFlight" del record
+    // dell'ambiente). Si scrivono le sole POSE, sfoltite: un campione resta se
+    // l'interpolazione fra i vicini se ne scosterebbe oltre la tolleranza
+    // (qualche decimillesimo di unita' e di radiante: a schermo non si vede),
+    // e un taglio resta un taglio; poi lo stato del veicolo alla fine, per
+    // proseguire oltre. Al load la traccia si ricampiona al passo fisso e le
+    // velocita' si ricavano dalle pose: il resto della guida non sa da dove
+    // viene il volo. Un volo caricato e non toccato dal pilota si riscrive
+    // identico. In H3 le pose sono il riferimento della camera in unita' della
+    // scena (come GLWidget::hyperbolicPlacement).
+    QJsonObject toJson() const;
+    // Il volo di un file: la guida ne diventa la padrona, spenta (la accende
+    // chi carica). Falso, e niente cambia, se il volo e' di un altro spazio o
+    // il file e' guasto.
+    bool loadJson(const QJsonObject &flight);
+
 signals:
     // Il pilota ha usato un comando: la vista e' stata mossa dall'utente
     // (l'avviso "vuoi salvare?"). Una volta per accensione.
@@ -156,6 +174,16 @@ private:
     State stateFromView(float t, const State &motion) const;
     // Lo stato al tempo t, interpolato fra i campioni della traccia.
     State stateAt(float t) const;
+    // Fra due stati, a frazione f (0 = a, 1 = b): lineare, slerp, in H3 lungo
+    // la geodetica. L'unica interpolazione: traccia, sfoltimento, ricampionamento.
+    State interpolate(const State &a, const State &b, float f) const;
+    // Quanto due pose sono lontane, in multipli della tolleranza dello
+    // sfoltimento (<= 1: indistinguibili).
+    float poseError(const State &x, const State &y) const;
+    QJsonArray poseToJson(const State &s) const;
+    State poseFromJson(const QJsonArray &a) const;
+    // Velocita' dalle pose (volo caricato): differenze in avanti.
+    void deriveVelocities();
     // Un passo di fisica dall'ultimo campione, coi comandi dati.
     void appendStep(const DriveControls &c);
     // Allunga la traccia fino a t (senza comandi oltre i primi).
@@ -183,4 +211,8 @@ private:
     // La scala delle velocita' dell'ultimo passo coi comandi: cambiandola la
     // crociera cambia con lei.
     float m_appliedScale = 1.0f;
+    // Il volo letto da un file, e se il pilota l'ha cambiato da allora (un
+    // comando, un taglio): non cambiato, toJson lo rida' com'era.
+    QJsonObject m_loadedFlight;
+    bool m_changedSinceLoad = false;
 };

@@ -1221,6 +1221,8 @@ bool MainWindow::loadSceneFile(const QString &path)
         // Il reticolo di una scena 3D, se il file lo ha (solo acceso).
         if (!scene4D) applyFlatSceneJson(root.value(QStringLiteral("r3")).toObject());
     }
+    // 2.1: il volo della guida libera dell'ambiente, nello spazio della scena.
+    applyDriveFlight(env);
     refreshObjectsUi();
     // Il messaggio della scena: ambiente e oggetti, ciascuno col suo nome.
     showComposedObjectsHint();
