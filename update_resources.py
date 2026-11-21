@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import re
 
 # --- CONFIGURAZIONE ---
 
@@ -57,14 +58,19 @@ STATIC_FILES = [
 # Capitoli del manuale: documentation.html è solo l'indice, il testo sta in una
 # pagina per capitolo (docs/doc_*.html). Sono linkati dall'indice e fra loro,
 # quindi valgono esattamente come script_guide.html: se ne manca uno il link
-# muore. Tenere allineata la lista gemella in CMakeLists.txt (_doc_chapters).
-DOC_CHAPTERS = [
-    "intro", "quickstart", "interface", "interaction", "projection",
-    "dimensions", "equations", "geodesic", "raymarching", "rendering",
-    "audio", "animation", "scripting", "library-management",
-    "modular-controls", "acknowledgments",
-]
-STATIC_FILES += [f"docs/doc_{name}.html" for name in DOC_CHAPTERS]
+# muore. L'elenco si LEGGE dall'indice, nell'ordine dei suoi link, invece di
+# tenerlo a mano: la lista scritta qui (e la gemella in CMakeLists) aveva perso
+# "scenes", e nell'app il capitolo 15 si apriva vuoto senza alcun errore.
+# Un capitolo aggiunto all'indice entra quindi nel .qrc da solo, e se il suo
+# file manca il controllo degli STATIC_FILES ferma la rigenerazione.
+def doc_chapters():
+    index = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "docs", "documentation.html")
+    with open(index, encoding="utf-8") as f:
+        links = re.findall(r'href="(doc_[A-Za-z0-9_-]+\.html)"', f.read())
+    return list(dict.fromkeys(links))   # senza doppioni, ordine dell'indice
+
+STATIC_FILES += [f"docs/{page}" for page in doc_chapters()]
 
 # Icone del foglio di stile (uistylemanager.cpp, url(:/ui/...)): spunta delle
 # checkbox e frecce degli spinbox, generate da ui/make_icons.py. Le varianti
