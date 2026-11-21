@@ -719,6 +719,7 @@ MainWindow::SceneState MainWindow::sceneFromItem(const LibraryItem &d, bool isRe
     s.path = pathTextsFromItem(d);
     s.steps = d.steps;
     s.meshCount = d.meshCount;
+    s.space = d.space;
     // Tubo: la linguetta e i campi del sotto-tab Tubes (vuoti se la scena
     // non e' un tubo: passando a Tubes il reset mette il trifoglio).
     s.tubesTab = d.isTube && !d.isImplicitMode;
@@ -770,6 +771,7 @@ MainWindow::SceneState MainWindow::defaultScene(int index, bool loadDefaultSurfa
     s.discreteConsts.clear();
     s.minConsts.clear();
     s.meshCount = QStringLiteral("1");
+    s.space.clear();
     s.renderMode = 0;
     s.lightingMode4D = 0;
     s.bgColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
@@ -853,6 +855,7 @@ void MainWindow::assignSceneTexts(const SceneState &s)
                          &TubeTexts::thickness })
         setTubeText(f, s.tube.*f);
     setMeshCountText(s.meshCount);
+    m_scene.space = s.space;
     setTubesTab(s.tubesTab);
     m_scene.renderMode = s.renderMode;
 

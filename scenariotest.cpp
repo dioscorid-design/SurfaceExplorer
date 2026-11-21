@@ -12195,6 +12195,19 @@ void ScenarioTest::runSceneH3Scenarios()
                   && m_lastPopup.contains(QLatin1String("defined in hyperbolic space")),
               QStringLiteral("H3 Torus (space \"%1\") in una scena H3: rifiutato (oggetti %2, popup: %3)")
                   .arg(torus ? torus->space : QStringLiteral("?")).arg(gl->objectCount()).arg(m_lastPopup.simplified()));
+        // Il Save della Shape riscrive la chiave (prima la perdeva: una Shape
+        // H3 risalvata entrava in una scena H3 e ci veniva portata due volte);
+        // NEW la toglie.
+        if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/H3/Torus.json"))) {
+            const QString saved = m_mw->m_presetSerializer->buildSurfaceJson(QStringLiteral("T"))
+                                      .value(QStringLiteral("space")).toString();
+            pressNew();
+            const bool clearedByNew = !m_mw->m_presetSerializer->buildSurfaceJson(QStringLiteral("N"))
+                                           .contains(QStringLiteral("space"));
+            check(saved == QLatin1String("H3") && clearedByNew,
+                  QStringLiteral("Save Shape di H3 Torus: \"space\" = \"%1\" come nel file; dopo NEW la chiave non c'e' (%2)")
+                      .arg(saved).arg(clearedByNew));
+        }
         pressNew();
         m_mw->startScene(Space::Space3D);
         wait(300);
