@@ -356,6 +356,16 @@ private:
     // sposta (ambiente, fisso, REC; il sinistro gira). Da sola:
     // --scenario-only object-drag.
     void runObjectDragScenarios();
+    // 2.0: lo scorrimento col tasto destro. In vista 2D la texture segue il
+    // puntatore (script dritto e ruotato, immagine, sfondo; confronto dei pixel)
+    // e il sinistro la gira; in 3D la camera scorre e il centro della scena
+    // resta sotto il puntatore (superficie sola in prospettiva e in ortogonale
+    // senza cambiare grandezza, path fermo, 4D, ambiente e oggetto fisso di una
+    // scena, H3 in prospettiva e da fuori); col tocco il punto medio di due
+    // dita fa lo stesso, e il pinch resta lo zoom; non durante il REC ne' a
+    // path in corsa, e un oggetto selezionato si sposta lui. Da sola:
+    // --scenario-only scene-pan.
+    void runScenePanScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
     // accesi i comandi del dock RENDERER. Il Run lo sganciava solo per le

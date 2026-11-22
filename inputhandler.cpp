@@ -48,7 +48,7 @@ bool *touchButtonControl(DriveControls *c, int button)
 
 void InputHandler::handleMousePress(QMouseEvent* event)
 {
-    m_lastMousePos = event->pos();
+    m_lastMousePos = event->position();
 
     // LA GUIDA LIBERA: il sinistro prende la cloche, il destro il rollio, dal
     // punto premuto. Niente gesto della vista: la camera la muove la guida.
@@ -123,12 +123,12 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
             c->stickY = stickAxis(event->position().y() - m_drivePress.y());
         }
         if (c->rollStick) c->rollX = stickAxis(event->position().x() - m_driveRollPress.x());
-        m_lastMousePos = event->pos();
+        m_lastMousePos = event->position();
         return;
     }
 
-    int dx = event->position().x() - m_lastMousePos.x();
-    int dy = event->position().y() - m_lastMousePos.y();
+    const float dx = float(event->position().x() - m_lastMousePos.x());
+    const float dy = float(event->position().y() - m_lastMousePos.y());
 
     // DEADZONE, PRIMA DEL RAMO DI VISTA: superati 5 px col sinistro premuto non
     // e' piu' un clic secco ma un trascinamento. Viveva DENTRO il ramo 2D, e in
@@ -153,15 +153,10 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
                 if (m_mouseGestureActive) m_mouseMovedView = true;
             }
         }
-        // TASTO DESTRO: SPOSTAMENTO (PAN)
+        // TASTO DESTRO: SPOSTAMENTO (PAN). La texture segue il puntatore, a ogni
+        // zoom e rotazione (GLWidget::panFlatOnScreen).
         else if (event->buttons() & Qt::RightButton) {
-            float currentZoom = m_glWidget->getFlatZoom();
-            // Lo spostamento scala con lo zoom: più sei vicino, meno il mouse sposta l'immagine
-            float panSens = 0.002f / currentZoom;
-
-            QVector2D currentPan = m_glWidget->getFlatPan();
-            m_glWidget->setFlatPan(currentPan.x() - dx * panSens, currentPan.y() + dy * panSens);
-            if (m_mouseGestureActive && (dx != 0 || dy != 0)) m_mouseMovedView = true;
+            if (m_glWidget->panFlatOnScreen(dx, dy) && m_mouseGestureActive) m_mouseMovedView = true;
         }
     }
 
@@ -177,9 +172,9 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
             if (event->buttons() & Qt::LeftButton) {
                 const bool towardW = event->modifiers() & Qt::ShiftModifier;
                 m_glWidget->requestPathReshape(towardW ? GLWidget::ReshapeRotateW : GLWidget::ReshapeRotate,
-                                               float(dx), float(dy));
+                                               dx, dy);
             } else if (event->buttons() & Qt::RightButton) {
-                m_glWidget->requestPathReshape(GLWidget::ReshapeTranslate, float(dx), float(dy));
+                m_glWidget->requestPathReshape(GLWidget::ReshapeTranslate, dx, dy);
             }
         }
     }
@@ -189,7 +184,16 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
     // fisso, non durante il REC (objectDragActive). Nessuna deadzone, come
     // sulla traiettoria.
     else if ((event->buttons() & Qt::RightButton) && m_glWidget->objectDragActive()) {
-        if ((dx != 0 || dy != 0) && m_glWidget->dragObjectOnScreen(float(dx), float(dy)) && m_mouseGestureActive)
+        if ((dx != 0 || dy != 0) && m_glWidget->dragObjectOnScreen(dx, dy) && m_mouseGestureActive)
+            m_mouseMovedView = true;
+    }
+    // ALTRIMENTI IL DESTRO FA SCORRERE LA SCENA (GLWidget::dragSceneOnScreen):
+    // la camera scorre di lato e il centro della scena segue il puntatore.
+    // Superficie sola, ambiente o oggetto fisso selezionati, path fermo con
+    // MOUSE: SCENE; non a path in corsa ne' durante il REC (sceneDragActive).
+    // Nessuna deadzone, come sull'oggetto.
+    else if ((event->buttons() & Qt::RightButton) && m_glWidget->sceneDragActive()) {
+        if ((dx != 0 || dy != 0) && m_glWidget->dragSceneOnScreen(dx, dy) && m_mouseGestureActive)
             m_mouseMovedView = true;
     }
     // Mentre un path anima la telecamera (MOUSE: SCENE) la rotazione manuale
@@ -217,7 +221,7 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
         }
     }
 
-    m_lastMousePos = event->pos();
+    m_lastMousePos = event->position();
 }
 
 bool InputHandler::handleTouch(QEvent* e)
@@ -316,7 +320,7 @@ bool InputHandler::handleTouch(QEvent* e)
         m_lastTouchPos = currentPos;
     }
 
-    // --- DUE DITA: ZOOM, E SPOSTAMENTO DELL'OGGETTO SELEZIONATO ---
+    // --- DUE DITA: ZOOM, E SPOSTAMENTO (OGGETTO SELEZIONATO, SCENA, TEXTURE 2D) ---
     else if (pointCount == 2) {
         QPointF p1 = points[0].position();
         QPointF p2 = points[1].position();
@@ -328,12 +332,20 @@ bool InputHandler::handleTouch(QEvent* e)
         // del mouse): il gemello del trascinamento col destro, alle stesse
         // condizioni (GLWidget::objectDragActive), insieme al pinch che ne
         // cambia la scala. Il centro dell'oggetto segue le dita.
+        // Alle stesse condizioni il punto medio fa SCORRERE LA SCENA (richiesta
+        // dell'utente, 2026-11-22, gemello del destro: GLWidget::sceneDragActive)
+        // e, in vista 2D, la TEXTURE (panFlatOnScreen). Il pinch resta lo zoom.
         const QPointF centre = (p1 + p2) / 2.0;
         const QPointF moved = centre - m_lastPinchCentre;
         m_lastPinchCentre = centre;
-        if (!m_glWidget->isFlatView() && m_glWidget->objectDragActive() && !moved.isNull()
-            && m_glWidget->dragObjectOnScreen(float(moved.x()), float(moved.y())))
-            m_touchMovedView = true;
+        if (!moved.isNull()) {
+            const float mx = float(moved.x()), my = float(moved.y());
+            bool panned = false;
+            if (m_glWidget->isFlatView())              panned = m_glWidget->panFlatOnScreen(mx, my);
+            else if (m_glWidget->objectDragActive())   panned = m_glWidget->dragObjectOnScreen(mx, my);
+            else if (m_glWidget->sceneDragActive())    panned = m_glWidget->dragSceneOnScreen(mx, my);
+            if (panned) m_touchMovedView = true;
+        }
 
         if (std::abs(deltaDist) > 0.5f) {
             if (m_glWidget->isFlatView()) {

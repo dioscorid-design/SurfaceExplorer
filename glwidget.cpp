@@ -5602,6 +5602,60 @@ void GLWidget::setFlatPan(float x, float y) {
     update();
 }
 
+// SOLA IMMAGINE: il codice di una fascia o del bordo che, tolti i tag //IMG:,
+// e' vuoto. Lo shader allora campiona l'immagine (la funzione di default di
+// buildTextureFunction, dominio stirato sulla vista) invece di eseguire uno
+// script. Una sola sede per il generatore e per la vista 2D (flatTextureIsScript).
+static bool textureCodeIsImageOnly(const QString &code)
+{
+    static const QRegularExpression imgTagRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
+    QString logic = code;
+    logic.remove(imgTagRe);
+    return logic.trimmed().isEmpty();
+}
+
+// Come sceglie createFragmentShaderSource: lo sfondo ha il suo flag; il bordo
+// il suo codice; la superficie il codice della fascia attiva se ne ha uno
+// proprio e le texture per fascia valgono (ambito Mesh, il dispatcher), se no
+// quello globale, che e' uno script se non e' vuoto.
+bool GLWidget::flatTextureIsScript() const
+{
+    if (m_flatViewTarget == 1) return m_bgIsScript;
+    if (m_flatViewTarget == 2) return !textureCodeIsImageOnly(m_obj->borderTexCode);
+    if (m_obj->engine && !m_obj->meshAppearanceUniform && m_obj->activeMeshPart >= 0) {
+        const std::vector<MeshPart> &parts = m_obj->engine->getMeshParts();
+        if (m_obj->activeMeshPart < int(parts.size())) {
+            const QString &code = parts[m_obj->activeMeshPart].textureCode;
+            if (!code.trimmed().isEmpty()) return !textureCodeIsImageOnly(code);
+        }
+    }
+    return !m_obj->customFragmentCode.isEmpty();
+}
+
+// LO SCORRIMENTO 2D: la texture segue il puntatore. Nello shader (helpers di
+// buildTextureFunction, sfondo compreso) il punto c del dominio, centrato,
+// legge la texture in uv = R(rotazione) c / zoom + 0.5 + pan / 2: perche' cio'
+// che stava in c vada in c + e il pan cambia di -2 R e / zoom. Il dominio e'
+// alto 1 sulla vista (la y sale) e largo fullViewTextureWidth per uno script,
+// 1 per un'immagine. Prima il pan cresceva di 0.002 / zoom per pixel, nei
+// soli assi dello schermo: giusto solo con la vista alta 1000 pixel e la
+// texture dritta; ruotata, scorreva di traverso.
+bool GLWidget::panFlatOnScreen(float dx, float dy)
+{
+    if (!m_isFlatView || width() <= 0 || height() <= 0 || (dx == 0.0f && dy == 0.0f)) return false;
+    const float zoom = getFlatZoom();
+    if (!(zoom > 0.0f)) return false;
+    const float domainWidth = flatTextureIsScript() ? fullViewTextureWidth() : 1.0f;
+    const float ex = dx * domainWidth / float(width());
+    const float ey = -dy / float(height());
+    const float a = qDegreesToRadians(getFlatRotation());
+    const float c = std::cos(a), s = std::sin(a);
+    const float k = -2.0f / zoom;
+    const QVector2D pan = getFlatPan();
+    setFlatPan(pan.x() + k * (ex * c - ey * s), pan.y() + k * (ex * s + ey * c));
+    return true;
+}
+
 
 // ==========================================================
 // CAMERA 3D & 4D STATE
@@ -7703,8 +7757,25 @@ H3::Vec4 GLWidget::objectCentreInView(int index)
 
 bool GLWidget::objectScreenPoint(int index, QPointF *pixel)
 {
-    if (index < 0 || index >= int(m_objects.size()) || m_isFlatView || width() <= 0 || height() <= 0) return false;
-    const H3::Vec4 p = objectCentreInView(index);
+    if (index < 0 || index >= int(m_objects.size())) return false;
+    return viewPointOnScreen(objectCentreInView(index), pixel);
+}
+
+H3::Vec4 GLWidget::sceneCentreInView() const
+{
+    if (m_hyperbolic) return H3::inverse(hyperbolicViewer(m_h3Camera)) * H3::origin();
+    const QVector3D v = m_view.map(QVector3D());
+    return { double(v.x()), double(v.y()), double(v.z()), 1.0 };
+}
+
+bool GLWidget::sceneCentreScreenPoint(QPointF *pixel) const
+{
+    return viewPointOnScreen(sceneCentreInView(), pixel);
+}
+
+bool GLWidget::viewPointOnScreen(const H3::Vec4 &p, QPointF *pixel) const
+{
+    if (m_isFlatView || width() <= 0 || height() <= 0) return false;
     // La carta del vertex shader (hyperbolicChart): Klein, o il punto stesso
     // in euclideo, = xyz / w; Poincare' nella vista da fuori, xyz / (1 + w).
     const double d = hyperbolicOutsideView() ? 1.0 + p.w : p.w;
@@ -7775,6 +7846,140 @@ bool GLWidget::dragObjectOnScreen(float dx, float dy)
     if (!std::isfinite(t.x) || !std::isfinite(t.y) || !std::isfinite(t.z) || unit <= 0.0) return false;
     const QVector3D centre(float(t.x / unit), float(t.y / unit), float(t.z / unit));
     placeObjectByUser(o.position + (centre - effectivePosition(o)));
+    return true;
+}
+
+// LO SCORRIMENTO DELLA SCENA COL MOUSE: la camera scorre di lato, senza girare,
+// e il centro della scena resta sotto il puntatore.
+// - In euclideo (3D e 4D, che proietta in 3D prima della camera) il gemello
+//   di dragObjectOnScreen: lo spostamento sul piano dello schermo per il
+//   centro, alla sua profondita', ma della camera e nel verso opposto. A path
+//   fermo la vista e' lookAt(m_cameraPos, m_pathTarget): scorrono tutti e due,
+//   o la camera girerebbe. In ortogonale la distanza della camera dal centro
+//   e' la mezza altezza della finestra (render), e scorrendo di lato
+//   crescerebbe: la scena si rimpicciolirebbe a ogni gesto. Li' la profondita'
+//   non si vede (raggi paralleli), e la camera torna alla distanza di prima
+//   lungo l'asse di vista.
+// - In H3 la camera trasla nel SUO riferimento, come i tasti Left/Right/Up/
+//   Down del dock (virtualMove), di quanto serve perche' il centro si veda
+//   nella direzione del puntatore. Non la traslazione lungo la geodetica fra
+//   il centro e la sua posizione nuova: lontano dal centro sposterebbe la
+//   camera di e^(2D) volte il passo (D la distanza), cioe' a salti di raggi
+//   per pixel.
+// - Nella vista da fuori di H3 la camera scorre nella palla di Poincare', alla
+//   stessa distanza dal centro (panHyperbolicOutsideView).
+// Il centro dietro la camera (superata coi tasti): conta un punto davanti alla
+// sua distanza dal centro, per non bloccare il gesto.
+bool GLWidget::dragSceneOnScreen(float dx, float dy)
+{
+    if (!sceneDragActive() || width() <= 0 || height() <= 0) return false;
+    const QMatrix4x4 &proj = m_projection;
+    if (proj(0, 0) == 0.0f || proj(1, 1) == 0.0f) return false;
+    const double ndcX = 2.0 * double(dx) / double(width());
+    const double ndcY = -2.0 * double(dy) / double(height());   // lo schermo scende, la NDC sale
+    if (ndcX == 0.0 && ndcY == 0.0) return false;
+    if (m_hyperbolic)
+        return hyperbolicOutsideView() ? panHyperbolicOutsideView(ndcX, ndcY) : panHyperbolicCamera(ndcX, ndcY);
+
+    const QVector3D right = m_view.row(0).toVector3D();
+    const QVector3D up = m_view.row(1).toVector3D();
+    const QVector3D forward = -m_view.row(2).toVector3D();
+    // w = 1 in ortogonale, la profondita' del centro in prospettiva.
+    double w = double(proj(3, 2)) * double(m_view.map(QVector3D()).z()) + double(proj(3, 3));
+    if (!(w > 1e-3)) {
+        w = m_cameraPos.length();
+        if (w < 0.1) w = 4.0;   // come camDist in render()
+    }
+    QVector3D step = -(right * float(ndcX * w / double(proj(0, 0))) + up * float(ndcY * w / double(proj(1, 1))));
+    if (projectionMode == Ortho4D) {
+        // |m_cameraPos + step + forward t| = |m_cameraPos|, la radice piu' vicina
+        // a 0. Oltre (spostamento di lato piu' lungo della distanza) si toglie
+        // solo la componente lungo la vista: continuo, e la finestra cresce.
+        const QVector3D p = m_cameraPos + step;
+        const float b = QVector3D::dotProduct(p, forward);
+        const float disc = b * b - p.lengthSquared() + m_cameraPos.lengthSquared();
+        const float t = disc < 0.0f ? -b : (b >= 0.0f ? -b + std::sqrt(disc) : -b - std::sqrt(disc));
+        step += forward * t;
+    }
+    m_cameraPos += step;
+    if (m_isPathFollowing) m_pathTarget += step;
+    updateViewMatrix();
+    update();
+    return true;
+}
+
+bool GLWidget::panHyperbolicCamera(double ndcX, double ndcY)
+{
+    const QMatrix4x4 &proj = m_projection;
+    H3::Vec4 p = sceneCentreInView();
+    const double s = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+    if (!(p.z < 0.0) || s < 1e-9) {
+        double d = H3::distance(H3::origin(), m_h3Camera * H3::origin());
+        if (d < 0.1 * m_h3RadiiPerSceneUnit) d = 4.0 * m_h3RadiiPerSceneUnit;   // come camDist in render()
+        p = H3::expAtOrigin({ 0.0, 0.0, -d });
+    }
+    // La direzione voluta: x/(-z), y/(-z) sono cio' che la prospettiva
+    // moltiplica per P00 e P11 (come in dragObjectOnScreen).
+    const double ax = p.x / -p.z + ndcX / double(proj(0, 0));
+    const double ay = p.y / -p.z + ndcY / double(proj(1, 1));
+    // La traslazione l = (lx, ly, 0) della camera: il centro si vede in
+    // T(-l) p. Newton sulle due componenti, derivate per differenze: il passo
+    // di un evento e' piccolo e bastano due o tre iterazioni.
+    const auto miss = [&](double lx, double ly, double *fx, double *fy) {
+        const H3::Vec4 q = H3::translation({ -lx, -ly, 0.0 }) * p;
+        if (!(q.z < 0.0)) return false;
+        *fx = q.x / -q.z - ax;
+        *fy = q.y / -q.z - ay;
+        return true;
+    };
+    double lx = 0.0, ly = 0.0, fx = 0.0, fy = 0.0;
+    if (!miss(lx, ly, &fx, &fy)) return false;
+    for (int i = 0; i < 12 && std::abs(fx) + std::abs(fy) > 1e-12; ++i) {
+        constexpr double h = 1e-7;
+        double fxa, fya, fxb, fyb;
+        if (!miss(lx + h, ly, &fxa, &fya) || !miss(lx, ly + h, &fxb, &fyb)) return false;
+        const double j11 = (fxa - fx) / h, j21 = (fya - fy) / h;
+        const double j12 = (fxb - fx) / h, j22 = (fyb - fy) / h;
+        const double det = j11 * j22 - j12 * j21;
+        if (!(std::abs(det) > 1e-18)) return false;
+        lx -= (j22 * fx - j12 * fy) / det;
+        ly -= (j11 * fy - j21 * fx) / det;
+        if (!miss(lx, ly, &fx, &fy)) return false;
+    }
+    if (!(std::abs(fx) + std::abs(fy) < 1e-9) || !std::isfinite(lx) || !std::isfinite(ly)) return false;
+    const H3::Matrix before = m_h3Camera;
+    moveHyperbolicCamera(H3::translation({ lx, ly, 0.0 }));   // col limite di distanza
+    return !sameH3Matrix(m_h3Camera, before);
+}
+
+// La vista da fuori: la camera euclidea ortogonale guarda la palla dal lato
+// della camera iperbolica, centrata dove quella sta di lato (la finestra della
+// proiezione, hyperbolicOutsideOffset) e larga quanto dice la sua distanza dal
+// centro (hyperbolicOrthoHalfHeight). Il centro della palla a schermo segue il
+// puntatore se la camera scorre di lato nella palla del verso opposto; la
+// profondita' non si vede, e la camera vi torna alla sua distanza dal centro,
+// cosi' la finestra resta grande uguale. L'orientamento portato nel centro
+// resta: la vista non gira.
+bool GLWidget::panHyperbolicOutsideView(double ndcX, double ndcY)
+{
+    const QMatrix4x4 &proj = m_projection;
+    const H3::Matrix rc = hyperbolicTransportedToCentre(m_h3Camera);
+    const H3::Vec3 b = H3::toPoincare(m_h3Camera * H3::origin());
+    const auto axis = [&](int c) { return H3::Vec3{ rc.m[0][c], rc.m[1][c], rc.m[2][c] }; };
+    const H3::Vec3 e0 = axis(0), e1 = axis(1), e2 = axis(2);
+    const double sx = ndcX / double(proj(0, 0)), sy = ndcY / double(proj(1, 1));
+    H3::Vec3 p{ b.x - e0.x * sx - e1.x * sy, b.y - e0.y * sx - e1.y * sy, b.z - e0.z * sx - e1.z * sy };
+    const double pb = p.x * e2.x + p.y * e2.y + p.z * e2.z;
+    const double disc = pb * pb - (p.x * p.x + p.y * p.y + p.z * p.z) + (b.x * b.x + b.y * b.y + b.z * b.z);
+    const double t = disc < 0.0 ? -pb : (pb >= 0.0 ? -pb + std::sqrt(disc) : -pb - std::sqrt(disc));
+    p = { p.x + e2.x * t, p.y + e2.y * t, p.z + e2.z * t };
+    if (!(p.x * p.x + p.y * p.y + p.z * p.z < 1.0 - 1e-9)) return false;   // oltre l'infinito
+    const H3::Matrix moved = H3::renormalized(H3::translationTo(H3::fromPoincare(p)) * rc);
+    const double before = H3::distance(H3::origin(), m_h3Camera * H3::origin());
+    const double after = H3::distance(H3::origin(), moved * H3::origin());
+    if (after > kH3MaxCameraDistance && after > before) return false;
+    m_h3Camera = moved;
+    update();
     return true;
 }
 
@@ -10174,8 +10379,6 @@ QString GLWidget::createFragmentShaderSource(SurfaceObject &o, const QString &cu
     QString dispatch;
     if (o.engine && perMeshTextures) {
         const std::vector<MeshPart> &tparts = o.engine->getMeshParts();
-        static const QRegularExpression imgTagRe(R"(^\s*//IMG:.*$\n?)",
-                                                 QRegularExpression::MultilineOption);
         for (size_t k = 0; k < tparts.size(); ++k) {
             const QString code = tparts[k].textureCode.trimmed();
             if (code.isEmpty()) continue;
@@ -10184,9 +10387,7 @@ QString GLWidget::createFragmentShaderSource(SurfaceObject &o, const QString &cu
             // default, che campiona lo slot 1 -- dove questa fascia ha la sua
             // immagine. Passando il tag come codice, buildTextureFunction ne
             // farebbe una funzione senza return (ripiego a colori u/v).
-            QString logic = code;
-            logic.remove(imgTagRe);
-            const bool imageOnly = logic.trimmed().isEmpty();
+            const bool imageOnly = textureCodeIsImageOnly(code);
             codeToInject += "\n" + buildTextureFunction(imageOnly ? QString() : tparts[k].textureCode, fn);
             // Confronto su float: u_meshIndex e' un indice piccolo esatto in
             // float32, ma restiamo sulla soglia 0.5 come il resto del progetto.
@@ -10214,13 +10415,9 @@ QString GLWidget::createFragmentShaderSource(SurfaceObject &o, const QString &cu
     // Shadertoy, come per le fasce: la stessa texture su superficie e bordo
     // non collide.
     if (o.borderRadius > 0.0f && !o.borderTexCode.trimmed().isEmpty() && borderSupported(o)) {
-        static const QRegularExpression imgTagRe(R"(^\s*//IMG:.*$\n?)",
-                                                 QRegularExpression::MultilineOption);
-        QString logic = o.borderTexCode;
-        logic.remove(imgTagRe);
         // Sola immagine: la funzione di default, che campiona lo slot 1, dove
         // il bordo ha la sua immagine.
-        const bool imageOnly = logic.trimmed().isEmpty();
+        const bool imageOnly = textureCodeIsImageOnly(o.borderTexCode);
         codeToInject += "\n" + buildTextureFunction(imageOnly ? QString() : o.borderTexCode,
                                                      QStringLiteral("getCustomColor_border"));
         codeToInject += "\nvec3 getSceneColor(vec2 in_uv) {\n"

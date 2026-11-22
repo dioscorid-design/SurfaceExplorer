@@ -81,8 +81,11 @@ private:
     qint64 m_driveLastTapMs = -1;
     QPointF m_driveLastTapPos;
 
-    // Stato Mouse
-    QPoint m_lastMousePos;
+    // Stato Mouse. In virgola mobile: il trackpad da' posizioni frazionarie, e
+    // la differenza troncata dall'ultima posizione arrotondata perdeva i passi
+    // sotto il pixel -- trascinando piano la texture o la scena restavano
+    // indietro rispetto al puntatore.
+    QPointF m_lastMousePos;
 
     // --- NUOVE VARIABILI PER GESTIONE CLICK/DRAG ---
     QPoint m_pressPos;
