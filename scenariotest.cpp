@@ -7022,24 +7022,6 @@ void ScenarioTest::runImageCaptureScenarios()
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Immagine a risoluzione libera (ImageCapture) =="));
 
-    // LA FINESTRA A 1320x880, l'inquadratura su cui queste foto sono state
-    // misurate. Dal 2026-11-22 la finestra si apre larga quanto la barra di
-    // stato (~1620 px, main.cpp): con quelle proporzioni due verifiche vedono un
-    // difetto gia' presente prima, non coperto finora (wireframe a strisce con
-    // la camera sulla superficie: linee dietro la camera perse; "quadrato
-    // dentro il tetto": 1 pixel di corda). Il difetto e' da correggere a
-    // parte; qui si torna all'inquadratura di riferimento, poi com'era.
-    const bool wasMaximized = m_mw->isMaximized();
-    const QRect oldGeometry = m_mw->geometry();
-    m_mw->showNormal();
-    m_mw->resize(1320, 880);
-    wait(500);
-    auto restoreWindow = qScopeGuard([&]() {
-        if (wasMaximized) m_mw->showMaximized();
-        else m_mw->setGeometry(oldGeometry);
-        wait(300);
-    });
-
     // LOGICA PURA.
     check(ImageCapture::sizeFor(16.0 / 9.0, 3840) == QSize(3840, 2160)
               && ImageCapture::sizeFor(2.0 / 3.0, 3000) == QSize(2000, 3000)
@@ -7244,16 +7226,41 @@ void ScenarioTest::runImageCaptureScenarios()
         // Il taglio dipende da (u,v): le strisce tagliano dove tagliano le linee native, ne'
         // piu' ne' meno (con (u,v) sbagliati sparivano bande intere). Ogni pixel di una delle
         // due immagini ha una linea dell'altra a pochi pixel.
-        // Come uncovered, a una dimensione qualunque.
+        // Come uncovered, a una dimensione qualunque, con UN SOLO colore di
+        // sfondo per le due immagini: la mediana per canale di a. Lo sfondo a
+        // gradiente (Mobius Racing) supera i 30 di scarto dal pixel (1,1) quando
+        // la finestra e' larga, e il pixel (1,1) delle strisce, toccato dal bordo
+        // sfumato di una linea, differiva di un'unita' da quello delle linee
+        // native: una fascia intera di sfondo contava come linea in una e non
+        // nell'altra (21672 "mancanti" a 1622x880, con le stesse linee). La
+        // mediana sta in mezzo al gradiente e non cade su una linea.
+        auto backgroundOf = [](const QImage &im) {
+            QVector<int> r, g, b;
+            for (int y = 0; y < im.height(); y += 8)
+                for (int x = 0; x < im.width(); x += 8) {
+                    const QRgb p = im.pixel(x, y);
+                    r << qRed(p); g << qGreen(p); b << qBlue(p);
+                }
+            auto median = [](QVector<int> &v) {
+                std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+                return v[v.size() / 2];
+            };
+            return qRgb(median(r), median(g), median(b));
+        };
         auto uncoveredIn = [&](const QImage &a, const QImage &b, const QSize &sz) {
+            const QRgb bg = backgroundOf(a);
+            auto inkedOn = [bg](const QImage &im, int x, int y) {
+                const QRgb p = im.pixel(x, y);
+                return std::abs(qRed(p) - qRed(bg)) + std::abs(qGreen(p) - qGreen(bg)) + std::abs(qBlue(p) - qBlue(bg)) > 30;
+            };
             QVector<char> ink(sz.width() * sz.height(), 0);
             for (int y = 0; y < sz.height(); ++y)
                 for (int x = 0; x < sz.width(); ++x)
-                    ink[y * sz.width() + x] = inked(b, x, y);
+                    ink[y * sz.width() + x] = inkedOn(b, x, y);
             QPair<qint64, qint64> n(0, 0);
             for (int y = 3; y + 3 < sz.height(); ++y)
                 for (int x = 3; x + 3 < sz.width(); ++x) {
-                    if (!inked(a, x, y)) continue;
+                    if (!inkedOn(a, x, y)) continue;
                     ++n.first;
                     bool hasInkNearby = false;
                     for (int dy = -3; dy <= 3 && !hasInkNearby; ++dy)
@@ -7989,7 +7996,12 @@ void ScenarioTest::runImageCaptureScenarios()
         };
         const qint64 inside = inkWith(0.0f, QStringLiteral("inside"));
         const qint64 beyond = inkWith(50.0f, QStringLiteral("beyond"));
-        const qint64 total = qint64(sz.width() / 2) * (sz.height() / 2);
+        // Le soglie sull'area del QUADRATO dell'altezza: il campo visivo e'
+        // fissato in verticale, e il quadrato e' grande uguale a ogni
+        // larghezza della finestra (12130 pixel campionati a 2640x1684 e a
+        // 3244x1684). Con l'area dell'immagine intera la soglia cresceva con
+        // la larghezza, e a 1622x880 "dentro" non ci arrivava piu'.
+        const qint64 total = qint64(sz.height() / 2) * (sz.height() / 2);
         check(inside > total / 100 && beyond >= 0 && beyond < total / 1000,
               QStringLiteral("quadrato dentro il tetto: %1 pixel disegnati; coi vertici oltre il tetto in direzioni opposte: "
                              "%2 (la corda non si disegna)").arg(inside).arg(beyond));

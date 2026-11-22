@@ -17,8 +17,11 @@ layout(location = 8) in vec3 v_objNormal;
 // (surface.vert, stereoS3), per scartare le corde.
 layout(location = 10) in vec2 v_stereoChord;
 #ifdef HAS_WIRE_QUAD
-// Posizione del pixel nel riferimento del segmento e meta' spessore (vedi surface.vert).
+// Posizione del pixel nel riferimento del segmento e meta' spessore, moltiplicati
+// per il w del vertice; v_wireW e' quel w. Il quoziente e' l'interpolazione
+// lineare sullo schermo (vedi surface.vert).
 layout(location = 9) in vec4 v_wireDist;
+layout(location = 11) in float v_wireW;
 #endif
 
 // --- OUTPUT ---
@@ -258,8 +261,9 @@ void main() {
 #ifdef HAS_WIRE_QUAD
         // Striscia del wireframe: copertura del pixel dalla distanza dal SEGMENTO
         // (estremi arrotondati, bordo sfumato).
-        const float beyond = max(max(-v_wireDist.y, v_wireDist.y - v_wireDist.z), 0.0);
-        const float coverage = clamp(v_wireDist.w - length(vec2(v_wireDist.x, beyond)) + 0.5, 0.0, 1.0);
+        const vec4 wd = v_wireDist / v_wireW;
+        const float beyond = max(max(-wd.y, wd.y - wd.z), 0.0);
+        const float coverage = clamp(wd.w - length(vec2(wd.x, beyond)) + 0.5, 0.0, 1.0);
 #ifdef WIRE_QUAD_DEPTH
         // Passata di sola profondita' (GLWidget::drawObject): il corpo della linea, non
         // il bordo sfumato, che coprirebbe le linee vicine.
