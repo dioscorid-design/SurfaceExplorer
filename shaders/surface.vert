@@ -46,7 +46,19 @@ layout(location = 10) out vec2 v_stereoChord;
 // Il fragment ne ricava la copertura con la distanza dal SEGMENTO: estremi
 // arrotondati e bordo sfumato, cosi' i segmenti che si incontrano si fondono senza
 // spuntoni.
+// Sono distanze SULLO SCHERMO: vanno interpolate linearmente in pixel, non con
+// la correzione prospettica che la GPU applica ai varying. Con la camera sulla
+// superficie i due estremi di un segmento hanno w molto diversi (fino a 1e4
+// col taglio al piano della camera), e la correzione prospettica spostava il
+// centro della striscia verso il bordo: la linea si assottigliava lungo il
+// segmento (meta' spessore in Mobius Racing, scatto 28 della sezione
+// image-capture a 1622x880). `noperspective` non esiste in GLSL ES 3.0
+// (Android): si scrive invece il valore moltiplicato per w, piu' w a parte
+// (v_wireW), e il fragment divide: (sum b_i f_i w_i / w_i) / (sum b_i w_i / w_i)
+// = sum b_i f_i, l'interpolazione lineare sullo schermo. Vale anche per i
+// vertici nuovi del taglio al piano vicino, interpolati nel clip space.
 layout(location = 9) out vec4 v_wireDist;
+layout(location = 11) out float v_wireW;
 #endif
 
 layout(std140, binding = 0) uniform SceneUBO {
@@ -1330,6 +1342,7 @@ void main() {
     texCoord = vec2((abs(wireSpan.x) > 1.0e-12) ? (vertex.x - ubuf.u_min) / wireSpan.x : 0.0,
                     (abs(wireSpan.y) > 1.0e-12) ? (vertex.y - ubuf.v_min) / wireSpan.y : 0.0);
     v_wireDist = vec4(0.0);
+    v_wireW = 1.0;
 #endif
     v_borderSide = -1.0;
     v_borderReach = 0.0;
@@ -1517,7 +1530,10 @@ void main() {
         const float endSign = (along == 0) ? -1.0 : 1.0;
         const vec2 offsetPx = nrm * side * e + dir * endSign * e;
         gl_Position = vec4(pos.xy + offsetPx * 2.0 / view * pos.w, pos.z, pos.w);
-        v_wireDist = vec4(side * e, (along == 0) ? -e : len + e, len, hw);
+        // Moltiplicati per w: il fragment divide per v_wireW (interpolazione
+        // lineare sullo schermo, vedi la dichiarazione di v_wireDist).
+        v_wireDist = vec4(side * e, (along == 0) ? -e : len + e, len, hw) * pos.w;
+        v_wireW = pos.w;
         return;
     }
 #endif

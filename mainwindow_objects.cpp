@@ -355,7 +355,7 @@ void MainWindow::seekSceneTime(float target)
     if (driveOwnsCamera()) {
         m_drive->seekTo(target);
         m_sceneTimeReached = std::max(m_sceneTimeReached, target);
-        refreshSceneTimeLabel();
+        refreshSceneTime();
         return;
     }
     // Path e rotazioni dell'ambiente si escludono: il cursore muove quello che ha
@@ -371,12 +371,12 @@ void MainWindow::seekSceneTime(float target)
         gl->seekEnvironmentRotations(target);
         if (gl->sceneTime() < before) m_pathOutOfStep = true;
         m_sceneTimeReached = std::max(m_sceneTimeReached, target);
-        refreshSceneTimeLabel();
+        refreshSceneTime();
         return;
     }
     seekPathTo(*path, target);
     m_sceneTimeReached = std::max(m_sceneTimeReached, target);
-    refreshSceneTimeLabel();
+    refreshSceneTime();
 }
 
 void MainWindow::seekPathTo(CameraPaths::Path path, float target)
@@ -419,12 +419,15 @@ float MainWindow::sceneTimeSpan() const
 
 void MainWindow::refreshSceneTimeSlider()
 {
-    if (!m_sceneTimeSlider || !ui->glWidget) return;
+    if (!m_sceneTimeSlider || !m_objectWindowIn || !m_objectWindowOut || !ui->glWidget) return;
     GLWidget *gl = ui->glWidget;
     const float t = gl->sceneTime();
     m_sceneTimeReached = std::max(m_sceneTimeReached, t);
     // Il cursore muove il moto della camera dell'ambiente: un path, o le sue
-    // rotazioni (anche a GO spento).
+    // rotazioni, o il volo della guida libera, ANCHE A MOTO FERMO: dopo STOP
+    // serve a riavvolgere (decisione dell'utente, 2026-11-22; per un giro era
+    // stato spento a moto fermo, ed era sbagliato). Spento solo senza un moto
+    // da muovere e durante il REC.
     m_sceneTimeSlider->setEnabled((cameraPath().has_value() || gl->objectHasRotationSpeed(0) || driveOwnsCamera())
                                   && !m_isRecording);
     // Le finestre contano su T: senza un moto della camera T non corre.
@@ -1507,26 +1510,8 @@ void MainWindow::setupObjectsDock()
         refreshObjectsUi();
     });
 
-    // LO SCORRIMENTO: il cursore porta il path dell'ambiente al tempo T
-    // (seekSceneTime).
-    auto *seekRow = new QHBoxLayout();
-    seekRow->addWidget(rowLabel(QStringLiteral("T")));
-    m_sceneTimeSlider = new QSlider(Qt::Horizontal, w);
-    m_sceneTimeSlider->setRange(0, 100);
-    m_sceneTimeSlider->setSingleStep(1);
-    m_sceneTimeSlider->setPageStep(10);
-    // L'altezza degli altri slider dei dock: da sola seguiva la guida (15px)
-    // e il pallino, piu' alto, usciva tagliato sopra e sotto.
-    m_sceneTimeSlider->setMinimumHeight(UiStyleManager::kSliderMinHeight);
-    seekRow->addWidget(m_sceneTimeSlider, 1);
-    m_sceneTimeValue = new QLabel(QStringLiteral("0.0 s"), w);
-    m_sceneTimeValue->setMinimumWidth(m_sceneTimeValue->fontMetrics().horizontalAdvance(QStringLiteral("0000.0 s")));
-    m_sceneTimeValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    seekRow->addWidget(m_sceneTimeValue);
-    lay->addLayout(seekRow);
-    connect(m_sceneTimeSlider, &QSlider::valueChanged, this, [this](int v) {
-        if (!m_refreshingObjects) seekSceneTime(float(v) / 10.0f);
-    });
+    // Il cursore T (seekSceneTime) non sta piu' qui: e' nella barra di stato
+    // (setupStatusBar), perche' serve anche fuori dalle scene.
 
     // IL RAGGIO DI CURVATURA (solo nelle scene H3): quanto e' curvo lo spazio
     // rispetto a cio' che contiene. Oggetti e camera restano dove sono in unita'
@@ -2008,7 +1993,7 @@ void MainWindow::refreshObjectsUi()
     updatePath4DControls();
     checkPath3DFields();
     refreshPathControls();
-    refreshSceneTimeLabel();
+    refreshSceneTime();
     // Equazioni e bersaglio della texture: l'ambiente di una scena non ha superficie.
     applySceneEnvironmentGating();
 }
@@ -2079,7 +2064,7 @@ void MainWindow::applyObjectPathFromDock(int kind)
     if (!gl->isObjectPathRunning(gl->selectedObject(), kind)) return;
     if (commitObjectPathFields(kind)) {
         updateMasterButtonState();
-        refreshSceneTimeLabel();
+        refreshSceneTime();
     }
 }
 
@@ -2100,7 +2085,7 @@ void MainWindow::onObjectPathGoClicked(int kind)
         gl->setObjectPathRunning(selected, true);
     }
     updateMasterButtonState();
-    refreshSceneTimeLabel();
+    refreshSceneTime();
 }
 
 // Il path scritto nei dock, al selezionato. Senza la sostituzione virgola ->
@@ -2189,7 +2174,7 @@ bool MainWindow::sceneTimeCanRun() const
 
 void MainWindow::refreshSceneSlot()
 {
-    if (!m_btnScene || !m_sceneTimeLabel || !m_btnObjectSelector) return;
+    if (!m_btnScene || !m_btnObjectSelector) return;
     const bool started = sceneStarted();
     m_btnScene->setVisible(!started);
     m_btnSceneSpace->setVisible(started);
@@ -2200,25 +2185,17 @@ void MainWindow::refreshSceneSlot()
                                                                 : QStringLiteral("3D"));
     }
     m_btnObjectSelector->setVisible(started);
-    m_sceneTimeLabel->setVisible(started);
 }
 
-// T NELLA BARRA DI STATO (a scena avviata) e il cursore del dock: aggiornati 5
-// volte al secondo, sempre (path e rotazioni partono e si fermano da tanti
+// LO SPAZIO DELLA SCENA e il cursore T nella barra di stato: aggiornati 5
+// volte al secondo, sempre, dal timer m_sceneTimeTimer (setupStatusBar), e
+// subito dove lo stato cambia (path e rotazioni partono e si fermano da tanti
 // punti).
-void MainWindow::refreshSceneTimeLabel()
+void MainWindow::refreshSceneTime()
 {
-    if (!m_sceneTimeLabel || !ui->glWidget) return;
+    if (!ui->glWidget) return;
     refreshSceneSlot();
-    if (sceneStarted())
-        m_sceneTimeLabel->setText(QStringLiteral("T %1 s").arg(double(ui->glWidget->sceneTime()), 0, 'f', 1));
     refreshSceneTimeSlider();
-    if (!m_sceneTimeLabelTimer) {
-        m_sceneTimeLabelTimer = new QTimer(this);
-        m_sceneTimeLabelTimer->setInterval(200);
-        connect(m_sceneTimeLabelTimer, &QTimer::timeout, this, [this]() { refreshSceneTimeLabel(); });
-        m_sceneTimeLabelTimer->start();
-    }
 }
 
 void MainWindow::selectSceneObjectFromUi(int index)

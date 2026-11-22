@@ -1506,7 +1506,7 @@ void MainWindow::setupStatusBar()
     ui->statusbar->addWidget(m_btnProjection);
     ui->statusbar->addWidget(m_btnDrive);
     // 2.0: lo spazio della scena, sempre occupato: il tasto Scene o, a scena
-    // avviata, 3D/4D, selettore e T (refreshSceneSlot).
+    // avviata, 3D/4D e selettore (refreshSceneSlot).
     m_btnScene = new QPushButton("Scene", this);
     m_btnScene->setFlat(true);
     m_btnScene->setFont(fontBold);
@@ -1530,13 +1530,66 @@ void MainWindow::setupStatusBar()
     m_btnObjectSelector->setVisible(false);
     connect(m_btnObjectSelector, &QPushButton::clicked, this, &MainWindow::showObjectSelectorMenu);
     ui->statusbar->addWidget(m_btnObjectSelector);
-    // 2.0: l'orologio di scena della timeline.
-    m_sceneTimeLabel = new QLabel(QString(), this);
-    m_sceneTimeLabel->setVisible(false);
-    ui->statusbar->addWidget(m_sceneTimeLabel);
-    // REC per ultimo fra i comandi, dopo selettore e orologio delle scene.
-    // L'ordine degli addWidget e' anche quello del nastro scorrevole mobile.
+    // IL CURSORE T (seekSceneTime), provvisorio qui (richiesta dell'utente,
+    // 2026-11-22, per vedere come appare sui vari dispositivi). Prima era nel
+    // dock Objects, ma serve anche fuori dalle scene: il path e le rotazioni
+    // della superficie singola. Didascalia, cursore e valore stanno in un solo
+    // gruppo, sempre visibile; senza un moto della camera il cursore e' spento
+    // (refreshSceneTimeSlider). Sostituisce l'orologio "T x s" che la barra
+    // mostrava a scena avviata: il valore accanto al cursore dice la stessa cosa.
+    m_sceneTimeBox = new QWidget(this);
+    m_sceneTimeBox->setToolTip(QStringLiteral(
+        "T, the time of the environment's camera motion (its path, its rotations or the recorded DRIVE flight). "
+        "Drag to bring the motion to that time."));
+    auto *timeRow = new QHBoxLayout(m_sceneTimeBox);
+    timeRow->setContentsMargins(6, 0, 6, 0);
+    timeRow->setSpacing(6);
+    auto *timeCaption = new QLabel(QStringLiteral("T"), m_sceneTimeBox);
+    timeCaption->setFont(fontBold);
+    timeRow->addWidget(timeCaption);
+    m_sceneTimeSlider = new QSlider(Qt::Horizontal, m_sceneTimeBox);
+    m_sceneTimeSlider->setRange(0, 100);
+    m_sceneTimeSlider->setSingleStep(1);
+    m_sceneTimeSlider->setPageStep(10);
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    m_sceneTimeSlider->setFixedWidth(140);
+#else
+    m_sceneTimeSlider->setFixedWidth(200);
+#endif
+    // Alto quanto il pallino (20px nello stile globale) piu' un margine: da solo
+    // seguirebbe la guida (15px) e il pallino uscirebbe tagliato sopra e sotto.
+    // Non kSliderMinHeight (40) dei dock: qui alzerebbe la barra intera oltre
+    // i tasti.
+    m_sceneTimeSlider->setMinimumHeight(24);
+    timeRow->addWidget(m_sceneTimeSlider);
+    m_sceneTimeValue = new QLabel(QStringLiteral("0.0 s"), m_sceneTimeBox);
+    m_sceneTimeValue->setMinimumWidth(m_sceneTimeValue->fontMetrics().horizontalAdvance(QStringLiteral("0000.0 s")));
+    m_sceneTimeValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    timeRow->addWidget(m_sceneTimeValue);
+    connect(m_sceneTimeSlider, &QSlider::valueChanged, this, [this](int v) {
+        if (!m_refreshingObjects) seekSceneTime(float(v) / 10.0f);
+    });
+    // Nasce spento (all'avvio nulla corre) e lo tiene aggiornato il timer di
+    // refreshSceneTime, che parte QUI, con la barra: nel dock Objects bastava
+    // il refresh all'apertura del dock, nella barra lo slider si vede da
+    // subito. Prima il timer partiva alla prima chiamata, che all'avvio non
+    // arrivava: lo slider restava acceso com'era nato e si trascinava senza che
+    // T si muovesse (segnalato dall'utente, 2026-11-22). Il primo giro arriva a
+    // costruttore finito, quando anche il dock Objects (In/Out) esiste.
+    m_sceneTimeSlider->setEnabled(false);
+    m_sceneTimeTimer = new QTimer(this);
+    m_sceneTimeTimer->setInterval(200);
+    connect(m_sceneTimeTimer, &QTimer::timeout, this, [this]() { refreshSceneTime(); });
+    m_sceneTimeTimer->start();
+    // REC e subito dopo il cursore T, ultimo dei comandi (richiesta
+    // dell'utente, 2026-11-22), su tutte le piattaforme. L'ordine degli
+    // addWidget e' anche quello del nastro scorrevole. Dentro il nastro lo
+    // slider si trascina lo stesso (Qt non fa scorrere l'area partendo da uno
+    // slider) ed e' fra gli ownDrag di StatusBarScroller::install, in fondo a
+    // questa sezione: il filtro dei click non lo tocca e la rotella sopra di
+    // lui scorre la barra invece di cambiare T.
     ui->statusbar->addWidget(m_btnRec);
+    ui->statusbar->addWidget(m_sceneTimeBox);
     ui->statusbar->addWidget(m_renderProgress);
     // m_statusLabel SENZA fattore di stretch: con stretch 1 rivendicava tutto
     // lo spazio residuo della barra, e i tasti dock (permanent widget, che il
@@ -1591,18 +1644,37 @@ void MainWindow::setupStatusBar()
         ui->statusbar->addPermanentWidget(btnEx);
     }
 
-    // MOBILE: da qui in poi la barra scorre col dito. Va chiamata DOPO l'ultimo
+    // Da qui in poi la barra scorre: col dito sul telefono, col mouse, la
+    // rotella o il trackpad sul desktop. Va chiamata DOPO l'ultimo
     // addPermanentWidget - riparenta i widget gia' presenti, quindi qualsiasi
     // tasto aggiunto piu' avanti finirebbe fuori dal nastro. firstDockButton
     // segna dove iniziano i tasti dock: li' va lo stacco che prima nasceva
     // dalla differenza fra addWidget e addPermanentWidget.
     // m_renderProgress e m_statusLabel sono passati come INDICATORI: entrano nel
-    // nastro subito dopo REC, il tasto a cui appartengono. Tenuti fuori dal
-    // nastro finivano in coda alla barra - visivamente all'estrema destra, dopo
-    // Library - perche' il nastro ha stretch 1 e si prende tutto lo spazio
-    // residuo. No-op su desktop.
-    StatusBarScroller::install(ui->statusbar, firstDockButton,
-                               { m_renderProgress, m_statusLabel });
+    // nastro dopo i comandi (REC e il cursore T): la barra di avanzamento compare
+    // solo registrando, quando T e' spento, e messa dopo T non lo sposta. Tenuti
+    // fuori dal nastro finivano in coda alla barra - visivamente all'estrema
+    // destra, dopo Library - perche' il nastro ha stretch 1 e si prende tutto lo
+    // spazio residuo. Lo slider T si trascina da se' (ownDrag).
+    m_statusArea = StatusBarScroller::install(ui->statusbar, firstDockButton,
+                                              { m_renderProgress, m_statusLabel },
+                                              { m_sceneTimeSlider });
+}
+
+// La barra intera: il nastro alla sua larghezza naturale, piu' la barra di
+// avanzamento del REC se ora e' nascosta (la barra resta intera anche
+// registrando), piu' cio' che la barra mette attorno al nastro (margini, spazi,
+// maniglia): la sua misura meno quella del nastro, che ne e' l'unico widget.
+int MainWindow::statusBarFullWidth() const
+{
+    if (!m_statusArea || !m_statusArea->widget()) return ui->statusbar->sizeHint().width();
+    QWidget *strip = m_statusArea->widget();
+    QLayout *layout = strip->layout();
+    if (layout) layout->activate();
+    int width = strip->sizeHint().width();
+    if (m_renderProgress && m_renderProgress->isHidden())
+        width += m_renderProgress->width() + (layout ? layout->spacing() : 0);
+    return width + ui->statusbar->sizeHint().width() - m_statusArea->sizeHint().width();
 }
 
 QList<QDockWidget*> MainWindow::dockPanels() const

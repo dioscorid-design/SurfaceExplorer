@@ -28,6 +28,7 @@ class CameraDrive;
 
 class QLineEdit;
 class QSlider;
+class QScrollArea;
 class QPushButton;
 class QCheckBox;
 class QComboBox;
@@ -103,6 +104,10 @@ public:
 
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
+
+    // La larghezza che fa entrare tutta la barra di stato, barra di avanzamento
+    // del REC compresa: main.cpp ci apre la finestra (dove lo schermo basta).
+    int statusBarFullWidth() const;
 
     AudioController *m_audioController;
 
@@ -2060,7 +2065,9 @@ private:
     // Campi e slider Speed mostrano cio' che e' selezionato (a segnali bloccati).
     void showPathFields();
     void setSelectedObjectPathSpeed(int kind, int speed);
-    // Il cursore della timeline (decimi di secondo) e il T che mostra.
+    // Il cursore della timeline (decimi di secondo) e il T che mostra, nella
+    // barra di stato dentro m_sceneTimeBox (setupStatusBar), sempre visibile.
+    QWidget *m_sceneTimeBox = nullptr;
     QSlider *m_sceneTimeSlider = nullptr;
     QLabel *m_sceneTimeValue = nullptr;
     // IL RAGGIO DI CURVATURA della scena H3 (GLWidget::setHyperbolicCurvatureRadius):
@@ -2134,9 +2141,12 @@ private:
     // I tasti Departure dicono il moto di cio' che e' selezionato; con un oggetto
     // anche la loro accensione, R e il dock 4D (scena 4D, o un path da togliere).
     void refreshPathControls();
-    QLabel *m_sceneTimeLabel = nullptr;
-    QTimer *m_sceneTimeLabelTimer = nullptr;
-    void refreshSceneTimeLabel();
+    // Spazio della scena e cursore T aggiornati ogni 200 ms (il timer parte
+    // in setupStatusBar, col cursore).
+    QTimer *m_sceneTimeTimer = nullptr;
+    void refreshSceneTime();
+    // Il nastro scorrevole della barra di stato (StatusBarScroller::install).
+    QScrollArea *m_statusArea = nullptr;
     QPushButton *m_btnObjectDuplicate = nullptr;
     QPushButton *m_btnObjectRemove = nullptr;
     // IL SELETTORE COMPATTO nella barra di stato ("2/3 Sphere"): visibile a
@@ -2182,7 +2192,7 @@ private:
     // Entrando in H3 i moti 4D dell'ambiente si fermano: path 4D, velocita' 4D
     // del GO (in H3 il 4D non c'e', selectedRotates4D).
     void stopEnvironment4DMotions();
-    // Il tasto Scene o 3D/4D, selettore e T, secondo sceneStarted.
+    // Il tasto Scene o 3D/4D e selettore, secondo sceneStarted.
     void refreshSceneSlot();
     // Il clic su una Shape o su un record a scena avviata: avvisa e ritorna
     // true, e la scena non cambia (la Shape entra con Add to Scene).
@@ -2268,7 +2278,7 @@ private:
     float sceneTimeSpan() const;
     void refreshSceneTimeSlider();
     // T PUO' CORRERE: l'ambiente ha un moto della camera, un path scritto o
-    // delle velocita' di rotazione. Accende finestre In/Out e T nella barra.
+    // delle velocita' di rotazione. Accende le finestre In/Out.
     bool sceneTimeCanRun() const;
     QString uniqueObjectName(const QString &base) const;
     void applyObjectMotion(const QJsonObject &motion);

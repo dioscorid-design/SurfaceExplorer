@@ -1,6 +1,7 @@
 #include "statusbarscroller.h"
 
 #include <QAbstractButton>
+#include <QAbstractSlider>
 #include <QApplication>
 #include <QEvent>
 #include <QHBoxLayout>
@@ -20,6 +21,14 @@ namespace {
 // ogni pixel del nastro e' spazio di lettura, e basta poco perche' la fila si
 // legga come due gruppi invece che uno.
 constexpr int kGroupGap = 20;
+// Spazio fra un widget e l'altro del nastro: sul desktop quello della barra
+// nativa (QStatusBar::reformat, 6px), cosi' col nastro i tasti restano dove
+// erano; sul telefono nessuno, come da sempre.
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+constexpr int kItemSpacing = 0;
+#else
+constexpr int kItemSpacing = 6;
+#endif
 }
 
 StatusBarScroller::StatusBarScroller(QObject* parent)
@@ -27,11 +36,11 @@ StatusBarScroller::StatusBarScroller(QObject* parent)
 {
 }
 
-void StatusBarScroller::install(QStatusBar* bar, QWidget* firstPermanent,
-                                const QList<QWidget*>& indicators)
+QScrollArea* StatusBarScroller::install(QStatusBar* bar, QWidget* firstPermanent,
+                                        const QList<QWidget*>& indicators,
+                                        const QList<QWidget*>& ownDrag)
 {
-#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
-    if (!bar) return;
+    if (!bar) return nullptr;
 
     // I tasti nell'ordine in cui la barra li MOSTRA. Serve l'ordine visivo, non
     // quello di costruzione: la barra di avanzamento e' creata prima dei tasti
@@ -71,12 +80,12 @@ void StatusBarScroller::install(QStatusBar* bar, QWidget* firstPermanent,
     }
     QList<QWidget*> items = normals;
     items.append(permanents);
-    if (items.isEmpty()) return;
+    if (items.isEmpty()) return nullptr;
 
     QWidget* strip = new QWidget(bar);
     QHBoxLayout* stripLayout = new QHBoxLayout(strip);
     stripLayout->setContentsMargins(0, 0, 0, 0);
-    stripLayout->setSpacing(0);
+    stripLayout->setSpacing(kItemSpacing);
 
     // removeWidget() stacca dal layout della barra ma NASCONDE il widget, quindi
     // serve un show() o il nastro resta vuoto. Va pero' rimessa la visibilita'
@@ -166,13 +175,61 @@ void StatusBarScroller::install(QStatusBar* bar, QWidget* firstPermanent,
 
     StatusBarScroller* filter = new StatusBarScroller(area);
     // Il filtro va sui TASTI, non sul viewport: e' li' che arriva il release che
-    // farebbe scattare il click a fine trascinamento.
+    // farebbe scattare il click a fine trascinamento. Non sui widget che si
+    // trascinano da se' (ownDrag) ne' sui loro figli: consumerebbe il release
+    // dello slider, che resterebbe "giu'" per sempre.
+    const auto ownsDrag = [&ownDrag](QWidget* w) {
+        for (QWidget* d : ownDrag)
+            if (d && (w == d || d->isAncestorOf(w))) return true;
+        return false;
+    };
     const QList<QWidget*> buttons = strip->findChildren<QWidget*>();
-    for (QWidget* w : buttons) w->installEventFilter(filter);
+    for (QWidget* w : buttons)
+        if (!ownsDrag(w)) w->installEventFilter(filter);
     strip->installEventFilter(filter);
 
+    // Sul telefono il dito; sul desktop il mouse, come la Library
+    // (UiStyleManager::setupDockScroll).
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
     QScroller::grabGesture(area->viewport(), QScroller::TouchGesture);
+#else
+    QScroller::grabGesture(area->viewport(), QScroller::LeftMouseButtonGesture);
+#endif
+    // LA ROTELLA (e il trackpad) scorre il nastro: quella verticale, l'unica di
+    // molti mouse, compresa. Arriva al viewport risalendo dai tasti, che la
+    // ignorano; lo slider invece la terrebbe per se' e una passata col trackpad
+    // cambierebbe T, quindi il filtro sta anche su di lui. QScrollBar accetta la
+    // rotella verticale anche da orizzontale.
+    StatusBarScroller* wheel = new StatusBarScroller(area);
+    wheel->m_wheelBar = area->horizontalScrollBar();
+    area->viewport()->installEventFilter(wheel);
+    for (QWidget* w : ownDrag)
+        if (w) w->installEventFilter(wheel);
+
     QScroller* scroller = QScroller::scroller(area->viewport());
+    // IL TASTO PREMUTO A INIZIO TRASCINAMENTO. Col ritardo del press a zero il
+    // tasto riceve il press subito; quando il nastro comincia a scorrere, Qt non
+    // gli manda alcun release (PressDelayHandler lo finge solo col ritardo), e
+    // col mouse il gesto si mangia moto e release: il tasto restava disegnato
+    // giu'. Tirato su a mano a ogni passo del gesto che ha fatto scorrere; MAI
+    // senza scorrimento (Pressed -> Inactive e' un click, e il tasto deve
+    // ricevere il suo release da giu' per emettere clicked()).
+    // Lo stesso per gli slider (ownDrag): Qt non fa partire lo scorrimento su
+    // uno slider, ma solo a nastro fermo; se il nastro corre ancora per
+    // inerzia, il tocco sullo slider lo ferma e il trascinamento che segue
+    // scorre il nastro. Lo slider ha avuto il press e non avra' il release:
+    // restava giu' per sempre, e da giu' refreshSceneTimeSlider non lo muove
+    // piu'.
+    QObject::connect(scroller, &QScroller::stateChanged, filter, [filter, strip](QScroller::State state) {
+        if (state == QScroller::Pressed) { filter->m_scrolled = false; return; }
+        if (state == QScroller::Dragging) filter->m_scrolled = true;
+        if (!filter->m_scrolled) return;
+        for (QAbstractButton* b : strip->findChildren<QAbstractButton*>())
+            if (b->isDown()) b->setDown(false);
+        for (QAbstractSlider* s : strip->findChildren<QAbstractSlider*>())
+            if (s->isSliderDown()) s->setSliderDown(false);
+        if (state == QScroller::Inactive) filter->m_scrolled = false;
+    });
     QScrollerProperties props = scroller->scrollerProperties();
     // Overshoot spento: il rimbalzo elastico su una fila di tasti alta ~40px
     // sembra un difetto, non un'animazione.
@@ -185,9 +242,7 @@ void StatusBarScroller::install(QStatusBar* bar, QWidget* firstPermanent,
     props.setScrollMetric(QScrollerProperties::DragStartDistance, 0.005);
     props.setScrollMetric(QScrollerProperties::MousePressEventDelay, 0.0);
     scroller->setScrollerProperties(props);
-#else
-    Q_UNUSED(bar);
-#endif
+    return area;
 }
 
 void StatusBarScroller::syncStripWidth()
@@ -204,6 +259,13 @@ void StatusBarScroller::syncStripWidth()
 
 bool StatusBarScroller::eventFilter(QObject* watched, QEvent* event)
 {
+    // Istanza della rotella: ogni rotella che arriva al nastro lo fa scorrere.
+    if (m_wheelBar) {
+        if (event->type() != QEvent::Wheel) return false;
+        QCoreApplication::sendEvent(m_wheelBar, event);
+        return true;
+    }
+
     // Istanza sizer: si occupa solo di riadattare il nastro al viewport. Ascolta
     // il Resize del viewport (rotazione schermo, split view), lo Show/Hide degli
     // indicatori, che entrando e uscendo cambiano la larghezza naturale del

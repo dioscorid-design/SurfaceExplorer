@@ -145,7 +145,7 @@ void MainWindow::startDrive()
     refreshDriveButton();
     refreshDriveHud();
     // Il cursore T muove ora il volo: subito, non al prossimo giro del suo timer.
-    refreshSceneTimeLabel();
+    refreshSceneTime();
 }
 
 void MainWindow::stopDrive()
@@ -158,7 +158,7 @@ void MainWindow::stopDrive()
     updateMasterButtonState();
     refreshDriveButton();
     refreshDriveHud();
-    refreshSceneTimeLabel();
+    refreshSceneTime();
 }
 
 void MainWindow::releaseDriveCamera()
@@ -169,7 +169,7 @@ void MainWindow::releaseDriveCamera()
     updateViewButtonsEnabled();
     refreshDriveButton();
     refreshDriveHud();
-    refreshSceneTimeLabel();
+    refreshSceneTime();
 }
 
 void MainWindow::refreshDriveButton()
@@ -270,5 +270,5 @@ void MainWindow::applyDriveFlight(const LibraryItem &d)
     m_drive->applyAt(ui->glWidget->sceneTime());
     if (d.activeMotion == QLatin1String("drive")) startDrive();
     refreshDriveButton();
-    refreshSceneTimeLabel();
+    refreshSceneTime();
 }

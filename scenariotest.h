@@ -333,6 +333,7 @@ private:
     // shader, camera, stato di H3, rifiuti, path, Save). Da sola:
     // --scenario-only scene-switch.
     void runSceneSwitchScenarios();
+    void runStatusBarScenarios();
     void runDisabledLookScenarios();
     void runScenePathScenarios();
     void runSceneSeekScenarios();

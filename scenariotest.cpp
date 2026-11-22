@@ -60,6 +60,10 @@
 #include <QAbstractButton>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QScroller>
+#include <QScreen>
 #include <QGridLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -2230,6 +2234,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("status-bar")) {
+        runStatusBarScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("disabled-look")) {
         runDisabledLookScenarios();
         finish();
@@ -4133,6 +4142,7 @@ void ScenarioTest::run()
     runSceneSpaceScenarios();
     runSceneH3Scenarios();
     runSceneSwitchScenarios();
+    runStatusBarScenarios();
     runDisabledLookScenarios();
     runScenePathScenarios();
     runSceneSeekScenarios();
@@ -7222,16 +7232,41 @@ void ScenarioTest::runImageCaptureScenarios()
         // Il taglio dipende da (u,v): le strisce tagliano dove tagliano le linee native, ne'
         // piu' ne' meno (con (u,v) sbagliati sparivano bande intere). Ogni pixel di una delle
         // due immagini ha una linea dell'altra a pochi pixel.
-        // Come uncovered, a una dimensione qualunque.
+        // Come uncovered, a una dimensione qualunque, con UN SOLO colore di
+        // sfondo per le due immagini: la mediana per canale di a. Lo sfondo a
+        // gradiente (Mobius Racing) supera i 30 di scarto dal pixel (1,1) quando
+        // la finestra e' larga, e il pixel (1,1) delle strisce, toccato dal bordo
+        // sfumato di una linea, differiva di un'unita' da quello delle linee
+        // native: una fascia intera di sfondo contava come linea in una e non
+        // nell'altra (21672 "mancanti" a 1622x880, con le stesse linee). La
+        // mediana sta in mezzo al gradiente e non cade su una linea.
+        auto backgroundOf = [](const QImage &im) {
+            QVector<int> r, g, b;
+            for (int y = 0; y < im.height(); y += 8)
+                for (int x = 0; x < im.width(); x += 8) {
+                    const QRgb p = im.pixel(x, y);
+                    r << qRed(p); g << qGreen(p); b << qBlue(p);
+                }
+            auto median = [](QVector<int> &v) {
+                std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+                return v[v.size() / 2];
+            };
+            return qRgb(median(r), median(g), median(b));
+        };
         auto uncoveredIn = [&](const QImage &a, const QImage &b, const QSize &sz) {
+            const QRgb bg = backgroundOf(a);
+            auto inkedOn = [bg](const QImage &im, int x, int y) {
+                const QRgb p = im.pixel(x, y);
+                return std::abs(qRed(p) - qRed(bg)) + std::abs(qGreen(p) - qGreen(bg)) + std::abs(qBlue(p) - qBlue(bg)) > 30;
+            };
             QVector<char> ink(sz.width() * sz.height(), 0);
             for (int y = 0; y < sz.height(); ++y)
                 for (int x = 0; x < sz.width(); ++x)
-                    ink[y * sz.width() + x] = inked(b, x, y);
+                    ink[y * sz.width() + x] = inkedOn(b, x, y);
             QPair<qint64, qint64> n(0, 0);
             for (int y = 3; y + 3 < sz.height(); ++y)
                 for (int x = 3; x + 3 < sz.width(); ++x) {
-                    if (!inked(a, x, y)) continue;
+                    if (!inkedOn(a, x, y)) continue;
                     ++n.first;
                     bool hasInkNearby = false;
                     for (int dy = -3; dy <= 3 && !hasInkNearby; ++dy)
@@ -7967,7 +8002,12 @@ void ScenarioTest::runImageCaptureScenarios()
         };
         const qint64 inside = inkWith(0.0f, QStringLiteral("inside"));
         const qint64 beyond = inkWith(50.0f, QStringLiteral("beyond"));
-        const qint64 total = qint64(sz.width() / 2) * (sz.height() / 2);
+        // Le soglie sull'area del QUADRATO dell'altezza: il campo visivo e'
+        // fissato in verticale, e il quadrato e' grande uguale a ogni
+        // larghezza della finestra (12130 pixel campionati a 2640x1684 e a
+        // 3244x1684). Con l'area dell'immagine intera la soglia cresceva con
+        // la larghezza, e a 1622x880 "dentro" non ci arrivava piu'.
+        const qint64 total = qint64(sz.height() / 2) * (sz.height() / 2);
         check(inside > total / 100 && beyond >= 0 && beyond < total / 1000,
               QStringLiteral("quadrato dentro il tetto: %1 pixel disegnati; coi vertici oltre il tetto in direzioni opposte: "
                              "%2 (la corda non si disegna)").arg(inside).arg(beyond));
@@ -9602,18 +9642,18 @@ void ScenarioTest::runSceneTimelineScenarios()
 
     // Ambiente senza path: T non corre, finestre e cursore spenti.
     if (!buildScene(false, { QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json") })) return;
-    m_mw->refreshSceneTimeLabel();
+    m_mw->refreshSceneTime();
     check(!m_mw->m_objectWindowIn->isEnabled() && !m_mw->m_sceneTimeSlider->isEnabled()
-              && m_mw->m_sceneTimeLabel->isVisibleTo(m_mw),
-          QStringLiteral("ambiente senza path: In/Out e cursore spenti, T visibile (a scena avviata c'e' sempre)"));
+              && m_mw->m_sceneTimeBox->isVisibleTo(m_mw),
+          QStringLiteral("ambiente senza path: In/Out e cursore spenti, T visibile (nella barra c'e' sempre)"));
     // Le rotazioni dell'ambiente sono l'altro moto della camera: con le sue
     // velocita' T puo' correre (In/Out, T e cursore accesi).
     m_mw->selectSceneObject(0);
     gl->setPrecessionSpeed(0.5f);
     m_mw->selectSceneObject(1);
-    m_mw->refreshSceneTimeLabel();
+    m_mw->refreshSceneTime();
     check(m_mw->m_objectWindowIn->isEnabled() && m_mw->m_sceneTimeSlider->isEnabled()
-              && m_mw->m_sceneTimeLabel->isVisibleTo(m_mw),
+              && m_mw->m_sceneTimeBox->isVisibleTo(m_mw),
           QStringLiteral("ambiente con le velocita' di rotazione: In/Out attivi, T visibile, cursore attivo"));
 
     // Ambiente col path 4D (quello di Cytherean Coil, scritto a mano): T corre col path.
@@ -9621,9 +9661,9 @@ void ScenarioTest::runSceneTimelineScenarios()
     m_mw->addShapeToScene(spherePath);
     wait(400);
     const int sphere = gl->selectedObject();
-    m_mw->refreshSceneTimeLabel();
+    m_mw->refreshSceneTime();
     check(m_mw->pathRunning(CameraPaths::Path4D) && m_mw->m_objectWindowIn->isEnabled()
-              && m_mw->m_sceneTimeSlider->isEnabled() && m_mw->m_sceneTimeLabel->isVisibleTo(m_mw),
+              && m_mw->m_sceneTimeSlider->isEnabled() && m_mw->m_sceneTimeBox->isVisibleTo(m_mw),
           QStringLiteral("ambiente col path 4D: In/Out e cursore attivi, T visibile"));
     float t0 = gl->sceneTime();
     wait(600);
@@ -9693,10 +9733,33 @@ void ScenarioTest::runSceneTimelineScenarios()
         }
         m_mw->m_dockObjects->close();
     }
-    // Lo slider T alto quanto gli altri dei dock: il pallino non esce tagliato.
-    check(m_mw->m_sceneTimeSlider->minimumHeight() >= m_mw->ui->lightSlider->minimumHeight(),
-          QStringLiteral("slider T alto %1 px (Light %2)").arg(m_mw->m_sceneTimeSlider->minimumHeight())
-              .arg(m_mw->ui->lightSlider->minimumHeight()));
+    // Lo slider T nella barra di stato: il pallino non esce tagliato (lasciato
+    // alla guida era alto 15px, il pallino 20), e il gruppo non alza la barra
+    // oltre i tasti. Foto da guardare: statusbar-T.png.
+    // Il pallino si cerca nei pixel: subControlRect non legge le misure del
+    // foglio di stile (dava 15x15 per un pallino disegnato a 20).
+    {
+        QSlider *s = m_mw->m_sceneTimeSlider;
+        const QImage img = s->grab().toImage();
+        // Chiaro = il pallino (#D0D0D0 acceso, #6E6E6E spento); guida e
+        // sfondo sono sotto #50.
+        const auto lightIn = [&img](int y) {
+            int n = 0;
+            for (int x = 0; x < img.width(); ++x)
+                if (qGray(img.pixel(x, y)) > 0x60) ++n;
+            return n;
+        };
+        const int top = lightIn(0), bottom = lightIn(img.height() - 1), middle = lightIn(img.height() / 2);
+        check(middle > 0 && top == 0 && bottom == 0,
+              QStringLiteral("pallino dello slider T intero (pixel chiari: riga in alto %1, in mezzo %2, in basso %3; "
+                             "slider %4x%5)")
+                  .arg(top).arg(middle).arg(bottom).arg(s->width()).arg(s->height()));
+        const int boxH = m_mw->m_sceneTimeBox->height();
+        const int buttonH = m_mw->m_btnStart->height();
+        check(boxH <= buttonH,
+              QStringLiteral("il gruppo T alto %1 px, START %2: la barra non cresce").arg(boxH).arg(buttonH));
+        m_mw->ui->statusbar->grab().save(m_outDir + QStringLiteral("/statusbar-T.png"));
+    }
 
     // La finestra dal dock: In 1 s, Out 2 s.
     m_mw->markWholeSceneClean();
@@ -10501,14 +10564,15 @@ void ScenarioTest::runSceneSpaceScenarios()
           QStringLiteral("sfera, Klein Bottle e Pierced Torus nella libreria"));
     if (spherePath.isEmpty() || kleinPath.isEmpty() || piercedPath.isEmpty()) return;
 
-    // Lo spazio nella barra: il tasto (space vuoto) oppure 3D/4D, selettore e T.
+    // Lo spazio nella barra: il tasto (space vuoto) oppure 3D/4D e selettore;
+    // il cursore T c'e' sempre (serve anche fuori dalle scene).
     const auto slotShows = [this](const QString &space) {
-        m_mw->refreshSceneTimeLabel();
+        m_mw->refreshSceneTime();
         const bool started = !space.isEmpty();
         return m_mw->m_btnScene->isVisibleTo(m_mw) != started
                && m_mw->m_btnSceneSpace->isVisibleTo(m_mw) == started
                && m_mw->m_btnObjectSelector->isVisibleTo(m_mw) == started
-               && m_mw->m_sceneTimeLabel->isVisibleTo(m_mw) == started
+               && m_mw->m_sceneTimeBox->isVisibleTo(m_mw)
                && (!started || m_mw->m_btnSceneSpace->text() == space);
     };
     const auto newScene = [this]() {
@@ -10789,6 +10853,205 @@ void ScenarioTest::runSceneSpaceScenarios()
               .arg(rmSelected).arg(gl->getEngineMode() == GLWidget::ModeImplicit).arg(blank));
 }
 
+// LA BARRA DI STATO (richiesta dell'utente, 2026-11-22): all'apertura la
+// finestra la fa entrare tutta, REC acceso compreso; il cursore T sta subito
+// dopo REC; in una finestra stretta scorre anche sul desktop, con la rotella e
+// trascinando col mouse; trascinare un tasto scorre senza cliccarlo, trascinare
+// lo slider T muove T e non il nastro (StatusBarScroller, ownDrag). Gli eventi
+// passano da sendEvent, quindi dal gestore dei gesti come quelli veri.
+void ScenarioTest::runStatusBarScenarios()
+{
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Barra di stato: intera all'apertura, cursore T dopo REC, scorrevole anche sul desktop =="));
+    GLWidget *gl = m_mw->ui->glWidget;
+    // ALL'AVVIO, prima di ogni gesto: il cursore T segue il moto da subito. Il
+    // timer di refreshSceneTime partiva alla prima chiamata, che arrivava solo
+    // aprendo il dock Objects o con una scena: nella barra lo slider restava
+    // com'era nato, acceso, e si trascinava senza che T si muovesse
+    // (segnalato dall'utente, 2026-11-22). Qui nessun refresh a mano: deve
+    // bastare il timer.
+    check(m_mw->m_sceneTimeTimer && m_mw->m_sceneTimeTimer->isActive(),
+          QStringLiteral("timer del cursore T in corsa dall'avvio"));
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) {
+        wait(400);
+        check(!m_mw->m_sceneTimeSlider->isEnabled(),
+              QStringLiteral("toro senza moto, senza refresh a mano: cursore T spento"));
+    }
+    pressNew();
+    QScrollArea *area = m_mw->m_statusArea;
+    check(area != nullptr, QStringLiteral("nastro scorrevole della barra di stato installato"));
+    if (!area) return;
+    QScrollBar *hbar = area->horizontalScrollBar();
+    wait(300);
+
+    // All'apertura entra tutta, anche con la barra di avanzamento del REC,
+    // dove lo schermo basta (main.cpp, statusBarFullWidth).
+    const int full = m_mw->statusBarFullWidth();
+    const QScreen *screen = m_mw->screen();
+    const bool room = !screen || full <= screen->availableGeometry().width();
+    const int idle = hbar->maximum();
+    m_mw->m_renderProgress->show();
+    wait(300);
+    const int recording = hbar->maximum();
+    m_mw->m_renderProgress->hide();
+    wait(300);
+    check(!room || (idle == 0 && recording == 0),
+          QStringLiteral("all'apertura la barra entra tutta: finestra %1 px, barra %2 px, da scorrere %3 px "
+                         "(col REC acceso %4)").arg(m_mw->width()).arg(full).arg(idle).arg(recording));
+
+    // T subito dopo REC (stesso padre: il nastro).
+    const QRect rec = m_mw->m_btnRec->geometry();
+    const QRect box = m_mw->m_sceneTimeBox->geometry();
+    check(m_mw->m_sceneTimeBox->parentWidget() == m_mw->m_btnRec->parentWidget()
+              && box.left() > rec.right() && box.left() - rec.right() <= 8,
+          QStringLiteral("cursore T subito dopo REC (REC finisce a %1, T comincia a %2)").arg(rec.right()).arg(box.left()));
+
+    // Il cursore T acceso col path in corsa E dopo STOP: a moto fermo serve a
+    // riavvolgere (segnalato dall'utente, 2026-11-22: per un giro si spegneva
+    // allo STOP). Senza refresh a mano: basta il timer di refreshSceneTime.
+    if (!loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Cytherean Coil.json"))) return;
+    QSlider *slider = m_mw->m_sceneTimeSlider;
+    wait(300);
+    const bool onWhileRunning = slider->isEnabled() && m_mw->pathRunning(CameraPaths::Path4D);
+    m_mw->performMasterStop();
+    wait(300);
+    check(onWhileRunning && slider->isEnabled() && !m_mw->pathRunning(CameraPaths::Path4D),
+          QStringLiteral("Cytherean Coil: cursore T acceso col path in corsa (%1) e dopo STOP (%2)")
+              .arg(onWhileRunning).arg(slider->isEnabled()));
+
+    // La finestra stretta: il minimo del .ui (800) tolto per la prova.
+    const bool wasMaximized = m_mw->isMaximized();
+    const QRect oldGeometry = m_mw->geometry();
+    const QSize oldMinimum = m_mw->minimumSize();
+    m_mw->showNormal();
+    m_mw->setMinimumSize(0, 0);
+    m_mw->resize(700, m_mw->height());
+    wait(600);
+    auto restore = qScopeGuard([&]() {
+        hbar->setValue(0);
+        m_mw->setMinimumSize(oldMinimum);
+        if (wasMaximized) m_mw->showMaximized();
+        else m_mw->setGeometry(oldGeometry);
+        wait(500);
+    });
+    check(hbar->maximum() > 0, QStringLiteral("finestra di 700 px: la barra scorre (%1 px da scorrere)").arg(hbar->maximum()));
+
+    // LA ROTELLA verticale (quella di un mouse) scorre il nastro: sopra un
+    // tasto, e sopra lo slider acceso senza cambiare T (se la prendesse lo
+    // slider il nastro non scorrerebbe: la terrebbe per se'). Dalla finestra,
+    // come una rotella vera: Qt fa risalire ai genitori solo le rotelle
+    // spontanee, e quella sopra un tasto arriva al nastro proprio risalendo.
+    QWindow *win = m_mw->window()->windowHandle();
+    const auto wheelOn = [this, win](QWidget *w, int dy) {
+        const QPointF at(w->mapTo(m_mw->window(), QPoint(w->width() / 2, w->height() / 2)));
+        QWindowSystemInterface::handleWheelEvent(win, at, win->mapToGlobal(at), QPoint(), QPoint(0, dy));
+        QWindowSystemInterface::flushWindowSystemEvents();
+        wait(100);
+    };
+    hbar->setValue(0);
+    wait(100);
+    wheelOn(m_mw->m_btnNew, -120);
+    const int afterButton = hbar->value();
+    area->ensureWidgetVisible(slider, 0, 0);
+    wait(100);
+    const int beforeSlider = hbar->value();
+    wheelOn(slider, -120);
+    check(win && afterButton > 0 && slider->isEnabled() && hbar->value() > beforeSlider,
+          QStringLiteral("rotella: il nastro scorre (sopra NEW 0 -> %1, sopra lo slider acceso %2 -> %3)")
+              .arg(afterButton).arg(beforeSlider).arg(hbar->value()));
+
+    // Il trascinamento: il "dito" si muove nello schermo, quindi le posizioni
+    // si ricavano da quelle globali (il widget scorre col nastro).
+    const auto drag = [this](QWidget *w, QPoint from, int dx, int steps) {
+        const QPoint start = w->mapToGlobal(from);
+        QMouseEvent press(QEvent::MouseButtonPress, QPointF(from), QPointF(start), Qt::LeftButton, Qt::LeftButton,
+                          Qt::NoModifier);
+        QCoreApplication::sendEvent(w, &press);
+        QPoint g = start;
+        for (int i = 1; i <= steps; ++i) {
+            g = start + QPoint(dx * i, 0);
+            const QPoint local = w->mapFromGlobal(g);
+            QMouseEvent move(QEvent::MouseMove, QPointF(local), QPointF(g), Qt::NoButton, Qt::LeftButton,
+                             Qt::NoModifier);
+            QCoreApplication::sendEvent(w, &move);
+            wait(16);
+        }
+        const QPoint local = w->mapFromGlobal(g);
+        QMouseEvent release(QEvent::MouseButtonRelease, QPointF(local), QPointF(g), Qt::LeftButton, Qt::NoButton,
+                            Qt::NoModifier);
+        QCoreApplication::sendEvent(w, &release);
+    };
+
+    // Un click fermo su un tasto scatta ancora (il mouse ora e' anche il
+    // gesto che scorre). Poi la proiezione torna com'era (il tasto ne gira
+    // piu' di due).
+    hbar->setValue(0);
+    wait(100);
+    QPushButton *projection = m_mw->m_btnProjection;
+    int clicks = 0;
+    const QMetaObject::Connection counting = connect(projection, &QPushButton::clicked, this, [&clicks]() { ++clicks; });
+    const QString projectionText = projection->text();
+    for (int k = 0; k < 2; ++k) {
+        drag(projection, projection->rect().center(), 0, 0);
+        wait(200);
+    }
+    check(clicks == 2 && hbar->value() == 0 && !projection->isDown(),
+          QStringLiteral("click fermo su Perspective: scatta (%1 su 2), il nastro non si muove (%2), tasto su (%3)")
+              .arg(clicks).arg(hbar->value()).arg(!projection->isDown()));
+    for (int k = 0; k < 4 && projection->text() != projectionText; ++k) projection->click();
+
+    // Trascinare un tasto scorre il nastro, non lo clicca e non lo lascia giu'.
+    clicks = 0;
+    drag(projection, projection->rect().center(), -15, 20);
+    wait(800);
+    disconnect(counting);
+    check(hbar->value() > 0 && clicks == 0 && !projection->isDown(),
+          QStringLiteral("trascinare Perspective scorre il nastro (0 -> %1), nessun click (%2), tasto su (%3)")
+              .arg(hbar->value()).arg(clicks).arg(!projection->isDown()));
+
+    // Lo slider toccato mentre il nastro corre ancora per inerzia: il tocco
+    // ferma il nastro e il trascinamento lo scorre (Qt guarda lo slider solo
+    // a nastro fermo), ma lo slider non deve restare giu' (StatusBarScroller,
+    // stateChanged). Il nastro e' lanciato da un trascinamento su un tasto.
+    QScroller *scroller = QScroller::scroller(area->viewport());
+    hbar->setValue(0);
+    wait(100);
+    drag(projection, projection->rect().center(), -25, 12);
+    wait(30);
+    const bool coasting = scroller->state() == QScroller::Scrolling;
+    drag(slider, QPoint(slider->width() / 2, slider->height() / 2), 10, 8);
+    wait(600);
+    check(!slider->isSliderDown(),
+          QStringLiteral("slider toccato col nastro in corsa per inerzia (%1): non resta giu'").arg(coasting));
+    scroller->stop();
+    wait(100);
+
+    // Trascinare lo slider T a path fermo (dopo STOP), nastro fermo: muove T e
+    // non il nastro, e il path resta fermo. Prima avanti da 0, poi indietro:
+    // il riavvolgimento.
+    slider->setValue(0);
+    hbar->setValue(hbar->maximum() / 2);
+    wait(300);
+    const int scroll0 = hbar->value();
+    drag(slider, QPoint(7, slider->height() / 2), 10, 12);
+    wait(400);
+    const float forward = gl->sceneTime();
+    check(slider->value() > 30 && forward > 3.0f && hbar->value() == scroll0 && !slider->isSliderDown()
+              && !m_mw->pathRunning(CameraPaths::Path4D),
+          QStringLiteral("trascinare lo slider T a path fermo: T a %1 s (cursore %2), il nastro resta a %3 (era %4), "
+                         "pallino rilasciato %5")
+              .arg(double(forward)).arg(slider->value()).arg(hbar->value()).arg(scroll0)
+              .arg(!slider->isSliderDown()));
+    // Indietro: il pallino e' dove il trascinamento l'ha lasciato (7 + 120 px).
+    drag(slider, QPoint(7 + 120, slider->height() / 2), -10, 8);
+    wait(400);
+    check(gl->sceneTime() < forward - 1.0f && hbar->value() == scroll0 && !slider->isSliderDown()
+              && !m_mw->pathRunning(CameraPaths::Path4D),
+          QStringLiteral("riavvolgere a path fermo: T da %1 a %2 s, il path resta fermo, il nastro non si muove")
+              .arg(double(forward)).arg(double(gl->sceneTime())));
+    m_mw->ui->statusbar->grab().save(m_outDir + QStringLiteral("/statusbar-narrow.png"));
+}
+
 // I CONTROLLI SPENTI SI VEDONO SPENTI (richiesta dell'utente, 2026-11-15): lo
 // stile globale dava a etichette e testi lo stesso bianco da accesi e da spenti,
 // e agli slider lo stesso cursore. Ogni tipo di controllo, fotografato spento e
@@ -10815,7 +11078,7 @@ void ScenarioTest::runDisabledLookScenarios()
     const Case cases[] = {
         { "etichetta (Transparency)", ui->lblTrans },
         { "slider standard (costante A)", ui->aSlider },
-        { "slider standard (T del dock Objects)", m_mw->m_sceneTimeSlider },
+        { "slider standard (T nella barra di stato)", m_mw->m_sceneTimeSlider },
         { "slider di colore (R)", ui->sliderR },
         { "slider Shell thickness", ui->shellThicknessSlider },
         { "campo di testo (costante A)", ui->lineA },
@@ -10833,6 +11096,12 @@ void ScenarioTest::runDisabledLookScenarios()
         const QSignalBlocker blocker(ui->lineX);
         ui->lineX->setPlainText(QStringLiteral("cos(u) * sin(v)"));
     }
+    // Il timer del cursore T (refreshSceneTime, ogni 200 ms, dall'avvio) ne
+    // riscrive l'accensione: fra il setEnabled(true) e la foto lo rispegneva
+    // (la foto "accesa" usciva grigia, 0 pixel diversi). Fermo per le foto.
+    QTimer *timeTimer = m_mw->m_sceneTimeTimer;
+    if (timeTimer) timeTimer->stop();
+    auto restartTimeTimer = qScopeGuard([timeTimer]() { if (timeTimer) timeTimer->start(); });
     int index = 0;
     for (const Case &c : cases) {
         ++index;
@@ -11488,7 +11757,7 @@ void ScenarioTest::runSceneH3Scenarios()
     }
     newScene();
     m_mw->startScene(Space::SpaceH3);
-    m_mw->refreshSceneTimeLabel();
+    m_mw->refreshSceneTime();
     check(m_mw->sceneStarted() && gl->hyperbolicSpace() && m_mw->isSceneEmpty()
               && m_mw->m_btnSceneSpace->text() == QStringLiteral("H³"),
           QStringLiteral("H3 dopo NEW: scena avviata e vuota, nella barra H3"));
@@ -12027,7 +12296,7 @@ void ScenarioTest::runSceneH3Scenarios()
         newScene();
         const bool loaded = m_mw->loadSceneFile(path);
         wait(800);
-        m_mw->refreshSceneTimeLabel();
+        m_mw->refreshSceneTime();
         double cameraDiff = 0.0;
         for (int i = 0; i < 4; ++i)
             for (int j = 0; j < 4; ++j)
@@ -13066,12 +13335,12 @@ void ScenarioTest::runSceneSeekScenarios()
     m_lines.append(QStringLiteral("== Timeline: il cursore T muove il solo moto della camera dell'ambiente (path o rotazioni) =="));
     const QString kCoil = QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Cytherean Coil.json");
     if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
-    m_mw->refreshSceneTimeLabel();
+    m_mw->refreshSceneTime();
     m_mw->seekSceneTime(2.0f);
     check(!m_mw->m_sceneTimeSlider->isEnabled() && gl->sceneTime() == 0.0f,
           QStringLiteral("superficie senza path: cursore spento, T resta 0"));
     if (!loadRecord(kCoil)) return;
-    m_mw->refreshSceneTimeLabel();
+    m_mw->refreshSceneTime();
     check(m_mw->m_sceneTimeSlider->isEnabled() && m_mw->pathRunning(CameraPaths::Path4D),
           QStringLiteral("superficie col path 4D, anche senza oggetti: cursore attivo"));
 
@@ -13151,12 +13420,12 @@ void ScenarioTest::runSceneSeekScenarios()
               .arg(stopped3.pathT).arg(s3.pathT).arg((stopped3.camera - s3.camera).length())
               .arg((stopped3.view - s3.view).length()));
 
-    // Il cursore del dock.
+    // Il cursore T.
     m_mw->m_sceneTimeSlider->setValue(25);
     check(std::abs(gl->sceneTime() - 2.5f) < 1e-4f && m_mw->m_sceneTimeValue->text() == QLatin1String("2.5 s"),
           QStringLiteral("cursore a 25: T = %1, etichetta \"%2\"").arg(gl->sceneTime()).arg(m_mw->m_sceneTimeValue->text()));
     m_mw->seekSceneTime(60.0f);
-    m_mw->refreshSceneTimeLabel();
+    m_mw->refreshSceneTime();
     check(m_mw->m_sceneTimeSlider->maximum() >= 600,
           QStringLiteral("la scala del cursore arriva a %1 s").arg(m_mw->m_sceneTimeSlider->maximum() / 10.0));
 
@@ -13170,7 +13439,7 @@ void ScenarioTest::runSceneSeekScenarios()
     gl->setSpinSpeed(0.6f);
     gl->setPrecessionSpeed(0.4f);
     if (gl->isObjectRotating(0)) m_mw->onStopClicked();
-    m_mw->refreshSceneTimeLabel();
+    m_mw->refreshSceneTime();
     check(!m_mw->cameraPath().has_value() && gl->objectHasRotationSpeed(0) && !gl->isObjectRotating(0)
               && m_mw->m_sceneTimeSlider->isEnabled(),
           QStringLiteral("rotazioni dell'ambiente, GO spento, senza path: cursore attivo"));
@@ -13191,10 +13460,10 @@ void ScenarioTest::runSceneSeekScenarios()
           QStringLiteral("rotazioni: a 0 s la posa e' quella di partenza"));
     check(same(gl->objectOrientation(other).rotation, otherQ),
           QStringLiteral("rotazioni: gli altri oggetti non si toccano"));
-    // Il cursore del dock e il passo del REC coincidono con lo stesso moto.
+    // Il cursore T e il passo del REC coincidono con lo stesso moto.
     m_mw->m_sceneTimeSlider->setValue(20);
     check(same(envQuat(), e2) && std::abs(gl->sceneTime() - 2.0f) < 1e-4f,
-          QStringLiteral("rotazioni: cursore del dock a 20 = stessa posa dei 2 s"));
+          QStringLiteral("rotazioni: cursore T a 20 = stessa posa dei 2 s"));
 
     // Path scritto E rotazioni, path fermo e GO acceso (come le scene con la Cross
     // Section come ambiente): il cursore muove la rotazione, non il path.
