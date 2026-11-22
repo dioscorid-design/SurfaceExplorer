@@ -362,6 +362,15 @@ private:
     // path in corsa, e un oggetto selezionato si sposta lui. Da sola:
     // --scenario-only scene-pan.
     void runScenePanScenarios();
+    // 2.0: IL PAD (gamepad.h), con uno stato finto: lo stick sinistro gira
+    // la superficie come il trascinamento col sinistro (stesso orientamento),
+    // il destro fa scorrere la scena come il destro, i grilletti sono la
+    // rotella; con un oggetto selezionato lo spostano e ne cambiano la scala;
+    // in vista 2D girano, spostano e ingrandiscono la texture. La zona morta
+    // (la deriva non muove niente e non sporca la scena), il REC e il pad
+    // scollegato (niente), il path in corsa (lo stick modella la traiettoria).
+    // Da sola: --scenario-only gamepad.
+    void runGamepadScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
     // accesi i comandi del dock RENDERER. Il Run lo sganciava solo per le

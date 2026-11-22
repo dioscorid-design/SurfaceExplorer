@@ -26,7 +26,7 @@
 #        renderer-all[:filtro], reset-scene, reset-button, tubes, border, meshes,
 #        animated-load, load-order, steps, shape-background, scene-objects,
 #        scene-timeline, scene-fixed, pole-normal, path-frame, object-frame, moving-frame, scene-h3, scene-switch,
-#        path-reshape, path-up, object-drag, scene-pan, status-bar, border-audit[:filtro])
+#        path-reshape, path-up, object-drag, scene-pan, gamepad, status-bar, border-audit[:filtro])
 #       border-audit: bordo acceso su ogni superficie parametrica, flag dei lati
 #       coperti riletti dalla GPU (~30 min); i dati restano in border-audit/ del
 #       report e ExC/Mac/Test/border-replica.py li rifa' in Python.

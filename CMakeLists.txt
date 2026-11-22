@@ -200,6 +200,8 @@ qt_add_executable(SurfaceExplorer
     uistylemanager.h
     inputhandler.cpp
     inputhandler.h
+    gamepad.cpp
+    gamepad.h
 
     # --- NUOVO MANAGER UNIFICATO ---
     librarymanager.cpp
@@ -610,4 +612,16 @@ target_sources(SurfaceExplorer PRIVATE
 )
 if(NOT APPLE)
     set_source_files_properties(securitybookmark.mm PROPERTIES LANGUAGE CXX)
+endif()
+
+# --- IL PAD (gamepad.h) ---
+# Su macOS, iPadOS e iOS il backend e' il framework GameController; altrove il
+# .mm e' il solo ripiego senza pad e va compilato come C++, come sopra.
+target_sources(SurfaceExplorer PRIVATE
+    gamepad_backend.mm
+)
+if(APPLE)
+    target_link_libraries(SurfaceExplorer PRIVATE "-framework GameController")
+else()
+    set_source_files_properties(gamepad_backend.mm PROPERTIES LANGUAGE CXX)
 endif()
