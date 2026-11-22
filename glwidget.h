@@ -280,6 +280,22 @@ public:
     // pixel della vista, alla stessa profondita'. Falso se non si sposta
     // (dietro la camera, oltre l'infinito di H3).
     bool dragObjectOnScreen(float dx, float dy);
+    // LO SCORRIMENTO DELLA SCENA COL MOUSE (tasto destro; richiesta dell'utente,
+    // 2026-11-22), dove il destro non ha altro da fare: superficie sola,
+    // ambiente o oggetto fisso selezionati, path fermo con MOUSE: SCENE. La
+    // traiettoria del path (pathReshapeActive) e l'oggetto selezionato
+    // (objectDragActive) vengono prima, vedi InputHandler. Non a path in corsa
+    // (la camera e' del path) ne' durante il REC (come l'oggetto).
+    bool sceneDragActive() const {
+        return !m_isFlatView && !objectZoomActive() && !m_pathAnimating && !m_isRecording;
+    }
+    // La camera scorre di lato e il centro della scena va dove va il puntatore,
+    // (dx, dy) pixel della vista. Falso se non si muove (limite della camera di
+    // H3, palla di Poincare' finita).
+    bool dragSceneOnScreen(float dx, float dy);
+    // Il centro della scena (l'origine del mondo) a schermo, in pixel della
+    // vista dall'alto a sinistra, come objectScreenPoint. Falso dietro la camera.
+    bool sceneCentreScreenPoint(QPointF *pixel) const;
     // Il limite dei campi X Y Z del dock Objects: tasti e mouse non lo passano.
     static constexpr float kObjectPositionLimit = 100.0f;
     void setObjectScale(float s);
@@ -1133,6 +1149,15 @@ public:
     // della vista corrente finche' MainWindow non le ha scritte.
     float fullViewTextureWidth() const;
     void setFlatPan(float x, float y);
+    // LO SCORRIMENTO DELLA TEXTURE COL MOUSE in vista 2D (tasto destro): la
+    // texture segue il puntatore di (dx, dy) pixel della vista, a ogni zoom e
+    // rotazione e su ogni bersaglio (superficie, sfondo, bordo). Falso fuori
+    // dalla vista 2D o senza spostamento.
+    bool panFlatOnScreen(float dx, float dy);
+    // Il dominio della texture in vista 2D e' quello di uno SCRIPT (alto 1,
+    // largo fullViewTextureWidth) o di un'IMMAGINE (stirata sulla vista, 1 x 1)?
+    // Le stesse scelte del generatore degli shader (textureCodeIsImageOnly).
+    bool flatTextureIsScript() const;
 
     // TRASFORMAZIONE 2D GLOBALE della texture di superficie, per la PERSISTENZA.
     // I getFlat*() qui sopra espongono il buffer di lavoro della vista 2D (lo usa
@@ -2514,6 +2539,14 @@ private:
     // Lo stesso punto a schermo, in pixel della vista dall'alto a sinistra.
     // Falso dietro la camera.
     bool objectScreenPoint(int index, QPointF *pixel);
+    // Il centro della scena (l'origine del mondo) nello stesso riferimento.
+    H3::Vec4 sceneCentreInView() const;
+    // Un punto del riferimento di chi guarda a schermo: la carta del vertex
+    // shader e la proiezione. Falso dietro la camera.
+    bool viewPointOnScreen(const H3::Vec4 &p, QPointF *pixel) const;
+    // I due casi di H3 di dragSceneOnScreen, con lo spostamento in NDC.
+    bool panHyperbolicCamera(double ndcX, double ndcY);
+    bool panHyperbolicOutsideView(double ndcX, double ndcY);
     // In H3 la scena segue l'ambiente anche senza oggetti: la scena e' il
     // mondo, col reticolo e il cielo (hyperbolicWorldCamera).
     bool sceneFollowsEnvironment(const SurfaceObject &o) const {
