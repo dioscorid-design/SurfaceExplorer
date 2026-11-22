@@ -112,6 +112,46 @@ if [ "$BUILT_ID" != "$BUNDLE_ID" ]; then
   exit 1
 fi
 
+# L'APP E' AGGIORNATA? Lo script impacchetta l'app che trova in BUILD_DIR, cosi'
+# com'e'. Il 2026-11-22 il DMG della 2.0 e' uscito con la Release del giorno prima:
+# era stata compilata solo la Debug, e mancavano il capitolo Scenes del manuale e
+# le correzioni ai preset fatte nel frattempo. Ci si ferma se un file che entra
+# nell'app (sorgenti, CMakeLists, qrc e ogni risorsa che elenca: shader, pagine
+# del manuale, preset, icone) e' piu' recente dell'eseguibile. Un file toccato
+# senza cambiarlo costa solo una ricompilazione in piu'. I sorgenti che la
+# Release non compila (i test interni, solo Debug e build/Tests) non contano: lo
+# dice il build.ninja della Release stessa, cosi' non c'e' un elenco da tenere a
+# mano; un .h segue il suo .cpp/.mm. (Un "ninja -n" non serve: con le cartelle
+# sorvegliate da CMake annuncia sempre "Re-running CMake", anche a build fresca.)
+# Non vale per --upload-only, che carica un .dmg gia' fatto. Per saltarlo:
+# SKIP_FRESHNESS=1.
+if [ "$UPLOAD_ONLY" -eq 0 ] && [ -z "${SKIP_FRESHNESS:-}" ]; then
+  APP_BIN="$APP_PATH/Contents/MacOS/$APP_NAME"
+  NINJA_FILE="$BUILD_DIR/build.ninja"
+  NEWER_FILES="$(cd "$PROJECT_DIR" && {
+      git ls-files -co --exclude-standard -- '*.cpp' '*.h' '*.mm' '*.ui' '*.cmake' 'CMakeLists.txt' 'resources.qrc'
+      sed -nE 's|.*<file>(.*)</file>.*|\1|p' resources.qrc
+    } | sort -u | while IFS= read -r f; do
+      if [ ! -f "$f" ] || [ ! "$f" -nt "$APP_BIN" ]; then continue; fi
+      src=""
+      case "$f" in
+        *.cpp|*.mm) src="$f" ;;
+        *.h) for e in cpp mm; do if [ -f "${f%.h}.$e" ]; then src="${f%.h}.$e"; fi; done ;;
+      esac
+      if [ -n "$src" ] && [ -f "$NINJA_FILE" ] && ! grep -qF "$PROJECT_DIR/$src" "$NINJA_FILE"; then continue; fi
+      printf '%s\n' "$f"
+    done)"
+  if [ -n "$NEWER_FILES" ]; then
+    echo "ERRORE: l'app da impacchettare e' piu' vecchia del progetto."
+    echo "  app: $APP_BIN ($(stat -f '%Sm' "$APP_BIN"))"
+    echo "  file piu' recenti: $(printf '%s\n' "$NEWER_FILES" | wc -l | tr -d ' '), per esempio:"
+    printf '%s\n' "$NEWER_FILES" | head -5 | sed 's/^/    /'
+    echo "Ricompila da Qt Creator in configurazione RELEASE (non Debug) e rilancia lo script."
+    echo "Per impacchettarla comunque: SKIP_FRESHNESS=1 $0 $*"
+    exit 1
+  fi
+fi
+
 # SOLO IL CARICAMENTO (--upload-only): il .dmg c'e' gia', notarizzato e con lo
 # staple (per esempio dopo uno staple fallito per la rete e rifatto a mano). Non
 # si rifanno firma, .dmg e notarizzazione: si controlla che sia davvero pronto e
