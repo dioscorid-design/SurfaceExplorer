@@ -8,6 +8,7 @@
 class QStatusBar;
 class QWidget;
 class QScrollArea;
+class QScrollBar;
 
 // Status bar scorrevole col dito, come le barre di navigazione dei sistemi
 // mobile: nessuna scrollbar, si trascina il nastro dei tasti.
@@ -63,10 +64,23 @@ public:
     // non dopo REC. Dentro il nastro invece la posizione e' quella giusta, e
     // l'allargamento che causa (150px) non e' piu' un problema: il nastro deve
     // eccedere il viewport, e' proprio quello che lo rende scorrevole.
-    // No-op su desktop: li' i tasti ci stanno e la barra resta quella nativa.
-    static void install(QStatusBar* bar,
-                        QWidget* firstPermanent = nullptr,
-                        const QList<QWidget*>& indicators = {});
+    //
+    // `ownDrag` = widget del nastro che si trascinano da se' (lo slider T). Che
+    // il trascinamento sopra di loro muova il widget e non il nastro lo fa gia'
+    // Qt: QAbstractScrollArea non fa partire lo scorrimento su un
+    // QAbstractSlider (canStartScrollingAt; verificato dalla sezione status-bar
+    // dei test). Qui restano fuori dal filtro dei click, che consumerebbe il
+    // loro release a fine trascinamento (lo slider resterebbe giu' per sempre),
+    // e la rotella sopra di loro scorre il nastro invece di cambiarne il valore.
+    //
+    // Su tutte le piattaforme (dal 2026-11-22 anche sul desktop, richiesta
+    // dell'utente): sul telefono si trascina col dito, sul desktop col mouse,
+    // con la rotella o col trackpad. Restituisce l'area scorrevole (nullptr se
+    // la barra e' vuota): serve a misurare la larghezza naturale del nastro.
+    static QScrollArea* install(QStatusBar* bar,
+                                QWidget* firstPermanent = nullptr,
+                                const QList<QWidget*>& indicators = {},
+                                const QList<QWidget*>& ownDrag = {});
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -81,6 +95,13 @@ private:
     QPoint m_pressPos;
     bool   m_pressValid  = false;
     bool   m_dragging    = false;
+    // Il gesto in corso ha fatto scorrere il nastro (QScroller::Dragging):
+    // da li' al rilascio nessun tasto deve restare giu' ne' scattare.
+    bool   m_scrolled    = false;
+
+    // Valorizzato solo sull'istanza della rotella: la barra orizzontale a cui
+    // gira ogni rotella che arriva al nastro.
+    QScrollBar* m_wheelBar = nullptr;
 
     // Valorizzati solo sull'istanza che fa da sizer, nulli su quella che filtra
     // i click.

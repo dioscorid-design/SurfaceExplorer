@@ -6,6 +6,7 @@
 #include <QRegularExpression>
 #include <QWindow>
 #include <QScreen>
+#include <algorithm>
 #include "mainwindow.h"
 // Test interni: compilati solo nelle build Debug desktop e in build/Tests
 // (SE_SELF_TESTS, vedi CMakeLists.txt e ExC/Mac/Test/build-tests.sh).
@@ -203,12 +204,14 @@ int main(int argc, char *argv[])
                      Qt::WindowCloseButtonHint);
 
     // 2. Dimensione di partenza: 1320x880, il 3:2 di prima (1200x800)
-    //    ingrandito del 10%, perche' la barra di stato entri tutta anche col
-    //    REC acceso: la barra di avanzamento la porta da 1073 a 1229px
-    //    (misurato sul Mac; con una scena, selettore e orologio, ~1450).
-    //    Dove lo spazio libero dello schermo non basta si riduce, stesso
-    //    rapporto. I bordi della cornice (barra del titolo) si conoscono solo
-    //    con la finestra nativa: winId() la crea.
+    //    ingrandito del 10%. Dove lo spazio libero dello schermo non basta si
+    //    riduce, stesso rapporto. Poi la larghezza cresce fino a far entrare
+    //    tutta la barra di stato, REC acceso compreso (statusBarFullWidth,
+    //    misurata: col cursore T accanto a REC non basta piu' un numero fisso),
+    //    senza uscire dallo schermo: dove non entra, la barra scorre
+    //    (StatusBarScroller). Con una scena avviata (spazio e selettore) la
+    //    barra si allunga ancora e puo' scorrere. I bordi della cornice (barra
+    //    del titolo) si conoscono solo con la finestra nativa: winId() la crea.
     w.winId();
 #ifdef SE_SELF_TESTS
     // I TEST SU UNO SCHERMO SCELTO: SE_TEST_SCREEN=<nome> (o una sua parte,
@@ -233,11 +236,14 @@ int main(int argc, char *argv[])
 #endif
     const QMargins frame = w.windowHandle() ? w.windowHandle()->frameMargins() : QMargins();
     QSize startSize(1320, 880);
+    int roomWidth = QWIDGETSIZE_MAX;
     if (const QScreen *screen = w.screen()) {
         const QSize room = screen->availableGeometry().size()
                            - QSize(frame.left() + frame.right(), frame.top() + frame.bottom());
         startSize = startSize.scaled(startSize.boundedTo(room), Qt::KeepAspectRatio);
+        roomWidth = room.width();
     }
+    startSize.setWidth(std::min(roomWidth, std::max(startSize.width(), w.statusBarFullWidth())));
     w.resize(startSize);
 
     // 3. Mostriamo la finestra normalmente
