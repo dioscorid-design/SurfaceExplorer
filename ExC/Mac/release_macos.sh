@@ -128,6 +128,12 @@ fi
 if [ "$UPLOAD_ONLY" -eq 0 ] && [ -z "${SKIP_FRESHNESS:-}" ]; then
   APP_BIN="$APP_PATH/Contents/MacOS/$APP_NAME"
   NINJA_FILE="$BUILD_DIR/build.ninja"
+  # Dentro la sostituzione qui sotto i modelli del case hanno la parentesi
+  # APERTA, (*.h): il bash di macOS (/bin/bash, 3.2) chiude la sostituzione
+  # alla prima parentesi chiusa senza compagna, quella di un modello scritto
+  # *.h), e si fermava con "syntax error near unexpected token newline".
+  # bash -n non se ne accorge: la 3.2 legge la sostituzione solo quando la
+  # esegue. Per lo stesso motivo, nessun commento la dentro.
   NEWER_FILES="$(cd "$PROJECT_DIR" && {
       git ls-files -co --exclude-standard -- '*.cpp' '*.h' '*.mm' '*.ui' '*.cmake' 'CMakeLists.txt' 'resources.qrc'
       sed -nE 's|.*<file>(.*)</file>.*|\1|p' resources.qrc
@@ -135,8 +141,8 @@ if [ "$UPLOAD_ONLY" -eq 0 ] && [ -z "${SKIP_FRESHNESS:-}" ]; then
       if [ ! -f "$f" ] || [ ! "$f" -nt "$APP_BIN" ]; then continue; fi
       src=""
       case "$f" in
-        *.cpp|*.mm) src="$f" ;;
-        *.h) for e in cpp mm; do if [ -f "${f%.h}.$e" ]; then src="${f%.h}.$e"; fi; done ;;
+        (*.cpp|*.mm) src="$f" ;;
+        (*.h) for e in cpp mm; do if [ -f "${f%.h}.$e" ]; then src="${f%.h}.$e"; fi; done ;;
       esac
       if [ -n "$src" ] && [ -f "$NINJA_FILE" ] && ! grep -qF "$PROJECT_DIR/$src" "$NINJA_FILE"; then continue; fi
       printf '%s\n' "$f"
