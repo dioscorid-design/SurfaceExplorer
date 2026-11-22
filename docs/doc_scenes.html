@@ -36,7 +36,7 @@
                 <li>Press <strong>NEW</strong>: a scene always starts empty.</li>
                 <li>Press <strong>Scene</strong> on the status bar and choose <strong>3D</strong>, <strong>4D</strong> or <strong>H&sup3;</strong>.</li>
             </ol>
-            <p>If something is still on screen, Scene asks you to press NEW first. The status bar then shows the kind of scene, a selector with the object you are working on (for example <code>2/3 Torus</code>) and the scene time <strong>T</strong>. To leave the scene, press <strong>NEW</strong> again.</p>
+            <p>If something is still on screen, Scene asks you to press NEW first. The status bar then shows the kind of scene, a selector with the object you are working on (for example <code>2/3 Torus</code>); the <strong>T</strong> slider after REC moves the scene time (see <em>Time</em> below). To leave the scene, press <strong>NEW</strong> again.</p>
             <p>In a scene that is still empty, <strong>Projection</strong> works when there is something to project: a background texture or, in H&sup3;, the lattice. With nothing, it says there is nothing to project.</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Adding Objects</b></p></td></tr></table>
@@ -102,7 +102,6 @@
                 <tr><td><strong>Fixed (part of the environment)</strong></td><td>makes the selected object fixed, or frees it (see <em>Fixed Objects</em>)</td></tr>
                 <tr><td><strong>Camera path around</strong></td><td>where the camera's 3D path is read from: the centre of the scene or an object, fixed or moving</td></tr>
                 <tr><td><strong>Placed around</strong></td><td>where the position and path of the selected object are read from: the centre of the scene or another object, fixed or moving</td></tr>
-                <tr><td><strong>T</strong></td><td>takes the motion of the environment's camera to time T</td></tr>
                 <tr><td><strong>Duplicate</strong></td><td>adds a copy of the selected object's Shape as it is now (equations, constants, colors), which enters at the centre as a new object; textures, motions, paths and time window are not copied</td></tr>
                 <tr><td><strong>Remove</strong></td><td>removes the selected object and selects the one before it</td></tr>
             </table>
@@ -111,7 +110,7 @@
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Time: T and the Windows</b></p></td></tr></table>
             <p><strong>T</strong> is the time of the motion of the environment's camera: its path or, without a path, its rotations. It runs and stops with that motion, and RESET Motions brings it back to 0.</p>
-            <p>The <strong>In</strong> and <strong>Out</strong> fields make an object appear and disappear: outside its window the object is not drawn and its motions wait, so it enters exactly as it was at the start. The <strong>T</strong> slider takes the camera's motion to any time; it is off when the environment has neither a path nor rotations. Objects have clocks of their own: the slider does not move their rotations, animations and paths.</p>
+            <p>The <strong>In</strong> and <strong>Out</strong> fields make an object appear and disappear: outside its window the object is not drawn and its motions wait, so it enters exactly as it was at the start. The <strong>T</strong> slider on the status bar takes the camera's motion to any time, also after STOP to rewind it; it is off when the environment has neither a path nor rotations, and during REC. Objects have clocks of their own: the slider does not move their rotations, animations and paths.</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Sound and Transparency</b></p></td></tr></table>
             <p>Each object can have its own sound, and they all play together. <strong>Run Sound</strong> / <strong>Stop Sound</strong> in the Script dock act on the selected object; START/STOP on all of them. In a video the sounds are mixed.</p>
