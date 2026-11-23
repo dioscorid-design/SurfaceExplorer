@@ -341,6 +341,7 @@ private:
     void runDriveScenarios();
     void runDriveFlightFileScenarios();
     void runDriveTouchScenarios();
+    void runDrivePadScenarios();
     // 2.0: la traiettoria del path della camera modellata col mouse (rotazione,
     // Maiuscole verso W, spostamento, rotella, RESET, REC, oggetto
     // selezionato). Da sola: --scenario-only path-reshape.

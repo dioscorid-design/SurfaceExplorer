@@ -1,5 +1,6 @@
 // cameradrive.cpp - La guida libera della camera. Vedi cameradrive.h.
 #include "cameradrive.h"
+#include "gamepad.h"
 
 #include "glwidget.h"
 
@@ -96,7 +97,17 @@ bool DriveControls::any() const
     // Le Maiuscole da sole non comandano nulla: non prendono il posto del volo.
     return throttleUp || throttleDown || yawLeft || yawRight || pitchUp || pitchDown || rollLeft
            || rollRight || liftUp || liftDown || wPlus || wMinus || brake || stick || rollStick
-           || wheelSteps != 0.0f || touchLeft || touchRight || brakeTap;
+           || wheelSteps != 0.0f || touchLeft || touchRight || brakeTap || pad;
+}
+
+void DriveControls::setPad(const GamepadState &state)
+{
+    pad = state.active();
+    padLeftX = float(state.leftStick.x());
+    padLeftY = float(state.leftStick.y());
+    padRightX = float(state.rightStick.x());
+    padRightY = float(state.rightStick.y());
+    padLift = state.rightTrigger - state.leftTrigger;
 }
 
 QRectF CameraDrive::touchButtonRect(int button, const QSizeF &view)
@@ -321,8 +332,10 @@ void CameraDrive::appendStep(const DriveControls &c)
     }
 
     // I COMANDI -> gli obiettivi, poi l'inerzia.
-    // Lo stick sinistro a tocco come W e S, a meta' o del tutto (in su = piu' veloce).
-    const float throttle = axis(c.throttleUp, c.throttleDown) + (c.touchLeft ? -c.touchLeftY : 0.0f);
+    // Lo stick sinistro a tocco come W e S, a meta' o del tutto (in su = piu' veloce);
+    // lo stick sinistro del pad lo stesso.
+    const float throttle = axis(c.throttleUp, c.throttleDown) + (c.touchLeft ? -c.touchLeftY : 0.0f)
+                           + (c.pad ? c.padLeftY : 0.0f);
     s.cruise = std::clamp(s.cruise + (c.wheelSteps * kWheelStep + throttle * kThrottleRate * h) * scale,
                           -kMaxCruise * scale, kMaxCruise * scale);
     if (c.brake || c.brakeTap) s.cruise = 0.0f;
@@ -331,15 +344,21 @@ void CameraDrive::appendStep(const DriveControls &c)
     // verso destra vira a destra (rotazione negativa attorno all'alto).
     // Gli stick a tocco con gli stessi versi: il sinistro vira, il destro
     // beccheggia (in su = muso in su) e rolla (a destra = rollio a destra).
+    // Gli stick del pad come quelli a tocco, gia' curvati (y del pad in su).
     const QVector3D turnTarget(
         axis(c.pitchUp, c.pitchDown) * kTurnRate - (c.stick ? stickCurve(c.stickY) * kStickRate : 0.0f)
-            - (c.touchRight ? stickCurve(c.touchRightY) * kStickRate : 0.0f),
+            - (c.touchRight ? stickCurve(c.touchRightY) * kStickRate : 0.0f)
+            + (c.pad ? c.padRightY * kStickRate : 0.0f),
         axis(c.yawLeft, c.yawRight) * kTurnRate - (c.stick ? stickCurve(c.stickX) * kStickRate : 0.0f)
-            - (c.touchLeft ? stickCurve(c.touchLeftX) * kStickRate : 0.0f),
+            - (c.touchLeft ? stickCurve(c.touchLeftX) * kStickRate : 0.0f)
+            - (c.pad ? c.padLeftX * kStickRate : 0.0f),
         axis(c.rollLeft, c.rollRight) * kRollRate - (c.rollStick ? stickCurve(c.rollX) * kRollRate : 0.0f)
-            - (c.touchRight ? stickCurve(c.touchRightX) * kRollRate : 0.0f));
+            - (c.touchRight ? stickCurve(c.touchRightX) * kRollRate : 0.0f)
+            - (c.pad ? c.padRightX * kRollRate : 0.0f));
     s.turn = approach(s.turn, turnTarget, kTurnTau, h);
-    s.lift = approach(s.lift, axis(c.liftUp, c.liftDown) * kLiftRate * boost * scale, kLiftTau, h);
+    // Su e giu': R e F, o i grilletti del pad (R2 su, L2 giu', a meta' o del tutto).
+    const float liftInput = std::clamp(axis(c.liftUp, c.liftDown) + (c.pad ? c.padLift : 0.0f), -1.0f, 1.0f);
+    s.lift = approach(s.lift, liftInput * kLiftRate * boost * scale, kLiftTau, h);
     const bool w = m_movesW && m_movesW();
     s.wSpeed = approach(s.wSpeed, w ? axis(c.wPlus, c.wMinus) * kWRate * boost * scale : 0.0f, kWTau, h);
 

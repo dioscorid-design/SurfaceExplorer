@@ -548,10 +548,8 @@ void InputHandler::handleDriveTouch(QTouchEvent* event, DriveControls* c)
 
 bool InputHandler::handleGamepad(const GamepadState& pad, float dt)
 {
-    // LA GUIDA LIBERA: la camera la muove la guida, il pad non gira ne'
-    // sposta la vista (come il mouse, che in DRIVE e' cloche e rollio). Il
-    // volo col pad (DriveControls) verra' qui.
-    if (driveControls()) return false;
+    // LA GUIDA LIBERA: il pad e' un suo comando (DriveControls::setPad), non gira la vista.
+    if (DriveControls* c = driveControls()) { c->setPad(pad); return false; }
 
     // Gli stick come trascinamenti di (dx, dy) pixel in questo passo: y del
     // pad verso l'alto, dello schermo verso il basso. Uno stick fermo non

@@ -5,6 +5,7 @@
 // caricamenti) chiamano le funzioni di qui.
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
+#include "gamepad.h"
 
 #include <QPainter>
 
@@ -113,6 +114,8 @@ void MainWindow::setupDrive()
             "Mouse: drag as a stick to steer, right-drag to roll, wheel for speed.\n"
             "Touch: the left thumb sets speed and turns, the right thumb pitches and rolls; "
             "double tap to brake; the buttons on the right go up and down (and toward W).\n"
+            "Game controller: the left stick sets speed and turns, the right stick pitches and rolls; "
+            "R2 / L2 go up and down.\n"
             "Esc or DRIVE again: stop. The flight is recorded on the scene time T: "
             "RESET goes back to its start, and the T slider and REC play it again."));
         connect(m_btnDrive, &QPushButton::clicked, this, &MainWindow::onDriveClicked);
@@ -138,6 +141,12 @@ void MainWindow::startDrive()
     m_userStoppedCameraMotion = false;
     m_scene.lastCameraMotion = QStringLiteral("drive");
     m_drive->start();
+    // Un pad che si scollega a guida accesa rilascia i suoi comandi (vedi
+    // CameraDrive::onGamepadConnection). Qui e non in setupDrive: il pad lo
+    // crea setupGamepad, dopo.
+    if (m_gamepad)
+        connect(m_gamepad, &Gamepad::connectionChanged, m_drive, &CameraDrive::onGamepadConnection,
+                Qt::UniqueConnection);
     // I tasti arrivano alla vista.
     gl->setFocus(Qt::OtherFocusReason);
     updateViewButtonsEnabled();   // spenti i tasti a scatto dei dock 3D/4D
@@ -232,7 +241,17 @@ void MainWindow::refreshDriveHud()
         status += QStringLiteral("   W %1").arg(double(gl->cutsSection() ? s.sectionP : s.observerW), 0, 'f', 2);
     if (m_drive->replaying()) status += QStringLiteral("   REPLAY: touch a control to take over");
     QString keys;
-    if (touch) {
+    if (m_gamepad && m_gamepad->isConnected()) {
+        // Il pad: gli assi sono suoi; freno, W e Esc restano a tastiera e tocco.
+        keys = QStringLiteral("Left stick: speed and turn   Right stick: pitch and roll   R2 / L2: up / down");
+        if (touch) {
+            keys += QStringLiteral("   Double tap: brake");
+            if (driveMovesW()) keys += QStringLiteral("   W+ W\u2212 toward W");
+        } else {
+            if (driveMovesW()) keys += QStringLiteral("   Z/X toward W");
+            keys += QStringLiteral("   Space brake  Esc stop");
+        }
+    } else if (touch) {
         keys = QStringLiteral("Left thumb: speed and turn   Right thumb: pitch and roll   Double tap: brake   "
                               "\u25B2 \u25BC up / down");
         if (driveMovesW()) keys += QStringLiteral("   W+ W\u2212 toward W");

@@ -22,6 +22,7 @@
 #include <QWheelEvent>
 #include <QTouchEvent>
 #include <QWindow>
+#include <QScopeGuard>
 #include <QtGui/private/qeventpoint_p.h>
 #include <cmath>
 
@@ -99,26 +100,6 @@ void ScenarioTest::runDriveScenarios()
                              "uno scatto di rotella = %3")
                   .arg(double(sx)).arg(double(sy)).arg(double(c.wheelSteps)));
         c.releaseAll();
-    }
-    // IL PAD in DRIVE: per ora non comanda (la camera e' della guida, il pad
-    // non gira la vista come fa fuori): vista e oggetto fermi, comandi della
-    // guida liberi.
-    if (Gamepad *pad = m_mw->m_gamepad) {
-        const QVector3D pos0 = camPos(), front0 = camFront();
-        const QQuaternion rot0 = gl->getRotationQuat();
-        GamepadState s;
-        s.connected = true;
-        s.leftStick = QPointF(1.0, 0.0);
-        s.rightStick = QPointF(0.0, 1.0);
-        s.rightTrigger = 1.0f;
-        pad->setTestState(s);
-        for (int i = 0; i < 10; ++i) pad->step(dt);
-        pad->setTestState(std::nullopt);
-        check((camPos() - pos0).length() < 1e-6f && (camFront() - front0).length() < 1e-6f
-                  && gl->getRotationQuat() == rot0 && !c.any(),
-              QStringLiteral("pad in DRIVE: per ora non comanda, vista e oggetto fermi, comandi della guida liberi"));
-    } else {
-        check(false, QStringLiteral("il pad esiste (MainWindow::setupGamepad)"));
     }
 
     // Avanti: W per un secondo, poi un secondo di crociera.
@@ -383,6 +364,7 @@ void ScenarioTest::runDriveScenarios()
 
     runDriveFlightFileScenarios();
     runDriveTouchScenarios();
+    runDrivePadScenarios();
 }
 
 // IL TOCCO (iPhone, iPad): gli stick che nascono sotto il dito, i tastini sulla
@@ -608,4 +590,181 @@ void ScenarioTest::runDriveFlightFileScenarios()
                          "vivo (scarto massimo %2)").arg(sceneReplaying).arg(h3Err));
     m_mw->stopDrive();
     pressNew();
+}
+
+// IL PAD IN DRIVE (gamepad.h), con uno stato finto: a ogni passo il pad scrive
+// i comandi (InputHandler::handleGamepad) e la guida avanza dal vivo. La
+// disposizione degli stick a tocco: il sinistro crociera e virata (la
+// crociera allo stesso ritmo di W), il destro beccheggio e rollio, R2 e L2 su
+// e giu' (come R). La deriva non e' un comando (scena pulita, volo registrato
+// non interrotto), uno stick vero prende il posto del volo; un pad scollegato
+// rilascia i comandi; a guida spenta torna a girare la vista.
+void ScenarioTest::runDrivePadScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    CameraDrive *drive = m_mw->m_drive;
+    Gamepad *pad = m_mw->m_gamepad;
+    if (!pad) {
+        check(false, QStringLiteral("il pad esiste (MainWindow::setupGamepad)"));
+        return;
+    }
+    auto restorePad = qScopeGuard([pad] { pad->setTestState(std::nullopt); });
+    DriveControls &c = drive->controls();
+    const float dt = 1.0f / 60.0f;
+    auto fly = [&](int frames) { for (int i = 0; i < frames; ++i) drive->advance(dt, true); };
+    auto camPos = [&]() { return gl->cameraPlacement().column(3).toVector3D(); };
+    auto camRight = [&]() { return gl->cameraPlacement().column(0).toVector3D().normalized(); };
+    auto camUp = [&]() { return gl->cameraPlacement().column(1).toVector3D().normalized(); };
+    auto camFront = [&]() { return -gl->cameraPlacement().column(2).toVector3D().normalized(); };
+    auto state = [](const QPointF &left, const QPointF &right, float l2, float r2) {
+        GamepadState s;
+        s.connected = true;
+        s.name = QStringLiteral("Test pad");
+        s.leftStick = left;
+        s.rightStick = right;
+        s.leftTrigger = l2;
+        s.rightTrigger = r2;
+        return s;
+    };
+    const GamepadState rest = state(QPointF(), QPointF(), 0.0f, 0.0f);
+    // `frames` passi col pad nello stato dato (il pad scrive, la guida
+    // avanza), poi il pad a riposo per un passo: i comandi si rilasciano.
+    auto flyPad = [&](const GamepadState &s, int frames) {
+        pad->setTestState(s);
+        for (int i = 0; i < frames; ++i) {
+            pad->step(dt);
+            drive->advance(dt, true);
+        }
+        pad->setTestState(rest);
+        pad->step(dt);
+    };
+    // Ferma il veicolo: freno, poi l'inerzia si spegne.
+    auto halt = [&] {
+        c.brake = true;
+        fly(120);
+        c.brake = false;
+        fly(120);
+    };
+
+    m_lines.append(QStringLiteral("-- il pad in DRIVE --"));
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    m_mw->m_btnDrive->click();
+    if (!m_mw->driveRunning()) {
+        check(false, QStringLiteral("pad: DRIVE non parte"));
+        return;
+    }
+    m_mw->markWholeSceneClean();
+
+    // La deriva di uno stick lasciato andare: non e' un comando.
+    {
+        const QVector3D p0 = camPos(), f0 = camFront();
+        pad->setTestState(state(QPointF(0.1, -0.08), QPointF(-0.09, 0.1), 0.04f, 0.03f));
+        pad->step(dt);
+        const bool idle = !c.pad && !c.any();
+        flyPad(state(QPointF(0.1, -0.08), QPointF(-0.09, 0.1), 0.04f, 0.03f), 60);
+        check(idle && (camPos() - p0).length() < 1e-6f && (camFront() - f0).length() < 1e-6f
+                  && drive->current().cruise == 0.0f && !m_mw->hasUnsavedWork(),
+              QStringLiteral("pad a riposo con un po' di deriva (dentro la zona morta): nessun comando, la camera "
+                             "resta ferma e la scena pulita"));
+    }
+
+    // Stick sinistro in su: la crociera sale allo stesso ritmo di W tenuto.
+    {
+        const float cruise0 = drive->current().cruise;
+        flyPad(state(QPointF(0.0, 1.0), QPointF(), 0.0f, 0.0f), 60);
+        const float byPad = drive->current().cruise - cruise0;
+        const bool released = !c.pad && c.padLeftY == 0.0f;
+        c.throttleUp = true;
+        fly(60);
+        c.throttleUp = false;
+        const float byKey = drive->current().cruise - cruise0 - byPad;
+        check(byPad > 0.3f && std::abs(byPad - byKey) < 1e-5f && released && m_mw->hasUnsavedWork(),
+              QStringLiteral("stick sinistro tutto in su per un secondo: la crociera sale di %1, come W tenuto (%2); "
+                             "lasciato, si rilascia; la scena e' da salvare").arg(double(byPad)).arg(double(byKey)));
+        halt();
+    }
+
+    // Lo stick sinistro a destra vira a destra; il destro in su alza il muso,
+    // a destra rolla a destra.
+    {
+        QVector3D f0 = camFront(), r0 = camRight(), u0 = camUp();
+        flyPad(state(QPointF(1.0, 0.0), QPointF(), 0.0f, 0.0f), 30);
+        const float yawed = QVector3D::dotProduct(camFront() - f0, r0);
+        f0 = camFront(); u0 = camUp();
+        flyPad(state(QPointF(), QPointF(0.0, 1.0), 0.0f, 0.0f), 30);
+        const float pitched = QVector3D::dotProduct(camFront() - f0, u0);
+        u0 = camUp(); r0 = camRight();
+        flyPad(state(QPointF(), QPointF(1.0, 0.0), 0.0f, 0.0f), 30);
+        const float rolled = QVector3D::dotProduct(camUp() - u0, r0);
+        check(yawed > 0.05f && pitched > 0.05f && rolled > 0.05f,
+              QStringLiteral("stick sinistro a destra: vira a destra (%1); destro in su: muso in su (%2); destro a "
+                             "destra: rolla a destra (%3)").arg(double(yawed)).arg(double(pitched)).arg(double(rolled)));
+        halt();
+    }
+
+    // I grilletti: R2 sale lungo l'alto della camera come R tenuto, L2 scende.
+    {
+        QVector3D p0 = camPos();
+        const QVector3D up = camUp();
+        flyPad(state(QPointF(), QPointF(), 0.0f, 1.0f), 60);
+        const float byR2 = QVector3D::dotProduct(camPos() - p0, up);
+        fly(240);   // l'inerzia di su e giu' si spegne
+        p0 = camPos();
+        c.liftUp = true;
+        fly(60);
+        c.liftUp = false;
+        const float byKey = QVector3D::dotProduct(camPos() - p0, up);
+        fly(240);
+        p0 = camPos();
+        flyPad(state(QPointF(), QPointF(), 1.0f, 0.0f), 60);
+        const float byL2 = QVector3D::dotProduct(camPos() - p0, up);
+        fly(240);
+        check(byR2 > 0.1f && std::abs(byR2 - byKey) < 1e-3f && byL2 < -0.1f,
+              QStringLiteral("R2 per un secondo: la camera sale di %1 lungo il suo alto, come R (%2); L2 scende (%3)")
+                  .arg(double(byR2)).arg(double(byKey)).arg(double(byL2)));
+    }
+
+    // IL VOLO REGISTRATO: rifatto dal cursore, la deriva del pad non lo
+    // interrompe; uno stick vero ne prende il posto e la traccia si tronca.
+    {
+        flyPad(state(QPointF(0.3, 0.8), QPointF(0.0, 0.4), 0.0f, 0.0f), 60);
+        fly(60);
+        const float tEnd = gl->sceneTime();
+        m_mw->seekSceneTime(tEnd * 0.5f);
+        const float endBefore = drive->trackEnd();
+        flyPad(state(QPointF(0.1, -0.08), QPointF(-0.09, 0.1), 0.04f, 0.03f), 10);
+        const bool kept = drive->replaying() && drive->trackEnd() == endBefore;
+        const float tTake = gl->sceneTime();
+        flyPad(state(QPointF(-1.0, 0.0), QPointF(), 0.0f, 0.0f), 5);
+        const bool taken = !drive->replaying() && drive->trackEnd() < endBefore
+                           && std::abs(drive->trackEnd() - gl->sceneTime()) <= CameraDrive::kStep + 1e-4f;
+        check(kept && taken,
+              QStringLiteral("volo registrato rifatto da %1 s: la deriva del pad non lo interrompe (%2); lo stick "
+                             "vero ne prende il posto, la traccia si tronca e riparte dal pilota (%3)")
+                  .arg(double(tTake)).arg(kept ? QStringLiteral("on") : QStringLiteral("off"))
+                  .arg(taken ? QStringLiteral("on") : QStringLiteral("off")));
+        halt();
+    }
+
+    // Il pad si scollega con lo stick tenuto: i comandi tornano a riposo.
+    {
+        pad->setTestState(state(QPointF(1.0, 0.0), QPointF(0.0, 1.0), 0.0f, 1.0f));
+        pad->step(dt);
+        const bool held = c.pad && c.padLeftX == 1.0f;
+        emit pad->connectionChanged(false, QString());
+        check(held && !c.pad && c.padLeftX == 0.0f && c.padRightY == 0.0f && c.padLift == 0.0f && !c.any(),
+              QStringLiteral("pad scollegato con lo stick tenuto: i suoi comandi tornano a riposo"));
+        pad->setTestState(rest);
+    }
+
+    // Guida spenta: il pad torna a girare la vista (2.0), i comandi restano liberi.
+    m_mw->stopDrive();
+    {
+        const QQuaternion r0 = gl->getRotationQuat();
+        pad->setTestState(state(QPointF(1.0, 0.0), QPointF(), 0.0f, 0.0f));
+        for (int i = 0; i < 6; ++i) pad->step(0.02f);
+        pad->setTestState(rest);
+        check(!m_mw->driveRunning() && !(gl->getRotationQuat() == r0) && !c.pad,
+              QStringLiteral("guida spenta: lo stick sinistro torna a girare la superficie, come il mouse"));
+    }
 }

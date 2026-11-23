@@ -43,6 +43,7 @@
 
 class GLWidget;
 class QTimer;
+struct GamepadState;
 
 // I COMANDI IN USO: li scrive InputHandler (tasti premuti, trascinamenti,
 // rotella), li legge il passo della guida. Dal vivo soltanto: il REC e il
@@ -80,6 +81,26 @@ struct DriveControls {
     float touchLeftX = 0.0f, touchLeftY = 0.0f, touchRightX = 0.0f, touchRightY = 0.0f;
     QPointF touchLeftOrigin, touchRightOrigin;
     bool brakeTap = false;
+    // IL PAD (gamepad.h; li scrive InputHandler::handleGamepad a ogni passo del
+    // pad): la disposizione degli stick a tocco. Lo stick SINISTRO su e giu' la
+    // crociera, come W e S a meta' o del tutto, destra e sinistra la virata; il
+    // DESTRO su e giu' il beccheggio (in su = muso in su), destra e sinistra il
+    // rollio; i GRILLETTI su (R2) e giu' (L2), come R e F. Assi -1..1, y del
+    // pad verso l'alto, gia' ripuliti da Gamepad::shaped (zona morta, e al
+    // quadrato come stickCurve: qui non si curvano di nuovo). `pad`: qualche
+    // asse fuori dalla zona morta -- la deriva di uno stick lasciato andare non
+    // e' un comando e non prende il posto del volo registrato.
+    bool pad = false;
+    float padLeftX = 0.0f, padLeftY = 0.0f, padRightX = 0.0f, padRightY = 0.0f, padLift = 0.0f;
+    void releasePad()
+    {
+        pad = false;
+        padLeftX = padLeftY = padRightX = padRightY = padLift = 0.0f;
+    }
+    // Un passo del pad (InputHandler::handleGamepad, a guida accesa): i suoi
+    // assi nei comandi. La vista mossa la segnala la guida (userDrove), come
+    // per tastiera e mouse.
+    void setPad(const GamepadState &state);
     // LA SCALA DELLE VELOCITA' (tasti + e -, per due): avanti, su/giu' e verso
     // W, per scene piu' grandi o piu' piccole. Le virate no. Non e' un tasto
     // tenuto: resta quando i comandi si rilasciano.
@@ -184,6 +205,14 @@ public:
     // chi carica). Falso, e niente cambia, se il volo e' di un altro spazio o
     // il file e' guasto.
     bool loadJson(const QJsonObject &flight);
+
+    // Un pad scollegato (Gamepad::connectionChanged): i suoi comandi tornano a
+    // riposo. Non scrive piu', e resterebbero all'ultimo valore: la camera
+    // continuerebbe a virare da sola.
+    void onGamepadConnection(bool connected)
+    {
+        if (!connected) m_controls.releasePad();
+    }
 
 signals:
     // Il pilota ha usato un comando: la vista e' stata mossa dall'utente
