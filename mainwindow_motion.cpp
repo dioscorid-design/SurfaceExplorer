@@ -314,6 +314,11 @@ void MainWindow::stopRotationMotion()
 
 void MainWindow::onResetClicked()
 {
+    runReset(true);
+}
+
+void MainWindow::runReset(bool askWhenBoth)
+{
     // Con un OGGETTO della scena selezionato il RESET e' suo; con l'ambiente e'
     // di tutta la scena (qui sotto).
     if (ui->glWidget && ui->glWidget->objectCount() > 1 && ui->glWidget->selectedObject() != 0) {
@@ -367,6 +372,11 @@ void MainWindow::onResetClicked()
     if (!viewChanges || !motionsChange) {
         if (viewChanges) resetView();
         if (motionsChange || !viewChanges) resetMotions(camPath);
+        return;
+    }
+    // Senza domanda (il pad): i moti.
+    if (!askWhenBoth) {
+        resetMotions(camPath);
         return;
     }
 

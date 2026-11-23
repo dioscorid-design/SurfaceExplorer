@@ -43,6 +43,7 @@ class QAction;
 class QMenu;
 class SceneHintOverlay;
 class Gamepad;
+enum class GamepadButton : int;
 class QMenuBar;
 class VideoRecorder;
 class LibraryMenuController;
@@ -198,6 +199,19 @@ private slots:
     // IL PAD (gamepad.h): lo crea, lo da' alla vista e avvisa nella barra di
     // stato quando si collega o si scollega.
     void setupGamepad();
+    // I PULSANTI DEL PAD (Gamepad::buttonPressed; scelta dell'utente,
+    // 2026-11-23). Come i tasti sullo schermo, alle loro condizioni: Cross
+    // START/STOP, Circle RESET (runReset senza domanda), Triangle
+    // prospettiva, Square l'inquadratura d'apertura, L1/R1 il preset
+    // precedente/successivo, croce su e giu' verso W (P+/P-), a destra e a
+    // sinistra l'oggetto successivo/precedente della scena. REC e NEW mai dal
+    // pad. Niente durante il REC ne' sotto una finestra modale.
+    void onGamepadButton(GamepadButton button);
+    // Il preset precedente (-1) o successivo (+1) nella cartella della
+    // linguetta aperta della Library, a partire dalla voce corrente: lo
+    // carica come un clic (stessa strada, conferma compresa). Le cartelle si
+    // saltano; alle estremita' non succede niente.
+    void stepLibraryPreset(int step);
 
     // true quando il motore non ha niente da disegnare (stato prodotto dal
     // tasto NEW). Guarda il MOTORE, non i campi della UI: l'utente puo' aver
@@ -278,6 +292,10 @@ private slots:
     // (rotazioni, path, animazioni in t) chiede che cosa rimettere all'inizio:
     // la vista, i moti o entrambi. Altrimenti rimette tutto senza chiedere.
     void onResetClicked();
+    // Il RESET, da chiunque venga: `askWhenBoth` falso (il pad, che non puo'
+    // rispondere a una finestra) dove il tasto chiederebbe rimette i moti --
+    // la vista la rimette un altro pulsante (resetView).
+    void runReset(bool askWhenBoth);
     // Vista: l'inquadratura con cui la scena e' stata aperta -- camera (zoom
     // compreso), FOV, osservatore 4D, quota della sezione.
     void resetView();

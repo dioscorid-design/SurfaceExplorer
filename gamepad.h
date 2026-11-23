@@ -20,6 +20,23 @@
 
 class QTimer;
 
+// I PULSANTI, coi nomi del DualSense; fra parentesi Xbox. GameController li
+// nomina per posizione: Cross e' sempre quello in basso.
+enum class GamepadButton : int {
+    Cross,      // A: in basso
+    Circle,     // B: a destra
+    Square,     // X: a sinistra
+    Triangle,   // Y: in alto
+    L1,         // LB
+    R1,         // RB
+    L3,         // lo stick sinistro premuto
+    R3,         // lo stick destro premuto
+    Up, Down, Left, Right,   // la croce
+    Options,    // Menu
+    Create,     // View
+    Count
+};
+
 struct GamepadState {
     bool connected = false;
     QString name;              // il nome che da' il sistema ("DualSense Wireless Controller")
@@ -27,9 +44,12 @@ struct GamepadState {
     QPointF leftStick, rightStick;
     // I grilletti (L2, R2), 0..1.
     float leftTrigger = 0.0f, rightTrigger = 0.0f;
+    // I pulsanti tenuti, un bit per GamepadButton.
+    quint32 buttons = 0;
+    bool held(GamepadButton b) const { return buttons & (1u << int(b)); }
 
-    // Qualche asse fuori dal riposo. Sullo stato ripulito (Gamepad::shaped):
-    // fuori dalla zona morta, cioe' un gesto vero.
+    // Qualche asse fuori dal riposo (i pulsanti no). Sullo stato ripulito
+    // (Gamepad::shaped): fuori dalla zona morta, cioe' un gesto vero.
     bool active() const
     {
         return !leftStick.isNull() || !rightStick.isNull() || leftTrigger != 0.0f || rightTrigger != 0.0f;
@@ -101,6 +121,10 @@ signals:
     // Un passo del pad: dt secondi dall'ultimo, lo stato in state(). Solo con
     // un pad collegato.
     void stepped(float dt);
+    // Un pulsante appena premuto o lasciato (dopo stepped, nello stesso passo).
+    // Lo stato di chi e' tenuto e' in state().held.
+    void buttonPressed(GamepadButton button);
+    void buttonReleased(GamepadButton button);
 
 private:
     // Il backend ha visto collegarsi o scollegarsi un pad.
@@ -120,4 +144,7 @@ private:
     bool m_connected = false;
     QString m_name;
     std::optional<GamepadState> m_testRaw;
+    // I pulsanti del passo precedente: i fronti si contano fra due passi
+    // (non da setTestState, che scrive lo stato senza essere un passo).
+    quint32 m_lastButtons = 0;
 };

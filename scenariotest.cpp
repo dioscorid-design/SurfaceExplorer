@@ -18328,6 +18328,170 @@ void ScenarioTest::runGamepadScenarios()
         wait(100);
     }
 
+    // ------------------------------------------------------------ PULSANTI
+    // Un pulsante premuto e lasciato: due passi del pad (i fronti si contano
+    // fra un passo e l'altro).
+    const auto pressButton = [&](GamepadButton b) {
+        GamepadState s = raw(QPointF(), QPointF(), 0.0f, 0.0f);
+        s.buttons = 1u << int(b);
+        pad->setTestState(s);
+        pad->step(kDt);
+        pad->setTestState(raw(QPointF(), QPointF(), 0.0f, 0.0f));
+        pad->step(kDt);
+        wait(300);
+    };
+    // Una finestra modale che il pad non deve aprire (la domanda del RESET):
+    // se compare entro il gesto la si chiude, cosi' il test non resta appeso,
+    // e lo si dice. Armata solo durante il gesto: le finestre dopo (la
+    // conferma di un load) non le tocca.
+    const auto modalSeen = std::make_shared<bool>(false);
+    const auto modalArmed = std::make_shared<bool>(false);
+    const auto closeModalSoon = [&] {
+        *modalArmed = true;
+        QTimer::singleShot(1500, m_mw, [modalSeen, modalArmed] {
+            if (!*modalArmed) return;
+            if (QWidget *w = QApplication::activeModalWidget()) {
+                *modalSeen = true;
+                w->close();
+            }
+        });
+    };
+    if (loadSurface(kSphere)) {
+        gl->setProjectionMode(1);
+        wait(200);
+        // Triangle e' il tasto della proiezione (che gira fra le sue modalita'):
+        // stesso passo di un clic; durante il REC niente.
+        const QString proj0 = m_mw->m_btnProjection->text();
+        pressButton(GamepadButton::Triangle);
+        const QString proj1 = m_mw->m_btnProjection->text();
+        m_mw->m_isRecording = true;
+        pressButton(GamepadButton::Triangle);
+        const QString projRec = m_mw->m_btnProjection->text();
+        m_mw->m_isRecording = false;
+        for (int k = 0; k < 4 && m_mw->m_btnProjection->text() != proj0; ++k) {
+            m_mw->m_btnProjection->click();
+            wait(200);
+        }
+        m_mw->m_btnProjection->click();
+        wait(200);
+        const QString byClick = m_mw->m_btnProjection->text();
+        for (int k = 0; k < 4 && m_mw->m_btnProjection->text() != proj0; ++k) {
+            m_mw->m_btnProjection->click();
+            wait(200);
+        }
+        gl->setProjectionMode(1);
+        wait(200);
+        check(proj1 != proj0 && proj1 == byClick && projRec == proj1,
+              QStringLiteral("\u25B3 e' il tasto della proiezione: %1 -> %2, come un clic (%3); durante il REC "
+                             "niente (%4)").arg(proj0, proj1, byClick, projRec));
+
+        // Square: l'inquadratura d'apertura, dopo uno zoom col pad.
+        const QVector3D open = gl->getCameraPos();
+        padRun(raw(QPointF(), QPointF(), 0.0f, 1.0f), 5, 0.05f);
+        const QVector3D zoomed = gl->getCameraPos();
+        pressButton(GamepadButton::Square);
+        check(zoomed != open && (gl->getCameraPos() - open).length() < 1e-4f,
+              QStringLiteral("\u25A1 riporta la camera all'inquadratura d'apertura (da %1 a %2)")
+                  .arg(text3(zoomed), text3(gl->getCameraPos())));
+    }
+    // Cross START/STOP, Circle RESET senza domanda (i moti; la vista resta).
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        const QString start0 = m_mw->m_btnStart->text();
+        pressButton(GamepadButton::Cross);
+        const QString start1 = m_mw->m_btnStart->text();
+        pressButton(GamepadButton::Cross);
+        const QString start2 = m_mw->m_btnStart->text();
+        check(start1.toUpper() != start0.toUpper() && start2.toUpper() == start0.toUpper(),
+              QStringLiteral("\u2715 e' START/STOP: %1 -> %2 -> %3").arg(start0, start1, start2));
+        // I moti avanzano e si fermano (fermi, il RESET li lascia all'inizio);
+        // la vista cambia: il tasto chiederebbe che cosa rimettere.
+        if (m_mw->m_btnStart->text().toUpper() == QLatin1String("START")) pressButton(GamepadButton::Cross);
+        wait(800);
+        pressButton(GamepadButton::Cross);
+        padRun(raw(QPointF(), QPointF(), 0.0f, 1.0f), 5, 0.05f);
+        const bool bothChange = m_mw->viewResetChangesSomething() && m_mw->motionsResetChangesSomething();
+        const QVector3D cam = gl->getCameraPos();
+        closeModalSoon();
+        pressButton(GamepadButton::Circle);
+        *modalArmed = false;
+        check(bothChange && !*modalSeen && !m_mw->motionsResetChangesSomething() && gl->getCameraPos() == cam,
+              QStringLiteral("\u25CB e' il RESET: con vista e moti da rimettere (%1) niente domanda (%2), i moti "
+                             "all'inizio (%3), la vista resta (la rimette \u25A1)")
+                  .arg(onOff(bothChange), *modalSeen ? QStringLiteral("domanda aperta") : QStringLiteral("nessuna"),
+                       onOff(!m_mw->motionsResetChangesSomething())));
+    }
+    // La croce su e giu': verso W come P+ e P- (4D).
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/S3/Clifford's Torus.json"))) {
+        const float w0 = gl->getObserverPos4D();
+        pressButton(GamepadButton::Up);
+        const float w1 = gl->getObserverPos4D();
+        ui->btnPPlus->click();
+        wait(200);
+        const float w2 = gl->getObserverPos4D();
+        pressButton(GamepadButton::Down);
+        const float w3 = gl->getObserverPos4D();
+        check(ui->btnPPlus->isEnabled() && w1 != w0 && std::abs((w1 - w0) - (w2 - w1)) < 1e-5f
+                  && std::abs(w3 - w1) < 1e-5f,
+              QStringLiteral("croce \u2191 \u2193 nel 4D: verso W come P+ e P- (%1 -> %2, P+ %3, \u2193 %4)")
+                  .arg(w0).arg(w1).arg(w2).arg(w3));
+    }
+    // La croce a destra e a sinistra: l'oggetto successivo e precedente, in giro.
+    if (buildScene(false, { kSphere })) {
+        m_mw->selectSceneObject(0);
+        wait(200);
+        pressButton(GamepadButton::Right);
+        const int a = gl->selectedObject();
+        pressButton(GamepadButton::Right);
+        const int b = gl->selectedObject();
+        pressButton(GamepadButton::Left);
+        const int c = gl->selectedObject();
+        check(a == 1 && b == 0 && c == 1 && m_mw->m_objectList && m_mw->m_objectList->currentRow() == 1,
+              QStringLiteral("croce \u2192 \u2190 in una scena: l'oggetto successivo e precedente, in giro "
+                             "(0 -> %1 -> %2 -> %3), il dock Objects lo segue").arg(a).arg(b).arg(c));
+        m_mw->selectSceneObject(0);
+        wait(200);
+    }
+    // L1 e R1: il preset precedente e successivo nella cartella della Library.
+    if (loadSurface(kSphere)) {
+        QTreeWidget *tree = ui->treeSurfaces;
+        ui->tabWidget->setCurrentWidget(ui->Surface);
+        QTreeWidgetItem *sphere = nullptr;
+        for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+            if (QDir::fromNativeSeparators(m_mw->m_libraryManager.itemFilePath(*it)).endsWith(kSphere)) {
+                sphere = *it;
+                break;
+            }
+        }
+        // Il successivo atteso: il primo preset dopo la Sfera nella sua cartella.
+        QTreeWidgetItem *next = nullptr;
+        if (sphere && sphere->parent()) {
+            for (int k = sphere->parent()->indexOfChild(sphere) + 1; k < sphere->parent()->childCount(); ++k) {
+                if (LibraryManager::itemType(sphere->parent()->child(k))) {
+                    next = sphere->parent()->child(k);
+                    break;
+                }
+            }
+        }
+        if (!sphere || !next) {
+            check(false, QStringLiteral("L1/R1: la Sfera e il preset dopo di lei nell'albero della Library"));
+        } else {
+            tree->setCurrentItem(sphere);
+            LibraryManager lm;
+            const LibraryItem expected = lm.parseJson(m_mw->m_libraryManager.itemFilePath(next), LibraryType::Surface);
+            m_discardOnPrompt = true;
+            pressButton(GamepadButton::R1);
+            wait(1200);
+            const bool forward = tree->currentItem() == next && ui->lineX->toPlainText() == expected.x;
+            pressButton(GamepadButton::L1);
+            wait(1200);
+            m_discardOnPrompt = false;
+            const bool back = tree->currentItem() == sphere;
+            check(forward && back,
+                  QStringLiteral("R1 carica il preset dopo la Sfera nella sua cartella (%1: %2), L1 torna alla "
+                                 "Sfera (%3)").arg(next->text(0), onOff(forward), onOff(back)));
+        }
+    }
+
     // ------------------------------------------------------------ VISTA 2D
     if (!loadSurface(kSphere)) return;
     setScriptMode(MainWindow::ScriptModeTexture);
