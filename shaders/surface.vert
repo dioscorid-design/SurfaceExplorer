@@ -46,7 +46,19 @@ layout(location = 10) out vec2 v_stereoChord;
 // Il fragment ne ricava la copertura con la distanza dal SEGMENTO: estremi
 // arrotondati e bordo sfumato, cosi' i segmenti che si incontrano si fondono senza
 // spuntoni.
+// Sono distanze SULLO SCHERMO: vanno interpolate linearmente in pixel, non con
+// la correzione prospettica che la GPU applica ai varying. Con la camera sulla
+// superficie i due estremi di un segmento hanno w molto diversi (fino a 1e4
+// col taglio al piano della camera), e la correzione prospettica spostava il
+// centro della striscia verso il bordo: la linea si assottigliava lungo il
+// segmento (meta' spessore in Mobius Racing, scatto 28 della sezione
+// image-capture a 1622x880). `noperspective` non esiste in GLSL ES 3.0
+// (Android): si scrive invece il valore moltiplicato per w, piu' w a parte
+// (v_wireW), e il fragment divide: (sum b_i f_i w_i / w_i) / (sum b_i w_i / w_i)
+// = sum b_i f_i, l'interpolazione lineare sullo schermo. Vale anche per i
+// vertici nuovi del taglio al piano vicino, interpolati nel clip space.
 layout(location = 9) out vec4 v_wireDist;
+layout(location = 11) out float v_wireW;
 #endif
 
 layout(std140, binding = 0) uniform SceneUBO {
@@ -149,6 +161,10 @@ layout(std140, binding = 0) uniform SceneUBO {
     float u_wireHalfWidth;
     float u_wireViewW;
     float u_wireViewH;
+    // La fascia di una cattura piu' larga della vista: NON USATO QUI (lo legge
+    // il ray marching in stereografica), dichiarato per la regola Adreno.
+    // Ultimo campo di UboData.
+    float u_captureVerticalScale;
 } ubuf;
 
 float sq(float x) { return x*x; }
@@ -440,47 +456,27 @@ vec3 calculateFinalNormal(float u, float v) {
 
     vec3 N = cross(tangentU, tangentV);
 
-    // Se la normale collassa (siamo sul polo / singolarità)
+    // Se la normale collassa (siamo sul polo / singolarità): la si prende da
+    // un punto vicino, DENTRO il dominio. Oltre il bordo la parametrizzazione
+    // puo' capovolgersi (la sfera oltre v = pi/2 e' la sfera percorsa al
+    // contrario) e la normale usciva rovesciata: la luce e' a due facce e non
+    // se ne accorgeva, ma interpolata con quelle giuste dei vertici accanto
+    // passava per zero, e attorno al polo si vedeva un anello scuro (visibile
+    // in H3 su una sfera a 100 passi, 2026-11-15). Prima si provava +u, -u,
+    // +v, -v senza guardare il dominio. Stesse differenze centrali del caso
+    // regolare, cosi' l'orientamento e' quello dei vicini.
     if (dot(N, N) < 1.0e-8) {
-        // Strategia: spostiamoci LONTANO dal polo (offset grande, ASIMMETRICO),
-        // poi facciamo differenze in avanti standard nel nuovo punto.
-        // Proviamo le 4 direzioni cardinali: la prima che produce una
-        // normale non degenere vince.
-        float pole_off = 0.05;
-        float eps2     = 0.005;
-
-        vec3 p0, pU, pV;
-
-        // Tentativo 1: offset in +u
-        p0 = project4D(getRotatedPoint4D(u + pole_off, v));
-        pU = project4D(getRotatedPoint4D(u + pole_off + eps2, v));
-        pV = project4D(getRotatedPoint4D(u + pole_off, v + eps2));
-        N  = cross(pU - p0, pV - p0);
-
-        // Tentativo 2: offset in -u
-        if (dot(N, N) < 1.0e-8) {
-            p0 = project4D(getRotatedPoint4D(u - pole_off, v));
-            pU = project4D(getRotatedPoint4D(u - pole_off + eps2, v));
-            pV = project4D(getRotatedPoint4D(u - pole_off, v + eps2));
-            N  = cross(pU - p0, pV - p0);
+        float off = 0.05;
+        float du = (u + off <= ubuf.u_max) ? off : -off;   // verso l'interno del dominio
+        float dv = (v + off <= ubuf.v_max) ? off : -off;
+        vec2 tries[4] = vec2[4](vec2(0.0, dv), vec2(du, 0.0), vec2(du, dv), vec2(0.0, -dv));
+        for (int k = 0; k < 4 && dot(N, N) < 1.0e-8; ++k) {
+            float uu = u + tries[k].x;
+            float vv = v + tries[k].y;
+            vec3 tU = (project4D(getRotatedPoint4D(uu + eps, vv)) - project4D(getRotatedPoint4D(uu - eps, vv))) * 500.0;
+            vec3 tV = (project4D(getRotatedPoint4D(uu, vv + eps)) - project4D(getRotatedPoint4D(uu, vv - eps))) * 500.0;
+            N = cross(tU, tV);
         }
-
-        // Tentativo 3: offset in +v
-        if (dot(N, N) < 1.0e-8) {
-            p0 = project4D(getRotatedPoint4D(u, v + pole_off));
-            pU = project4D(getRotatedPoint4D(u + eps2, v + pole_off));
-            pV = project4D(getRotatedPoint4D(u, v + pole_off + eps2));
-            N  = cross(pU - p0, pV - p0);
-        }
-
-        // Tentativo 4: offset in -v
-        if (dot(N, N) < 1.0e-8) {
-            p0 = project4D(getRotatedPoint4D(u, v - pole_off));
-            pU = project4D(getRotatedPoint4D(u + eps2, v - pole_off));
-            pV = project4D(getRotatedPoint4D(u, v - pole_off + eps2));
-            N  = cross(pU - p0, pV - p0);
-        }
-
         if (dot(N, N) < 1.0e-8) return vec3(0.0, 0.0, 1.0);
     }
 
@@ -1145,6 +1141,7 @@ void main() {
     texCoord = vec2((abs(wireSpan.x) > 1.0e-12) ? (vertex.x - ubuf.u_min) / wireSpan.x : 0.0,
                     (abs(wireSpan.y) > 1.0e-12) ? (vertex.y - ubuf.v_min) / wireSpan.y : 0.0);
     v_wireDist = vec4(0.0);
+    v_wireW = 1.0;
 #endif
     v_borderSide = -1.0;
     v_borderReach = 0.0;
@@ -1328,7 +1325,10 @@ void main() {
         const float endSign = (along == 0) ? -1.0 : 1.0;
         const vec2 offsetPx = nrm * side * e + dir * endSign * e;
         gl_Position = vec4(pos.xy + offsetPx * 2.0 / view * pos.w, pos.z, pos.w);
-        v_wireDist = vec4(side * e, (along == 0) ? -e : len + e, len, hw);
+        // Moltiplicati per w: il fragment divide per v_wireW (interpolazione
+        // lineare sullo schermo, vedi la dichiarazione di v_wireDist).
+        v_wireDist = vec4(side * e, (along == 0) ? -e : len + e, len, hw) * pos.w;
+        v_wireW = pos.w;
         return;
     }
 #endif

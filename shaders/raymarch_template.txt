@@ -23,6 +23,15 @@ layout(std140, binding=0) uniform SceneUBO {
     float u_meshIndex; int u_noImage; float u_fillLight; float u_shellThickness;
     // Scelta del marcher: 0 = sphere tracing storico, 1 = ibrido (vedi main()).
     float u_marcherMode;
+    // I campi dei tubi, del bordo e del wireframe non servono qui, ma vanno
+    // dichiarati fino all'ultimo che serve, nell'ORDINE e coi TIPI di UboData
+    // (std140 non salta campi): u_captureVerticalScale, la fascia di una
+    // cattura piu' larga della vista (raggi della stereografica, main()).
+    float u_tubeRadius; float u_borderRadius; int u_isBorder;
+    float u_tubeRefX; float u_tubeRefY; float u_tubeRefZ; float u_meshCount;
+    float u_tubeRings; float u_tubeFramesOn; float u_tubeFrameBlend; float u_sharedEdgesOn;
+    float u_globalTexture; float u_wireHalfWidth; float u_wireViewW; float u_wireViewH;
+    float u_captureVerticalScale;
 } ubuf;
 
 layout(binding=1) uniform sampler2D tex;
@@ -660,14 +669,28 @@ void main() {
         vec2 axisNdc = axisClip.xy / axisClip.w;
         vec2 ndcView = (dot(axisNdc, axisNdc) > 1e-8) ? ndc - axisNdc : ndc;
 
-        vec2 uv_stereo = vec2(ndcView.x * aspect, ndcView.y);
+        // LA FASCIA DI UNA CATTURA PIU' LARGA DELLA VISTA (GLWidget::
+        // setCaptureVerticalScale): l'immagine mostra la parte s dell'altezza
+        // della vista, larga quanto lei. Le sue coordinate, ridotte di s, sono
+        // quelle della vista (in x l'aspetto dell'immagine e' quello della vista
+        // diviso s): l'immagine e' la fascia del riquadro, come per le mesh.
+        // Prima i raggi erano quelli della vista intera, schiacciata nella
+        // fascia (oggetti interi e piccoli). A schermo s = 1.
+        float s = (ubuf.u_captureVerticalScale > 0.0) ? ubuf.u_captureVerticalScale : 1.0;
+        vec2 uv_stereo = s * vec2(ndcView.x * aspect, ndcView.y);
 
-        // Angolo di campo (45 gradi in radianti)
-        float fov = 0.785398;
+        // IL CAMPO VISIVO DELLA CAMERA (lo slider Fov): dalla proiezione,
+        // projMatrix[1][1] = 1 / tan(campo/2), col campo ridotto di una cattura
+        // (GLWidget::effectiveCameraFov: la tangente per s), che diviso per s
+        // torna quello della vista. Prima era fisso a 45 gradi, e lo slider non
+        // faceva niente: 45 e' il suo valore di partenza, e li' l'immagine e'
+        // quella di sempre.
+        float tanHalfFov = 1.0 / (abs(projMatrix[1][1]) * s);
+        float tanQuarterFov = tanHalfFov / (1.0 + sqrt(1.0 + tanHalfFov * tanHalfFov));   // tan(campo/4)
 
         // Vera formula della proiezione Stereografica inversa:
-        // Raggio sullo schermo proporzionale alla tangente del FOV
-        float r = length(uv_stereo) * tan(fov / 4.0);
+        // il bordo alto della vista (|uv| = 1) e' a meta' del campo visivo
+        float r = length(uv_stereo) * tanQuarterFov;
 
         // Angolo sferico puro
         float phi = 2.0 * atan(r);

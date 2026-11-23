@@ -241,6 +241,21 @@ private:
     // Da sola: --scenario-only shape-background.
     void runShapeBackgroundScenarios();
     void runRollScenarios();
+    // Il polo di una sfera: la normale di ripiego sul polo ha il verso dei
+    // vicini (surface.vert, calculateFinalNormal). Da sola: --scenario-only pole-normal.
+    void runPoleNormalScenario();
+    // L'alto della camera del path 4D dopo un salto delle equazioni (Invio su
+    // gamma a path in corsa, Klein Racing). Da sola: --scenario-only path-up.
+    void runPathUpScenarios();
+    // Lo scorrimento col tasto destro in vista 2D: la texture segue il
+    // puntatore a ogni zoom, rotazione e misura della vista, su superficie
+    // (script e immagine) e sfondo (GLWidget::panFlatOnScreen). Da sola:
+    // --scenario-only flat-pan.
+    void runFlatPanScenarios();
+    // I controlli spenti si vedono spenti (testo grigio, slider grigi): ogni
+    // tipo di controllo fotografato acceso e spento. Da sola: --scenario-only
+    // disabled-look.
+    void runDisabledLookScenarios();
     // Il fotogramma del video con Screen Upscale e una risoluzione fissa
     // (getFrameForVideo, senza FBO): dimensione del video, vista INTERA con fasce
     // nere (non stirata, non a meta' misura su Retina). Da sola: --scenario-only

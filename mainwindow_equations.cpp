@@ -782,7 +782,8 @@ void MainWindow::setupEquationsDock()
             "QSlider::groove:horizontal { border: 1px solid #999; height: 12px;"
             " border-radius: 6px; margin: 2px 0; background: #AAAAAA; }"
             "QSlider::handle:horizontal { background: white; border: 1px solid #5c5c5c;"
-            " width: 30px; height: 30px; margin: -10px 0; border-radius: 15px; }");
+            " width: 30px; height: 30px; margin: -10px 0; border-radius: 15px; }"
+            + UiStyleManager::sliderDisabledStyle());
         ui->shellThicknessSlider->setMinimumHeight(40);
         connect(ui->shellThicknessSlider, &QSlider::valueChanged, this,
                 [this, shellThickFromSlider](int v) {

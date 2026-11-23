@@ -85,6 +85,14 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
             font-family: "Segoe UI", Arial, sans-serif;
             font-size: %1;
         }
+        /* I CONTROLLI SPENTI: testo grigio per tutti (etichette, caselle, radio,
+           campi, spinbox, alberi). Prima il bianco qui sopra valeva anche da
+           spenti e un controllo spento sembrava acceso. Subito dopo la regola
+           generale: chi ha un suo grigio da spento (QPushButton:disabled, frecce
+           degli spinbox), scritto piu' sotto con la stessa specificita', lo tiene. */
+        QWidget:disabled {
+            color: #7A7A7A;
+        }
 
         /* --- TOOLTIP ---
            QToolTip e' una finestra a se' e NON eredita dal QWidget qui sopra:
@@ -382,6 +390,10 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
         QSlider::handle:horizontal:pressed {
             background: #0098FF;
         }
+        /* Spenti: gli stessi grigi degli slider di valore del dock Render
+           (valueSliderStyle). Prima il cursore restava chiaro. */
+        QSlider::groove:horizontal:disabled { background: #4A4A4A; border: 1px solid #555555; }
+        QSlider::handle:horizontal:disabled { background: #6E6E6E; border: 1px solid #555555; }
     )").arg(baseFontSize, inputFontSize, spinArrowRoom);
 
     // ==========================================================
@@ -623,6 +635,10 @@ void UiStyleManager::compactForMobile(const QList<QWidget*>& containers) {
         QSlider::handle:horizontal:pressed {
             background: #0098FF;
         }
+        /* Spenti come sul desktop (applyDarkTheme): il foglio di un contenitore
+           vince su quello della finestra, quindi va ripetuto qui. */
+        QSlider::groove:horizontal:disabled { background: #4A4A4A; border: 1px solid #555555; }
+        QSlider::handle:horizontal:disabled { background: #6E6E6E; border: 1px solid #555555; }
     )";
 
     for (QWidget* w : containers) {
@@ -726,9 +742,10 @@ void UiStyleManager::setupBigSliders(QSlider* r, QSlider* g, QSlider* b, QSlider
         QSlider::handle:horizontal { background: white; border: 1px solid #5c5c5c; width: 30px; height: 30px; margin: -10px 0; border-radius: 15px; }
     )";
 
-    if(r) r->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #FF6666; }");
-    if(g) g->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #66FF66; }");
-    if(b) b->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #6666FF; }");
+    // Spenti grigi come gli altri (sliderDisabledStyle): prima restavano col loro colore.
+    if(r) r->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #FF6666; }" + sliderDisabledStyle());
+    if(g) g->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #66FF66; }" + sliderDisabledStyle());
+    if(b) b->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #6666FF; }" + sliderDisabledStyle());
 
     // SLIDER DI VALORE del dock Renderer (Transparency, Light, FOV; Headlight
     // e Border Thickness copiano lo stile di Light): tutti uguali, evidenziati
@@ -743,12 +760,8 @@ void UiStyleManager::setupBigSliders(QSlider* r, QSlider* g, QSlider* b, QSlider
     if(fov4D) fov4D->setStyleSheet(valueStyle);
 
     // Velocita' dei path (dock 3D e 4D): il loro grigio, piu' l'aspetto spento.
-    const QString disabledStyle = R"(
-        QSlider::groove:horizontal:disabled { background: #4A4A4A; border: 1px solid #555555; }
-        QSlider::handle:horizontal:disabled { background: #6E6E6E; border: 1px solid #555555; }
-    )";
-    if(speed3D) speed3D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }" + disabledStyle);
-    if(speed4D) speed4D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }" + disabledStyle);
+    if(speed3D) speed3D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }" + sliderDisabledStyle());
+    if(speed4D) speed4D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }" + sliderDisabledStyle());
 
     int minH = 40;
     if(r) r->setMinimumHeight(minH);
@@ -767,6 +780,12 @@ QString UiStyleManager::valueSliderStyle()
     return QStringLiteral(R"(
         QSlider::groove:horizontal { border: 1px solid #999; height: 12px; border-radius: 6px; margin: 2px 0; background: #FFFFFF; }
         QSlider::handle:horizontal { background: white; border: 1px solid #5c5c5c; width: 30px; height: 30px; margin: -10px 0; border-radius: 15px; }
+    )") + sliderDisabledStyle();
+}
+
+QString UiStyleManager::sliderDisabledStyle()
+{
+    return QStringLiteral(R"(
         QSlider::groove:horizontal:disabled { background: #4A4A4A; border: 1px solid #555555; }
         QSlider::handle:horizontal:disabled { background: #6E6E6E; border: 1px solid #555555; }
     )");

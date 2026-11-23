@@ -1983,6 +1983,26 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("pole-normal")) {
+        runPoleNormalScenario();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("path-up")) {
+        runPathUpScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("flat-pan")) {
+        runFlatPanScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("disabled-look")) {
+        runDisabledLookScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("shape-background")) {
         runShapeBackgroundScenarios();
         finish();
@@ -3845,6 +3865,10 @@ void ScenarioTest::run()
     runStepsScenarios();
     runShapeBackgroundScenarios();
     runRollScenarios();
+    runPoleNormalScenario();
+    runPathUpScenarios();
+    runFlatPanScenarios();
+    runDisabledLookScenarios();
     runVideoFrameScenarios();
     runImageCaptureScenarios();
     runAnimatedLoadScenarios();
@@ -6663,6 +6687,65 @@ void ScenarioTest::runImageCaptureScenarios()
         clearImageSettings();
         pressNew();
     }
+
+    // RAY MARCHING IN STEREOGRAFICA (raymarch_template.txt): i raggi li
+    // costruisce lo shader, con un angolo fisso di 45 gradi fino al
+    // 2026-11-20. Lo slider Fov non faceva niente, e un'immagine piu' larga
+    // della vista mostrava la vista intera invece della fascia del riquadro.
+    // Una sfera al centro: in stereografica il suo raggio a schermo e'
+    // tan(alfa/2) / tan(campo/4), quindi da 45 a 63 gradi la larghezza scala di
+    // tan(11.25) / tan(15.75) = 0.705, qualunque sia la sfera.
+    if (loadSurface(QStringLiteral("surfaces/Implicit/3D/Sphere.json"))) {
+        gl->stopAllTimers();
+        const float fov0 = gl->cameraFov();
+        gl->setProjectionMode(2);   // stereografica
+        m_mw->applyCameraFov(45.0f);
+        wait(300);
+        const double w45 = spanFraction(gl->grabFramebuffer());
+        m_mw->applyCameraFov(63.0f);
+        wait(300);
+        const double w63 = spanFraction(gl->grabFramebuffer());
+        const double expected = std::tan(qDegreesToRadians(45.0 / 4.0)) / std::tan(qDegreesToRadians(63.0 / 4.0));
+        check(w45 > 0.1 && std::abs(w63 / w45 - expected) < 0.03,
+              QStringLiteral("Ray Marching in stereografica: il Fov cambia l'inquadratura (larghezza della sfera da "
+                             "45 a 63 gradi: x%1, attesa x%2)").arg(w63 / w45, 0, 'f', 3).arg(expected, 0, 'f', 3));
+
+        // L'immagine 4:1 e' la fascia del riquadro: lo schermo ritagliato e
+        // portato alla sua dimensione. La sfera, tagliata sopra e sotto dalla
+        // fascia, deve uscire uguale (prima: intera e piccola).
+        const double ratio = 4.0;
+        const QSize size = ImageCapture::sizeFor(ratio, 1600);
+        QString e;
+        const QImage cap = ImageCapture::render(gl, size, ratio, &e);
+        wait(200);
+        const QImage screen = gl->grabFramebuffer().convertToFormat(QImage::Format_RGB32);
+        const QRect band = ImageCapture::guideRect(gl->size(), ratio);
+        const double dpr = double(screen.width()) / double(std::max(1, gl->width()));
+        const QImage crop = screen.copy(QRect(int(std::lround(band.x() * dpr)), int(std::lround(band.y() * dpr)),
+                                              int(std::lround(band.width() * dpr)), int(std::lround(band.height() * dpr))))
+                                .scaled(size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        double diff = 255.0;
+        if (!cap.isNull() && cap.size() == crop.size()) {
+            const QImage c = cap.convertToFormat(QImage::Format_RGB32);
+            qint64 sum = 0;
+            for (int y = 0; y < c.height(); ++y)
+                for (int x = 0; x < c.width(); ++x) {
+                    const QRgb p = c.pixel(x, y), q = crop.pixel(x, y);
+                    sum += std::abs(qRed(p) - qRed(q)) + std::abs(qGreen(p) - qGreen(q)) + std::abs(qBlue(p) - qBlue(q));
+                }
+            diff = double(sum) / (3.0 * double(c.width()) * double(c.height()));
+        }
+        cap.save(m_outDir + QStringLiteral("/rm-stereo-capture.png"));
+        crop.save(m_outDir + QStringLiteral("/rm-stereo-band.png"));
+        const double fCap = cap.isNull() ? 0.0 : spanFraction(cap), fBand = spanFraction(crop);
+        check(!cap.isNull() && diff < 6.0 && fBand > 0.05 && std::abs(fCap - fBand) < 0.03 * fBand + 0.004,
+              QStringLiteral("Ray Marching in stereografica, immagine 4:1: e' la fascia del riquadro (differenza media "
+                             "%1 per canale; larghezza della sfera %2 contro %3 nella fascia) %4")
+                  .arg(diff, 0, 'f', 2).arg(fCap, 0, 'f', 3).arg(fBand, 0, 'f', 3).arg(e));
+        m_mw->applyCameraFov(fov0);
+        gl->setProjectionMode(1);
+        pressNew();
+    }
     gl->setClocksDrivenByRecorder(false);
 }
 
@@ -6717,7 +6800,9 @@ void ScenarioTest::runVideoFrameScenarios()
 #if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
     // IL DIALOGO DEL VIDEO SUL DESKTOP: un dialogo solo con tutte le impostazioni
     // (prima fino a sei QInputDialog in fila), che riparte dalle scelte
-    // dell'ultima volta; il Downscaling si accende solo quando conta. Dopo,
+    // dell'ultima volta; il Downscaling si accende solo quando conta e non e'
+    // mai spuntato all'apertura (anche con la vecchia chiave lastRecResample
+    // salvata accesa), e si spegne senza spunta. Dopo,
     // il selettore del file. Il REC vero: la scelta Video/Image e il selettore
     // del file li chiude il watcher dei popup (Video, poi Annulla), il dialogo
     // l'handler.
@@ -6730,7 +6815,7 @@ void ScenarioTest::runVideoFrameScenarios()
         st.setValue("lastRecResIndex", 0);   // la vista: la riga del Downscaling corta
         st.setValue("lastRecFormat", 1);
         st.setValue("lastRecEngine", 0);
-        st.setValue("lastRecResample", true);
+        st.setValue("lastRecResample", true);   // la vecchia preferenza: non deve contare
     }
     // Le finestre modali le chiude il watcher dei popup (Annulla), la scelta
     // Video/Image con m_popupAnswer; questo timer, piu' svelto, le annota soltanto.
@@ -6748,8 +6833,8 @@ void ScenarioTest::runVideoFrameScenarios()
     for (const bool accept : { false, true }) {
         modalsSeen.clear();
         fileDialogSeen = false;
-        bool restored = false, gateOk = false, hintVisible = false;
-        QString title, gateText, hintText;
+        bool restored = false, gateOk = false, hintVisible = false, checkOk = false;
+        QString title, gateText, hintText, checkText;
         VideoRecorder::setTestDialogHandler([&](QDialog *d) {
             m_leaveOpen = d;
             title = d->windowTitle();
@@ -6759,7 +6844,8 @@ void ScenarioTest::runVideoFrameScenarios()
             if (spins.size() != 2 || combos.size() != 3 || !chk) { m_leaveOpen = nullptr; d->reject(); return; }
             QComboBox *res = combos[0], *format = combos[1], *engine = combos[2];
             restored = spins[0]->value() == 7 && spins[1]->value() == 30 && res->currentIndex() == 0
-                       && format->currentIndex() == 1 && engine->currentIndex() == 0 && chk->isChecked();
+                       && format->currentIndex() == 1 && engine->currentIndex() == 0;
+            const bool openedUnchecked = !chk->isChecked();
             // La casella si accende solo col motore nativo e un video piu' piccolo della vista.
             // Si apre sulla vista (riga corta); 1080p la allunga se il video e'
             // piu' piccolo della vista.
@@ -6772,6 +6858,18 @@ void ScenarioTest::runVideoFrameScenarios()
             engine->setCurrentIndex(0);
             const bool on1080 = chk->isEnabled();
             gateOk = on1080 == smaller1080 && !onView && !onUpscale;
+            // Accesa si spunta; tornando alla vista si spegne e perde la spunta.
+            bool checkable = true;
+            if (on1080) {
+                chk->setChecked(true);
+                checkable = chk->isChecked();
+                res->setCurrentIndex(0);
+                res->setCurrentIndex(1);
+            }
+            const bool clearedOff = on1080 ? !chk->isChecked() : true;
+            checkOk = openedUnchecked && checkable && clearedOff;
+            checkText = QStringLiteral("aperta senza spunta %1, si spunta accesa %2, spenta perde la spunta %3")
+                            .arg(openedUnchecked).arg(checkable).arg(clearedOff);
             // Dalla riga corta a quella lunga: il dialogo cresce e la riga si
             // legge tutta (alta quanto chiede alla sua larghezza, sopra i tasti).
             wait(300);
@@ -6807,6 +6905,7 @@ void ScenarioTest::runVideoFrameScenarios()
                   .arg(accept ? QStringLiteral("Capture") : QStringLiteral("Cancel"), title, modalsSeen.join(QStringLiteral(" > ")))
                   .arg(restored));
         check(gateOk, QStringLiteral("Downscaling acceso solo quando conta: %1").arg(gateText));
+        check(checkOk, QStringLiteral("Downscaling mai spuntato all'apertura: %1").arg(checkText));
         check(hintVisible, QStringLiteral("la riga del Downscaling si legge tutta quando si allunga (%1)").arg(hintText));
         if (accept) {
             const int saved = QSettings().value("lastRecDuration").toInt();
@@ -6825,6 +6924,334 @@ void ScenarioTest::runVideoFrameScenarios()
 // (Rotations, Paths) col moto fermato i due tasti non facevano nulla
 // (segnalato dall'utente su Calabi-Yau e Brieskorn-Pham). Si tiene premuto
 // Roll Left come l'utente e si guarda se il fotogramma cambia.
+void ScenarioTest::runPathUpScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Path 4D: l'alto della camera dopo un salto delle equazioni (Klein Racing, gamma) =="));
+    m_discardOnPrompt = true;
+    if (!loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S2xS1/Klein Racing.json"))) return;
+    wait(800);
+    const auto text3 = [](const QVector3D &v) {
+        return QStringLiteral("(%1, %2, %3)").arg(v.x(), 0, 'f', 3).arg(v.y(), 0, 'f', 3).arg(v.z(), 0, 'f', 3);
+    };
+    // L'alto che il path darebbe da solo a questo t: l'anti-ribaltamento
+    // riarmato (come dopo un reset della vista), due passi allo stesso t (la
+    // proiezione usa l'osservatore di prima). Poi si rimette la camera com'era.
+    const auto naturalUp = [&]() {
+        const QVector3D last = gl->m_lastValidUp;
+        const bool first = gl->m_isFirstPathRun;
+        const float t = m_mw->m_paths->time(CameraPaths::Path4D);
+        gl->m_isFirstPathRun = true;
+        m_mw->m_paths->applyCameraAt(CameraPaths::Path4D, t);
+        m_mw->m_paths->applyCameraAt(CameraPaths::Path4D, t);
+        const QVector3D up = gl->m_pathUp;
+        gl->m_lastValidUp = last;
+        gl->m_isFirstPathRun = first;
+        m_mw->m_paths->applyCameraAt(CameraPaths::Path4D, t);
+        return up;
+    };
+    check(m_mw->pathRunning(CameraPaths::Path4D), QStringLiteral("Klein Racing: path 4D in corsa"));
+    const QVector3D shown0 = gl->m_pathUp, natural0 = naturalUp();
+    check(QVector3D::dotProduct(shown0, natural0) > 0.9f,
+          QStringLiteral("prima di toccare gamma: l'alto mostrato %1 e' quello del path %2")
+              .arg(text3(shown0), text3(natural0)));
+    typeInField(ui->lineGamma_P, QStringLiteral("t"));
+    pressEnter(ui->lineGamma_P);
+    wait(1500);   // a meta' giro l'alto del path con gamma = t si rovescia
+    typeInField(ui->lineGamma_P, QString());
+    pressEnter(ui->lineGamma_P);
+    wait(800);
+    const QVector3D shown1 = gl->m_pathUp, natural1 = naturalUp();
+    check(QVector3D::dotProduct(shown1, natural1) > 0.9f,
+          QStringLiteral("gamma = t, Invio, gamma vuoto, Invio -> l'alto mostrato %1 e' ancora quello del path %2 "
+                         "(non capovolto)")
+              .arg(text3(shown1), text3(natural1)));
+
+    // IL CASO OPPOSTO: con gamma = t l'alto del path si rovescia a meta' giro
+    // e la camera, che resta continua, gli e' rovesciata. Un Invio che non
+    // cambia niente e uno Stop + Departure non sono salti: resta com'e'.
+    typeInField(ui->lineGamma_P, QStringLiteral("t"));
+    pressEnter(ui->lineGamma_P);
+    bool reversed = false;
+    for (int i = 0; i < 60 && !reversed; ++i) {
+        reversed = QVector3D::dotProduct(gl->m_pathUp, naturalUp()) < -0.9f;
+        if (!reversed) wait(100);
+    }
+    check(reversed, QStringLiteral("gamma = t: la camera arriva rovesciata rispetto all'alto del path (continua)"));
+    if (reversed) {
+        pressEnter(ui->lineGamma_P);
+        check(QVector3D::dotProduct(gl->m_pathUp, naturalUp()) < -0.9f,
+              QStringLiteral("Invio senza modifiche -> la camera non si gira (%1)").arg(text3(gl->m_pathUp)));
+        m_mw->onDepartureClicked();   // fermo
+        wait(200);
+        m_mw->onDepartureClicked();   // e via
+        wait(300);
+        check(QVector3D::dotProduct(gl->m_pathUp, naturalUp()) < -0.9f,
+              QStringLiteral("Stop e Departure senza modifiche -> la camera non si gira (%1)").arg(text3(gl->m_pathUp)));
+    }
+    if (m_mw->isAnythingMoving()) m_mw->performMasterStop();
+    m_discardOnPrompt = false;
+}
+
+void ScenarioTest::runFlatPanScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Lo scorrimento col tasto destro in vista 2D: la texture (superficie, immagine, "
+                                  "sfondo) segue il puntatore a ogni zoom e rotazione =="));
+    const QString kSphere = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
+    const QString kScript = QStringLiteral(
+        "return vec3(fract(u * 2.3), fract(v * 1.7), 0.5 + 0.5 * sin(9.0 * u + 5.0 * v));");
+    const auto text2 = [](const QPointF &p) {
+        return QStringLiteral("(%1, %2)").arg(p.x(), 0, 'f', 2).arg(p.y(), 0, 'f', 2);
+    };
+    const auto rgbDiff = [](QRgb p, QRgb q) {
+        return std::max({ std::abs(qRed(p) - qRed(q)), std::abs(qGreen(p) - qGreen(q)), std::abs(qBlue(p) - qBlue(q)) });
+    };
+    const auto grab = [gl] { return gl->grabFramebuffer().convertToFormat(QImage::Format_RGB32); };
+    const auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
+    // Un gesto vero dal centro della vista: press, 6 passi interi (delta
+    // multiplo di 6), release.
+    const auto drag = [&](Qt::MouseButton button, const QPoint &delta) {
+        const QPoint from(gl->width() / 2, gl->height() / 2);
+        QMouseEvent press(QEvent::MouseButtonPress, QPointF(from), gl->mapToGlobal(QPointF(from)), button, button,
+                          Qt::NoModifier);
+        QCoreApplication::sendEvent(gl, &press);
+        for (int i = 1; i <= 6; ++i) {
+            const QPointF p(from.x() + delta.x() * i / 6, from.y() + delta.y() * i / 6);
+            QMouseEvent move(QEvent::MouseMove, p, gl->mapToGlobal(p), Qt::NoButton, button, Qt::NoModifier);
+            QCoreApplication::sendEvent(gl, &move);
+            wait(20);
+        }
+        const QPointF to(from + delta);
+        QMouseEvent release(QEvent::MouseButtonRelease, to, gl->mapToGlobal(to), button, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(gl, &release);
+        wait(150);
+    };
+
+    // L'immagine dopo il gesto e' quella di prima spostata di delta: lo scarto
+    // medio (in livelli, il canale peggiore) sulla parte comune, e quello senza
+    // spostamento, che deve essere grande (la texture si e' mossa davvero).
+    struct Match { double aligned = 1e9, still = 0.0; };
+    const auto shifted = [&](const QImage &a, const QImage &b, const QPoint &delta) {
+        Match m;
+        if (a.isNull() || a.size() != b.size()) return m;
+        const int ox = qRound(delta.x() * double(a.width()) / gl->width());
+        const int oy = qRound(delta.y() * double(a.height()) / gl->height());
+        const int margin = 6;
+        double sa = 0.0, ss = 0.0;
+        qint64 n = 0;
+        for (int y = margin + std::abs(oy); y < a.height() - margin - std::abs(oy); y += 3) {
+            const QRgb *from = reinterpret_cast<const QRgb *>(a.constScanLine(y - oy));
+            const QRgb *same = reinterpret_cast<const QRgb *>(a.constScanLine(y));
+            const QRgb *after = reinterpret_cast<const QRgb *>(b.constScanLine(y));
+            for (int x = margin + std::abs(ox); x < a.width() - margin - std::abs(ox); x += 3) {
+                sa += rgbDiff(from[x - ox], after[x]);
+                ss += rgbDiff(same[x], after[x]);
+                ++n;
+            }
+        }
+        if (n > 0) { m.aligned = sa / double(n); m.still = ss / double(n); }
+        return m;
+    };
+    const auto flatFollows = [&](const QString &what, const QPoint &delta, const QString &png) {
+        m_mw->markSceneClean();
+        const QImage a = grab();
+        drag(Qt::RightButton, delta);
+        const QImage b = grab();
+        b.save(m_outDir + QLatin1Char('/') + png);
+        const Match m = shifted(a, b, delta);
+        check(m.aligned < 1.0 && m.still > 4.0 && m_mw->textureModuleDirty(QString()) && !m_mw->hasUnsavedWork(),
+              QStringLiteral("%1: la texture segue il puntatore di %2 (scarto medio %3 livelli, %4 senza spostarla); "
+                             "da salvare la texture, non la scena")
+                  .arg(what, text2(QPointF(delta))).arg(m.aligned, 0, 'f', 2).arg(m.still, 0, 'f', 1));
+    };
+    const auto setFraming = [&](float zoom, float rotation) {
+        gl->setFlatZoom(zoom);
+        gl->setFlatRotation(rotation);
+        gl->setFlatPan(0.0f, 0.0f);
+        wait(300);
+    };
+
+    if (!loadSurface(kSphere)) return;
+    setScriptMode(MainWindow::ScriptModeTexture);
+    ui->txtScriptEditor->setPlainText(kScript);
+    wait(200);
+    m_mw->onRunCurrentScript();
+    wait(800);
+    if (!ui->btnFlatPreview->isEnabled()) {
+        check(false, QStringLiteral("2D: il tasto della vista 2D acceso con la texture script"));
+        return;
+    }
+    ui->btnFlatPreview->setChecked(true);
+    wait(300);
+    setFraming(1.0f, 0.0f);
+    check(gl->flatViewTarget() == 0 && gl->flatTextureIsScript(),
+          QStringLiteral("2D: la vista mostra la texture script della superficie (bersaglio %1)").arg(gl->flatViewTarget()));
+    flatFollows(QStringLiteral("2D, script dritto"), QPoint(84, -48), QStringLiteral("flat-pan-script.png"));
+    setFraming(1.7f, 37.0f);
+    flatFollows(QStringLiteral("2D, script ruotato di 37 gradi, zoom 1.7"), QPoint(-66, 54),
+                QStringLiteral("flat-pan-script-turned.png"));
+    {
+        const QVector2D pan = gl->getFlatPan();
+        const float rot = gl->getFlatRotation();
+        drag(Qt::LeftButton, QPoint(60, 0));
+        check(gl->getFlatPan() == pan && gl->getFlatRotation() != rot,
+              QStringLiteral("2D: il sinistro gira la texture (%1 -> %2 gradi) e non la sposta")
+                  .arg(rot).arg(gl->getFlatRotation()));
+    }
+    ui->btnFlatPreview->setChecked(false);
+    wait(300);
+    setScriptMode(MainWindow::ScriptModeSurface);
+
+    // L'immagine si stira sulla vista: il dominio e' largo 1, non quanto la vista.
+    if (selectTexture(QStringLiteral("textures/Images/14.png"))) {
+        ui->btnFlatPreview->setChecked(true);
+        wait(300);
+        setFraming(1.3f, -24.0f);
+        check(!gl->flatTextureIsScript(), QStringLiteral("2D: la vista mostra l'immagine della superficie"));
+        flatFollows(QStringLiteral("2D, immagine ruotata di -24 gradi, zoom 1.3"), QPoint(72, 42),
+                    QStringLiteral("flat-pan-image.png"));
+        ui->btnFlatPreview->setChecked(false);
+        wait(300);
+    }
+
+    // Lo sfondo: inquadratura sua (m_bgPan), dominio da script.
+    gl->setBackgroundSkyMode(GLWidget::BgFixed);
+    gl->setBackgroundFraming(1.0f, QVector2D(), 0.0f);
+    gl->loadBackgroundScript(kScript);
+    gl->setBackgroundTextureEnabled(true);
+    wait(600);
+    click(ui->radioBackground);
+    wait(300);
+    setScriptMode(MainWindow::ScriptModeTexture);
+    ui->btnFlatPreview->setChecked(true);
+    wait(300);
+    setFraming(0.8f, 110.0f);
+    check(gl->flatViewTarget() == 1 && gl->flatTextureIsScript(),
+          QStringLiteral("2D: la vista mostra lo sfondo script (bersaglio %1)").arg(gl->flatViewTarget()));
+    flatFollows(QStringLiteral("2D, sfondo ruotato di 110 gradi, zoom 0.8"), QPoint(-54, -60),
+                QStringLiteral("flat-pan-background.png"));
+    ui->btnFlatPreview->setChecked(false);
+    wait(300);
+    click(ui->radioSurface);
+    wait(300);
+    setScriptMode(MainWindow::ScriptModeSurface);
+    gl->setBackgroundTextureEnabled(false);
+    wait(300);
+    m_discardOnPrompt = true;
+    pressNew();
+    m_discardOnPrompt = false;
+}
+
+void ScenarioTest::runDisabledLookScenarios()
+{
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Controlli spenti: si vedono spenti =="));
+    pressNew();
+    auto *ui = m_mw->ui;
+    // Sulla parte comune: un'etichetta puo' cambiare larghezza fra le due foto
+    // (il layout della riga si ricalcola).
+    const auto differing = [](const QImage &a, const QImage &b) {
+        int n = 0;
+        for (int y = 0; y < std::min(a.height(), b.height()); ++y)
+            for (int x = 0; x < std::min(a.width(), b.width()); ++x)
+                if (a.pixel(x, y) != b.pixel(x, y)) ++n;
+        return n;
+    };
+    struct Case { const char *name; QWidget *widget; };
+    const Case cases[] = {
+        { "etichetta (Transparency)", ui->lblTrans },
+        { "slider standard (costante A)", ui->aSlider },
+        { "slider di colore (R)", ui->sliderR },
+        { "slider Shell thickness", ui->shellThicknessSlider },
+        { "campo di testo (costante A)", ui->lineA },
+        { "campo dell'equazione (X)", ui->lineX },
+        { "casella (Texture)", ui->chkBoxTexture },
+        { "radio (Basic)", ui->radioBasic },
+        { "spinbox (mesh)", ui->spinMeshSel },
+        { "albero (Textures)", ui->treeTextures },
+        { "slider di valore (Transparency, gia' a posto)", ui->alphaSlider },
+        { "pulsante (Departure, gia' a posto)", ui->btnDeparture },
+    };
+    // Dopo NEW il campo X e' vuoto: un testo per la foto, a segnali fermi.
+    const QString xText = ui->lineX->toPlainText();
+    {
+        const QSignalBlocker blocker(ui->lineX);
+        ui->lineX->setPlainText(QStringLiteral("cos(u) * sin(v)"));
+    }
+    int index = 0;
+    for (const Case &c : cases) {
+        ++index;
+        if (!c.widget) {
+            check(false, QStringLiteral("controllo spento: %1 non trovato").arg(QLatin1String(c.name)));
+            continue;
+        }
+        // Acceso davvero: anche i contenitori spenti (la scena vuota di NEW
+        // spegne pannelli interi) si accendono per la foto, poi tornano com'erano.
+        QList<QWidget *> disabledAncestors;
+        for (QWidget *p = c.widget->parentWidget(); p; p = p->parentWidget())
+            if (p->testAttribute(Qt::WA_Disabled)) disabledAncestors << p;
+        for (QWidget *p : std::as_const(disabledAncestors)) p->setEnabled(true);
+        const bool was = !c.widget->testAttribute(Qt::WA_Disabled);
+        c.widget->setEnabled(true);
+        wait(50);
+        const QImage on = c.widget->grab().toImage();
+        c.widget->setEnabled(false);
+        wait(50);
+        const QImage off = c.widget->grab().toImage();
+        c.widget->setEnabled(was);
+        for (QWidget *p : std::as_const(disabledAncestors)) p->setEnabled(false);
+        on.save(m_outDir + QStringLiteral("/disabled-%1-on.png").arg(index, 2, 10, QLatin1Char('0')));
+        off.save(m_outDir + QStringLiteral("/disabled-%1-off.png").arg(index, 2, 10, QLatin1Char('0')));
+        const int n = differing(on, off);
+        check(n >= 20, QStringLiteral("controllo spento diverso dall'acceso: %1 (%2 pixel diversi; disabled-%3-*.png)")
+                           .arg(QLatin1String(c.name)).arg(n).arg(index, 2, 10, QLatin1Char('0')));
+    }
+    {
+        const QSignalBlocker blocker(ui->lineX);
+        ui->lineX->setPlainText(xText);
+    }
+    // Il caso tipico, da guardare: le costanti non citate dall'equazione di NEW.
+    wait(300);
+    ui->dockEquations->grab().save(m_outDir + QStringLiteral("/disabled-dock-equations-constants.png"));
+}
+
+void ScenarioTest::runPoleNormalScenario()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Polo della sfera: la normale di ripiego sul polo ha il verso dei vicini (niente anello scuro) =="));
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"))) return;
+    gl->resetOrientation(GLWidget::Orientation());   // dritta: il polo nord (v = pi/2) verso la camera
+    gl->setColor(1.0f, 0.25f, 0.2f);
+    gl->stopAllTimers();
+    wait(400);
+    gl->grabFramebuffer();
+    wait(200);
+    const QImage img = gl->grabFramebuffer().convertToFormat(QImage::Format_RGB32);
+    img.save(m_outDir + QStringLiteral("/pole-normal.png"));
+    // La finestra attorno al centro del disco: l'anello stava a un passo di
+    // griglia dal polo (3% del raggio della sfera a 100 passi).
+    const int cx = img.width() / 2, cy = img.height() / 2, r = std::max(4, img.height() / 40);
+    double sum = 0.0;
+    int n = 0, minLum = 255;
+    for (int y = cy - r; y <= cy + r; ++y)
+        for (int x = cx - r; x <= cx + r; ++x) {
+            const int lum = qGray(img.pixel(x, y));
+            sum += lum;
+            ++n;
+            minLum = std::min(minLum, lum);
+        }
+    const double mean = n ? sum / n : 0.0;
+    check(mean > 60.0 && minLum > 0.6 * mean,
+          QStringLiteral("attorno al polo (finestra di %1 px): luminanza media %2, minima %3")
+              .arg(2 * r + 1).arg(mean, 0, 'f', 0).arg(minLum));
+}
+
 void ScenarioTest::runRollScenarios()
 {
     Ui::MainWindow *ui = m_mw->ui;
@@ -7522,6 +7949,27 @@ void ScenarioTest::runResetButtonScenarios()
                   .arg(start).arg(reset).arg(project)
                   .arg(unsaved.isEmpty() ? QString() : QStringLiteral(" (") + unsaved.join(QStringLiteral(", ")) + QLatin1Char(')')));
     }
+    // ...ma con la sola texture di sfondo la proiezione si sceglie (richiesta
+    // dell'utente, 2026-11-15): niente popup, il modo cambia; tre clic
+    // tornano al modo di partenza.
+    {
+        pressNew();
+        gl->loadBackgroundScript(QStringLiteral("return vec3(uv.x, uv.y, 0.5);"));
+        gl->setBackgroundTextureEnabled(true);
+        const int projection = int(gl->projectionMode);
+        m_lastPopup.clear();
+        m_mw->m_btnProjection->click();
+        wait(400);
+        const bool changed = int(gl->projectionMode) != projection && m_lastPopup.isEmpty();
+        m_mw->m_btnProjection->click();
+        m_mw->m_btnProjection->click();
+        wait(300);
+        check(changed && int(gl->projectionMode) == projection,
+              QStringLiteral("scena vuota con la sola texture di sfondo: Projection cambia il modo senza popup "
+                             "(%1, popup \"%2\"), tre clic tornano al modo di partenza")
+                  .arg(changed).arg(m_lastPopup));
+        gl->setBackgroundTextureEnabled(false);
+    }
     m_discardOnPrompt = true;
     ui->tabModeSelector->setCurrentIndex(0);
     wait(1500);
@@ -8021,6 +8469,84 @@ void ScenarioTest::runLibraryFolderScenarios()
     };
 
     focusOk(QStringLiteral("preset caricato"));
+
+    // IL DITO CHE SCORRE SULL'ELENCO (iPhone e iPad: alberi senza trascinamento,
+    // selezione singola, initTree). Prima la selezione seguiva il dito voce
+    // dopo voce e il rilascio su un'altra voce non caricava: l'evidenziato non
+    // era piu' il preset a schermo. Ora il dito che si allontana oltre la
+    // soglia del trascinamento non sposta niente e non carica; il tap resta.
+    {
+        QTreeWidgetItem *other = nullptr;
+        for (int i = 0; i < folder->childCount() && !other; ++i)
+            if (folder->child(i) != leaf && folder->child(i)->childCount() == 0) other = folder->child(i);
+        if (!other) {
+            check(false, QStringLiteral("dito che scorre: serve un secondo preset nella cartella di '%1'").arg(name));
+        } else {
+            const auto dragMode = tree->dragDropMode();
+            const auto selMode = tree->selectionMode();
+            tree->setDragDropMode(QAbstractItemView::NoDragDrop);
+            tree->setSelectionMode(QAbstractItemView::SingleSelection);
+            tree->scrollToItem(other);
+            wait(200);
+            int clicks = 0;
+            const auto conn = QObject::connect(tree, &QTreeWidget::itemClicked, tree, [&clicks]() { ++clicks; });
+            auto moveTo = [&](const QPoint &pos) {
+                QMouseEvent move(QEvent::MouseMove, pos, tree->viewport()->mapToGlobal(pos), Qt::NoButton,
+                                 Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(tree->viewport(), &move);
+            };
+            const QPoint start = tree->visualItemRect(other).center();
+            const int step = std::max(QApplication::startDragDistance(), 4);
+            // Giu' di qualche voce e di nuovo sulla voce premuta, poi il rilascio:
+            // Qt emetteva itemClicked (stessa voce alla pressione e al rilascio).
+            mouse(QEvent::MouseButtonPress, other);
+            const bool pressSelects = other->isSelected();
+            for (int k = 1; k <= 4; ++k) moveTo(start + QPoint(0, k * step * 2));
+            const bool backAtPress = leaf->isSelected() && !other->isSelected() && tree->currentItem() == leaf;
+            for (int k = 3; k >= 0; --k) moveTo(start + QPoint(0, k * step * 2));
+            mouse(QEvent::MouseButtonRelease, other);
+            wait(300);
+            check(pressSelects && backAtPress && clicks == 0,
+                  QStringLiteral("dito che scorre da '%1' e ci torna: alla pressione la voce si evidenzia (%2), appena il "
+                                 "dito si muove l'evidenziazione torna sul preset a schermo (%3), il rilascio non carica "
+                                 "(%4 clic)").arg(other->text(0)).arg(pressSelects).arg(backAtPress).arg(clicks));
+            focusOk(QStringLiteral("dito che scorre e torna sulla voce premuta"));
+            // Il dito che si ferma su un'altra voce: niente.
+            mouse(QEvent::MouseButtonPress, other);
+            for (int k = 1; k <= 6; ++k) moveTo(start + QPoint(0, -k * step * 2));
+            {
+                const QPoint end = start + QPoint(0, -12 * step);
+                QMouseEvent release(QEvent::MouseButtonRelease, end, tree->viewport()->mapToGlobal(end), Qt::LeftButton,
+                                    Qt::NoButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(tree->viewport(), &release);
+            }
+            wait(300);
+            check(clicks == 0, QStringLiteral("dito che scorre e si ferma su un'altra voce: nessun load (%1 clic)").arg(clicks));
+            focusOk(QStringLiteral("dito che scorre e si ferma altrove"));
+            // Il tap carica, come sempre.
+            m_discardOnPrompt = true;
+            mouse(QEvent::MouseButtonPress, other);
+            mouse(QEvent::MouseButtonRelease, other);
+            wait(1200);
+            check(clicks == 1 && other->isSelected() && tree->currentItem() == other,
+                  QStringLiteral("tap su '%1': carica e lo evidenzia (%2 clic)").arg(other->text(0)).arg(clicks));
+            QObject::disconnect(conn);
+            // Di nuovo il preset di prima, e l'albero com'era.
+            tree->setCurrentItem(leaf);
+            emit tree->itemClicked(leaf, 0);
+            wait(1200);
+            m_discardOnPrompt = false;
+            tree->setDragDropMode(dragMode);
+            tree->setSelectionMode(selMode);
+            tree->scrollToItem(folder);
+            // I load hanno riallineato l'albero delle texture: la texture
+            // evidenziata del test torna com'era (vedi sopra).
+            if (tex) ui->treeTextures->setCurrentItem(tex);
+            wait(200);
+            focusOk(QStringLiteral("di nuovo il preset di prima, albero come sul desktop"));
+        }
+    }
+
     doubleClick(folder);
     check(!folder->isExpanded(), QStringLiteral("doppio clic sulla cartella -> si chiude"));
     focusOk(QStringLiteral("cartella chiusa col doppio clic"));

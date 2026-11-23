@@ -1084,6 +1084,10 @@ private:
     // nullptr. Un puntatore non inizializzato faceva crashare l'avvio su iOS
     // (EXC_BAD_ACCESS in QBindingStorage::registerDependency).
     CameraPaths *m_paths = nullptr;
+    // I testi dell'ultima compilazione riuscita del path 4D
+    // (compilePath4DFromFields): un Invio o un Departure che li cambia e' un
+    // salto della traiettoria (GLWidget::markPathUpJump).
+    QStringList m_compiledPath4D;
     bool pathRunning(CameraPaths::Path p) const { return m_paths && m_paths->isRunning(p); }
 
     // Avanzamento per tick dei due path. STATO: m_scene.pathSpeed3D/4D, in unita'

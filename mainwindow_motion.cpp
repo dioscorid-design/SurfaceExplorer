@@ -633,7 +633,12 @@ void MainWindow::commitPathFieldOnEnter(const QString& fieldName)
         if (!m_paths) return;
         if (pathRunning(CameraPaths::Path4D)) {
             if (!hasPath4DInput()) onDepartureClicked();
-            else                   compilePath4DFromFields();
+            else {
+                // Un salto della traiettoria, se il testo e' cambiato davvero:
+                // la camera prende l'alto della traiettoria nuova.
+                const QStringList before = m_compiledPath4D;
+                if (compilePath4DFromFields() && m_compiledPath4D != before) ui->glWidget->markPathUpJump();
+            }
         } else if (hasPath4DInput()) {
             onDepartureClicked();
         }
@@ -679,6 +684,7 @@ bool MainWindow::compilePath4DFromFields()
             QMessageBox::warning(this, "Error", "Path 4D compilation error .\nCheck the syntax.");
         return false;
     }
+    m_compiledPath4D = { eqX, eqY, eqZ, eqP, eqAlpha, eqBeta, eqGamma };
     // Il path compilato e' a schermo: le costanti che usa si sbloccano ora
     // (con modifiche in sospeso lo slider aspetta che sia applicato).
     updateConstantsUIState();
@@ -749,9 +755,13 @@ void MainWindow::onDepartureClicked()
     }
     stopRotationMotion();
 
+    const QStringList compiledBefore = m_compiledPath4D;
     if (!compilePath4DFromFields()) {
         return; // Errore matematico o di compilazione: niente avvio
     }
+    // Equazioni cambiate da fermo: un salto, la camera prende l'alto della
+    // traiettoria nuova. Le stesse di prima: si riparte continui.
+    if (m_compiledPath4D != compiledBefore) ui->glWidget->markPathUpJump();
 
     // Base 4D per le compensazioni del tick (vedi CameraPaths::captureBase4D):
     // con le equazioni APPENA compilate qui sopra.
@@ -999,6 +1009,7 @@ void MainWindow::resetMotionControls()
     setPathSpeed3D(10);
     setPathSpeed4D(10);
     m_scene.lastCameraMotion.clear();
+    m_compiledPath4D.clear();
     if (ui->glWidget && ui->glWidget->getEngine())
         ui->glWidget->getEngine()->clearPathEquations();
 }
@@ -1139,10 +1150,12 @@ void MainWindow::applyCameraFov(float deg)
 
 void MainWindow::toggleProjection()
 {
-    // SCENA VUOTA DI NEW: la proiezione non ha niente da mostrare (lo sfondo
-    // non ne dipende: il suo campo visivo e' virtuale). Prima cambiava lo
-    // stesso, e al preset successivo la scena risultava da salvare.
-    if (isWholeSceneEmpty()) {
+    // SCENA VUOTA DI NEW: la proiezione non ha niente da mostrare. Prima
+    // cambiava lo stesso, e al preset successivo la scena risultava da salvare.
+    // Non e' vuota una scena con la sola texture di sfondo: li' la proiezione
+    // si sceglie (richiesta dell'utente, 2026-11-15).
+    const bool backgroundShown = ui->glWidget && ui->glWidget->isBackgroundTextureEnabled();
+    if (isWholeSceneEmpty() && !backgroundShown) {
         InputValidator::showEmptySceneNotice(this, "Nothing to project");
         return;
     }

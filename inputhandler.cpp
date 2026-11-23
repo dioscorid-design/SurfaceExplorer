@@ -13,7 +13,7 @@ InputHandler::InputHandler(GLWidget* parentWidget)
 
 void InputHandler::handleMousePress(QMouseEvent* event)
 {
-    m_lastMousePos = event->pos();
+    m_lastMousePos = event->position();
 
     // Inizio del gesto: solo il PRIMO tasto premuto lo apre (un secondo tasto
     // durante un trascinamento lo prosegue, non ne azzera l'esito).
@@ -52,8 +52,8 @@ void InputHandler::handleMouseRelease(QMouseEvent* event)
 
 void InputHandler::handleMouseMove(QMouseEvent* event)
 {
-    int dx = event->position().x() - m_lastMousePos.x();
-    int dy = event->position().y() - m_lastMousePos.y();
+    const float dx = float(event->position().x() - m_lastMousePos.x());
+    const float dy = float(event->position().y() - m_lastMousePos.y());
 
     // DEADZONE, PRIMA DEL RAMO DI VISTA: superati 5 px col sinistro premuto non
     // e' piu' un clic secco ma un trascinamento. Viveva DENTRO il ramo 2D, e in
@@ -78,15 +78,10 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
                 if (m_mouseGestureActive) m_mouseMovedView = true;
             }
         }
-        // TASTO DESTRO: SPOSTAMENTO (PAN)
+        // TASTO DESTRO: SPOSTAMENTO (PAN). La texture segue il puntatore, a ogni
+        // zoom e rotazione (GLWidget::panFlatOnScreen).
         else if (event->buttons() & Qt::RightButton) {
-            float currentZoom = m_glWidget->getFlatZoom();
-            // Lo spostamento scala con lo zoom: più sei vicino, meno il mouse sposta l'immagine
-            float panSens = 0.002f / currentZoom;
-
-            QVector2D currentPan = m_glWidget->getFlatPan();
-            m_glWidget->setFlatPan(currentPan.x() - dx * panSens, currentPan.y() + dy * panSens);
-            if (m_mouseGestureActive && (dx != 0 || dy != 0)) m_mouseMovedView = true;
+            if (m_glWidget->panFlatOnScreen(dx, dy) && m_mouseGestureActive) m_mouseMovedView = true;
         }
     }
 
@@ -114,7 +109,7 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
         }
     }
 
-    m_lastMousePos = event->pos();
+    m_lastMousePos = event->position();
 }
 
 bool InputHandler::handleTouch(QEvent* e)

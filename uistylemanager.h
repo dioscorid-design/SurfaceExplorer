@@ -40,6 +40,10 @@ public:
     // da acceso, grigio da spento. Unica sede: lo usano setupBigSliders e gli
     // slider aggiunti dopo (Headlight, Border Thickness).
     static QString valueSliderStyle();
+    // L'aspetto spento di uno slider (binario e cursore grigi): da aggiungere a
+    // ogni foglio di slider che ridisegna binario e cursore, o lo spento resta
+    // uguale all'acceso (il foglio dello slider vince su quello della finestra).
+    static QString sliderDisabledStyle();
     static void applyInputFieldsStyle(const QList<QWidget*>& fields);
     static void addScrollToDock(QDockWidget* dock);
     static void applyConstraintStyle(QPlainTextEdit* editor, ConstraintState state);

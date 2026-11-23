@@ -32,7 +32,7 @@ bool LibraryTreeWidget::isFolder(const QModelIndex &index) const
 QItemSelectionModel::SelectionFlags LibraryTreeWidget::selectionCommand(const QModelIndex &index,
                                                                        const QEvent *event) const
 {
-    if (m_folderPress) return QItemSelectionModel::NoUpdate;
+    if (m_folderPress || m_touchMoved) return QItemSelectionModel::NoUpdate;
     return QTreeWidget::selectionCommand(index, event);
 }
 
@@ -60,6 +60,8 @@ void LibraryTreeWidget::mousePressEvent(QMouseEvent *event)
     if (left && !multi && !index.isValid()) {
         m_folderPress = false;
         m_pressMulti = false;
+        m_touchPress = false;
+        m_touchMoved = false;
         QTreeWidgetItem *current = currentItem();
         clearSelection();
         if (current) current->setSelected(true);
@@ -68,6 +70,13 @@ void LibraryTreeWidget::mousePressEvent(QMouseEvent *event)
     }
     m_folderPress = left && !multi && isFolder(index);
     m_pressMulti = left && multi;
+    // IL DITO SU UNA VOCE, dove non c'e' trascinamento (mobile, initTree): la
+    // pressione seleziona come sempre, ma cio' che segue la decide il
+    // movimento (mouseMoveEvent).
+    m_touchPress = left && !multi && !m_folderPress && index.isValid()
+                   && dragDropMode() == QAbstractItemView::NoDragDrop;
+    m_touchMoved = false;
+    if (m_touchPress) m_pressPos = event->position().toPoint();
     if (!m_folderPress) {
         // CMD/SHIFT+CLIC: la selezione cresce, ma l'elemento corrente (il
         // grigio) resta sul preset a schermo. Qt lo portava sulla voce cliccata,
@@ -101,6 +110,20 @@ void LibraryTreeWidget::mousePressEvent(QMouseEvent *event)
 
 void LibraryTreeWidget::mouseMoveEvent(QMouseEvent *event)
 {
+    // IL DITO CHE SCORRE SULL'ELENCO (mobile, segnalato dall'utente il
+    // 2026-11-20): Qt in selezione singola portava selezione ed elemento
+    // corrente sotto il dito, voce dopo voce, e il rilascio su un'altra voce non
+    // caricava niente: l'evidenziato non era piu' il preset a schermo. Ora il
+    // movimento non seleziona; oltre la soglia del trascinamento la pressione
+    // non e' piu' un tap, e l'evidenziazione torna com'era prima di lei.
+    if (m_touchPress) {
+        if (!m_touchMoved && (event->buttons() & Qt::LeftButton)
+            && (event->position().toPoint() - m_pressPos).manhattanLength() >= QApplication::startDragDistance()) {
+            m_touchMoved = true;
+            LibraryTreeFocus::restoreHighlight(this, m_pressHighlight);
+        }
+        return;
+    }
     if (m_folderPress) {
         // Un clic che trema di qualche pixel non e' un trascinamento, e dove il
         // trascinamento non c'e' (mobile) il dito che scorre non seleziona.
@@ -127,10 +150,21 @@ void LibraryTreeWidget::mouseReleaseEvent(QMouseEvent *event)
     // lasciato un attimo prima del tasto e' lo stesso clic.
     m_multiSelectionRelease = event->button() == Qt::LeftButton
                               && ((event->modifiers() & kMultiSelection) || m_pressMulti);
+    // Il dito che ha scorso non e' un tap: niente itemClicked, quindi nessun
+    // load (Qt lo emette se il dito torna sulla voce premuta), e la selezione
+    // resta quella rimessa (selectionCommand: NoUpdate).
+    const bool swallowClick = m_touchPress && m_touchMoved;
+    const bool blocked = swallowClick ? blockSignals(true) : signalsBlocked();
     QTreeWidget::mouseReleaseEvent(event);
+    if (swallowClick) {
+        blockSignals(blocked);
+        LibraryTreeFocus::restoreHighlight(this, m_pressHighlight);
+    }
     m_multiSelectionRelease = false;
     m_pressMulti = false;
     m_folderPress = false;
+    m_touchPress = false;
+    m_touchMoved = false;
 }
 
 // Dove e' finito `path` se stava dentro (o era) una delle voci trascinate:

@@ -194,7 +194,14 @@ struct UboData {
     float u_wireHalfWidth;
     float u_wireViewW;
     float u_wireViewH;
-    float _pad4[3];
+    // LA FASCIA DI UNA CATTURA PIU' LARGA DELLA VISTA (m_captureVerticalScale,
+    // 1 a schermo): la parte dell'altezza della vista che l'immagine mostra. La
+    // legge il ray marching in stereografica, che costruisce i raggi da se' e
+    // non dalla proiezione (raymarch_template.txt). Primo posto di _pad4: il
+    // blocco resta di 512 byte. Dichiarato in ENTRAMBI gli shader parametrici
+    // (regola Adreno, vedi CLAUDE.md), che non lo usano.
+    float u_captureVerticalScale;
+    float _pad4[2];
 };
 
 class GLWidget : public QRhiWidget
@@ -747,6 +754,10 @@ public:
     // ==========================================================
     void loadTextureFromFile(const QString &filename);
     void loadTextureFromImage(const QImage &img);
+    // Un'immagine qualsiasi come texture: RGBA8 nei colori sRGB, convertita dal
+    // suo profilo colore (foto Display P3, HDR PQ/HLG...). Unica via per le
+    // immagini della superficie, delle fasce e dello sfondo.
+    static QImage textureImage(const QImage &img);
     void setGlobalTextureEnabled(bool enable);
     void setGlobalTextureColors(const QColor& c1, const QColor& c2);
     void clearTexture();
@@ -882,6 +893,15 @@ public:
     // della vista corrente finche' MainWindow non le ha scritte.
     float fullViewTextureWidth() const;
     void setFlatPan(float x, float y);
+    // LO SCORRIMENTO DELLA TEXTURE COL MOUSE in vista 2D (tasto destro): la
+    // texture segue il puntatore di (dx, dy) pixel della vista, a ogni zoom e
+    // rotazione e su ogni bersaglio (superficie, sfondo, bordo). Falso fuori
+    // dalla vista 2D o senza spostamento.
+    bool panFlatOnScreen(float dx, float dy);
+    // Il dominio della texture in vista 2D e' quello di uno SCRIPT (alto 1,
+    // largo fullViewTextureWidth) o di un'IMMAGINE (stirata sulla vista, 1 x 1)?
+    // Le stesse scelte del generatore degli shader (textureCodeIsImageOnly).
+    bool flatTextureIsScript() const;
 
     // TRASFORMAZIONE 2D GLOBALE della texture di superficie, per la PERSISTENZA.
     // I getFlat*() qui sopra espongono il buffer di lavoro della vista 2D (lo usa
@@ -936,6 +956,13 @@ public:
 
     void setCameraPosAndDirection3D(const QVector3D& pos, const QVector3D& target, float roll);
     void setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &target4D, const QVector4D &up4D);
+    // LE EQUAZIONI DEL PATH 4D CAMBIANO DI COLPO (Invio su un campo a path in
+    // corsa, Departure dopo una modifica da fermo): i prossimi fotogrammi
+    // prendono l'alto della traiettoria nuova, come alla partenza, senza
+    // confrontarlo con quello della traiettoria di prima (vedi
+    // l'anti-ribaltamento in setCameraFrom4DVectors). I cambi continui (le
+    // costanti) confrontano come sempre.
+    void markPathUpJump() { m_pathUpJumpFrames = 2; }
     // Handoff camera tra path 3D<->4D: cattura la camera CORRENTE e per i primi
     // tick del nuovo path fonde (smoothstep) la vista catturata con quella del
     // path, evitando il teletrasporto al cambio. Chiamato dai Departure quando
@@ -1961,6 +1988,9 @@ private:
 
     QVector3D m_lastValidUp{0.0f, 1.0f, 0.0f};
     bool m_isFirstPathRun{true};
+    // L'anti-ribaltamento del path 4D (setCameraFrom4DVectors): i fotogrammi
+    // che restano dopo un salto delle equazioni (markPathUpJump).
+    int m_pathUpJumpFrames = 0;
 
     float m_lastRealTime = 0.0f;
     // Orologi dei tre moduli globali: ciascuno E' il tempo mostrato (piu'
