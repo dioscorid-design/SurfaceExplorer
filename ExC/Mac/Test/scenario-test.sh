@@ -12,7 +12,8 @@
 # Marching, immagine di sfondo, costanti, equazioni, path e moti, lavoro non
 # salvato, reset della scena, immagini sulle singole mesh. Alla fine: nessun
 # campo di testo scritto a segnali vivi durante load e reset, e nessuno shader
-# che non compila (dal log, shadercompilelog.h). Dura circa nove minuti.
+# che non compila (dal log, shadercompilelog.h). Dura circa 40 minuti (2.0: 1795
+# verifiche, 2.1: 1844; misurato il 23 novembre 2026). Una sezione sola, pochi minuti.
 #
 # Quando lanciarlo: dopo ogni modifica alla gestione della texture o dei
 # controlli di resa, e prima di un rilascio. E' la rete dei GESTI: il test dei
@@ -63,7 +64,7 @@ OUT="$REPORTS/scenario-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$OUT"
 
 echo "Libreria: $PRESETS"
-echo "Test in corso (l'app si apre da sola e si chiude alla fine, ~8 min)..."
+echo "Test in corso (l'app si apre da sola e si chiude alla fine; la suite intera ~40 min)..."
 
 check_machine_load inizio
 RC=0
