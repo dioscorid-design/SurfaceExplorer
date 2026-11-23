@@ -46,7 +46,8 @@ if (-not $Version) {
     # Unica fonte: project(SurfaceExplorer VERSION X.Y ...). I campi del bundle
     # la derivano da ${PROJECT_VERSION}; il vecchio fallback su VERSION "..."
     # pescava il BUILD NUMBER (v15 invece di v1.2).
-    $m = Select-String -Path $cmake -Pattern 'project\(SurfaceExplorer\s+VERSION\s+([0-9]+\.[0-9]+)' | Select-Object -First 1
+    # X.Y o X.Y.Z (le correttive, es. 1.5.1).
+    $m = Select-String -Path $cmake -Pattern 'project\(SurfaceExplorer\s+VERSION\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)' | Select-Object -First 1
     if ($m) { $Version = $m.Matches[0].Groups[1].Value }
     if (-not $Version) {
         Write-Error "Versione non trovata in CMakeLists.txt: passala con -Version X.Y"

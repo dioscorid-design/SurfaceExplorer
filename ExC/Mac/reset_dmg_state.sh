@@ -59,7 +59,7 @@ QT_DOMAIN="com.dioscorid.SurfaceExplorer-dmg"
 # L'app del DMG ha un nome suo, con la versione (CMakeLists.txt,
 # SE_MACOS_BUNDLE_NAME): /Applications/SurfaceExplorer.app e' quella
 # dell'App Store / TestFlight, che ha un altro id e altre preferenze.
-VERSION="$(sed -nE 's/^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+).*/\1/p' \
+VERSION="$(sed -nE 's/^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p' \
            "$(cd "$(dirname "$0")/../.." && pwd)/CMakeLists.txt" | head -1)"
 APP="/Applications/Surface Explorer v$VERSION.app"
 

@@ -2,12 +2,17 @@
 
 Comandi da lanciare **dalla root del progetto**.
 
-## 1. Aggiornare la versione marketing (X.Y)
+## 1. Aggiornare la versione marketing (X.Y o X.Y.Z)
 
 ```sh
 ./ExC/Mac/bump-version.sh 1.1              # aggiorna i file e committa
 ./ExC/Mac/bump-version.sh 1.1 --no-commit  # aggiorna soltanto i file
+./ExC/Mac/bump-version.sh 1.5.1            # una correttiva: terza cifra
 ```
+
+Una correttiva (X.Y.Z, es. 1.5.1) ha tutto suo: tag e release GitHub `v1.5.1`,
+asset `...-v1.5.1-...`, app del DMG "Surface Explorer v1.5.1". Per l'App Store
+e' una versione nuova, distinta dalla X.Y gia' rilasciata.
 
 Aggiorna `CMakeLists.txt` (VERSION, MACOSX_BUNDLE_SHORT_VERSION_STRING,
 XCODE_ATTRIBUTE_MARKETING_VERSION) e `Info.plist` (CFBundleShortVersionString).

@@ -68,7 +68,9 @@ done
 # si possono leggere. Il vecchio fallback generico su 'VERSION "[0-9.]+"' era
 # peggio che inutile: pescava MACOSX_BUNDLE_BUNDLE_VERSION "15", cioe' il BUILD
 # NUMBER, e produceva il tag v15 al posto di v1.2.
-VERSION="$(sed -nE 's/^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+).*/\1/p' \
+# X.Y o X.Y.Z: la terza cifra e' delle correttive (1.5.1), che hanno tag, release
+# GitHub e nome dell'app del DMG loro ("Surface Explorer v1.5.1").
+VERSION="$(sed -nE 's/^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p' \
            "$PROJECT_DIR/CMakeLists.txt" | head -1)"
 [ -n "$VERSION" ] || { echo "ERRORE: versione non trovata in project(...) di CMakeLists.txt"; exit 1; }
 TAG="v$VERSION"
@@ -249,8 +251,9 @@ API="https://api.github.com/repos/$REPO"
 gh_api() { curl -s -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github+json" "$@"; }
 
 # 7a-pre. PRE-RELEASE APERTA: se esiste gia' su GitHub una release marcata
-# pre-release il cui tag COMINCIA col tag di questa versione (es. "v1.3-beta",
+# pre-release il cui tag e' il tag di questa versione seguito da "-" (es. "v1.3-beta",
 # "v1.3-rc1"), si carica LI' invece di creare "v1.3".
+# Col trattino, non un prefisso qualsiasi: "v1.5" non deve prendere "v1.5.1-beta".
 #
 # Perche': il tag viene da CMakeLists.txt, che contiene solo X.Y e non sa nulla
 # del suffisso. Caricando col tag secco lo script CREAVA una release "v1.3"
@@ -272,7 +275,7 @@ if not isinstance(rels, list): sys.exit(0)
 base = sys.argv[1]
 cand = [r for r in rels
         if r.get("prerelease") and isinstance(r.get("tag_name"), str)
-        and r["tag_name"].startswith(base) and r["tag_name"] != base]
+        and r["tag_name"].startswith(base + "-")]
 cand.sort(key=lambda r: r.get("created_at",""), reverse=True)
 print(cand[0]["tag_name"] if cand else "")
 ' "$TAG" 2>/dev/null || true)"

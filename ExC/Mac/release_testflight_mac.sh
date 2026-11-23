@@ -172,7 +172,7 @@ CUR_BUILD="$(sed -nE 's/.*MACOSX_BUNDLE_BUNDLE_VERSION[[:space:]]+"([0-9]+)".*/\
 # --no-bump: si riarchivia il numero attuale (un archivio che non e' mai
 # arrivato su App Store Connect non ha consumato il suo numero).
 if [ "$DO_BUMP" -eq 1 ]; then NEW_BUILD=$(( CUR_BUILD + 1 )); else NEW_BUILD="$CUR_BUILD"; fi
-MARKETING="$(sed -nE 's/^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+).*/\1/p' "$CMAKE" | head -1)"
+MARKETING="$(sed -nE 's/^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p' "$CMAKE" | head -1)"
 MARKETING="${MARKETING:-?}"
 
 if [ "$DO_BUMP" -eq 1 ]; then

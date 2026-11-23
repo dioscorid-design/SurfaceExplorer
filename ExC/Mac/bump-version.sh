@@ -6,6 +6,8 @@
 #
 # Aggiorna:
 #   CMakeLists.txt   : project(SurfaceExplorer VERSION X.Y ...)  <- unico punto
+#                      (X.Y.Z per le correttive, es. 1.5.1: l'App Store la
+#                      distingue dalla X.Y gia' rilasciata)
 # Info.plist e Info-macos.plist non contengono il numero: CFBundleShortVersionString
 # vale ${MACOSX_BUNDLE_SHORT_VERSION_STRING}, che CMake riempie da ${PROJECT_VERSION}
 # (dal 2026-11-06). Lo script verifica soltanto che restino cosi'.
@@ -37,8 +39,8 @@ err() { printf 'ERRORE: %s\n' "$*" >&2; exit 1; }
 NEW="${1:-}"
 DO_COMMIT=1
 [ "${2:-}" = "--no-commit" ] && DO_COMMIT=0
-[ -n "$NEW" ] || err "Uso: $0 X.Y [--no-commit]   (es. $0 1.1)"
-printf '%s' "$NEW" | grep -qE '^[0-9]+\.[0-9]+$' || err "Versione '$NEW' non valida: attesa X.Y (es. 1.1)"
+[ -n "$NEW" ] || err "Uso: $0 X.Y[.Z] [--no-commit]   (es. $0 1.1, $0 1.5.1)"
+printf '%s' "$NEW" | grep -qE '^[0-9]+\.[0-9]+(\.[0-9]+)?$' || err "Versione '$NEW' non valida: attesa X.Y o X.Y.Z (es. 1.1, 1.5.1)"
 [ -f "$CMAKE" ] || err "CMakeLists.txt non trovato in $PROJECT_DIR"
 [ -f "$PLIST" ] || err "Info.plist non trovato in $PROJECT_DIR"
 [ -f "$PLIST_MAC" ] || err "Info-macos.plist non trovato in $PROJECT_DIR"
