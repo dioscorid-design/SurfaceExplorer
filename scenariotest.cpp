@@ -18366,7 +18366,9 @@ void ScenarioTest::runGamepadScenarios()
         gl->setProjectionMode(1);
         wait(200);
         // Triangle e' il tasto della proiezione (che gira fra le sue modalita'):
-        // stesso passo di un clic; durante il REC niente.
+        // stesso passo di un clic; durante il REC niente. Nella 2.1 (SE_DRIVE)
+        // e' DRIVE: lo prova la sezione drive.
+#ifndef SE_DRIVE
         const QString proj0 = m_mw->m_btnProjection->text();
         pressButton(GamepadButton::Triangle);
         const QString proj1 = m_mw->m_btnProjection->text();
@@ -18390,6 +18392,7 @@ void ScenarioTest::runGamepadScenarios()
         check(proj1 != proj0 && proj1 == byClick && projRec == proj1,
               QStringLiteral("\u25B3 e' il tasto della proiezione: %1 -> %2, come un clic (%3); durante il REC "
                              "niente (%4)").arg(proj0, proj1, byClick, projRec));
+#endif
 
         // Square: l'inquadratura d'apertura, dopo uno zoom col pad.
         const QVector3D open = gl->getCameraPos();
