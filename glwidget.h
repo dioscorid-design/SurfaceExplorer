@@ -21,9 +21,11 @@
 #include <QElapsedTimer>
 #include <QQuaternion>
 #include <QHash>
+#include <QPointer>
 
 class InputHandler;
 struct DriveControls;
+class Gamepad;
 class SurfaceEngine;
 
 struct UboData {
@@ -1535,6 +1537,12 @@ public:
     // Al ritorno live (on=false) riarma lo STATO DI MISURA del watchdog per non
     // scambiare il transitorio di ripristino export per un rallentamento reale.
     void setRecordingActive(bool on);
+    bool isRecording() const { return m_isRecording; }
+    // IL PAD (gamepad.h; lo crea MainWindow): ogni suo passo muove la vista e
+    // l'oggetto come il mouse (InputHandler::handleGamepad). Non durante il
+    // REC (il loop legge gli eventi ogni 5 fotogrammi e il gesto entrerebbe
+    // nel video a scatti) ne' sotto una finestra modale (il mouse non ci arriva).
+    void setGamepad(Gamepad *pad);
     QQuaternion getRotationQuat() const { return m_obj->rotationQuat; }
     // setRotationQuat imposta la rotazione "di default" (load preset / stato iniziale):
     // azzera userRotatedManually perche' questa NON e' una rotazione dell'utente.
@@ -1987,6 +1995,9 @@ private:
     // CORE ARCHITECTURE
     // ==========================================================
     std::unique_ptr<InputHandler> m_inputHandler;
+    QPointer<Gamepad> m_gamepad;
+    // Un passo del pad (Gamepad::stepped), vedi setGamepad.
+    void applyGamepadStep(float dt);
     // GLI OGGETTI DELLA SCENA (surfaceobject.h). Per ora uno solo, la
     // superficie di sempre, creato dal costruttore. m_obj e' quello su cui
     // agiscono i comandi e, finche' e' l'unico, quello che si disegna.

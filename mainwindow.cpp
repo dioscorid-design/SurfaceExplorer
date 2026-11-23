@@ -3,6 +3,7 @@
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
 #include "docsearch.h"
+#include "gamepad.h"
 #include <QScreen>
 
 
@@ -2148,6 +2149,15 @@ void MainWindow::finishStartup()
     QMenu* overflowMenu = new QMenu(this);
     overflowMenu->addAction(ui->actionDocumentation);
     overflowMenu->addAction(ui->actionAbout);
+    // Solo nella build Debug per iPad e iPhone: il pad disegnato sullo schermo,
+    // per provare il pad senza averlo (Gamepad::virtualControllerAvailable).
+    if (Gamepad::virtualControllerAvailable()) {
+        QAction *virtualPad = overflowMenu->addAction(tr("Virtual Controller"));
+        virtualPad->setCheckable(true);
+        connect(virtualPad, &QAction::toggled, this, [this](bool on) {
+            if (m_gamepad) m_gamepad->setVirtualControllerOn(on);
+        });
+    }
     overflowMenu->addSeparator();
     overflowMenu->addAction(ui->actionQuit);
 
@@ -2240,6 +2250,7 @@ void MainWindow::setupDesktopFilters()
     // PRIMA di m_uiReady: i segnali emessi durante il setup trovano la guardia
     // di noteViewControlUsed ancora chiusa.
     wireViewControlsTracking();
+    setupGamepad();
     m_uiReady = true;   // sblocca updateMasterButtonState: la UI è completa
     updateMasterButtonState();
     // La scena di avvio (superficie di default) e' il primo momento pulito.

@@ -43,6 +43,7 @@ class QDockWidget;
 class QAction;
 class QMenu;
 class SceneHintOverlay;
+class Gamepad;
 class QMenuBar;
 class VideoRecorder;
 class LibraryMenuController;
@@ -195,6 +196,9 @@ private slots:
     void noteViewControlUsed();
     // Collega i comandi di posa a noteViewControlUsed().
     void wireViewControlsTracking();
+    // IL PAD (gamepad.h): lo crea, lo da' alla vista e avvisa nella barra di
+    // stato quando si collega o si scollega.
+    void setupGamepad();
 
     // true quando il motore non ha niente da disegnare (stato prodotto dal
     // tasto NEW). Guarda il MOTORE, non i campi della UI: l'utente puo' aver
@@ -545,6 +549,8 @@ private:
     // Messaggio in sovrimpressione sulla scena: la VISTA dei tre messaggi qui
     // sotto (vedi scenehintoverlay.h). Creato al primo messaggio.
     SceneHintOverlay *m_hintOverlay = nullptr;
+    // Il pad (setupGamepad).
+    Gamepad *m_gamepad = nullptr;
     // Messaggio del record attualmente caricato: va ricordato qui perche' un
     // risalvataggio non lo perda. Si edita dal dialogo che compare al
     // salvataggio (askSceneHint in presetserializer.cpp): non ha un campo fisso

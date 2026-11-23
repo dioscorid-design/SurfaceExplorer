@@ -15,6 +15,7 @@ class QEvent;
 class QTouchEvent;
 class QKeyEvent;
 struct DriveControls;
+struct GamepadState;
 
 class InputHandler : public QObject
 {
@@ -54,6 +55,18 @@ public:
     // Si consuma a ogni lettura: chi lo legge ha gia' emesso il segnale.
     bool takeTouchMovedView() { bool v = m_touchMovedView; m_touchMovedView = false; return v; }
 
+    // IL PAD (Gamepad, un passo di dt secondi con lo stato gia' ripulito): fa
+    // cio' che fa il mouse, con le stesse funzioni e alle stesse condizioni.
+    // Lo stick sinistro e' il trascinamento col sinistro, il destro col destro,
+    // i grilletti la rotella (R2 avanti, L2 indietro). true = la vista si e'
+    // mossa (userMovedView). Il REC lo esclude chi chiama.
+    bool handleGamepad(const GamepadState& pad, float dt);
+    // Uno stick tutto inclinato trascina di tanti pixel al secondo (col
+    // sinistro 0.3 gradi a pixel: 150 gradi al secondo); i grilletti girano
+    // la rotella di tanti scatti al secondo (120 = uno scatto).
+    static constexpr float kPadDragPixelsPerSecond = 500.0f;
+    static constexpr float kPadWheelPerSecond = 480.0f;
+
 private:
     // I comandi della guida, se e' accesa (GLWidget::driveActive).
     DriveControls* driveControls() const;
@@ -61,6 +74,17 @@ private:
     // (DriveControls). Ogni dito ha il suo ruolo dal momento in cui si appoggia.
     void handleDriveTouch(QTouchEvent* event, DriveControls* c);
     void releaseDriveTouches(DriveControls* c);
+    // IL TRASCINAMENTO, da chiunque venga (mouse, pad): (dx, dy) pixel della
+    // vista coi tasti dati, Maiuscole per `towardW`. `clickPending`: per il
+    // mouse il sinistro non e' ancora uscito dalla deadzone del clic (in 2D
+    // non gira la texture, e in 3D gira ma non conta come vista mossa); il pad
+    // non ha clic. true = la vista si e' mossa davvero.
+    bool dragView(bool left, bool right, float dx, float dy, bool towardW, bool clickPending);
+    // LA ROTELLA (mouse, grilletti del pad): `delta` in unita' di
+    // angleDelta().y() (120 = uno scatto). In 2D la rotella del mouse zooma di
+    // un passo fisso per evento; `continuous` (pad) in proporzione a delta.
+    // true = ha zoomato la vista o scalato la traiettoria del path.
+    bool wheelView(float delta, bool continuous);
 
     GLWidget* m_glWidget;
     // La guida: dove sono stati premuti il sinistro (cloche) e il destro (rollio).

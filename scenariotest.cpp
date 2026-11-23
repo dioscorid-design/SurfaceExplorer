@@ -86,6 +86,8 @@
 #include <QTreeWidgetItemIterator>
 #include <QTemporaryDir>
 #include <QScopeGuard>
+#include "gamepad.h"
+#include "inputhandler.h"
 
 namespace {
 const char *kParametricRecord = "records/Animations/Parametric/Surfaces/Equations/R3/Dynamic Mobius Band.json";
@@ -2269,6 +2271,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("gamepad")) {
+        runGamepadScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-seek")) {
         runSceneSeekScenarios();
         finish();
@@ -4156,6 +4163,7 @@ void ScenarioTest::run()
     runPathUpScenarios();
     runObjectDragScenarios();
     runScenePanScenarios();
+    runGamepadScenarios();
     runVideoFrameScenarios();
     runImageCaptureScenarios();
     runAnimatedLoadScenarios();
@@ -18098,4 +18106,275 @@ void ScenarioTest::runScenePanScenarios()
         wait(300);
     }
     m_discardOnPrompt = false;
+}
+
+void ScenarioTest::runGamepadScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    Gamepad *pad = m_mw->m_gamepad;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Il pad: gli stick e i grilletti fanno cio' che fanno trascinamenti e rotella del "
+                                  "mouse (superficie, oggetto, vista 2D); zona morta, REC, path in corsa =="));
+    if (!pad) {
+        check(false, QStringLiteral("il pad esiste (MainWindow::setupGamepad)"));
+        return;
+    }
+    // Il pad finto al posto di quello vero; alla fine si torna al backend.
+    auto restorePad = qScopeGuard([pad] { pad->setTestState(std::nullopt); });
+    const QString kSphere = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
+    const auto text2 = [](const QPointF &p) {
+        return QStringLiteral("(%1, %2)").arg(p.x(), 0, 'f', 3).arg(p.y(), 0, 'f', 3);
+    };
+    const auto text3 = [](const QVector3D &v) {
+        return QStringLiteral("(%1, %2, %3)").arg(v.x(), 0, 'f', 4).arg(v.y(), 0, 'f', 4).arg(v.z(), 0, 'f', 4);
+    };
+    const auto gap = [](const QPointF &a, const QPointF &b) { return std::hypot(a.x() - b.x(), a.y() - b.y()); };
+    const auto sameQuat = [](const QQuaternion &a, const QQuaternion &b) {
+        return std::abs(QQuaternion::dotProduct(a, b)) > 0.9999999f;
+    };
+    const auto raw = [](const QPointF &left, const QPointF &right, float l2, float r2, bool connected = true) {
+        GamepadState s;
+        s.connected = connected;
+        s.name = QStringLiteral("Test pad");
+        s.leftStick = left;
+        s.rightStick = right;
+        s.leftTrigger = l2;
+        s.rightTrigger = r2;
+        return s;
+    };
+    // `steps` passi di dt secondi col pad nello stato dato, poi lo si lascia.
+    const auto padRun = [&](const GamepadState &s, int steps, float dt) {
+        pad->setTestState(s);
+        for (int i = 0; i < steps; ++i) pad->step(dt);
+        pad->setTestState(raw(QPointF(), QPointF(), 0.0f, 0.0f));
+        wait(100);
+    };
+    // Un gesto vero col mouse dal centro della vista: press, 6 passi interi
+    // (delta multiplo di 6), release.
+    const auto drag = [&](Qt::MouseButton button, const QPoint &delta) {
+        const QPoint from(gl->width() / 2, gl->height() / 2);
+        QMouseEvent press(QEvent::MouseButtonPress, QPointF(from), gl->mapToGlobal(QPointF(from)), button, button,
+                          Qt::NoModifier);
+        QCoreApplication::sendEvent(gl, &press);
+        for (int i = 1; i <= 6; ++i) {
+            const QPointF p(from.x() + delta.x() * i / 6, from.y() + delta.y() * i / 6);
+            QMouseEvent move(QEvent::MouseMove, p, gl->mapToGlobal(p), Qt::NoButton, button, Qt::NoModifier);
+            QCoreApplication::sendEvent(gl, &move);
+            wait(20);
+        }
+        const QPointF to(from + delta);
+        QMouseEvent release(QEvent::MouseButtonRelease, to, gl->mapToGlobal(to), button, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(gl, &release);
+        wait(150);
+    };
+    const auto wheel = [&](int delta) {
+        const QPointF a(gl->width() / 2.0, gl->height() / 2.0);
+        QWheelEvent e(a, gl->mapToGlobal(a), QPoint(), QPoint(0, delta), Qt::NoButton, Qt::NoModifier,
+                      Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(gl, &e);
+        wait(150);
+    };
+    const auto centreOnScreen = [gl] {
+        QPointF p(qQNaN(), qQNaN());
+        gl->sceneCentreScreenPoint(&p);
+        return p;
+    };
+    const auto screenOf = [gl](int k) {
+        QPointF p(qQNaN(), qQNaN());
+        gl->objectScreenPoint(k, &p);
+        return p;
+    };
+    // Sei passi da 0.02 s: tutto inclinato lo stick trascina di 10 px a passo.
+    const float kDt = 0.02f;
+    const float kPixelsPerStep = InputHandler::kPadDragPixelsPerSecond * kDt;
+
+    // ------------------------------------------------------------ LA PULIZIA
+    {
+        const GamepadState inside = Gamepad::shaped(raw(QPointF(0.1, 0.1), QPointF(-0.12, 0.05), 0.04f, 0.03f));
+        const GamepadState full = Gamepad::shaped(raw(QPointF(1.0, 0.0), QPointF(0.0, -1.0), 1.0f, 1.0f));
+        const GamepadState half = Gamepad::shaped(raw(QPointF(0.575, 0.0), QPointF(0.6, 0.6), 0.0f, 0.525f));
+        const GamepadState off = Gamepad::shaped(raw(QPointF(1.0, 0.0), QPointF(), 0.0f, 1.0f, false));
+        const double diag = std::pow((std::hypot(0.6, 0.6) - 0.15) / 0.85, 2.0);
+        check(!inside.active() && full.leftStick == QPointF(1.0, 0.0) && full.rightStick == QPointF(0.0, -1.0)
+                  && full.leftTrigger == 1.0f && std::abs(half.leftStick.x() - 0.25) < 1e-6
+                  && std::abs(std::hypot(half.rightStick.x(), half.rightStick.y()) - diag) < 1e-6
+                  && half.rightStick.x() == half.rightStick.y() && std::abs(half.rightTrigger - 0.5f) < 1e-6f
+                  && !off.active(),
+              QStringLiteral("la pulizia: dentro la zona morta (stick 0.15 in ogni direzione, grilletti 0.05) zero; "
+                             "fuori riscalata e al quadrato (0.575 -> %1, diagonale 0.6 -> %2 nella stessa "
+                             "direzione); scollegato, niente")
+                  .arg(half.leftStick.x()).arg(std::hypot(half.rightStick.x(), half.rightStick.y())));
+    }
+
+    // ---------------------------------------------------- SUPERFICIE SOLA
+    if (!loadSurface(kSphere)) return;
+    gl->setProjectionMode(1);   // prospettiva
+    wait(300);
+    {
+        const QQuaternion r0 = gl->getRotationQuat();
+        const QVector3D cam0 = gl->getCameraPos();
+        // La deriva di uno stick lasciato andare: niente si muove, niente da salvare.
+        m_mw->markWholeSceneClean();
+        padRun(raw(QPointF(0.1, -0.08), QPointF(-0.09, 0.1), 0.04f, 0.03f), 60, 1.0f / 60.0f);
+        check(gl->getRotationQuat() == r0 && gl->getCameraPos() == cam0 && !m_mw->hasUnsavedWork(),
+              QStringLiteral("stick e grilletti a riposo con un po' di deriva (dentro la zona morta): la vista resta "
+                             "ferma e la scena non e' da salvare"));
+
+        // Lo stick sinistro e' il trascinamento col sinistro: stesso quaternione.
+        padRun(raw(QPointF(0.6, 0.8), QPointF(), 0.0f, 0.0f), 6, kDt);
+        const QQuaternion byPad = gl->getRotationQuat();
+        const bool padDirty = m_mw->hasUnsavedWork();
+        gl->setRotationQuat(r0);
+        wait(100);
+        drag(Qt::LeftButton, QPoint(qRound(0.6f * 6 * kPixelsPerStep), -qRound(0.8f * 6 * kPixelsPerStep)));
+        const QQuaternion byMouse = gl->getRotationQuat();
+        check(!sameQuat(byPad, r0) && sameQuat(byPad, byMouse) && padDirty && gl->getCameraPos() == cam0,
+              QStringLiteral("lo stick sinistro (in alto a destra) gira la superficie come il sinistro trascinato di "
+                             "(36, -48) px: stesso orientamento; la scena e' da salvare, la camera resta"));
+        gl->setRotationQuat(r0);
+        wait(100);
+
+        // Lo stick destro e' il trascinamento col destro: il centro della scena lo segue.
+        const QPointF p0 = centreOnScreen();
+        padRun(raw(QPointF(), QPointF(0.6, -0.8), 0.0f, 0.0f), 6, kDt);
+        const QPointF expected = p0 + QPointF(0.6 * 6 * kPixelsPerStep, 0.8 * 6 * kPixelsPerStep);
+        const double miss = gap(centreOnScreen(), expected);
+        check(miss < 0.25 && gl->getRotationQuat() == r0,
+              QStringLiteral("lo stick destro (in basso a destra) fa scorrere la scena come il destro: il centro va "
+                             "a %1 (a %2 px), la superficie non gira").arg(text2(expected)).arg(miss));
+        gl->setCameraPos(cam0);
+        wait(100);
+
+        // I grilletti sono la rotella: R2 avanti, L2 indietro, insieme niente.
+        padRun(raw(QPointF(), QPointF(), 0.0f, 1.0f), 5, 0.05f);   // 5 x 24 = uno scatto
+        const QVector3D byR2 = gl->getCameraPos();
+        gl->setCameraPos(cam0);
+        wait(100);
+        wheel(120);
+        const QVector3D byWheel = gl->getCameraPos();
+        gl->setCameraPos(cam0);
+        wait(100);
+        padRun(raw(QPointF(), QPointF(), 1.0f, 0.0f), 5, 0.05f);
+        const QVector3D byL2 = gl->getCameraPos();
+        gl->setCameraPos(cam0);
+        wait(100);
+        padRun(raw(QPointF(), QPointF(), 1.0f, 1.0f), 5, 0.05f);
+        const QVector3D byBoth = gl->getCameraPos();
+        gl->setCameraPos(cam0);
+        wait(100);
+        check(byR2 != cam0 && (byR2 - byWheel).length() < 1e-4f && ((byL2 - cam0) + (byR2 - cam0)).length() < 1e-4f
+                  && byBoth == cam0,
+              QStringLiteral("i grilletti sono la rotella: R2 tutto premuto per 0.25 s avvicina la camera come uno "
+                             "scatto (%1, rotella %2), L2 la allontana, insieme niente")
+                  .arg(text3(byR2 - cam0), text3(byWheel - cam0)));
+
+        // Durante il REC il pad tace; scollegato non comanda.
+        gl->setRecordingActive(true);
+        padRun(raw(QPointF(1.0, 0.0), QPointF(0.0, 1.0), 0.0f, 1.0f), 10, kDt);
+        gl->setRecordingActive(false);
+        const bool recStill = gl->getRotationQuat() == r0 && gl->getCameraPos() == cam0;
+        padRun(raw(QPointF(1.0, 0.0), QPointF(0.0, 1.0), 0.0f, 1.0f, false), 10, kDt);
+        check(recStill && gl->getRotationQuat() == r0 && gl->getCameraPos() == cam0,
+              QStringLiteral("durante il REC il pad non muove niente (%1); un pad scollegato nemmeno")
+                  .arg(recStill ? QStringLiteral("fermo") : QStringLiteral("mosso")));
+
+        // A PATH IN CORSA la camera e' del path: lo stick sinistro modella la
+        // traiettoria come il mouse (i campi del path cambiano), la superficie
+        // non gira.
+        m_mw->setPathViewModes(ModeTangential, ModeCentered);
+        ui->lineX_P3D->setText(QStringLiteral("6*cos(t)"));
+        ui->lineY_P3D->setText(QStringLiteral("6*sin(t)"));
+        ui->lineZ_P3D->setText(QStringLiteral("2"));
+        m_mw->setPathSpeed3D(1);
+        wait(100);
+        m_mw->onDeparture3DClicked();
+        wait(400);
+        const auto &path = m_mw->m_scene.path;
+        const QStringList fields{ path.x3D, path.y3D, path.z3D };
+        const QQuaternion rPath = gl->getRotationQuat();
+        const bool running = m_mw->pathRunning(CameraPaths::Path3D) && gl->pathReshapeActive();
+        padRun(raw(QPointF(1.0, 0.0), QPointF(), 0.0f, 0.0f), 6, kDt);
+        const bool reshaped = QStringList({ path.x3D, path.y3D, path.z3D }) != fields;
+        const bool notTurned = sameQuat(gl->getRotationQuat(), rPath);
+        m_mw->onDeparture3DClicked();   // Stop
+        wait(300);
+        check(running && reshaped && notTurned,
+              QStringLiteral("a path in corsa lo stick sinistro gira la traiettoria come il mouse (campi del path "
+                             "cambiati: %1), la superficie non gira (%2)")
+                  .arg(onOff(reshaped), onOff(notTurned)));
+        m_mw->resetView();
+        wait(300);
+    }
+
+    // ---------------------------------------------- OGGETTO SELEZIONATO
+    if (buildScene(false, { kSphere })) {
+        m_mw->selectSceneObject(1);
+        gl->setObjectPosition(QVector3D());
+        gl->setProjectionMode(1);
+        wait(300);
+        const QVector3D cam0 = gl->getCameraPos();
+        const QPointF p0 = screenOf(1);
+        padRun(raw(QPointF(), QPointF(-0.6, 0.8), 0.0f, 0.0f), 6, kDt);
+        const QPointF expected = p0 + QPointF(-0.6 * 6 * kPixelsPerStep, -0.8 * 6 * kPixelsPerStep);
+        const double miss = gap(screenOf(1), expected);
+        check(miss < 0.25 && gl->getCameraPos() == cam0,
+              QStringLiteral("oggetto selezionato: lo stick destro lo sposta come il destro, il centro va a %1 (a %2 "
+                             "px); la camera resta").arg(text2(expected)).arg(miss));
+        const float scale0 = gl->objectScale();
+        padRun(raw(QPointF(), QPointF(), 0.0f, 1.0f), 5, 0.05f);
+        const float scaled = gl->objectScale();
+        const QQuaternion o0 = gl->orientation().rotation;
+        padRun(raw(QPointF(1.0, 0.0), QPointF(), 0.0f, 0.0f), 6, kDt);
+        check(std::abs(scaled - scale0 * std::exp(0.12f)) < 1e-4f * scale0 && gl->getCameraPos() == cam0
+                  && !sameQuat(gl->orientation().rotation, o0),
+              QStringLiteral("oggetto selezionato: R2 ne cambia la scala come la rotella (%1 -> %2), lo stick "
+                             "sinistro lo gira; la camera resta").arg(scale0).arg(scaled));
+        gl->setObjectScale(scale0);
+        wait(100);
+    }
+
+    // ------------------------------------------------------------ VISTA 2D
+    if (!loadSurface(kSphere)) return;
+    setScriptMode(MainWindow::ScriptModeTexture);
+    ui->txtScriptEditor->setPlainText(QStringLiteral(
+        "return vec3(fract(u * 2.3), fract(v * 1.7), 0.5 + 0.5 * sin(9.0 * u + 5.0 * v));"));
+    wait(200);
+    m_mw->onRunCurrentScript();
+    wait(800);
+    if (!ui->btnFlatPreview->isEnabled()) {
+        check(false, QStringLiteral("2D: il tasto della vista 2D acceso con la texture script"));
+        return;
+    }
+    ui->btnFlatPreview->setChecked(true);
+    wait(300);
+    {
+        const auto frame = [&] {
+            gl->setFlatZoom(1.3f);
+            gl->setFlatRotation(10.0f);
+            gl->setFlatPan(0.0f, 0.0f);
+            wait(200);
+        };
+        frame();
+        m_mw->markWholeSceneClean();
+        padRun(raw(QPointF(1.0, 0.0), QPointF(), 0.0f, 0.0f), 6, kDt);
+        const float turned = gl->getFlatRotation();
+        frame();
+        padRun(raw(QPointF(), QPointF(0.6, 0.8), 0.0f, 0.0f), 6, kDt);
+        const QVector2D panByPad = gl->getFlatPan();
+        frame();
+        drag(Qt::RightButton, QPoint(qRound(0.6f * 6 * kPixelsPerStep), -qRound(0.8f * 6 * kPixelsPerStep)));
+        const QVector2D panByMouse = gl->getFlatPan();
+        frame();
+        padRun(raw(QPointF(), QPointF(), 0.0f, 1.0f), 5, 0.05f);
+        const float zoomed = gl->getFlatZoom();
+        check(std::abs(turned - (10.0f + 6 * kPixelsPerStep * 0.5f)) < 1e-3f && !panByPad.isNull()
+                  && (panByPad - panByMouse).length() < 1e-5f && std::abs(zoomed - 1.3f * 1.15f) < 1e-4f
+                  && m_mw->textureModuleDirty(QString()) && !m_mw->hasUnsavedWork(),
+              QStringLiteral("2D: lo stick sinistro gira la texture (10 -> %1 gradi), il destro la sposta come il "
+                             "destro del mouse, R2 la ingrandisce come uno scatto di rotella (1.3 -> %2); da salvare "
+                             "la texture, non la scena").arg(turned).arg(zoomed));
+        ui->btnFlatPreview->setChecked(false);
+        wait(300);
+    }
 }

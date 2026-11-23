@@ -4,6 +4,7 @@
 #include <QFocusEvent>
 #include "geometrybuilder.h"
 #include "inputhandler.h"
+#include "gamepad.h"
 #include "surfaceengine.h"
 #include "glsltranslator.h"
 #include "expressionparser.h"
@@ -25,6 +26,7 @@
 #include <QFileInfo>
 #include <QImageReader>
 #include <QCoreApplication>
+#include <QApplication>
 #include <QPainter>
 #include <QLinearGradient>
 #include <QColorSpace>
@@ -2844,6 +2846,20 @@ bool GLWidget::event(QEvent *e)
 
     // Usiamo QRhiWidget invece di QOpenGLWidget
     return QRhiWidget::event(e);
+}
+
+void GLWidget::setGamepad(Gamepad *pad)
+{
+    if (m_gamepad) disconnect(m_gamepad, nullptr, this, nullptr);
+    m_gamepad = pad;
+    if (pad) connect(pad, &Gamepad::stepped, this, &GLWidget::applyGamepadStep);
+}
+
+void GLWidget::applyGamepadStep(float dt)
+{
+    if (!m_gamepad || !m_inputHandler || m_isRecording || QApplication::activeModalWidget()) return;
+    // Come il tocco: il passo che ha mosso la vista lo dice subito (scena da salvare).
+    if (m_inputHandler->handleGamepad(m_gamepad->state(), dt)) emit userMovedView();
 }
 
 void GLWidget::mouseReleaseEvent(QMouseEvent *event) {

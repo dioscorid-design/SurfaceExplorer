@@ -3,6 +3,7 @@
 // record (applySurfaceExample, applyMotionExample, applyCommonData).
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
+#include "gamepad.h"
 
 
 // =============================================================================
@@ -463,6 +464,23 @@ void MainWindow::wireViewControlsTracking()
             noteViewControlUsed();
         });
     }
+}
+
+void MainWindow::setupGamepad()
+{
+    m_gamepad = new Gamepad(this);
+    if (ui->glWidget) ui->glWidget->setGamepad(m_gamepad);
+    // Il messaggio resta qualche secondo; un altro testo arrivato nel
+    // frattempo (REC, errori) non lo si cancella. Durante il REC l'etichetta
+    // e' sua.
+    connect(m_gamepad, &Gamepad::connectionChanged, this, [this](bool connected, const QString &name) {
+        if (!m_statusLabel || (ui->glWidget && ui->glWidget->isRecording())) return;
+        const QString text = connected ? tr("Controller connected: %1").arg(name) : tr("Controller disconnected");
+        m_statusLabel->setText(text);
+        QTimer::singleShot(5000, this, [this, text] {
+            if (m_statusLabel && m_statusLabel->text() == text) m_statusLabel->clear();
+        });
+    });
 }
 
 MainWindow::RunOutcomeGuard::RunOutcomeGuard(MainWindow *mw, bool arm)

@@ -8,6 +8,7 @@
 #include "ui_mainwindow.h"
 #include "glwidget.h"
 #include "cameradrive.h"
+#include "gamepad.h"
 #include "librarymanager.h"
 #include "presetserializer.h"
 
@@ -98,6 +99,26 @@ void ScenarioTest::runDriveScenarios()
                              "uno scatto di rotella = %3")
                   .arg(double(sx)).arg(double(sy)).arg(double(c.wheelSteps)));
         c.releaseAll();
+    }
+    // IL PAD in DRIVE: per ora non comanda (la camera e' della guida, il pad
+    // non gira la vista come fa fuori): vista e oggetto fermi, comandi della
+    // guida liberi.
+    if (Gamepad *pad = m_mw->m_gamepad) {
+        const QVector3D pos0 = camPos(), front0 = camFront();
+        const QQuaternion rot0 = gl->getRotationQuat();
+        GamepadState s;
+        s.connected = true;
+        s.leftStick = QPointF(1.0, 0.0);
+        s.rightStick = QPointF(0.0, 1.0);
+        s.rightTrigger = 1.0f;
+        pad->setTestState(s);
+        for (int i = 0; i < 10; ++i) pad->step(dt);
+        pad->setTestState(std::nullopt);
+        check((camPos() - pos0).length() < 1e-6f && (camFront() - front0).length() < 1e-6f
+                  && gl->getRotationQuat() == rot0 && !c.any(),
+              QStringLiteral("pad in DRIVE: per ora non comanda, vista e oggetto fermi, comandi della guida liberi"));
+    } else {
+        check(false, QStringLiteral("il pad esiste (MainWindow::setupGamepad)"));
     }
 
     // Avanti: W per un secondo, poi un secondo di crociera.

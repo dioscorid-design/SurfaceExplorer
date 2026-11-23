@@ -2,6 +2,7 @@
 #include "glwidget.h"
 #include "surfaceengine.h"
 #include "cameradrive.h"
+#include "gamepad.h"
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
@@ -140,24 +141,34 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
             m_isClickCandidate = false;
     }
 
+    // Il gesto vero e proprio, in comune col pad (dragView). Conta come vista
+    // mossa solo dentro un gesto iniziato qui (vedi takeMouseMovedView).
+    const bool left = event->buttons() & Qt::LeftButton;
+    const bool right = event->buttons() & Qt::RightButton;
+    if (dragView(left, right, dx, dy, event->modifiers() & Qt::ShiftModifier, m_isClickCandidate)
+        && m_mouseGestureActive)
+        m_mouseMovedView = true;
+
+    m_lastMousePos = event->position();
+}
+
+bool InputHandler::dragView(bool left, bool right, float dx, float dy, bool towardW, bool clickPending)
+{
     // =========================================================
     // --- GESTIONE VISTA 2D (FLAT) ---
     // =========================================================
     if (m_glWidget->isFlatView()) {
-
         // TASTO SINISTRO: ROTAZIONE CONTINUA
-        if (event->buttons() & Qt::LeftButton) {
-            if (!m_isClickCandidate) {
-                float sensitivity = 0.5f;
-                m_glWidget->addFlatRotation(dx * sensitivity);
-                if (m_mouseGestureActive) m_mouseMovedView = true;
-            }
+        if (left) {
+            if (clickPending) return false;
+            const float sensitivity = 0.5f;
+            m_glWidget->addFlatRotation(dx * sensitivity);
+            return true;
         }
         // TASTO DESTRO: SPOSTAMENTO (PAN). La texture segue il puntatore, a ogni
         // zoom e rotazione (GLWidget::panFlatOnScreen).
-        else if (event->buttons() & Qt::RightButton) {
-            if (m_glWidget->panFlatOnScreen(dx, dy) && m_mouseGestureActive) m_mouseMovedView = true;
-        }
+        if (right) return m_glWidget->panFlatOnScreen(dx, dy);
+        return false;
     }
 
     // =========================================================
@@ -166,62 +177,49 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
     // Il mouse sulla TRAIETTORIA del path della camera (tasto MOUSE: PATH, vedi
     // GLWidget::setPathReshapeGate), in corsa o fermo. Sinistro: rotazione,
     // con Maiuscole (Shift) verso W; destro: spostamento. Nessuna deadzone:
-    // anche i primi pixel muovono.
-    else if (m_glWidget->pathReshapeActive()) {
+    // anche i primi pixel muovono. Non conta come vista mossa: la traiettoria
+    // si scrive nei campi del path.
+    if (m_glWidget->pathReshapeActive()) {
         if (dx != 0 || dy != 0) {
-            if (event->buttons() & Qt::LeftButton) {
-                const bool towardW = event->modifiers() & Qt::ShiftModifier;
+            if (left) {
                 m_glWidget->requestPathReshape(towardW ? GLWidget::ReshapeRotateW : GLWidget::ReshapeRotate,
                                                dx, dy);
-            } else if (event->buttons() & Qt::RightButton) {
+            } else if (right) {
                 m_glWidget->requestPathReshape(GLWidget::ReshapeTranslate, dx, dy);
             }
         }
+        return false;
     }
     // IL DESTRO SPOSTA L'OGGETTO SELEZIONATO (GLWidget::dragObjectOnScreen):
     // il suo centro resta sotto il puntatore. Alle condizioni dei tasti del
     // dock 3D, path in corsa compreso; non sull'ambiente ne' su un oggetto
     // fisso, non durante il REC (objectDragActive). Nessuna deadzone, come
     // sulla traiettoria.
-    else if ((event->buttons() & Qt::RightButton) && m_glWidget->objectDragActive()) {
-        if ((dx != 0 || dy != 0) && m_glWidget->dragObjectOnScreen(dx, dy) && m_mouseGestureActive)
-            m_mouseMovedView = true;
-    }
+    if (right && m_glWidget->objectDragActive())
+        return (dx != 0 || dy != 0) && m_glWidget->dragObjectOnScreen(dx, dy);
     // ALTRIMENTI IL DESTRO FA SCORRERE LA SCENA (GLWidget::dragSceneOnScreen):
     // la camera scorre di lato e il centro della scena segue il puntatore.
     // Superficie sola, ambiente o oggetto fisso selezionati, path fermo con
     // MOUSE: SCENE; non a path in corsa ne' durante il REC (sceneDragActive).
     // Nessuna deadzone, come sull'oggetto.
-    else if ((event->buttons() & Qt::RightButton) && m_glWidget->sceneDragActive()) {
-        if ((dx != 0 || dy != 0) && m_glWidget->dragSceneOnScreen(dx, dy) && m_mouseGestureActive)
-            m_mouseMovedView = true;
-    }
+    if (right && m_glWidget->sceneDragActive())
+        return (dx != 0 || dy != 0) && m_glWidget->dragSceneOnScreen(dx, dy);
     // Mentre un path anima la telecamera (MOUSE: SCENE) la rotazione manuale
-    // 3D/4D e' bloccata (la vista 2D del dock Script sopra resta invece libera).
-    else if (!m_glWidget->isPathAnimating()) {
-        // TASTO SINISTRO: Precession + Nutation (Invariato)
-        if (event->buttons() & Qt::LeftButton) {
-            float sensitivity = 0.3f;
-            bool isCameraMode = false;
-
-            if (isCameraMode) {
-                m_glWidget->addCameraRotation(dx * sensitivity, dy * sensitivity);
-            } else if (m_glWidget->dragOrbitsHyperbolicCamera()) {
-                // Scena in H3: gira il mondo attorno al centro, cielo compreso.
-                m_glWidget->orbitHyperbolicCamera(dx * sensitivity, dy * sensitivity);
-                if (m_mouseGestureActive && !m_isClickCandidate) m_mouseMovedView = true;
-            } else {
-                // Passiamo 0.0f come terzo argomento (Spin)
-                m_glWidget->markUserRotated();
-                m_glWidget->addObjectRotation(dx * sensitivity, dy * sensitivity, 0.0f);
-                // Oltre la deadzone e' un trascinamento vero, non un clic: la
-                // vista e' stata mossa dall'utente (stesso criterio del touch).
-                if (m_mouseGestureActive && !m_isClickCandidate) m_mouseMovedView = true;
-            }
-        }
+    // 3D/4D e' bloccata (la vista 2D sopra resta invece libera).
+    if (m_glWidget->isPathAnimating() || !left) return false;
+    // TASTO SINISTRO: Precession + Nutation
+    const float sensitivity = 0.3f;
+    if (m_glWidget->dragOrbitsHyperbolicCamera()) {
+        // Scena in H3: gira il mondo attorno al centro, cielo compreso.
+        m_glWidget->orbitHyperbolicCamera(dx * sensitivity, dy * sensitivity);
+    } else {
+        // Il terzo argomento (Spin) resta 0.
+        m_glWidget->markUserRotated();
+        m_glWidget->addObjectRotation(dx * sensitivity, dy * sensitivity, 0.0f);
     }
-
-    m_lastMousePos = event->position();
+    // Oltre la deadzone e' un trascinamento vero, non un clic: la vista e'
+    // stata mossa dall'utente (stesso criterio del touch).
+    return !clickPending;
 }
 
 bool InputHandler::handleTouch(QEvent* e)
@@ -370,7 +368,7 @@ bool InputHandler::handleTouch(QEvent* e)
 
 bool InputHandler::handleWheel(QWheelEvent* event)
 {
-    float delta = event->angleDelta().y();
+    const float delta = float(event->angleDelta().y());
     if (delta == 0) return false;
 
     // La guida: la rotella e' l'acceleratore (uno scatto = 120). Non e' uno
@@ -381,13 +379,21 @@ bool InputHandler::handleWheel(QWheelEvent* event)
         if (event->phase() != Qt::ScrollMomentum) c->wheelSteps += delta / 120.0f;
         return false;
     }
+    return wheelView(delta, false);
+}
+
+bool InputHandler::wheelView(float delta, bool continuous)
+{
+    if (delta == 0) return false;
 
     // --- GESTIONE ZOOM 2D (TEXTURE) ---
     if (m_glWidget->isFlatView()) {
         float currentZoom = m_glWidget->getFlatZoom();
 
-        // Sensibilità fissa e reattiva (15% per ogni "scatto" di rotellina)
-        float zoomFactor = (delta > 0) ? 1.15f : (1.0f / 1.15f);
+        // Sensibilità fissa e reattiva (15% per ogni "scatto" di rotellina).
+        // Il pad in proporzione: 15% a scatto (120) di grilletto.
+        float zoomFactor = continuous ? std::pow(1.15f, delta / 120.0f)
+                                      : ((delta > 0) ? 1.15f : (1.0f / 1.15f));
 
         m_glWidget->setFlatZoom(currentZoom * zoomFactor);
         return true;
@@ -538,4 +544,27 @@ void InputHandler::handleDriveTouch(QTouchEvent* event, DriveControls* c)
     }
     // Fine del tocco: nessun dito resta, qualunque cosa abbia perso l'evento.
     if (event->type() == QEvent::TouchEnd) releaseDriveTouches(c);
+}
+
+bool InputHandler::handleGamepad(const GamepadState& pad, float dt)
+{
+    // LA GUIDA LIBERA: la camera la muove la guida, il pad non gira ne'
+    // sposta la vista (come il mouse, che in DRIVE e' cloche e rollio). Il
+    // volo col pad (DriveControls) verra' qui.
+    if (driveControls()) return false;
+
+    // Gli stick come trascinamenti di (dx, dy) pixel in questo passo: y del
+    // pad verso l'alto, dello schermo verso il basso. Uno stick fermo non
+    // trascina niente (la zona morta l'ha gia' azzerato).
+    const float pixels = kPadDragPixelsPerSecond * dt;
+    bool moved = false;
+    if (!pad.leftStick.isNull())
+        moved |= dragView(true, false, float(pad.leftStick.x()) * pixels, -float(pad.leftStick.y()) * pixels,
+                          false, false);
+    if (!pad.rightStick.isNull())
+        moved |= dragView(false, true, float(pad.rightStick.x()) * pixels, -float(pad.rightStick.y()) * pixels,
+                          false, false);
+    const float wheel = (pad.rightTrigger - pad.leftTrigger) * kPadWheelPerSecond * dt;
+    if (wheel != 0.0f) moved |= wheelView(wheel, true);
+    return moved;
 }
