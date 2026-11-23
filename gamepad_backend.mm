@@ -34,18 +34,58 @@ namespace {
 // Gli stick e i grilletti di un controller: dal profilo esteso (DualSense,
 // Xbox e simili) o, se non l'ha, per nome dal profilo fisico (il pad
 // virtuale). Falso se gli manca qualcosa.
+// I pulsanti possono mancare (il pad virtuale ha solo stick e grilletti, L3 e
+// R3 non tutti i pad): nil, mai premuti.
 struct Inputs {
     GCControllerDirectionPad *left = nil, *right = nil;
     GCControllerButtonInput *leftTrigger = nil, *rightTrigger = nil;
+    GCControllerButtonInput *buttons[int(GamepadButton::Count)] = {};
 };
 bool inputsOf(GCController *c, Inputs *in)
 {
+    *in = Inputs();
+    GCControllerButtonInput **b = in->buttons;
     if (GCExtendedGamepad *g = c.extendedGamepad) {
-        *in = { g.leftThumbstick, g.rightThumbstick, g.leftTrigger, g.rightTrigger };
+        in->left = g.leftThumbstick;
+        in->right = g.rightThumbstick;
+        in->leftTrigger = g.leftTrigger;
+        in->rightTrigger = g.rightTrigger;
+        b[int(GamepadButton::Cross)] = g.buttonA;
+        b[int(GamepadButton::Circle)] = g.buttonB;
+        b[int(GamepadButton::Square)] = g.buttonX;
+        b[int(GamepadButton::Triangle)] = g.buttonY;
+        b[int(GamepadButton::L1)] = g.leftShoulder;
+        b[int(GamepadButton::R1)] = g.rightShoulder;
+        b[int(GamepadButton::L3)] = g.leftThumbstickButton;
+        b[int(GamepadButton::R3)] = g.rightThumbstickButton;
+        b[int(GamepadButton::Up)] = g.dpad.up;
+        b[int(GamepadButton::Down)] = g.dpad.down;
+        b[int(GamepadButton::Left)] = g.dpad.left;
+        b[int(GamepadButton::Right)] = g.dpad.right;
+        b[int(GamepadButton::Options)] = g.buttonMenu;
+        b[int(GamepadButton::Create)] = g.buttonOptions;
     } else {
         GCPhysicalInputProfile *p = c.physicalInputProfile;
-        *in = { p.dpads[GCInputLeftThumbstick], p.dpads[GCInputRightThumbstick], p.buttons[GCInputLeftTrigger],
-                p.buttons[GCInputRightTrigger] };
+        in->left = p.dpads[GCInputLeftThumbstick];
+        in->right = p.dpads[GCInputRightThumbstick];
+        in->leftTrigger = p.buttons[GCInputLeftTrigger];
+        in->rightTrigger = p.buttons[GCInputRightTrigger];
+        b[int(GamepadButton::Cross)] = p.buttons[GCInputButtonA];
+        b[int(GamepadButton::Circle)] = p.buttons[GCInputButtonB];
+        b[int(GamepadButton::Square)] = p.buttons[GCInputButtonX];
+        b[int(GamepadButton::Triangle)] = p.buttons[GCInputButtonY];
+        b[int(GamepadButton::L1)] = p.buttons[GCInputLeftShoulder];
+        b[int(GamepadButton::R1)] = p.buttons[GCInputRightShoulder];
+        b[int(GamepadButton::L3)] = p.buttons[GCInputLeftThumbstickButton];
+        b[int(GamepadButton::R3)] = p.buttons[GCInputRightThumbstickButton];
+        if (GCControllerDirectionPad *d = p.dpads[GCInputDirectionPad]) {
+            b[int(GamepadButton::Up)] = d.up;
+            b[int(GamepadButton::Down)] = d.down;
+            b[int(GamepadButton::Left)] = d.left;
+            b[int(GamepadButton::Right)] = d.right;
+        }
+        b[int(GamepadButton::Options)] = p.buttons[GCInputButtonMenu];
+        b[int(GamepadButton::Create)] = p.buttons[GCInputButtonOptions];
     }
     return in->left && in->right && in->leftTrigger && in->rightTrigger;
 }
@@ -110,6 +150,9 @@ GamepadState GamepadBackend::read() const
             s.rightStick = QPointF(in.right.xAxis.value, in.right.yAxis.value);
             s.leftTrigger = in.leftTrigger.value;
             s.rightTrigger = in.rightTrigger.value;
+            for (int k = 0; k < int(GamepadButton::Count); ++k) {
+                if (in.buttons[k] && in.buttons[k].pressed) s.buttons |= 1u << k;
+            }
         }
     }
     return s;

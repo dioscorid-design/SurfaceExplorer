@@ -40,6 +40,7 @@ GamepadState Gamepad::shaped(const GamepadState &raw)
     if (!s.connected) {
         s.leftStick = s.rightStick = QPointF();
         s.leftTrigger = s.rightTrigger = 0.0f;
+        s.buttons = 0;
     }
     return s;
 }
@@ -52,6 +53,7 @@ void Gamepad::refreshConnection()
     m_connected = raw.connected;
     m_name = raw.name;
     m_state = shaped(raw);
+    m_lastButtons = 0;
     if (m_connected) {
         m_clock.start();
         m_timer->start();
@@ -81,10 +83,19 @@ void Gamepad::step(float dt)
         if (QGuiApplication::applicationState() != Qt::ApplicationActive) {
             raw.leftStick = raw.rightStick = QPointF();
             raw.leftTrigger = raw.rightTrigger = 0.0f;
+            raw.buttons = 0;
         }
     }
     m_state = shaped(raw);
-    if (m_state.connected) emit stepped(dt);
+    if (!m_state.connected) return;
+    emit stepped(dt);
+    const quint32 before = m_lastButtons, now = m_state.buttons;
+    m_lastButtons = now;
+    for (int b = 0; b < int(GamepadButton::Count); ++b) {
+        const quint32 bit = 1u << b;
+        if ((now & bit) && !(before & bit)) emit buttonPressed(GamepadButton(b));
+        else if (!(now & bit) && (before & bit)) emit buttonReleased(GamepadButton(b));
+    }
 }
 
 void Gamepad::setTestState(const std::optional<GamepadState> &raw)

@@ -481,6 +481,65 @@ void MainWindow::setupGamepad()
             if (m_statusLabel && m_statusLabel->text() == text) m_statusLabel->clear();
         });
     });
+    connect(m_gamepad, &Gamepad::buttonPressed, this, &MainWindow::onGamepadButton);
+}
+
+void MainWindow::onGamepadButton(GamepadButton button)
+{
+    // Come il pad sulla vista (GLWidget::applyGamepadStep): non durante il
+    // REC, ne' sotto una finestra modale, dove il mouse non arriva.
+    if (!m_uiReady || m_isRecording || QApplication::activeModalWidget()) return;
+    GLWidget *gl = ui->glWidget;
+    // I tasti sullo schermo col loro clic: le stesse condizioni (spenti, il
+    // master inerte nel REC) e lo stesso sender() di chi li preme.
+    const auto press = [](QAbstractButton *b) {
+        if (b && b->isEnabled()) b->click();
+    };
+    switch (button) {
+    case GamepadButton::Cross:    press(m_btnStart); break;
+    case GamepadButton::Circle:   runReset(false); break;
+    case GamepadButton::Triangle: press(m_btnProjection); break;
+    case GamepadButton::Square:
+        // L'inquadratura d'apertura, la scelta View del RESET: non con la
+        // camera di un path (li' il RESET e' quello dei moti) ne' a scena vuota.
+        if (!cameraPath() && !isWholeSceneEmpty()) resetView();
+        break;
+    case GamepadButton::L1:       stepLibraryPreset(-1); break;
+    case GamepadButton::R1:       stepLibraryPreset(+1); break;
+    case GamepadButton::Up:       press(ui->btnPPlus); break;
+    case GamepadButton::Down:     press(ui->btnPMinus); break;
+    case GamepadButton::Left:
+    case GamepadButton::Right:
+        // L'oggetto precedente o successivo della scena, in giro.
+        if (gl && gl->objectCount() > 1) {
+            const int n = gl->objectCount();
+            const int step = button == GamepadButton::Right ? 1 : -1;
+            selectSceneObjectFromUi((gl->selectedObject() + step + n) % n);
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+void MainWindow::stepLibraryPreset(int step)
+{
+    QTreeWidget *tree = currentLibraryTree();
+    QTreeWidgetItem *current = tree ? tree->currentItem() : nullptr;
+    if (!current || !LibraryManager::itemType(current)) return;
+    QTreeWidgetItem *parent = current->parent();
+    const int count = parent ? parent->childCount() : tree->topLevelItemCount();
+    int index = parent ? parent->indexOfChild(current) : tree->indexOfTopLevelItem(current);
+    for (index += step; index >= 0 && index < count; index += step) {
+        QTreeWidgetItem *item = parent ? parent->child(index) : tree->topLevelItem(index);
+        if (!LibraryManager::itemType(item)) continue;   // una cartella
+        tree->setCurrentItem(item);
+        tree->scrollToItem(item);
+        // Il clic sulla voce: lo ascoltano onExampleItemClicked e, per i
+        // suoni, onSoundItemClicked (sender() e' l'albero, come col mouse).
+        emit tree->itemClicked(item, 0);
+        return;
+    }
 }
 
 MainWindow::RunOutcomeGuard::RunOutcomeGuard(MainWindow *mw, bool arm)
