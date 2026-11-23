@@ -1196,6 +1196,12 @@ private:
     void onDriveClicked();
     void startDrive();
     void stopDrive();
+    // I PULSANTI A SCATTO del pad nella guida (onGamepadButton li passa qui
+    // per primi): Triangle accende e spegne DRIVE, anche da fuori; a guida
+    // accesa Circle la spegne, la croce su e giu' raddoppia o dimezza le
+    // velocita', gli altri non fanno niente (i tenuti li legge
+    // DriveControls::setPad). true = il pulsante e' della guida.
+    bool handleDrivePadButton(GamepadButton button);
     void releaseDriveCamera();
     void refreshDriveButton();
     void refreshDriveHud();

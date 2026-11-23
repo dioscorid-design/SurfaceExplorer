@@ -445,9 +445,7 @@ bool InputHandler::handleKey(QKeyEvent* event, bool pressed)
     case Qt::Key_Equal:
     case Qt::Key_Minus:
         if (pressed && !event->isAutoRepeat()) {
-            const bool up = event->key() != Qt::Key_Minus;
-            c->speedScale = std::clamp(up ? c->speedScale * 2.0f : c->speedScale * 0.5f,
-                                       DriveControls::kMinSpeedScale, DriveControls::kMaxSpeedScale);
+            c->scaleSpeeds(event->key() != Qt::Key_Minus);
         }
         return true;
     default:

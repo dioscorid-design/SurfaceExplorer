@@ -489,6 +489,7 @@ void MainWindow::onGamepadButton(GamepadButton button)
     // Come il pad sulla vista (GLWidget::applyGamepadStep): non durante il
     // REC, ne' sotto una finestra modale, dove il mouse non arriva.
     if (!m_uiReady || m_isRecording || QApplication::activeModalWidget()) return;
+    if (handleDrivePadButton(button)) return;   // 2.1: prima la guida libera
     GLWidget *gl = ui->glWidget;
     // I tasti sullo schermo col loro clic: le stesse condizioni (spenti, il
     // master inerte nel REC) e lo stesso sender() di chi li preme.

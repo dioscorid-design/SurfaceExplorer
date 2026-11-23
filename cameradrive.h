@@ -38,6 +38,7 @@
 #include <QSizeF>
 #include <QQuaternion>
 #include <QVector3D>
+#include <algorithm>
 #include <functional>
 #include <vector>
 
@@ -92,9 +93,15 @@ struct DriveControls {
     // e' un comando e non prende il posto del volo registrato.
     bool pad = false;
     float padLeftX = 0.0f, padLeftY = 0.0f, padRightX = 0.0f, padRightY = 0.0f, padLift = 0.0f;
+    // I PULSANTI TENUTI del pad (scelta dell'utente, 2026-11-23): Cross il
+    // freno, L1 e R1 verso W- e W+, L3 tutto piu' veloce (come Spazio, Z/X,
+    // Maiuscole). Campi propri: il pad scrive a ogni passo e non deve
+    // cancellare un tasto tenuto sulla tastiera. Quelli a scatto (Circle,
+    // Triangle, la croce) li fa MainWindow::handleDrivePadButton.
+    bool padBrake = false, padWPlus = false, padWMinus = false, padBoost = false;
     void releasePad()
     {
-        pad = false;
+        pad = padBrake = padWPlus = padWMinus = padBoost = false;
         padLeftX = padLeftY = padRightX = padRightY = padLift = 0.0f;
     }
     // Un passo del pad (InputHandler::handleGamepad, a guida accesa): i suoi
@@ -107,6 +114,11 @@ struct DriveControls {
     float speedScale = 1.0f;
     static constexpr float kMinSpeedScale = 1.0f / 16.0f;
     static constexpr float kMaxSpeedScale = 16.0f;
+    // Per due (`up`) o a meta', entro i limiti: i tasti + e -, la croce del pad.
+    void scaleSpeeds(bool up)
+    {
+        speedScale = std::clamp(up ? speedScale * 2.0f : speedScale * 0.5f, kMinSpeedScale, kMaxSpeedScale);
+    }
 
     // Qualche comando in uso: dentro la traccia, il pilota prende il posto del volo registrato.
     bool any() const;

@@ -115,7 +115,8 @@ void MainWindow::setupDrive()
             "Touch: the left thumb sets speed and turns, the right thumb pitches and rolls; "
             "double tap to brake; the buttons on the right go up and down (and toward W).\n"
             "Game controller: the left stick sets speed and turns, the right stick pitches and rolls; "
-            "R2 / L2 go up and down.\n"
+            "R2 / L2 go up and down; \u2715 brakes, L1 / R1 go toward W, L3 makes everything faster, "
+            "up / down on the D-pad double or halve the speeds, \u25CB stops, \u25B3 turns DRIVE on and off.\n"
             "Esc or DRIVE again: stop. The flight is recorded on the scene time T: "
             "RESET goes back to its start, and the T slider and REC play it again."));
         connect(m_btnDrive, &QPushButton::clicked, this, &MainWindow::onDriveClicked);
@@ -155,6 +156,24 @@ void MainWindow::startDrive()
     refreshDriveHud();
     // Il cursore T muove ora il volo: subito, non al prossimo giro del suo timer.
     refreshSceneTime();
+}
+
+bool MainWindow::handleDrivePadButton(GamepadButton button)
+{
+    if (!m_drive) return false;
+    if (button == GamepadButton::Triangle) {
+        // Il tasto DRIVE col suo clic: le stesse condizioni.
+        if (m_btnDrive && m_btnDrive->isEnabled()) m_btnDrive->click();
+        return true;
+    }
+    if (!driveRunning()) return false;
+    switch (button) {
+    case GamepadButton::Circle: stopDrive(); break;
+    case GamepadButton::Up:     m_drive->controls().scaleSpeeds(true); break;
+    case GamepadButton::Down:   m_drive->controls().scaleSpeeds(false); break;
+    default: break;
+    }
+    return true;
 }
 
 void MainWindow::stopDrive()
@@ -242,15 +261,10 @@ void MainWindow::refreshDriveHud()
     if (m_drive->replaying()) status += QStringLiteral("   REPLAY: touch a control to take over");
     QString keys;
     if (m_gamepad && m_gamepad->isConnected()) {
-        // Il pad: gli assi sono suoi; freno, W e Esc restano a tastiera e tocco.
-        keys = QStringLiteral("Left stick: speed and turn   Right stick: pitch and roll   R2 / L2: up / down");
-        if (touch) {
-            keys += QStringLiteral("   Double tap: brake");
-            if (driveMovesW()) keys += QStringLiteral("   W+ W\u2212 toward W");
-        } else {
-            if (driveMovesW()) keys += QStringLiteral("   Z/X toward W");
-            keys += QStringLiteral("   Space brake  Esc stop");
-        }
+        // Il pad: assi e pulsanti (handleDrivePadButton, DriveControls::setPad).
+        keys = QStringLiteral("Left stick: speed and turn   Right stick: pitch and roll   R2 / L2: up / down   "
+                              "\u2715 brake   L3 faster   \u2191 \u2193 scale   \u25CB stop");
+        if (driveMovesW()) keys += QStringLiteral("   L1 / R1 toward W");
     } else if (touch) {
         keys = QStringLiteral("Left thumb: speed and turn   Right thumb: pitch and roll   Double tap: brake   "
                               "\u25B2 \u25BC up / down");

@@ -97,7 +97,8 @@ bool DriveControls::any() const
     // Le Maiuscole da sole non comandano nulla: non prendono il posto del volo.
     return throttleUp || throttleDown || yawLeft || yawRight || pitchUp || pitchDown || rollLeft
            || rollRight || liftUp || liftDown || wPlus || wMinus || brake || stick || rollStick
-           || wheelSteps != 0.0f || touchLeft || touchRight || brakeTap || pad;
+           || wheelSteps != 0.0f || touchLeft || touchRight || brakeTap || pad || padBrake || padWPlus
+           || padWMinus;
 }
 
 void DriveControls::setPad(const GamepadState &state)
@@ -108,6 +109,10 @@ void DriveControls::setPad(const GamepadState &state)
     padRightX = float(state.rightStick.x());
     padRightY = float(state.rightStick.y());
     padLift = state.rightTrigger - state.leftTrigger;
+    padBrake = state.held(GamepadButton::Cross);
+    padWMinus = state.held(GamepadButton::L1);
+    padWPlus = state.held(GamepadButton::R1);
+    padBoost = state.held(GamepadButton::L3);
 }
 
 QRectF CameraDrive::touchButtonRect(int button, const QSizeF &view)
@@ -322,7 +327,8 @@ void CameraDrive::appendStep(const DriveControls &c)
 {
     State s = m_track.back();
     const float h = kStep;
-    const float boost = c.boost ? kBoost : 1.0f;
+    const float boost = (c.boost || c.padBoost) ? kBoost : 1.0f;
+    const bool brake = c.brake || c.padBrake;
     // La scala delle velocita': cambiandola, la crociera la segue (un -
     // rallenta subito). Senza comandi (REC, cursore) resta quella del volo.
     const float scale = &c == &m_controls ? c.speedScale : m_appliedScale;
@@ -338,8 +344,8 @@ void CameraDrive::appendStep(const DriveControls &c)
                            + (c.pad ? c.padLeftY : 0.0f);
     s.cruise = std::clamp(s.cruise + (c.wheelSteps * kWheelStep + throttle * kThrottleRate * h) * scale,
                           -kMaxCruise * scale, kMaxCruise * scale);
-    if (c.brake || c.brakeTap) s.cruise = 0.0f;
-    s.speed = approach(s.speed, s.cruise * boost, c.brake ? kBrakeTau : kSpeedTau, h);
+    if (brake || c.brakeTap) s.cruise = 0.0f;
+    s.speed = approach(s.speed, s.cruise * boost, brake ? kBrakeTau : kSpeedTau, h);
     // La cloche: il mouse verso l'alto (y negativo a schermo) alza il muso,
     // verso destra vira a destra (rotazione negativa attorno all'alto).
     // Gli stick a tocco con gli stessi versi: il sinistro vira, il destro
@@ -360,7 +366,7 @@ void CameraDrive::appendStep(const DriveControls &c)
     const float liftInput = std::clamp(axis(c.liftUp, c.liftDown) + (c.pad ? c.padLift : 0.0f), -1.0f, 1.0f);
     s.lift = approach(s.lift, liftInput * kLiftRate * boost * scale, kLiftTau, h);
     const bool w = m_movesW && m_movesW();
-    s.wSpeed = approach(s.wSpeed, w ? axis(c.wPlus, c.wMinus) * kWRate * boost * scale : 0.0f, kWTau, h);
+    s.wSpeed = approach(s.wSpeed, w ? axis(c.wPlus || c.padWPlus, c.wMinus || c.padWMinus) * kWRate * boost * scale : 0.0f, kWTau, h);
 
     // IL MOTO, nel riferimento della camera: prima gira, poi avanza.
     const float turnRate = s.turn.length();

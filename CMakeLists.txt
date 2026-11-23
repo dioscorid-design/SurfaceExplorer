@@ -618,6 +618,10 @@ if(NOT APPLE)
     set_source_files_properties(securitybookmark.mm PROPERTIES LANGUAGE CXX)
 endif()
 
+# 2.1: la guida libera. I test condivisi con la 2.0 la riconoscono da qui (il
+# triangolo del pad e' DRIVE, non la proiezione).
+target_compile_definitions(SurfaceExplorer PRIVATE SE_DRIVE)
+
 # --- IL PAD (gamepad.h) ---
 # Su macOS, iPadOS e iOS il backend e' il framework GameController; altrove il
 # .mm e' il solo ripiego senza pad e va compilato come C++, come sopra.

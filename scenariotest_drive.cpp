@@ -646,13 +646,29 @@ void ScenarioTest::runDrivePadScenarios()
         fly(120);
     };
 
+    // Un pulsante premuto e lasciato (i fronti fra due passi).
+    auto pressButton = [&](GamepadButton b) {
+        GamepadState s = rest;
+        s.buttons = 1u << int(b);
+        pad->setTestState(s);
+        pad->step(dt);
+        pad->setTestState(rest);
+        pad->step(dt);
+        wait(150);
+    };
+    auto withButton = [&](GamepadState s, GamepadButton b) {
+        s.buttons |= 1u << int(b);
+        return s;
+    };
+
     m_lines.append(QStringLiteral("-- il pad in DRIVE --"));
     if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
-    m_mw->m_btnDrive->click();
+    pressButton(GamepadButton::Triangle);
     if (!m_mw->driveRunning()) {
-        check(false, QStringLiteral("pad: DRIVE non parte"));
+        check(false, QStringLiteral("pad: \u25B3 non accende DRIVE"));
         return;
     }
+    check(true, QStringLiteral("\u25B3 accende DRIVE da fuori, come il tasto"));
     m_mw->markWholeSceneClean();
 
     // La deriva di uno stick lasciato andare: non e' un comando.
@@ -670,18 +686,47 @@ void ScenarioTest::runDrivePadScenarios()
 
     // Stick sinistro in su: la crociera sale allo stesso ritmo di W tenuto.
     {
+        // Tutti e due da fermo: T non sta sulla griglia dei passi (la guida e'
+        // partita col timer dal vivo) e la crociera letta e' interpolata fra
+        // due campioni; da fermo la fase e' la stessa per pad e tasto.
         const float cruise0 = drive->current().cruise;
         flyPad(state(QPointF(0.0, 1.0), QPointF(), 0.0f, 0.0f), 60);
         const float byPad = drive->current().cruise - cruise0;
         const bool released = !c.pad && c.padLeftY == 0.0f;
+        const bool dirty = m_mw->hasUnsavedWork();
+        halt();
+        const float key0 = drive->current().cruise;
         c.throttleUp = true;
         fly(60);
         c.throttleUp = false;
-        const float byKey = drive->current().cruise - cruise0 - byPad;
-        check(byPad > 0.3f && std::abs(byPad - byKey) < 1e-5f && released && m_mw->hasUnsavedWork(),
+        const float byKey = drive->current().cruise - key0;
+        check(byPad > 0.3f && std::abs(byPad - byKey) < 1e-5f && released && dirty,
               QStringLiteral("stick sinistro tutto in su per un secondo: la crociera sale di %1, come W tenuto (%2); "
                              "lasciato, si rilascia; la scena e' da salvare").arg(double(byPad)).arg(double(byKey)));
+        // L3 tenuto: tutto piu' veloce, come le Maiuscole.
+        fly(120);
+        const float cruise = drive->current().cruise;
+        flyPad(withButton(rest, GamepadButton::L3), 90);
+        const float boosted = drive->current().speed;
+        // Cross tenuto: il freno, e non e' lo START (la guida se lo tiene).
+        const QString start0 = m_mw->m_btnStart->text();
+        flyPad(withButton(rest, GamepadButton::Cross), 30);
+        check(boosted > cruise * 1.5f && drive->current().cruise == 0.0f && !c.padBrake && !c.padBoost
+                  && m_mw->m_btnStart->text() == start0 && m_mw->driveRunning(),
+              QStringLiteral("L3 tenuto: la velocita' sale oltre la crociera (%1 -> %2); \u2715 tenuto frena (crociera "
+                             "%3) e non preme START").arg(double(cruise)).arg(double(boosted))
+                  .arg(double(drive->current().cruise)));
         halt();
+        // La croce su e giu': le velocita' per due e a meta', come + e -.
+        pressButton(GamepadButton::Up);
+        const float doubled = c.speedScale;
+        pressButton(GamepadButton::Down);
+        pressButton(GamepadButton::Down);
+        const float halved = c.speedScale;
+        pressButton(GamepadButton::Up);
+        check(doubled == 2.0f && halved == 0.5f && c.speedScale == 1.0f,
+              QStringLiteral("croce \u2191 \u2193: le velocita' per due (%1) e a meta' (%2), come + e -")
+                  .arg(double(doubled)).arg(double(halved)));
     }
 
     // Lo stick sinistro a destra vira a destra; il destro in su alza il muso,
@@ -757,6 +802,15 @@ void ScenarioTest::runDrivePadScenarios()
         pad->setTestState(rest);
     }
 
+    // Circle spegne la guida (come Esc), Triangle la riaccende e la rispegne.
+    pressButton(GamepadButton::Circle);
+    const bool offByCircle = !m_mw->driveRunning() && m_mw->driveOwnsCamera();
+    pressButton(GamepadButton::Triangle);
+    const bool onAgain = m_mw->driveRunning();
+    pressButton(GamepadButton::Triangle);
+    check(offByCircle && onAgain && !m_mw->driveRunning(),
+          QStringLiteral("\u25CB spegne DRIVE come Esc, \u25B3 lo riaccende e lo rispegne"));
+
     // Guida spenta: il pad torna a girare la vista (2.0), i comandi restano liberi.
     m_mw->stopDrive();
     {
@@ -766,5 +820,22 @@ void ScenarioTest::runDrivePadScenarios()
         pad->setTestState(rest);
         check(!m_mw->driveRunning() && !(gl->getRotationQuat() == r0) && !c.pad,
               QStringLiteral("guida spenta: lo stick sinistro torna a girare la superficie, come il mouse"));
+    }
+
+    // Nel 4D: R1 tenuto va verso W+, L1 verso W-, come X e Z.
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/S3/Clifford's Torus.json"))) {
+        pressButton(GamepadButton::Triangle);
+        const bool on = m_mw->driveRunning() && m_mw->driveMovesW();
+        const float w0 = drive->current().observerW;
+        flyPad(withButton(rest, GamepadButton::R1), 60);
+        fly(60);
+        const float w1 = drive->current().observerW;
+        flyPad(withButton(rest, GamepadButton::L1), 60);
+        fly(60);
+        const float w2 = drive->current().observerW;
+        pressButton(GamepadButton::Triangle);
+        check(on && w1 - w0 > 0.1f && w2 < w1 - 0.1f && !c.padWPlus && !c.padWMinus && !m_mw->driveRunning(),
+              QStringLiteral("4D: R1 tenuto verso W+ (%1 -> %2), L1 verso W- (%3)")
+                  .arg(double(w0)).arg(double(w1)).arg(double(w2)));
     }
 }
