@@ -2326,14 +2326,27 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // sono paralleli, e ricavando la direzione dalla proiezione ogni pixel
             // guarderebbe nello stesso punto -- sfondo di un colore solo.
             // Vista piatta 2D: si edita la texture a schermo, quindi fisso.
+            //
+            // IL MONDO GIRATO DALL'AMBIENTE (scene euclidee, richiesta
+            // dell'utente 2026-11-24): le rotazioni dell'ambiente girano tutta la
+            // scena attorno al centro (m_sceneRotation), oggetti e reticolo, e
+            // con loro il cielo, come in H3 (hyperbolicSkyRotation). Il pixel
+            // guarda nel mondo girato: la sua direzione si riporta indietro con la
+            // rotazione della scena. Prima il cielo euclideo restava fermo, unico
+            // pezzo del mondo a non girare. Con la superficie sola la rotazione
+            // della scena e' l'identita' (sceneFollowsEnvironment): li' si gira
+            // l'oggetto, e il cielo resta.
+            const QQuaternion skyTurnBack = m_hyperbolic ? QQuaternion() : m_sceneRotation.rotation.conjugated();
             QMatrix4x4 skyRay;
             skyRay.fill(0.0f);
             if (effectiveBackgroundSkyMode() != BgFixed && !m_isFlatView) {
                 // In H3 la camera e' m_h3Camera, e il cielo e' il bordo all'infinito
                 // del mondo: l'orientamento trasportato nel centro della scena.
-                QMatrix4x4 viewRotInv = m_view;
-                viewRotInv.setColumn(3, QVector4D(0.0f, 0.0f, 0.0f, 1.0f));
-                viewRotInv = viewRotInv.transposed();   // rotazione: inversa = trasposta
+                QMatrix4x4 viewRotInv;
+                viewRotInv.rotate(skyTurnBack);
+                QMatrix4x4 viewRot = m_view;
+                viewRot.setColumn(3, QVector4D(0.0f, 0.0f, 0.0f, 1.0f));
+                viewRotInv = viewRotInv * viewRot.transposed();   // rotazione: inversa = trasposta
                 if (m_hyperbolic) viewRotInv = hyperbolicSkyRotation();
                 const float tanHalf = std::tan(effectiveCameraFov() * 0.5f * float(M_PI) / 180.0f);
                 QMatrix4x4 eyeFromNdc;                  // pixel (ndc.x, ndc.y, 1) -> raggio in camera
@@ -2377,8 +2390,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // libere, fuori dal mat3 e da [3][1]): in GLSL u_mvpMatrix[0..2][3].
             // La palla e' il mondo dell'ambiente: centro nella sua posizione,
             // raggio la sua scala, e NON gira col suo modello (l'oggetto ruota
-            // dentro la palla, il cielo resta, come in Sphere). env.model e'
-            // gia' quello del frame: prepareObjectUniforms e' girata qui sopra.
+            // dentro la palla, il cielo resta, come in Sphere). In una scena gira
+            // invece col mondo (skyTurnBack, come le direzioni): l'osservatore
+            // nella palla girata. env.model e' gia' quello del frame:
+            // prepareObjectUniforms e' girata qui sopra.
             // Camera FUORI dalla palla: si usa il punto speculare dentro
             // (inversione nella sfera, p / |p|^2), continuo attraversando il
             // bordo; da lontano tende al centro, cioe' alla sfera. Il raggio si
@@ -2401,8 +2416,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 constexpr float kMaxBallRadius = 0.999f;
                 const QVector3D eye = m_view.inverted().map(QVector3D());
                 const float ballRadius = env.scale > 0.0f ? env.scale : 1.0f;
-                QVector3D observer = m_hyperbolic ? hyperbolicCameraInBall()
-                                                  : (eye - env.model.map(QVector3D())) / ballRadius;
+                QVector3D observer = m_hyperbolic
+                                   ? hyperbolicCameraInBall()
+                                   : skyTurnBack.rotatedVector((eye - env.model.map(QVector3D())) / ballRadius);
                 const float r = observer.length();
                 if (r > 1.0f) observer /= r * r;
                 if (observer.length() > kMaxBallRadius)
