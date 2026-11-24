@@ -15879,6 +15879,87 @@ void ScenarioTest::runTextureTargetScenarios()
     st = clockAfterPick("surfaces/Implicit/3D/Gyroid.json", false, "textures/Ray Marching/Wireframe.json");
     check(st == 0, QStringLiteral("Wireframe Ray Marching (\"STATIC (no t)\") -> orologio %1, tasto %2")
                        .arg(st < 0 ? QStringLiteral("?") : onOff(st & 1)).arg((st & 2) ? QStringLiteral("Stop") : QStringLiteral("Run")));
+
+    // LO SFONDO ANIMATO INQUADRATO DAL PANNELLO 2D (segnalato dall'utente il
+    // 2026-11-24, "probabilmente da sempre"): fermato e fatto ripartire, zoom,
+    // spostamento e rotazione restano. Col master e col tasto del dock Script,
+    // in un record e in una scena. Il master li teneva gia'; il Run del dock
+    // riapplicava lo script e, senza immagine, tornava a zoom 1
+    // (onApplyTextureScriptClicked, ramo A).
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Sfondo animato: fermato e fatto ripartire, l'inquadratura del pannello 2D resta =="));
+    {
+        struct Framing { float zoom; QVector2D pan; float rot; };
+        const auto framing = [gl]() {
+            return Framing{ gl->backgroundZoom(), gl->backgroundPan(), gl->backgroundRotation() };
+        };
+        const auto same = [](const Framing &a, const Framing &b) {
+            return std::abs(a.zoom - b.zoom) < 1e-5f && (a.pan - b.pan).length() < 1e-5f
+                   && std::abs(a.rot - b.rot) < 1e-4f;
+        };
+        const auto text = [](const Framing &f) {
+            return QStringLiteral("zoom %1, pan (%2, %3), rotazione %4")
+                .arg(f.zoom).arg(f.pan.x()).arg(f.pan.y()).arg(f.rot);
+        };
+        // L'inquadratura dal pannello 2D, bersaglio Background: rotella,
+        // destro e sinistro, come InputHandler::dragView/wheelView.
+        const auto reframe = [&]() {
+            click(ui->radioBackground);
+            ui->btnFlatPreview->setChecked(true);
+            wait(300);
+            gl->setFlatZoom(gl->getFlatZoom() * 2.5f);
+            gl->panFlatOnScreen(60.0f, -30.0f);
+            gl->addFlatRotation(35.0f);
+            ui->btnFlatPreview->setChecked(false);
+            wait(300);
+            return framing();
+        };
+        const auto stopStart = [&](const QString &where) {
+            const Framing f0 = reframe();
+            const bool animated = gl->isBackgroundTextureAnimating();
+            const bool stopped = master("STOP");
+            const bool still = !gl->isBackgroundTextureAnimating();
+            const bool started = master("START");
+            check(animated && stopped && still && started && gl->isBackgroundTextureAnimating()
+                      && f0.zoom > 1.0f && same(framing(), f0),
+                  QStringLiteral("%1, master STOP e START: l'inquadratura resta (%2; prima %3) "
+                                 "[animato %4, stop %5, fermo %6, start %7, di nuovo animato %8]")
+                      .arg(where, text(framing()), text(f0)).arg(animated).arg(stopped).arg(still).arg(started)
+                      .arg(gl->isBackgroundTextureAnimating()));
+            click(ui->radioBackground);
+            setScriptMode(MainWindow::ScriptModeTexture);
+            const bool stopShown = ui->btnRunCurrentScript->text().startsWith(QLatin1String("Stop"));
+            click(ui->btnRunCurrentScript);   // Stop
+            const bool dockStopped = !gl->isBackgroundTextureAnimating();
+            click(ui->btnRunCurrentScript);   // Run
+            wait(400);
+            check(stopShown && dockStopped && gl->isBackgroundTextureAnimating() && same(framing(), f0),
+                  QStringLiteral("%1, Stop e Run del dock Script sullo sfondo: l'inquadratura resta (%2; prima %3) "
+                                 "[tasto \"%4\", fermo %5, di nuovo animato %6]")
+                      .arg(where, text(framing()), text(f0)).arg(stopShown ? QStringLiteral("Stop") : QStringLiteral("Run"))
+                      .arg(dockStopped).arg(gl->isBackgroundTextureAnimating()));
+            // Uno script NUOVO invece riparte dall'inquadratura neutra, come prima.
+            if (ui->btnRunCurrentScript->text().startsWith(QLatin1String("Stop"))) click(ui->btnRunCurrentScript);
+            ui->txtScriptEditor->setPlainText(QStringLiteral("return vec3(fract(u + t), 0.5, 0.5);"));
+            wait(300);
+            click(ui->btnRunCurrentScript);
+            wait(400);
+            check(m_mw->m_scene.bgTextureCode.contains(QStringLiteral("fract(u + t)"))
+                      && same(framing(), Framing{ 1.0f, QVector2D(), 0.0f }),
+                  QStringLiteral("%1, Run di uno script nuovo sullo sfondo: inquadratura neutra (%2)")
+                      .arg(where, text(framing())));
+            setScriptMode(MainWindow::ScriptModeSurface);
+            if (ui->radioSurface->isEnabled()) click(ui->radioSurface);
+        };
+        if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Wireframes/Roman Surface.json")))
+            stopStart(QStringLiteral("record Roman Surface (Cyclic Noise 2D)"));
+        if (buildScene(false, { QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json") })) {
+            m_mw->selectSceneObject(0);
+            wait(200);
+            if (selectTexture(QStringLiteral("textures/Procedurals/Animated Gradient.json")))
+                stopStart(QStringLiteral("scena, Animated Gradient sullo sfondo"));
+        }
+    }
 }
 
 void ScenarioTest::runTextureOwnerScenarios()
