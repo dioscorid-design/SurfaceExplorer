@@ -10144,6 +10144,48 @@ void ScenarioTest::runSceneFixedScenarios()
     } else {
         m_lines.append(QStringLiteral("   (scena d'esempio non in libreria: %1)").arg(exampleR3));
     }
+
+    // IL MASTER START RILANCIA IL SELEZIONATO, ANCHE FISSO (Parallel Universe,
+    // segnalato dall'utente il 2026-11-24): toro fisso, STOP e START, e il toro
+    // spariva. checkParametricRunInputs leggeva i limiti in uso da isEnabled()
+    // dei campi, falso per tutti sotto il pannello Equations spento di un fisso:
+    // u e v in [0, 0], superficie ridotta a un punto (gli indici restano: conta
+    // il dominio). Prima una texture della Library sul toro fisso, che non
+    // passava di li' (verificato senza la correzione): resta come guardia.
+    const QString parallel = m_root + QStringLiteral("/scenes/Parallel Universe.json");
+    if (QFile::exists(parallel)) {
+        m_lines.append(QString());
+        m_lines.append(QStringLiteral("== Oggetto fisso: il master START e una texture non gli tolgono il dominio =="));
+        if (!loadSurface(kSphere)) return;
+        const bool ok = m_mw->loadSceneFile(parallel);
+        wait(2000);
+        check(ok && gl->objectCount() == 3, QStringLiteral("Parallel Universe aperta (%1 oggetti)").arg(gl->objectCount()));
+        if (ok && gl->objectCount() == 3) {
+            const SurfaceObject &torus = *gl->m_objects[1];
+            const auto domain = [&torus]() {
+                return QStringLiteral("u [%1, %2], v [%3, %4]").arg(torus.uMin).arg(torus.uMax).arg(torus.vMin).arg(torus.vMax);
+            };
+            const QString opened = domain();
+            m_mw->selectSceneObjectFromUi(1);
+            wait(300);
+            m_mw->m_objectFixed->click();
+            wait(300);
+            const bool fixed = gl->objectFixed(1) && !m_mw->ui->panelEquations->isEnabled();
+            if (selectTexture(QStringLiteral("textures/Procedurals/Plasma.json")))
+                check(fixed && gl->objectFixed(1) && gl->isTextureEnabled() && domain() == opened,
+                      QStringLiteral("texture dalla Library sul toro fisso: il dominio resta (%1)").arg(domain()));
+            if (m_mw->m_btnStart->text().toUpper() == QLatin1String("STOP")) m_mw->m_btnStart->click();
+            wait(500);
+            const bool stopped = m_mw->m_btnStart->text().toUpper() == QLatin1String("START");
+            m_mw->m_btnStart->click();
+            wait(800);
+            gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-fixed-parallel-start.png"));
+            check(fixed && stopped && torus.uMax > torus.uMin && torus.vMax > torus.vMin && domain() == opened
+                      && m_mw->m_btnStart->text().toUpper() == QLatin1String("STOP"),
+                  QStringLiteral("toro fisso, master STOP e START: riparte col suo dominio (%1, all'apertura %2)")
+                      .arg(domain(), opened));
+        }
+    }
 }
 
 // IL POLO DI UNA SFERA (surface.vert, calculateFinalNormal): sul vertice del
