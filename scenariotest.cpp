@@ -6639,6 +6639,131 @@ void ScenarioTest::runSceneTurnScenarios()
             check(!gl->selectedObjectRigid(), QStringLiteral("  riselezionato l'ambiente: non e' un oggetto rigido"));
         }
     }
+
+    // IL CIELO GIRA CON LA SCENA (R3, richiesta dell'utente 2026-11-24): le
+    // rotazioni dell'ambiente girano il mondo attorno al centro, e con lui il
+    // cielo (Sphere, Cylinder, Cube, Poincare' Ball), come in H3. Fixed resta
+    // incollato allo schermo; con l'ambiente solo si gira l'ambiente e il cielo
+    // resta; lo scorrimento col destro trasla la camera, e un cielo
+    // all'infinito non ha parallasse. Si guardano gli angoli della vista, dove
+    // non arriva nessun oggetto: lo sfondo soltanto (Fixed fa da controllo:
+    // se un oggetto ci entrasse, cambierebbero anche li').
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Il cielo gira con la scena (R3) =="));
+    if (buildScene(false, { kSphere })) {
+        Ui::MainWindow *ui = m_mw->ui;
+        // Frazione dei pixel diversi nei quattro angoli (un ottavo della vista per lato).
+        const auto cornerChange = [](const QImage &a, const QImage &b) {
+            const QImage x = a.convertToFormat(QImage::Format_RGB32);
+            const QImage y = b.convertToFormat(QImage::Format_RGB32);
+            if (x.isNull() || x.size() != y.size()) return 1.0;
+            const int w = x.width() / 8, h = x.height() / 8;
+            int n = 0, all = 0;
+            for (int j = 0; j < x.height(); j += 2) {
+                if (j >= h && j < x.height() - h) continue;
+                for (int i = 0; i < x.width(); i += 2) {
+                    if (i >= w && i < x.width() - w) continue;
+                    ++all;
+                    if (x.pixel(i, j) != y.pixel(i, j)) ++n;
+                }
+            }
+            return all > 0 ? double(n) / all : 1.0;
+        };
+        const auto pct = [](double f) { return QString::number(100.0 * f, 'f', 1) + QLatin1Char('%'); };
+        // Lo sfondo: un'immagine ferma (le sue venature si vedono girare), sulla forma data.
+        const auto setSky = [&](QRadioButton *shape) {
+            ui->radioBackground->click();
+            wait(200);
+            shape->click();
+            wait(300);
+            ui->radioSurface->click();
+            wait(200);
+        };
+        const auto grab = [&](const QString &name) {
+            const QImage img = gl->grabFramebuffer();
+            img.save(m_outDir + QStringLiteral("/sky-turn-%1.png").arg(name));
+            return img;
+        };
+        m_mw->performMasterStop();
+        m_mw->selectSceneObject(0);
+        wait(200);
+        ui->radioBackground->click();
+        wait(200);
+        selectTexture(QStringLiteral("textures/Images/14.png"));
+        setSky(ui->radioBgSphere);
+        check(gl->isBackgroundTextureEnabled() && gl->backgroundSkyMode() == GLWidget::BgSphere,
+              QStringLiteral("scena 3D con l'immagine 14.png sullo sfondo, forma Sphere"));
+
+        // SPHERE: il trascinamento sull'ambiente gira la scena e il cielo; la camera resta.
+        const QMatrix4x4 view0 = gl->m_view;
+        const QImage start = grab(QStringLiteral("sphere-start"));
+        gl->addObjectRotation(30.0f, 0.0f, 0.0f);
+        const double turned = cornerChange(start, grab(QStringLiteral("sphere-turned")));
+        check(turned > 0.3 && qFuzzyCompare(gl->m_view, view0),
+              QStringLiteral("Sphere: il trascinamento sull'ambiente gira anche il cielo (%1 degli angoli cambia), "
+                             "la camera resta").arg(pct(turned)));
+
+        // RESET dei moti: la scena torna dritta, e il cielo con lei.
+        m_mw->resetMotions(m_mw->cameraPath());
+        wait(200);
+        const double back = cornerChange(start, grab(QStringLiteral("sphere-reset")));
+        check(gl->sceneRotation().rotation.isIdentity() && back < 0.005,
+              QStringLiteral("RESET dei moti: scena dritta, il cielo com'era (%1 degli angoli diverso)").arg(pct(back)));
+
+        // SCORRIMENTO COL DESTRO: la camera trasla, il cielo all'infinito resta.
+        {
+            const bool active = gl->sceneDragActive();
+            const QVector3D pos0 = gl->getCameraPos();
+            const bool dragged = gl->dragSceneOnScreen(40.0f, 25.0f);
+            const bool moved = (gl->getCameraPos() - pos0).length() > 1e-4f;
+            const double panned = cornerChange(start, grab(QStringLiteral("sphere-panned")));
+            gl->dragSceneOnScreen(-40.0f, -25.0f);
+            check(active && dragged && moved && panned == 0.0,
+                  QStringLiteral("Sphere: lo scorrimento col destro trasla la camera e il cielo non scorre "
+                                 "(%1 degli angoli cambia)").arg(pct(panned)));
+        }
+
+        // FIXED: un poster incollato allo schermo, non gira (controllo: nessun oggetto negli angoli).
+        setSky(ui->radioBgFixed);
+        {
+            const QImage before = grab(QStringLiteral("fixed-start"));
+            gl->addObjectRotation(30.0f, 0.0f, 0.0f);
+            const double fixedTurn = cornerChange(before, grab(QStringLiteral("fixed-turned")));
+            check(gl->backgroundSkyMode() == GLWidget::BgFixed && fixedTurn == 0.0,
+                  QStringLiteral("Fixed: la scena gira, lo sfondo resta (%1 degli angoli cambia)").arg(pct(fixedTurn)));
+            m_mw->resetMotions(m_mw->cameraPath());
+            wait(200);
+        }
+
+        // POINCARE' BALL: direzioni e osservatore nella palla girata.
+        setSky(ui->radioBgPoincare);
+        {
+            const QImage before = grab(QStringLiteral("poincare-start"));
+            gl->addObjectRotation(30.0f, 0.0f, 0.0f);
+            const double ballTurn = cornerChange(before, grab(QStringLiteral("poincare-turned")));
+            check(gl->backgroundSkyMode() == GLWidget::BgPoincare && ballTurn > 0.3,
+                  QStringLiteral("Poincare' Ball: il trascinamento sull'ambiente gira anche il cielo "
+                                 "(%1 degli angoli cambia)").arg(pct(ballTurn)));
+            m_mw->resetMotions(m_mw->cameraPath());
+            wait(200);
+        }
+
+        // L'AMBIENTE SOLO: non c'e' una scena da girare (sceneFollowsEnvironment),
+        // si gira l'ambiente e il cielo resta, come con la superficie singola.
+        setSky(ui->radioBgSphere);
+        m_mw->removeSceneObject(1);
+        wait(300);
+        m_mw->selectSceneObject(0);
+        wait(200);
+        {
+            const QImage before = grab(QStringLiteral("alone-start"));
+            gl->addObjectRotation(30.0f, 0.0f, 0.0f);
+            const double aloneTurn = cornerChange(before, grab(QStringLiteral("alone-turned")));
+            check(gl->objectCount() == 1 && gl->sceneRotation().rotation.isIdentity() && aloneTurn == 0.0,
+                  QStringLiteral("ambiente solo, Sphere: gira l'ambiente, il cielo resta (%1 degli angoli cambia)")
+                      .arg(pct(aloneTurn)));
+        }
+    }
 }
 
 void ScenarioTest::runSceneMotionScenarios()
