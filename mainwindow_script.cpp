@@ -897,6 +897,7 @@ void MainWindow::onApplyTextureScriptClicked()
     // lo script sta davvero cambiando (texture nuova) o se e' un semplice
     // riavvio dello stesso (Run/Stop del dock).
     const QString prevSurfaceTextureCode = m_scene.surfaceTextureCode;
+    const QString prevBgTextureCode = m_scene.bgTextureCode;
 
     // Le copie APPLICATE (m_scene.surfaceTextureCode / m_scene.bgTextureCode) si scrivono
     // piu' sotto, solo DOPO che il motore ha compilato il codice. Qui venivano
@@ -950,7 +951,14 @@ void MainWindow::onApplyTextureScriptClicked()
                                                            ui->glWidget->getShaderError());
                 return;
             }
-            if (ui->glWidget && imgPath.isEmpty()) {
+            // Inquadratura neutra SOLO SE LO SCRIPT CAMBIA, come sulla
+            // superficie (ramo B): lo Stop/Run del dock e' il modo di far
+            // ripartire uno sfondo animato, e azzerando sempre perdeva zoom,
+            // spostamento e rotazione dati nel pannello 2D (segnalato
+            // dall'utente il 2026-11-24). Load e Library la scrivono da se',
+            // dopo questa chiamata.
+            if (ui->glWidget && imgPath.isEmpty()
+                && TextureCode::cleanForComparison(code) != TextureCode::cleanForComparison(prevBgTextureCode)) {
                 ui->glWidget->setBackgroundFraming(1.0f, QVector2D(0.0f, 0.0f), 0.0f);
             }
         }
