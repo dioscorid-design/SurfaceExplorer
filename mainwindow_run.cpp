@@ -1528,9 +1528,16 @@ bool MainWindow::checkParametricRunInputs(RunLimits *lim, bool *geodesic)
     if (!InputValidator::validateCompositionFields(this, mainEqs, cU, cV, cW, geoHasText, composedTest)) return false;
 
     // --- 1. LETTURA E VALIDAZIONE DEI LIMITI ---
-    bool uActive = ui->uMinEdit->isEnabled();
-    bool vActive = ui->vMinEdit->isEnabled();
-    bool wActive = ui->wMinEdit->isEnabled();
+    // Un limite e' in uso se e' acceso il SUO campo (W spento senza w, nelle
+    // composizioni...), non il pannello che lo contiene: su un oggetto fisso
+    // applySceneEnvironmentGating spegne tutto il pannello Equations, e
+    // isEnabled() dei campi era falso per tutti. Il master START, che rilancia
+    // l'oggetto selezionato, costruiva allora il toro fisso di Parallel Universe
+    // su u, v in [0, 0] e lo faceva sparire (2026-11-24). isEnabledTo guarda i
+    // campi e i loro contenitori fino al pannello escluso.
+    const bool uActive = ui->uMinEdit->isEnabledTo(ui->panelEquations);
+    const bool vActive = ui->vMinEdit->isEnabledTo(ui->panelEquations);
+    const bool wActive = ui->wMinEdit->isEnabledTo(ui->panelEquations);
 
     QVector<InputValidator::LimitField> limitFields = {
         {ui->uMinEdit, uActive}, {ui->uMaxEdit, uActive},
