@@ -2075,6 +2075,12 @@ private:
     QDockWidget *m_dockObjects = nullptr;
     QListWidget *m_objectList = nullptr;
     QDoubleSpinBox *m_objectPos[3] = { nullptr, nullptr, nullptr };
+    // La scala del selezionato (SurfaceObject::scale): le sue equazioni per
+    // questo numero. La cambiavano solo rotella e pinch, e non si leggeva da
+    // nessuna parte (richiesta dell'utente, 2026-11-25).
+    QDoubleSpinBox *m_objectScale = nullptr;
+    // Il campo Scale mostra la scala del selezionato (a segnali fermi).
+    void showObjectScale();
     // Timeline: finestra di comparsa del selezionato e T nella barra di stato.
     QDoubleSpinBox *m_objectWindowIn = nullptr;
     QDoubleSpinBox *m_objectWindowOut = nullptr;
