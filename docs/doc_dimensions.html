@@ -34,9 +34,7 @@
             <p>The three of them act on parametric surfaces, which are generated in 4D and then projected, and on the implicit surfaces of the <strong>Cross Section</strong> sub-tab, where they tilt the plane that slices a 4D surface &mdash; see <a href="doc_raymarching.html">Implicit Surfaces (Ray Marching)</a>. Implicit surfaces written in the <strong>3D</strong> sub-tab have no fourth coordinate, so the rotations do not apply to them.</p>
 
             <div class="note">
-                <strong>4D rotations in Stereographic mode:</strong> stereographic projection sends the pole P&nbsp;=&nbsp;+1 to infinity, so a surface passing near that pole is drawn at a huge distance. The engine caps that distance to keep the geometry inside the far plane, which flattens the affected vertices onto a single sphere and shows up as a <em>rippled or serrated rim</em>.
-                <br><br>
-                If your surface comes close to the pole, prefer <strong>Psi</strong> for continuous rotation and avoid <strong>Omega</strong> and <strong>Phi</strong>: those two mix a spatial coordinate with P and can push part of the surface <em>onto</em> the pole, while Psi often leaves the maximum P untouched. Raising <strong>Steps</strong> makes the ripple finer but never removes it, because the affected region is an area of the domain rather than a few isolated vertices. Switching to <strong>Perspective</strong> or <strong>Orthogonal</strong> avoids the effect entirely, since neither projection has a pole at infinity.
+                <strong>4D rotations in Stereographic mode:</strong> a surface passing near the pole P&nbsp;=&nbsp;+1 is drawn very far away, with a <em>rippled rim</em>. Prefer <strong>Psi</strong> for continuous rotation (<strong>Omega</strong> and <strong>Phi</strong> can push the surface onto the pole), or switch to <strong>Perspective</strong> or <strong>Orthogonal</strong>.
             </div>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Lighting Modes (3D vs 4D)</b></p></td></tr></table>
