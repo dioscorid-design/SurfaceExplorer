@@ -8345,6 +8345,11 @@ bool GLWidget::objectHasPath(int index, int kind) const
            && m_objects[index]->engine->objectPathActive(kind);
 }
 
+bool GLWidget::objectPathCanRun(int index) const
+{
+    return objectHasPath(index) && !m_objects[index]->fixed;
+}
+
 float GLWidget::objectPathTime(int index) const
 {
     if (index < 0 || index >= int(m_objects.size())) return 0.0f;

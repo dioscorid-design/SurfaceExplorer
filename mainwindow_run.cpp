@@ -125,7 +125,7 @@ MainWindow::SceneMasterState MainWindow::sceneMasterState() const
         const bool eqRunning = o.fromGeo ? s.geoAnimating : o.eqRunning;
         const bool rotationAvailable = k != 0 && o.rotationAvailable;
         const bool rotationRunning = gl->isObjectRotating(k);
-        const bool pathAvailable = gl->objectHasPath(k), pathRunning = gl->isObjectPathRunning(k);
+        const bool pathAvailable = gl->objectPathCanRun(k), pathRunning = gl->isObjectPathRunning(k);
         st.any = st.any || eqRunning || o.texAnyRunning || o.borderRunning || rotationRunning || pathRunning;
         st.all = st.all && (!o.eqAvailable || eqRunning) && (!o.texAvailable || o.texRunning)
                  && (!o.borderAvailable || o.borderRunning) && (!rotationAvailable || rotationRunning)
@@ -1891,8 +1891,9 @@ MainWindow::MasterActivity MainWindow::masterActivity() const
                           || pathRunning(CameraPaths::Path4D) || pathRunning(CameraPaths::Path3D);
         a.rotationAvailable = gl->selectedObject() != 0 && hasAnyRotationSpeed();
         a.rotationRunning = a.rotationAvailable && isRotationMotionRunning();
-        // Il path dell'oggetto selezionato (dock Objects).
-        a.objectPathAvailable = gl->objectHasPath(gl->selectedObject());
+        // Il path dell'oggetto selezionato (dock Objects). Quello di un fisso
+        // e' inerte: START non lo avvia, e contarlo teneva il master su START.
+        a.objectPathAvailable = gl->objectPathCanRun(gl->selectedObject());
         a.objectPathRunning = gl->isObjectPathRunning(gl->selectedObject());
     }
 

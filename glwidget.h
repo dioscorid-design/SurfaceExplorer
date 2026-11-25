@@ -371,6 +371,9 @@ public:
     QStringList objectPath(int index, int kind) const;
     bool objectHasPath(int index) const;
     bool objectHasPath(int index, int kind) const;
+    // Il path che Departure e il master possono avviare: scritto, e l'oggetto
+    // non e' fisso (il blocco lo ferma e ne lascia le formule, inerti).
+    bool objectPathCanRun(int index) const;
     int objectPathKind(int index) const;
     void setObjectPathKind(int index, int kind);
     int objectPathSpeed(int index, int kind) const;

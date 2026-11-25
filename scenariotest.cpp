@@ -10180,6 +10180,52 @@ void ScenarioTest::runSceneFixedScenarios()
                       .arg(domain(), opened));
         }
     }
+
+    // IL PATH INERTE DI UN FISSO NON TIENE IL MASTER SU START (scena 1 dell'utente,
+    // 2026-11-25): il blocco ferma il path e ne lascia le formule, e il master
+    // lo contava fra i moduli da accendere. START non puo' avviarlo
+    // (setObjectPathRunning lo nega a un fisso): il tasto restava su START per
+    // sempre e non fermava niente. Sfera col suo path, bloccata; il toro gira.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Oggetto fisso col path inerte: il master va su STOP e ferma tutto =="));
+    if (!buildScene(false, { kTorus, kSphere })) return;
+    {
+        Ui::MainWindow *ui = m_mw->ui;
+        const auto master = [this]() { return m_mw->m_btnStart->text().toUpper(); };
+        const int fixedSphere = gl->selectedObject();
+        ui->lineX_P3D->setText(QStringLiteral("2*cos(t)-1"));
+        ui->lineY_P3D->setText(QStringLiteral("sin(t)"));
+        ui->lineZ_P3D->setText(QString());
+        pressEnter(ui->lineX_P3D);
+        ui->btnDeparture3D->click();
+        wait(200);
+        const bool pathRan = gl->isObjectPathRunning(fixedSphere);
+        m_mw->m_objectFixed->setChecked(true);
+        wait(300);
+        check(fixedSphere == 2 && pathRan && gl->objectFixed(fixedSphere) && gl->objectHasPath(fixedSphere)
+                  && !gl->isObjectPathRunning(fixedSphere),
+              QStringLiteral("sfera col path, bloccata: path fermo, le formule restano"));
+        m_mw->selectSceneObjectFromUi(1);
+        wait(300);
+        gl->setSpinSpeed(0.6f);
+        if (!gl->isObjectRotating(1)) m_mw->onStopClicked();   // GO del toro
+        wait(300);
+        check(gl->isObjectRotating(1) && master() == QLatin1String("STOP"),
+              QStringLiteral("il toro gira: il master dice STOP (dice %1)").arg(master()));
+        m_mw->selectSceneObjectFromUi(fixedSphere);
+        wait(300);
+        check(master() == QLatin1String("STOP"),
+              QStringLiteral("selezionata la sfera fissa: il master dice ancora STOP (dice %1)").arg(master()));
+        if (master() == QLatin1String("STOP")) m_mw->m_btnStart->click();
+        wait(300);
+        check(!gl->isObjectRotating(1) && master() == QLatin1String("START"),
+              QStringLiteral("master STOP: il toro si ferma, il tasto torna START"));
+        m_mw->m_btnStart->click();
+        wait(500);
+        check(gl->isObjectRotating(1) && !gl->isObjectPathRunning(fixedSphere) && master() == QLatin1String("STOP"),
+              QStringLiteral("master START: il toro riparte, la sfera resta ferma, il tasto dice STOP (dice %1)")
+                  .arg(master()));
+    }
 }
 
 // IL POLO DI UNA SFERA (surface.vert, calculateFinalNormal): sul vertice del
