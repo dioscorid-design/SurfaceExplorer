@@ -6715,9 +6715,11 @@ bool GLWidget::createLatticePipeline()
     // sfere s = 0: l'asse e' l'origine e la direzione percorre tutta la sfera,
     // con la stessa formula (la sfera di raggio rho attorno al vertice). Poi la
     // matrice dell'istanza e la rotazione della vista; sullo schermo la carta
-    // di Klein, nella vista da fuori la palla di Poincare' (come
-    // hyperbolicChart di surface.vert).
-    const QString vs = QStringLiteral("#version 450\n"
+    // di Klein, con la profondita' di hyperbolicPerspectiveClip (common.glsl,
+    // la stessa delle mesh e del ray marching), nella vista da fuori la palla
+    // di Poincare' (come hyperbolicClip di surface.vert).
+    const QString vs = QStringLiteral("#version 450\n")
+        + loadShaderSource(QStringLiteral(":/shaders/common.glsl")) + QStringLiteral("\n"
         "layout(location = 0) in vec3 tube;\n"
         "layout(location = 1) in vec4 m0;\n"
         "layout(location = 2) in vec4 m1;\n"
@@ -6730,7 +6732,8 @@ bool GLWidget::createLatticePipeline()
         // In R3 (euclid.x) i punti hanno w = 1 e la proiezione e' quella di
         // sempre, anche ortogonale: niente palla di Poincare'.
         "vec4 toClip(vec4 h) {\n"
-        "    return ub.proj * ((ub.params.w > 0.5 && ub.euclid.x < 0.5) ? vec4(h.xyz, 1.0 + h.w) : h);\n"
+        "    if (ub.euclid.x > 0.5) return ub.proj * h;\n"
+        "    return (ub.params.w > 0.5) ? ub.proj * vec4(h.xyz, 1.0 + h.w) : hyperbolicPerspectiveClip(ub.proj, h);\n"
         "}\n"
         // Il punto a distanza r dall'asse lungo dir: in H3 sull'iperboloide,
         // in R3 il cilindro (o la sfera) di sempre.
@@ -7764,7 +7767,7 @@ bool GLWidget::sceneCentreScreenPoint(QPointF *pixel) const
 bool GLWidget::viewPointOnScreen(const H3::Vec4 &p, QPointF *pixel) const
 {
     if (m_isFlatView || width() <= 0 || height() <= 0) return false;
-    // La carta del vertex shader (hyperbolicChart): Klein, o il punto stesso
+    // La carta del vertex shader (hyperbolicClip): Klein, o il punto stesso
     // in euclideo, = xyz / w; Poincare' nella vista da fuori, xyz / (1 + w).
     const double d = hyperbolicOutsideView() ? 1.0 + p.w : p.w;
     const QVector4D clip = m_projection * QVector4D(float(p.x / d), float(p.y / d), float(p.z / d), 1.0f);

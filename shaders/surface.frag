@@ -315,7 +315,7 @@ void main() {
     // carte, preciso anche lontano dal centro degli oggetti.
     // Prospettiva: il raggio e' la geodetica verso la camera, coseno
     // -N.w / |P.xyz|. Verificato contro la geodetica (hyperbolic-test).
-    // Ortogonale, la vista da fuori (surface.vert, hyperbolicChart): si guarda
+    // Ortogonale, la vista da fuori (surface.vert, hyperbolicClip): si guarda
     // il modello, la palla di Poincare' in R3, e la luce e' euclidea, frontale,
     // sulla sua superficie. Il riferimento e' quello della palla (guarda lungo
     // -z). La normale del modello e' l'immagine di N col differenziale della
