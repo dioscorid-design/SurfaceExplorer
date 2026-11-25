@@ -16,6 +16,14 @@ protected:
         if (event->type() == QEvent::KeyPress) {
             QKeyEvent* keyEvent = static_cast<QKeyEvent*>(event);
 
+            // Esc su un campo dei path: il testo non applicato torna quello del
+            // path applicato (il bordo "non applicato" se ne va).
+            if (keyEvent->key() == Qt::Key_Escape && isPathEquationField(obj->objectName())) {
+                if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent()))
+                    mainWin->revertPathFieldsOnEscape(obj->objectName());
+                return true;
+            }
+
             if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
                 const QString on = obj->objectName();
                 if (on == "txtScriptEditor" || on == "lineVariations" || on == "lineTexture") {
@@ -2481,5 +2489,13 @@ void MainWindow::showEvent(QShowEvent* event)
 
 MainWindow::~MainWindow()
 {
+    // I widget del form muoiono DOPO (~QWidget, coi figli), e distruggendosi
+    // emettono ancora: il documento di un QPlainTextEdit manda contentsChanged
+    // e il suo gestore (bindEquationFields -> refreshEquationFieldMarks) legge
+    // ui, gia' cancellato qui sotto: crash all'uscita (sezione animated-load,
+    // 2026-11-25). Nessun segnale dei figli arriva piu' a questa finestra.
+    m_uiReady = false;
+    for (QObject *child : findChildren<QObject *>()) child->disconnect(this);
     delete ui;
+    ui = nullptr;
 }

@@ -187,6 +187,13 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
             font-size: %2;
         }
         QPlainTextEdit:focus, QLineEdit:focus { border: 2px solid #007ACC; }
+        /* TESTO SCRITTO E NON APPLICATO (MainWindow::markNotApplied): bordo
+           ambra, anche col campo attivo, finche' Invio, DEPARTURE o START non
+           lo applicano o Esc non rimette quello applicato. Dopo :focus, che a
+           pari specificita' perderebbe. */
+        QLineEdit[notApplied="true"], QLineEdit[notApplied="true"]:focus,
+        QPlainTextEdit[notApplied="true"], QPlainTextEdit[notApplied="true"]:focus,
+        QAbstractSpinBox[notApplied="true"] { border: 2px solid #E0A030; }
         /* Spazio a destra per le due frecce (18px = 16 + margine), o il numero
            ci finisce sotto: il padding: 4px ereditato dalla regola condivisa
            con QLineEdit non ne lascia abbastanza. Solo prima di Qt 6.12

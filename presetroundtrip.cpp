@@ -430,6 +430,12 @@ PresetRoundTrip::Capture PresetRoundTrip::loadAndCaptureOnce(const Entry &e)
         c.moving.insert(d.key);
     // A caricamento finito e assestato la scena dev'essere PULITA.
     c.unsavedAfterLoad = m_mw->unsavedKeys();
+    // ...e nessun campo col bordo "non applicato" (MainWindow::markNotApplied):
+    // un load che applica senza aggiornare cio' che il campo confronta (lo
+    // snapshot delle equazioni, il path) lo lascerebbe acceso a sproposito.
+    for (QWidget *w : m_mw->findChildren<QWidget *>())
+        if (MainWindow::isMarkedNotApplied(w))
+            c.unsavedAfterLoad.append(QStringLiteral("non applicato: ") + w->objectName());
 
     // Il suono di un record ripartirebbe a ogni caricamento: si ferma dopo la
     // cattura (il JSON lo porta comunque, includeSound = true).

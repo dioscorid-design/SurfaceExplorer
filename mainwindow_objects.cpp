@@ -10,6 +10,7 @@
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QFontMetrics>
@@ -1346,13 +1347,18 @@ void MainWindow::showSelectedObject()
 // DOCK OBJECTS E SELETTORE
 // ==========================================================
 
-// I CAMPI NUMERICI DEL DOCK si scrivono come i path (richieste dell'utente,
-// 2026-10-24), su tutte le piattaforme:
-// - si applicano con l'Invio: prima ogni cifra spostava l'oggetto (scrivendo
-//   12 passava da 1). Frecce e rotella applicano subito. Uscendo dal campo
-//   senza Invio torna il valore applicato: setValue(value()) riscrive il
-//   campo prima che lo spinbox lo interpreti, e senza keyboardTracking
-//   value() e' ancora quello di prima;
+// I CAMPI NUMERICI DEL DOCK (X, Y, Z, In, Out), su tutte le piattaforme:
+// - le cifre non applicano (richiesta dell'utente, 2026-10-24: scrivendo 12
+//   l'oggetto passava da 1); si applica con l'Invio o USCENDO DAL CAMPO.
+//   Frecce e rotella applicano subito. Fino al 2026-11-25 l'uscita rimetteva
+//   il valore di prima: il numero scritto spariva in silenzio, e un campo
+//   svuotato sembrava vuoto finche' non si faceva altro (segnalato
+//   dall'utente; scelto "uscire applica"). Lo spinbox, senza keyboardTracking,
+//   interpreta il testo da se' all'uscita (focusOutEvent);
+// - svuotato vale 0 ("start"/"end" per In e Out): senza, lo spinbox lo
+//   rifiutava e rimetteva il numero di prima;
+// - Esc rimette il valore applicato; mentre si scrive il campo ha il bordo
+//   "non applicato" (MainWindow::markNotApplied), come i campi dei path;
 // - al clic o al tocco il campo si seleziona tutto, e la prima cifra
 //   sostituisce il valore. Senza, il cursore cadeva DENTRO il testo, e su un
 //   testo speciale ("start"/"end" di In e Out a 0) ogni cifra dava "start2",
@@ -1366,14 +1372,36 @@ static void editLikePathFields(QDoubleSpinBox *box)
     public:
         explicit FocusRules(QDoubleSpinBox *b) : QObject(b), box(b) {}
         bool eventFilter(QObject *, QEvent *e) override {
-            if (e->type() == QEvent::FocusOut) box->setValue(box->value());
+            if (e->type() == QEvent::FocusOut) {
+                // Prima che lo spinbox interpreti il testo: vuoto -> 0.
+                if (box->cleanText().isEmpty()) box->setValue(0.0);
+                MainWindow::markNotApplied(box, false, QString());
+            }
             if (e->type() == QEvent::FocusIn)
                 QTimer::singleShot(0, box, [b = box]() { b->selectAll(); });
+            if (e->type() == QEvent::KeyPress && static_cast<QKeyEvent *>(e)->key() == Qt::Key_Escape) {
+                box->setValue(box->value());   // il testo torna il valore applicato
+                box->selectAll();
+                MainWindow::markNotApplied(box, false, QString());
+                return true;
+            }
             return false;
         }
         QDoubleSpinBox *box;
     };
     box->installEventFilter(new FocusRules(box));
+    if (QLineEdit *edit = box->findChild<QLineEdit *>()) {
+        QObject::connect(edit, &QLineEdit::textEdited, box, [box]() {
+            const bool shown = box->cleanText() == box->textFromValue(box->value())
+                               || (!box->specialValueText().isEmpty() && box->value() == box->minimum()
+                                   && box->text() == box->specialValueText());
+            MainWindow::markNotApplied(box, !shown,
+                                       QStringLiteral("Not applied yet: press Enter, or leave the field, to apply it. "
+                                                      "An empty field is 0. Esc puts back the applied value."));
+        });
+    }
+    QObject::connect(box, &QDoubleSpinBox::valueChanged, box,
+                     [box]() { MainWindow::markNotApplied(box, false, QString()); });
 }
 
 void MainWindow::setupObjectsDock()
@@ -2018,10 +2046,145 @@ void MainWindow::loadObjectPathText()
 {
     GLWidget *gl = ui->glWidget;
     const int selected = gl->selectedObject();
+    // La bozza dell'oggetto, se ne ha una: il testo scritto non sparisce.
+    const bool hasSession = selected > 0 && selected < int(m_objectSessions.size());
+    const auto &draft = hasSession ? m_objectSessions[selected].pathDraft
+                                   : std::optional<std::array<std::array<QString, 4>, 2>>();
     for (int kind = 0; kind < 2; ++kind) {
         const QStringList path = gl->objectPath(selected, kind);
-        for (int i = 0; i < 4; ++i) m_objectPathText[kind][i] = selected > 0 ? path.value(i) : QString();
+        for (int i = 0; i < 4; ++i)
+            m_objectPathText[kind][i] = selected <= 0 ? QString() : draft ? (*draft)[kind][i] : path.value(i);
     }
+}
+
+// Il testo di un campo del path della camera come lo compila
+// compilePath*FromFields: vuoto = 0, la virgola e' il punto. Due testi uguali
+// cosi' sono lo stesso path (al load il motore riceve i campi grezzi).
+static QString cameraPathText(QString s)
+{
+    s = s.trimmed();
+    return s.isEmpty() ? QStringLiteral("0") : s.replace(QLatin1Char(','), QLatin1Char('.'));
+}
+
+void MainWindow::noteObjectPathDraft()
+{
+    if (!m_uiReady) return;
+    GLWidget *gl = ui->glWidget;
+    const int k = gl ? gl->selectedObject() : 0;
+    if (k <= 0 || k >= int(m_objectSessions.size())) return;
+    std::array<std::array<QString, 4>, 2> draft;
+    bool differs = false;
+    for (int kind = 0; kind < 2; ++kind) {
+        const QStringList applied = gl->objectPath(k, kind);
+        for (int i = 0; i < 4; ++i) {
+            draft[kind][i] = m_objectPathText[kind][i];
+            if (m_objectPathText[kind][i].trimmed() != applied.value(i).trimmed()) differs = true;
+        }
+    }
+    if (differs) m_objectSessions[k].pathDraft = draft;
+    else m_objectSessions[k].pathDraft.reset();
+    refreshPathFieldMarks();
+}
+
+void MainWindow::markNotApplied(QWidget *field, bool on, const QString &tip)
+{
+    if (!field) return;
+    const bool was = isMarkedNotApplied(field);
+    // Il tooltip di prima torna se nel frattempo nessuno l'ha riscritto
+    // (refreshPathControls rimette ai campi dei path quello degli oggetti fissi).
+    if (on && !was) field->setProperty("baseToolTip", field->toolTip());
+    if (on) field->setToolTip(tip);
+    else if (was && field->toolTip() == field->property("notAppliedTip").toString())
+        field->setToolTip(field->property("baseToolTip").toString());
+    field->setProperty("notAppliedTip", on ? tip : QString());
+    if (on == was) return;
+    field->setProperty("notApplied", on);
+    // Una proprieta' dinamica cambiata non ricalcola il foglio di stile da sola.
+    field->style()->unpolish(field);
+    field->style()->polish(field);
+    field->update();
+}
+
+void MainWindow::refreshPathFieldMarks()
+{
+    if (!m_uiReady) return;
+    GLWidget *gl = ui->glWidget;
+    if (!gl) return;
+    QLineEdit *const fields3D[] = { ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D, ui->lineR_P3D };
+    QLineEdit *const fields4D[] = { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P,
+                                    ui->lineAlpha_P, ui->lineBeta_P, ui->lineGamma_P };
+    const int selected = gl->selectedObject();
+    if (selected > 0) {
+        // L'oggetto: X, Y, Z (e P nel 4D) contro il suo path applicato; R e
+        // gli angoli non sono suoi.
+        const QString removeHint = QStringLiteral(" With all the fields empty, Enter removes the path.");
+        const QString escHint = QStringLiteral(" Esc puts back the applied path.");
+        for (int kind = 0; kind < 2; ++kind) {
+            QLineEdit *const *fields = kind == SurfaceEngine::ObjectPath3D ? fields3D : fields4D;
+            const int count = kind == SurfaceEngine::ObjectPath3D ? 4 : 7;
+            const int own = kind == SurfaceEngine::ObjectPath3D ? 3 : 4;
+            const QStringList applied = gl->objectPath(selected, kind);
+            const QString tip = QStringLiteral("Not applied yet: ")
+                                + (gl->isObjectPathRunning(selected, kind) ? QStringLiteral("press Enter to apply it.")
+                                                                           : QStringLiteral("DEPARTURE or START applies it."))
+                                + removeHint + escHint;
+            for (int i = 0; i < count; ++i)
+                markNotApplied(fields[i], i < own && m_objectPathText[kind][i].trimmed() != applied.value(i).trimmed(), tip);
+        }
+        return;
+    }
+    // La camera: conta solo il path su cui e' (in corsa o fermo, il cursore T
+    // e il RESET lo usano); il testo e' confrontato come lo compila
+    // compilePath*FromFields (cameraPathText).
+    const auto norm = cameraPathText;
+    const std::optional<CameraPaths::Path> on = cameraPath();
+    const QString tip = QStringLiteral("Not applied yet: press Enter to apply it. Esc puts back the applied path.");
+    SurfaceEngine *env = gl->environmentEngine();
+    const QStringList applied3D = env ? env->appliedPath3D() : QStringList();
+    const QStringList applied4D = env ? env->appliedPath4D() : QStringList();
+    for (int i = 0; i < 4; ++i)
+        markNotApplied(fields3D[i], on == CameraPaths::Path3D && norm(lineText(fields3D[i])) != norm(applied3D.value(i)), tip);
+    for (int i = 0; i < 7; ++i)
+        markNotApplied(fields4D[i], on == CameraPaths::Path4D && norm(lineText(fields4D[i])) != norm(applied4D.value(i)), tip);
+}
+
+void MainWindow::revertPathFieldsOnEscape(const QString &fieldName)
+{
+    GLWidget *gl = ui->glWidget;
+    if (!gl) return;
+    const bool is3D = fieldName.endsWith(QLatin1String("_P3D"));
+    const int selected = gl->selectedObject();
+    if (selected > 0) {
+        const int kind = is3D ? SurfaceEngine::ObjectPath3D : SurfaceEngine::ObjectPath4D;
+        const QStringList applied = gl->objectPath(selected, kind);
+        for (int i = 0; i < 4; ++i) m_objectPathText[kind][i] = applied.value(i);
+        showPathFields();
+        noteObjectPathDraft();
+        return;
+    }
+    // La camera: il testo del path che ha applicato, se la camera e' su di lui.
+    const CameraPaths::Path p = is3D ? CameraPaths::Path3D : CameraPaths::Path4D;
+    if (cameraPath() != p) return;
+    SurfaceEngine *env = gl->environmentEngine();
+    if (!env) return;
+    const QStringList applied = is3D ? env->appliedPath3D() : env->appliedPath4D();
+    QLineEdit *const fields3D[] = { ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D, ui->lineR_P3D };
+    QLineEdit *const fields4D[] = { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P,
+                                    ui->lineAlpha_P, ui->lineBeta_P, ui->lineGamma_P };
+    QLineEdit *const *fields = is3D ? fields3D : fields4D;
+    const int count = is3D ? 4 : 7;
+    const auto table = lineFieldTable();
+    for (int i = 0; i < count; ++i) {
+        if (cameraPathText(lineText(fields[i])) == cameraPathText(applied.value(i))) continue;
+        // Il path compilato da un campo vuoto dice "0": il campo torna vuoto.
+        QString text = applied.value(i).trimmed();
+        if (text == QLatin1String("0")) text.clear();
+        for (const auto &f : table)
+            if (f.first == fields[i] && f.second) setLineText(*f.second, text);
+    }
+    if (is3D) checkPath3DFields();
+    else checkPathFields();
+    refreshPathFieldMarks();
 }
 
 void MainWindow::showPathFields()
@@ -2045,6 +2208,7 @@ void MainWindow::showPathFields()
                                        : m_scene.pathSpeed3D);
     ui->speed4DSlider->setValue(object ? gl->objectPathSpeed(selected, SurfaceEngine::ObjectPath4D)
                                        : m_scene.pathSpeed4D);
+    refreshPathFieldMarks();
 }
 
 void MainWindow::setSelectedObjectPathSpeed(int kind, int speed)
@@ -2108,8 +2272,10 @@ bool MainWindow::commitObjectPathFields(int kind)
     for (int i = 0; i < 4; ++i) text[i] = m_objectPathText[kind][i].trimmed();
     const QStringList current = gl->objectPath(selected, kind);
     if (text[0] == current.value(0) && text[1] == current.value(1) && text[2] == current.value(2)
-        && text[3] == current.value(3))
+        && text[3] == current.value(3)) {
+        noteObjectPathDraft();   // il testo e' quello applicato: niente bozza
         return true;
+    }
     m_applyingObjectPath = true;
     bool ok = true;
     for (int i = 0; i < 4 && ok; ++i)
@@ -2123,6 +2289,7 @@ bool MainWindow::commitObjectPathFields(int kind)
     m_applyingObjectPath = false;
     if (!ok) return false;   // il testo resta, per correggerlo; il path e' quello di prima
     m_sceneObjectsChanged = true;
+    noteObjectPathDraft();   // applicato: la bozza (dell'altro tipo, se c'e') e i segni
     refreshPathControls();
     return true;
 }
@@ -2160,6 +2327,7 @@ void MainWindow::refreshPathControls()
     if (selected == 0) {
         ui->btnDeparture->setText(pathRunning(CameraPaths::Path4D) ? stop : departure);
         ui->btnDeparture3D->setText(pathRunning(CameraPaths::Path3D) ? stop : departure);
+        refreshPathFieldMarks();   // dopo i tooltip qui sopra: il segno li copre
         return;
     }
     const bool running3D = gl->isObjectPathRunning(selected, SurfaceEngine::ObjectPath3D);
@@ -2182,6 +2350,7 @@ void MainWindow::refreshPathControls()
     const bool usable4D = (sceneIs4D() && !implicitMode()) || written4D;
     for (QLineEdit *field : { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P })
         field->setEnabled(usable4D && !fixed);
+    refreshPathFieldMarks();
 }
 
 bool MainWindow::sceneTimeCanRun() const

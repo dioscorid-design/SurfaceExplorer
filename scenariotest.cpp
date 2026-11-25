@@ -6107,8 +6107,10 @@ void ScenarioTest::runSceneObjectScenarios()
     check(qFuzzyCompare(gl->objectPosition().x(), 1.2f) && m_mw->hasUnsavedWork(),
           QStringLiteral("X = 1.2 dal dock: l'oggetto si sposta e la scena e' da salvare"));
     // DIGITAZIONE VERA nel campo X (i tasti al widget col focus, come
-    // dall'utente): le cifre non applicano, l'Invio si'; uscendo senza Invio
-    // torna il valore applicato.
+    // dall'utente): le cifre non applicano (il campo ha il bordo "non
+    // applicato"), l'Invio si'; uscire dal campo applica (fino al 2026-11-25
+    // rimetteva il valore di prima, in silenzio); svuotato vale 0; Esc
+    // rimette il valore applicato.
     {
         // Senza widget col fuoco (un'altra finestra davanti a meta' prova) il
         // tasto non si manda: sendEvent su nullptr faceva cadere l'app.
@@ -6130,18 +6132,44 @@ void ScenarioTest::runSceneObjectScenarios()
         keys(QStringLiteral("2.5"));
         wait(100);
         const float typing = gl->objectPosition().x();
+        const bool markedTyping = MainWindow::isMarkedNotApplied(x);
         key(Qt::Key_Return);
         wait(100);
         const float entered = gl->objectPosition().x();
+        const bool markedEntered = MainWindow::isMarkedNotApplied(x);
         x->selectAll();
         keys(QStringLiteral("7"));
         m_mw->m_objectPos[1]->setFocus();   // esce dal campo senza Invio
         wait(100);
-        check(qFuzzyCompare(typing, 1.2f) && qFuzzyCompare(entered, 2.5f)
-                  && qFuzzyCompare(gl->objectPosition().x(), 2.5f) && std::abs(x->value() - 2.5) < 1e-9,
-              QStringLiteral("X digitato: le cifre non applicano (%1), l'Invio si' (%2); uscito senza Invio "
-                             "torna %3 (campo %4)")
+        check(qFuzzyCompare(typing, 1.2f) && markedTyping && qFuzzyCompare(entered, 2.5f) && !markedEntered
+                  && qFuzzyCompare(gl->objectPosition().x(), 7.0f) && std::abs(x->value() - 7.0) < 1e-9
+                  && !MainWindow::isMarkedNotApplied(x),
+              QStringLiteral("X digitato: le cifre non applicano (%1, campo segnato), l'Invio si' (%2); uscito senza "
+                             "Invio applica %3 (campo %4)")
                   .arg(typing).arg(entered).arg(gl->objectPosition().x()).arg(x->text()));
+        }
+        if (focusForTyping(x)) {
+            x->selectAll();
+            key(Qt::Key_Backspace);
+            m_mw->m_objectPos[1]->setFocus();   // esce dal campo vuoto
+            wait(100);
+            check(gl->objectPosition().x() == 0.0f && x->value() == 0.0,
+                  QStringLiteral("X svuotato e lasciato: vale 0 (oggetto %1, campo %2)")
+                      .arg(gl->objectPosition().x()).arg(x->text()));
+        }
+        if (focusForTyping(x)) {
+            x->selectAll();
+            keys(QStringLiteral("3"));
+            wait(100);
+            key(Qt::Key_Escape);
+            wait(100);
+            const QString afterEsc = x->text();
+            m_mw->m_objectPos[1]->setFocus();
+            wait(100);
+            check(gl->objectPosition().x() == 0.0f && x->value() == 0.0 && !MainWindow::isMarkedNotApplied(x)
+                      && afterEsc == x->textFromValue(0.0),
+                  QStringLiteral("X = 3 poi Esc: torna 0 (campo dopo Esc \"%1\"), uscendo resta 0, nessun segno")
+                      .arg(afterEsc));
         }
         x->setValue(1.2);
         m_mw->m_dockObjects->close();
@@ -13493,6 +13521,45 @@ void ScenarioTest::runScenePathScenarios()
         // Il path di prima, per il resto della sezione.
         fieldsTo(QStringLiteral("2*t"), QStringLiteral("mod(t,2)"), QStringLiteral("0.7*floor(t)"));
         go->click();
+
+        // IL TESTO NON APPLICATO SI VEDE E NON SPARISCE (richiesta
+        // dell'utente, 2026-11-25): bordo ambra e tooltip sul campo cambiato;
+        // il testo resta dell'oggetto anche dopo un refreshObjectsUi e un
+        // cambio di selezione (prima tornava il path applicato); Esc rimette
+        // quello applicato, Departure lo applica.
+        const auto marked = [](QLineEdit *e) { return MainWindow::isMarkedNotApplied(e); };
+        ui->lineX_P3D->setText(QStringLiteral("4*t"));
+        check(marked(ui->lineX_P3D) && !marked(ui->lineY_P3D) && ui->lineX_P3D->toolTip().contains(QLatin1String("Enter"))
+                  && gl->objectPath(sphere, SurfaceEngine::ObjectPath3D).value(0) == QLatin1String("2*t"),
+              QStringLiteral("in corsa, X = 4*t senza Invio: il campo X e' segnato non applicato (tooltip: Enter), Y no"));
+        go->click();   // fermo: la bozza resta
+        m_mw->refreshObjectsUi();
+        check(ui->lineX_P3D->text() == QLatin1String("4*t") && marked(ui->lineX_P3D)
+                  && ui->lineX_P3D->toolTip().contains(QLatin1String("DEPARTURE")),
+              QStringLiteral("fermo, dopo un aggiornamento del dock: X = 4*t resta, segnato (tooltip: DEPARTURE)"));
+        m_mw->selectSceneObject(0);
+        wait(100);
+        check(!marked(ui->lineX_P3D), QStringLiteral("sull'ambiente il campo X non e' segnato"));
+        m_mw->selectSceneObject(sphere);
+        wait(100);
+        check(ui->lineX_P3D->text() == QLatin1String("4*t") && marked(ui->lineX_P3D),
+              QStringLiteral("tornati sulla sfera: X = 4*t c'e' ancora, segnato"));
+        {
+            ui->lineX_P3D->setFocus();
+            QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QCoreApplication::sendEvent(ui->lineX_P3D, &esc);
+            wait(100);
+        }
+        check(ui->lineX_P3D->text() == QLatin1String("2*t") && !marked(ui->lineX_P3D)
+                  && !m_mw->m_objectSessions[sphere].pathDraft,
+              QStringLiteral("Esc: torna X = 2*t, il segno se ne va"));
+        ui->lineX_P3D->setText(QStringLiteral("4*t"));
+        go->click();
+        check(gl->objectPath(sphere, SurfaceEngine::ObjectPath3D).value(0) == QLatin1String("4*t") && !marked(ui->lineX_P3D)
+                  && gl->isObjectPathRunning(sphere),
+              QStringLiteral("Departure applica X = 4*t e riparte: nessun segno"));
+        // Di nuovo 2*t, in corsa, per il resto della sezione.
+        setPathFields(QStringLiteral("2*t"), QStringLiteral("mod(t,2)"), QStringLiteral("0.7*floor(t)"));
     }
 
     // I campi seguono la selezione: l'ambiente mostra il path della camera, che
@@ -13664,6 +13731,63 @@ void ScenarioTest::runScenePathScenarios()
                       && !resaved.contains(QStringLiteral("path4D")) && !resaved.contains(QStringLiteral("pathSpeed4D")),
                   QStringLiteral("scena di prima con P(t): path 4D, velocita' di default (t in secondi), si risalva uguale"));
         }
+    }
+
+    // IL PATH DELLA CAMERA: segnato solo quando la camera e' su di lui e il
+    // testo e' diverso da quello compilato; l'Invio lo applica, Esc lo rimette.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Path della camera: il testo non applicato si vede, Invio lo applica, Esc lo rimette =="));
+    if (!buildScene(false, { kSphere })) return;
+    {
+        const auto marked = [](QLineEdit *e) { return MainWindow::isMarkedNotApplied(e); };
+        QPushButton *departure3D = ui->btnDeparture3D;   // `go` qui sopra e' passato al 4D
+        m_mw->selectSceneObject(0);
+        wait(100);
+        ui->lineX_P3D->setText(QStringLiteral("2*cos(t)"));
+        ui->lineY_P3D->setText(QStringLiteral("2*sin(t)"));
+        ui->lineZ_P3D->setText(QStringLiteral("1"));
+        check(!marked(ui->lineX_P3D), QStringLiteral("camera senza path: i campi scritti non sono segnati"));
+        departure3D->click();
+        wait(200);
+        check(m_mw->pathRunning(CameraPaths::Path3D) && !marked(ui->lineX_P3D) && !marked(ui->lineR_P3D),
+              QStringLiteral("Departure: path in corsa, nessun segno (R vuoto = 0 compilato)"));
+        ui->lineZ_P3D->setText(QStringLiteral("1,5"));
+        check(marked(ui->lineZ_P3D) && !marked(ui->lineX_P3D),
+              QStringLiteral("in corsa, Z = 1,5 senza Invio: segnato"));
+        {
+            ui->lineZ_P3D->setFocus();
+            QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QCoreApplication::sendEvent(ui->lineZ_P3D, &esc);
+            wait(100);
+        }
+        check(ui->lineZ_P3D->text() == QLatin1String("1") && !marked(ui->lineZ_P3D),
+              QStringLiteral("Esc: Z torna 1, il segno se ne va"));
+        ui->lineZ_P3D->setText(QStringLiteral("1,5"));
+        pressEnter(ui->lineZ_P3D);
+        check(!marked(ui->lineZ_P3D) && gl->environmentEngine()->appliedPath3D().value(2) == QLatin1String("1.5"),
+              QStringLiteral("Invio: Z = 1.5 compilato, nessun segno"));
+        departure3D->click();   // fermo
+        wait(100);
+    }
+
+    // I CAMPI DEL DOCK EQUATIONS: lo stesso bordo finche' il Run non applica.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Dock Equations: il testo non applicato si vede, il Run lo applica =="));
+    if (!loadSurface(kSphere)) return;
+    wait(300);
+    {
+        const auto marked = [](QWidget *e) { return MainWindow::isMarkedNotApplied(e); };
+        const QString x0 = ui->lineX->toPlainText();
+        check(!marked(ui->lineX) && !marked(ui->lineY), QStringLiteral("sfera aperta: nessun campo segnato"));
+        ui->lineX->setPlainText(QStringLiteral("1.5*") + x0);
+        check(marked(ui->lineX) && !marked(ui->lineY) && ui->lineX->toolTip().contains(QLatin1String("Run")),
+              QStringLiteral("X cambiata senza Run: segnata (tooltip: Run), Y no"));
+        ui->lineX->setPlainText(x0);
+        check(!marked(ui->lineX), QStringLiteral("X riscritta com'era: il segno se ne va"));
+        ui->lineX->setPlainText(QStringLiteral("1.5*") + x0);
+        ui->btnRunParametric->click();
+        wait(800);
+        check(!marked(ui->lineX), QStringLiteral("Run: X applicata, nessun segno"));
     }
 }
 
