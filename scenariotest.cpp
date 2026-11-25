@@ -2231,6 +2231,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-h3-depth")) {
+        runSceneH3DepthScenario();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-switch")) {
         runSceneSwitchScenarios();
         finish();
@@ -13158,6 +13163,61 @@ void ScenarioTest::runSceneH3Scenarios()
     wait(300);
     gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-3d-tube.png"));
     newScene();
+    runSceneH3DepthScenario();
+}
+
+// LA PROFONDITA' IN H3 LONTANO DALLA CAMERA (common.glsl,
+// hyperbolicPerspectiveClip). Con la carta di Klein valeva tanh(d), e oltre
+// ~7 raggi un passo del depth buffer superava i due raggi: z-fighting sulla
+// parte lontana di un toro a 10 raggi (scena 1 dell'utente, 2026-11-25). La
+// camera dentro due sfere concentriche: la rossa a 8 raggi davanti, la blu a
+// 8.5 dietro, disegnata dopo (il test e' LessOrEqual: a profondita' uguale
+// vince lei). Deve vedersi solo il rosso.
+void ScenarioTest::runSceneH3DepthScenario()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Scena H3: profondita' precisa lontano dalla camera (due sfere a 8 e 8.5 raggi) =="));
+    const QString sphere = shapePath(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json"));
+    check(!sphere.isEmpty(), QStringLiteral("sfera nella libreria"));
+    if (sphere.isEmpty()) return;
+    pressNew();
+    m_discardOnPrompt = true;
+    m_mw->startScene(MainWindow::SceneSpace::SpaceH3);
+    wait(300);
+    m_discardOnPrompt = false;
+    for (int k = 0; k < 2; ++k) {
+        m_mw->addShapeToScene(sphere);
+        wait(800);
+    }
+    check(gl->hyperbolicSpace() && gl->objectCount() == 3, QStringLiteral("scena H3 con due sfere (%1 oggetti)").arg(gl->objectCount()));
+    if (!gl->hyperbolicSpace() || gl->objectCount() != 3) return;
+    const struct { float radii, r, g, b; } spheres[2] = { { 8.0f, 1.0f, 0.0f, 0.0f }, { 8.5f, 0.0f, 0.0f, 1.0f } };
+    for (int k = 0; k < 2; ++k) {
+        m_mw->selectSceneObject(k + 1);
+        gl->setObjectPosition(QVector3D());
+        gl->setObjectScale(float(spheres[k].radii / gl->m_h3RadiiPerSceneUnit));
+        gl->setColor(spheres[k].r, spheres[k].g, spheres[k].b);
+    }
+    m_mw->selectSceneObject(0);
+    gl->m_h3Camera = H3::translation({ 0.0, 0.0, 0.3 });
+    gl->stopAllTimers();
+    wait(400);
+    gl->grabFramebuffer();
+    wait(200);
+    const QImage img = gl->grabFramebuffer().convertToFormat(QImage::Format_RGB32);
+    img.save(m_outDir + QStringLiteral("/scene-h3-depth-far.png"));
+    int red = 0, blue = 0, all = 0;
+    for (int y = 0; y < img.height(); y += 2)
+        for (int x = 0; x < img.width(); x += 2) {
+            const QRgb c = img.pixel(x, y);
+            ++all;
+            if (qRed(c) > qBlue(c) + 30) ++red;
+            else if (qBlue(c) > qRed(c) + 30) ++blue;
+        }
+    check(all > 0 && red > 0.95 * all && blue < 0.002 * all,
+          QStringLiteral("dentro le sfere si vede la rossa davanti: rossi %1%, blu %2% (scene-h3-depth-far.png)")
+              .arg(100.0 * red / std::max(all, 1), 0, 'f', 2).arg(100.0 * blue / std::max(all, 1), 0, 'f', 2));
 }
 
 void ScenarioTest::runScenePathScenarios()

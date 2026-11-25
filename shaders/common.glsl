@@ -100,3 +100,36 @@ float NoiseW(float x, float y, float z, float octaves_in, float lacunarity, floa
     if (maxAmplitude > 0.0) return total / maxAmplitude;
     return total;
 }
+
+// --- PROFONDITA' IN H3, IN PROSPETTIVA (codice dell'app, non per gli script) ---
+// Una sede sola per tutto cio' che in una scena H3 scrive profondita': mesh,
+// tubi e bordo (surface.vert, hyperbolicClip), ray marching (hitDepth) e
+// reticolo (GLWidget::createLatticePipeline). Devono combaciare, o salta
+// l'occlusione fra loro.
+// P e' il punto dell'iperboloide nel riferimento della camera. Sullo schermo
+// va la carta di Klein, proj * P: x, y e w restano quelli, e le varying si
+// interpolano ancora lineari nella carta, dove i triangoli sono geodetici.
+// La PROFONDITA' no. In Klein vale tanh(d), d = distanza dalla camera, che
+// tende a 1 come 1 - 2e^-2d: oltre ~7 raggi un passo del depth buffer a 24
+// bit superava i due raggi, e la parte lontana di un toro grande era tutta
+// z-fighting (scena 1 dell'utente, 2026-11-25; scenario scene-h3-depth).
+// Qui la profondita' e' quella del punto dello STESSO raggio visivo a raggio di
+// Klein d / (1 + d): vicino alla camera ~d come prima (stesso near), lontano
+// tende a 1 solo come 1/d (a 10 raggi un passo vale ~1e-3 raggi), e il far
+// (1.001) non lo raggiunge mai. Quel punto e' (P.xyz, W') con
+// W' = sinh(d) (1 + d) / d; la riga w di una prospettiva non legge la quarta
+// coordinata, quindi il suo clip.w e' lo stesso e basta prenderne la z.
+// sinh(d) = |P.xyz| senza traboccare come in h3LogLength (ray marching): un
+// punto lontano supera 1e19.
+// Il prezzo: la profondita' non e' piu' lineare sul triangolo, lo e' a meno
+// del secondo ordine nel lato, trascurabile alle maglie delle mesh.
+vec4 hyperbolicPerspectiveClip(mat4 proj, vec4 P) {
+    vec4 clip = proj * P;
+    float m = max(abs(P.x), max(abs(P.y), abs(P.z)));
+    if (m < 1.0e-20) return clip;
+    float ln = length(P.xyz / m);
+    float s = m * ln;
+    float d = (s < 1.0e-3) ? s : ((s < 1.0e4) ? log(s + sqrt(s * s + 1.0)) : log(2.0) + log(s));
+    clip.z = (proj * vec4(P.xyz, s / d * (1.0 + d))).z;
+    return clip;
+}

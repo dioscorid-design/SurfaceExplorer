@@ -329,6 +329,8 @@ private:
     void runSceneSpaceScenarios();
     // La scena in H3 (avvio, camera come isometria, rifiuti, RESET, NEW).
     void runSceneH3Scenarios();
+    // In coda a scene-h3: la profondita' lontano dalla camera (z-fighting).
+    void runSceneH3DepthScenario();
     // 2.0: il cambio di spazio di una scena avviata, 3D <-> H3 (oggetti,
     // shader, camera, stato di H3, rifiuti, path, Save). Da sola:
     // --scenario-only scene-switch.

@@ -950,10 +950,12 @@ vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner) {
 float hitDepth(vec3 pModel) {
 #ifdef HYPERBOLIC
     // In H3 il punto passa dalla stessa carta delle mesh (surface.vert,
-    // hyperbolicChart): Klein in prospettiva, la palla di Poincare' (x / (1 + w))
-    // nella vista da fuori.
+    // hyperbolicClip): Klein in prospettiva, con la profondita' di
+    // hyperbolicPerspectiveClip (common.glsl), la palla di Poincare'
+    // (x / (1 + w)) nella vista da fuori.
     vec4 P = h3Point(pModel);
-    vec4 clip = ubuf.u_mvpMatrix * ((ubuf.u_projMode == 0) ? vec4(P.xyz, 1.0 + P.w) : P);
+    vec4 clip = (ubuf.u_projMode == 0) ? ubuf.u_mvpMatrix * vec4(P.xyz, 1.0 + P.w)
+                                       : hyperbolicPerspectiveClip(ubuf.u_mvpMatrix, P);
 #else
     vec4 clip = ubuf.u_mvpMatrix * vec4(pModel, 1.0);
 #endif
