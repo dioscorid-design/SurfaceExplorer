@@ -78,7 +78,7 @@
                 <li>it cannot be modified: equations, constants, rendering, position and size are off in the docks; its <strong>texture</strong> and colors, however, stay its own and can be changed while it is fixed;</li>
                 <li>it cannot be removed: <strong>Remove</strong> is off (<strong>Duplicate</strong> stays: the copy is a normal object);</li>
                 <li>it is always in the scene: no In/Out window;</li>
-                <li>it has no motions of its own: fixing it stops GO and its paths and sets the speeds to zero; from then on it moves only with the world, with the rotations and paths of the environment;</li>
+                <li>it has no motions of its own: fixing it stops GO and its paths and sets the speeds to zero; from then on it moves only with the world, with the rotations and paths of the environment. The formulas of its paths stay written but do not run: <strong>START</strong> leaves them alone (and reads <em>STOP</em> without waiting for them), and once the object is free again <strong>DEPARTURE</strong> starts them;</li>
                 <li>it answers gestures like the environment: wheel, pinch and 3D dock move the camera, dragging turns the whole scene (in H&sup3; it orbits the camera around the centre), dragging with the right button or with two fingers slides the whole scene.</li>
             </ul>
             <p>In the list it appears as <code>Torus   (fixed)</code>. Unchecking the box makes it a normal object again, to modify or remove. The scene file remembers it (key <code>fixed</code>).</p>
