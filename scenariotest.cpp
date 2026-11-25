@@ -10732,10 +10732,13 @@ void ScenarioTest::runMovingFrameScenarios()
         double worstMoon = 0.0;
         recSteps(20, [&]() { worstMoon = std::max(worstMoon, std::abs(double(objectRelative(2, 3).length()) - 0.7)); });
         const float earthMoved = (worldOf(2) - earth0).length();
-        check(ok && gl->hyperbolicSpace() && frames && worstMoon < 1e-3 && earthMoved > 0.05f,
-              QStringLiteral("Moving Frame Orbits: H3, luna attorno alla terra e satellite attorno alla luna (%1); la terra "
-                             "si muove (%2), la luna resta a 0.7 da lei (scarto %3)")
-                  .arg(frames).arg(earthMoved, 0, 'f', 3).arg(worstMoon, 0, 'g', 3));
+        // Lo spazio e' quello in cui l'utente la tiene (H3 fino al 2026-11-24,
+        // poi 3D): i riferimenti valgono in tutti e due.
+        check(ok && frames && worstMoon < 1e-3 && earthMoved > 0.05f,
+              QStringLiteral("Moving Frame Orbits (%4): luna attorno alla terra e satellite attorno alla luna (%1); la "
+                             "terra si muove (%2), la luna resta a 0.7 da lei (scarto %3)")
+                  .arg(frames).arg(earthMoved, 0, 'f', 3).arg(worstMoon, 0, 'g', 3)
+                  .arg(gl->hyperbolicSpace() ? QStringLiteral("H3") : QStringLiteral("3D")));
         gl->grabFramebuffer().save(m_outDir + QStringLiteral("/moving-frame-orbits.png"));
     } else {
         m_lines.append(QStringLiteral("   (scena d'esempio non in libreria: %1)").arg(orbits));
@@ -13436,6 +13439,55 @@ void ScenarioTest::runScenePathScenarios()
     ui->lineY_P3D->setText(QStringLiteral("mod(t,2)"));
     ui->lineZ_P3D->setText(QStringLiteral("0.7*floor(t)"));
     go->click();
+
+    // A PATH FERMO (segnalato dall'utente, 2026-11-25): svuotati i campi,
+    // l'Invio non faceva nulla e Departure era spento, quindi il path restava,
+    // la sfera spostata; il master START lo faceva ripartire riscrivendo i
+    // campi. Ora l'Invio lo toglie anche fermo, e lo START parte dai campi
+    // del selezionato, come coi path della camera.
+    {
+        auto fieldsTo = [ui](const QString &x, const QString &y, const QString &z) {
+            ui->lineX_P3D->setText(x);
+            ui->lineY_P3D->setText(y);
+            ui->lineZ_P3D->setText(z);
+        };
+        auto masterStart = [this]() {
+            m_mw->m_btnStart->setText(QStringLiteral("START"));
+            m_mw->m_btnStart->click();
+            wait(200);
+        };
+        gl->advanceClocksBy(0.5f);
+        go->click();   // fermo, la sfera spostata dal path
+        const bool moved = !isNear(gl->objectEffectivePosition(sphere), base);
+        setPathFields(QString(), QString(), QString());
+        check(moved && !gl->objectHasPath(sphere) && !gl->isObjectPathRunning(sphere)
+                  && isNear(gl->objectEffectivePosition(sphere), base) && !go->isEnabled()
+                  && !m_mw->masterActivity().objectPathAvailable,
+              QStringLiteral("a path fermo, campi svuotati + Invio: il path non c'e' piu', la sfera torna alla sua "
+                             "posizione, Departure spento"));
+        // Scritto senza Invio: lo START lo applica e lo avvia, i campi restano.
+        fieldsTo(QStringLiteral("2*t"), QStringLiteral("mod(t,2)"), QStringLiteral("0.7*floor(t)"));
+        masterStart();
+        check(gl->isObjectPathRunning(sphere) && gl->objectPath(sphere, SurfaceEngine::ObjectPath3D).value(0) == QLatin1String("2*t")
+                  && ui->lineX_P3D->text() == QLatin1String("2*t") && go->text() == QLatin1String("STOP"),
+              QStringLiteral("path scritto e non confermato: il master START lo applica e lo avvia"));
+        // Svuotati senza Invio, a path fermo: lo START lo toglie, i campi restano vuoti.
+        go->click();
+        fieldsTo(QString(), QString(), QString());
+        masterStart();
+        check(!gl->objectHasPath(sphere) && ui->lineX_P3D->text().isEmpty() && ui->lineY_P3D->text().isEmpty()
+                  && isNear(gl->objectEffectivePosition(sphere), base),
+              QStringLiteral("campi svuotati e non confermati: il master START toglie il path, i campi restano vuoti"));
+        // Una formula sbagliata non confermata: popup, lo START non parte.
+        m_lastPopup.clear();
+        fieldsTo(QStringLiteral("2*t+"), QStringLiteral("mod(t,2)"), QStringLiteral("0.7*floor(t)"));
+        masterStart();
+        check(!m_lastPopup.isEmpty() && !gl->objectHasPath(sphere) && ui->lineX_P3D->text() == QLatin1String("2*t+"),
+              QStringLiteral("formula sbagliata non confermata: popup, il master START non parte, il testo resta"));
+        // Il path di prima, per il resto della sezione.
+        fieldsTo(QStringLiteral("2*t"), QStringLiteral("mod(t,2)"), QStringLiteral("0.7*floor(t)"));
+        go->click();
+    }
 
     // I campi seguono la selezione: l'ambiente mostra il path della camera, che
     // resta suo; col ritorno all'oggetto tornano le sue formule.
