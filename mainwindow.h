@@ -1913,6 +1913,12 @@ private:
         int lastSectionCount = 0;
         int lastAppliedMeshCount = 1;
         bool lastSourceUsesMesh = false;
+        // LA BOZZA DEI SUOI PATH: il testo dei campi (3D e 4D, X Y Z P) scritto
+        // e non applicato. Resta suo quando si seleziona un altro oggetto, come
+        // il testo delle equazioni (state); vuota = i campi mostrano il path
+        // applicato. Prima ogni cambio di selezione, e ogni refreshObjectsUi,
+        // rimetteva nei campi il path applicato (noteObjectPathDraft).
+        std::optional<std::array<std::array<QString, 4>, 2>> pathDraft;
         int lastParametricSteps = 100;
         int lastImplicitSteps = 400;
         double lastImplicitS = 0.4;
@@ -2938,6 +2944,30 @@ private:
     // che CONSUMANO il Return: returnPressed non arriva mai ai QLineEdit):
     // a moto attivo ricompila le equazioni del path del campo al volo.
     void commitPathFieldOnEnter(const QString& fieldName);
+    // IL TESTO SCRITTO E NON APPLICATO SI VEDE (richiesta dell'utente,
+    // 2026-11-25: un campo svuotato o cambiato senza Invio sembrava applicato,
+    // e alla prima azione ricompariva cio' che c'era prima).
+    // Esc su un campo path (filtro tastiera desktop): i campi di quel path
+    // tornano al path applicato.
+    void revertPathFieldsOnEscape(const QString &fieldName);
+    // Il testo dei campi del path del selezionato e' diverso da quello
+    // applicato: resta suo (ObjectSession::pathDraft) quando si seleziona un
+    // altro oggetto. Dopo ogni modifica dei campi, un commit, un Esc.
+    void noteObjectPathDraft();
+    // Il bordo "non applicato" sui campi dei path: dell'oggetto selezionato
+    // (testo diverso dal suo path), della camera (testo diverso dal path
+    // compilato, quando la camera e' su quel path).
+    void refreshPathFieldMarks();
+    // Lo stesso bordo sui campi del dock Equations (superficie, composizione,
+    // vincoli, flusso geodetico) il cui testo e' diverso da quello applicato
+    // (m_eqApplied): prima il solo segno era il tasto Run acceso.
+    void refreshEquationFieldMarks();
+public:
+    // Il segno su un campo, con il suo tooltip (al ritorno, quello di prima).
+    // Proprieta' dinamica "notApplied", bordo nel foglio di stile.
+    static void markNotApplied(QWidget *field, bool on, const QString &tip);
+    static bool isMarkedNotApplied(const QWidget *field) { return field && field->property("notApplied").toBool(); }
+private:
     // Stessa provenienza (filtri tastiera): l'Invio su un limite U/V/W applica
     // subito il nuovo dominio, senza toccare le equazioni in sospeso.
     bool commitLimitFieldOnEnter(const QString& fieldName);

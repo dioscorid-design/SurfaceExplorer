@@ -394,7 +394,10 @@ void MainWindow::bindEquationFields()
     for (EqField f : fields) {
         QPlainTextEdit *edit = equationFieldEdit(f);
         if (!edit) continue;
-        auto sync = [this, f, edit] { m_scene.eq.*f = edit->toPlainText(); };
+        auto sync = [this, f, edit] {
+            m_scene.eq.*f = edit->toPlainText();
+            refreshEquationFieldMarks();
+        };
         // DUE agganci, stesso gestore. textChanged: connesso qui per primo,
         // gira prima di ogni altro gestore del campo (che m_scene.eq lo legge).
         // contentsChanged del DOCUMENTO: arriva anche quando il campo e'
@@ -550,12 +553,19 @@ void MainWindow::bindLineFields()
         // tasto -- u max svuotato accendeva il Run, riscritto lo spegneva.
         // Con un oggetto selezionato i campi dei path sono i suoi: quello
         // dell'ambiente resta dov'e'.
+        // Sui campi dei path il testo scritto e non applicato si vede (bordo e
+        // tooltip, refreshPathFieldMarks), e quello di un oggetto resta suo
+        // (noteObjectPathDraft).
         const auto write = [this, edit, state](const QString &t) {
             if (pathFieldsShowObject() && isPathEquationField(edit->objectName())) {
-                if (QString *slot = objectPathSlot(edit)) *slot = t;
+                if (QString *slot = objectPathSlot(edit)) {
+                    *slot = t;
+                    noteObjectPathDraft();
+                }
                 return;
             }
             *state = t;
+            if (isPathEquationField(edit->objectName())) refreshPathFieldMarks();
         };
         connect(edit, &QLineEdit::textEdited, this, write);
         connect(edit, &QLineEdit::textChanged, this, write);
@@ -1160,4 +1170,30 @@ void MainWindow::snapshotActiveEquations() {
     // applicava una composizione o un vincolo ancora in corso di scrittura
     // sulle equazioni di prima.
     m_eqApplied = m_scene.eq;
+    refreshEquationFieldMarks();
+}
+
+void MainWindow::refreshEquationFieldMarks()
+{
+    // In costruzione (bindEquationFields subito dopo setupUi) i timer del
+    // modulo non ci sono ancora: il primo giro lo fa updateMasterButtonState.
+    if (!m_uiReady) return;
+    // Senza uno snapshot (prima del primo Run o load) non c'e' un applicato.
+    static const EqField fields[] = {
+        &EquationTexts::x, &EquationTexts::y, &EquationTexts::z, &EquationTexts::p,
+        &EquationTexts::u, &EquationTexts::v, &EquationTexts::w,
+        &EquationTexts::explicitU, &EquationTexts::explicitV, &EquationTexts::explicitW,
+        &EquationTexts::geoU, &EquationTexts::geoV, &EquationTexts::geoW,
+        &EquationTexts::geoDU, &EquationTexts::geoDV, &EquationTexts::geoDW,
+        &EquationTexts::conform,
+    };
+    // Come applica il modulo: in moto l'Invio, fermo il Run.
+    const QString tip = isEquationModuleMoving()
+                            ? QStringLiteral("Not applied yet: press Enter to apply it.")
+                            : QStringLiteral("Not applied yet: Run applies it.");
+    for (EqField f : fields) {
+        QPlainTextEdit *edit = equationFieldEdit(f);
+        if (!edit) continue;
+        markNotApplied(edit, m_eqApplied && (m_scene.eq.*f).trimmed() != ((*m_eqApplied).*f).trimmed(), tip);
+    }
 }

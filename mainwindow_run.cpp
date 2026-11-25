@@ -2048,6 +2048,9 @@ void MainWindow::updateMasterButtonState()
     m_btnStart->setText(scene.any && scene.all ? "STOP" : "START");
 
     updateScriptButtonText();
+    // Il bordo "non applicato" dei campi Equations: qui passano Run, load,
+    // cambio di oggetto e inizio/fine del moto (il tooltip dice Enter o Run).
+    refreshEquationFieldMarks();
 }
 
 void MainWindow::applyAnimationState(bool animated, bool dockOnly) {
