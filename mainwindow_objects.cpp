@@ -1337,8 +1337,9 @@ void MainWindow::showSelectedObject()
 //   svuotato sembrava vuoto finche' non si faceva altro (segnalato
 //   dall'utente; scelto "uscire applica"). Lo spinbox, senza keyboardTracking,
 //   interpreta il testo da se' all'uscita (focusOutEvent);
-// - svuotato vale 0 ("start"/"end" per In e Out): senza, lo spinbox lo
-//   rifiutava e rimetteva il numero di prima;
+// - svuotato vale `emptyValue`: 0 per la posizione, "start"/"end" per In e
+//   Out, 1 per la scala (le equazioni come sono scritte); senza, lo spinbox
+//   lo rifiutava e rimetteva il numero di prima;
 // - Esc rimette il valore applicato; mentre si scrive il campo ha il bordo
 //   "non applicato" (MainWindow::markNotApplied), come i campi dei path;
 // - al clic o al tocco il campo si seleziona tutto, e la prima cifra
@@ -1347,16 +1348,16 @@ void MainWindow::showSelectedObject()
 //   che lo spinbox rifiuta: il campo non si scriveva finche' una freccia non
 //   lo portava a un numero. In coda all'evento: il clic che da' il focus posa
 //   anche il cursore.
-static void editLikePathFields(QDoubleSpinBox *box)
+static void editLikePathFields(QDoubleSpinBox *box, double emptyValue = 0.0)
 {
     box->setKeyboardTracking(false);
     class FocusRules : public QObject {
     public:
-        explicit FocusRules(QDoubleSpinBox *b) : QObject(b), box(b) {}
+        FocusRules(QDoubleSpinBox *b, double empty) : QObject(b), box(b), emptyValue(empty) {}
         bool eventFilter(QObject *, QEvent *e) override {
             if (e->type() == QEvent::FocusOut) {
-                // Prima che lo spinbox interpreti il testo: vuoto -> 0.
-                if (box->cleanText().isEmpty()) box->setValue(0.0);
+                // Prima che lo spinbox interpreti il testo: vuoto -> emptyValue.
+                if (box->cleanText().isEmpty()) box->setValue(emptyValue);
                 MainWindow::markNotApplied(box, false, QString());
             }
             if (e->type() == QEvent::FocusIn)
@@ -1370,16 +1371,18 @@ static void editLikePathFields(QDoubleSpinBox *box)
             return false;
         }
         QDoubleSpinBox *box;
+        double emptyValue;
     };
-    box->installEventFilter(new FocusRules(box));
+    box->installEventFilter(new FocusRules(box, emptyValue));
     if (QLineEdit *edit = box->findChild<QLineEdit *>()) {
-        QObject::connect(edit, &QLineEdit::textEdited, box, [box]() {
+        QObject::connect(edit, &QLineEdit::textEdited, box, [box, emptyValue]() {
             const bool shown = box->cleanText() == box->textFromValue(box->value())
                                || (!box->specialValueText().isEmpty() && box->value() == box->minimum()
                                    && box->text() == box->specialValueText());
             MainWindow::markNotApplied(box, !shown,
                                        QStringLiteral("Not applied yet: press Enter, or leave the field, to apply it. "
-                                                      "An empty field is 0. Esc puts back the applied value."));
+                                                      "An empty field is %1. Esc puts back the applied value.")
+                                           .arg(emptyValue));
         });
     }
     QObject::connect(box, &QDoubleSpinBox::valueChanged, box,
@@ -1434,9 +1437,11 @@ void MainWindow::setupObjectsDock()
         posRow->addWidget(rowLabel(QLatin1String(axes[i])));
         m_objectPos[i] = new QDoubleSpinBox(w);
         m_objectPos[i]->setRange(-GLWidget::kObjectPositionLimit, GLWidget::kObjectPositionLimit);
-        m_objectPos[i]->setToolTip(QStringLiteral("Position of the selected object, in scene units. The arrows of the "
-                                                  "3D dock move it as seen on screen, and so does dragging it with the "
-                                                  "right mouse button: its centre stays under the pointer."));
+        m_objectPos[i]->setToolTip(QStringLiteral("Position of the selected object, in scene units. With a path the "
+                                                  "object is drawn here plus the path X(t), Y(t), Z(t); with Placed "
+                                                  "around, both are read from the centre of that object. The arrows "
+                                                  "of the 3D dock move it as seen on screen, and so does dragging it "
+                                                  "with the right mouse button: its centre stays under the pointer."));
         m_objectPos[i]->setSingleStep(0.1);
         m_objectPos[i]->setDecimals(2);
         m_objectPos[i]->setLocale(QLocale::c());   // il punto, come i campi delle equazioni
@@ -1449,6 +1454,31 @@ void MainWindow::setupObjectsDock()
             m_sceneObjectsChanged = true;
         });
     }
+
+    // LA SCALA del selezionato: le sue equazioni moltiplicate per questo
+    // numero (il dock Equations le mostra come sono scritte: una sfera di
+    // raggio 1 a scala 0.15 ha raggio 0.15 nella scena). La cambiano anche
+    // rotella e pinch (GLWidget::zoomCamera); da qui lo stesso seguito
+    // (scena da salvare, in H3 il limite di zoom).
+    fieldRow(true)->addWidget(rowLabel(QStringLiteral("Scale")));
+    m_objectScale = new QDoubleSpinBox(w);
+    m_objectScale->setRange(0.01, 100.0);   // i limiti di GLWidget::setObjectScale
+    m_objectScale->setDecimals(3);
+    m_objectScale->setStepType(QAbstractSpinBox::AdaptiveDecimalStepType);
+    m_objectScale->setLocale(QLocale::c());
+    m_objectScale->setToolTip(QStringLiteral("Size of the selected object: its equations, as the Equations dock shows "
+                                             "them, are multiplied by this number (a sphere of radius 1 at scale 0.15 "
+                                             "has radius 0.15 in the scene). The mouse wheel and the pinch on the "
+                                             "object change it too. Positions and paths are in scene units, not "
+                                             "scaled."));
+    row->addWidget(m_objectScale, 1);
+    connect(m_objectScale, &QDoubleSpinBox::valueChanged, this, [this](double v) {
+        if (m_refreshingObjects) return;
+        ui->glWidget->setObjectScale(float(v));
+        m_sceneObjectsChanged = true;
+        clampHyperbolicObjectScales();
+        showObjectScale();   // il valore applicato (limiti, H3)
+    });
 
     // TIMELINE: la finestra di comparsa del selezionato, in secondi
     // dell'orologio di scena (0 = dall'inizio / fino alla fine).
@@ -1666,6 +1696,7 @@ void MainWindow::setupObjectsDock()
     connect(ui->glWidget, &GLWidget::objectScaleChangedByUser, this, [this]() {
         m_sceneObjectsChanged = true;
         clampHyperbolicObjectScales();
+        showObjectScale();
     });
     // La posizione spostata dai tasti del dock 3D (GLWidget::virtualMove) e
     // dal trascinamento col destro (GLWidget::dragObjectOnScreen).
@@ -1695,9 +1726,9 @@ void MainWindow::setupObjectsDock()
     // Su mobile il campo senza tasti: frecce native nascoste (da dito erano
     // quasi irraggiungibili), la tastiera con l'Invio che conferma e la
     // chiude. No-op su desktop.
-    for (QDoubleSpinBox *box : { m_objectPos[0], m_objectPos[1], m_objectPos[2],
+    for (QDoubleSpinBox *box : { m_objectPos[0], m_objectPos[1], m_objectPos[2], m_objectScale,
                                  m_objectWindowIn, m_objectWindowOut }) {
-        editLikePathFields(box);
+        editLikePathFields(box, box == m_objectScale ? 1.0 : 0.0);
         UiStyleManager::setupMobileSpinField(box, /*editable=*/true);
     }
     m_dockObjects->setWidget(w);
@@ -1732,6 +1763,20 @@ void MainWindow::clampHyperbolicObjectScales()
         const float limit = maxZoom * m_objectSessions[k].openingScale;
         if (gl->objectScaleAt(k) > limit) gl->setObjectScaleAt(k, limit);
     }
+    showObjectScale();   // il raggio di curvatura cambiato puo' averla ridotta
+}
+
+void MainWindow::showObjectScale()
+{
+    GLWidget *gl = ui->glWidget;
+    if (!m_objectScale || !gl) return;
+    const int selected = gl->selectedObject();
+    const bool wasRefreshing = m_refreshingObjects;
+    m_refreshingObjects = true;
+    m_objectScale->setValue(gl->objectScale());
+    m_refreshingObjects = wasRefreshing;
+    // Come la posizione: l'ambiente e un oggetto fisso non cambiano grandezza.
+    m_objectScale->setEnabled(selected > 0 && !gl->objectFixed(selected));
 }
 
 void MainWindow::refreshLatticeControls()
@@ -1956,6 +2001,7 @@ void MainWindow::refreshObjectsUi()
         m_objectPos[i]->setValue(i == 0 ? p.x() : i == 1 ? p.y() : p.z());
         m_objectPos[i]->setEnabled(selected > 0 && !fixed);
     }
+    showObjectScale();
     loadObjectPathText();
     m_objectWindowIn->setValue(gl->objectWindowIn(selected));
     m_objectWindowOut->setValue(gl->objectWindowOut(selected));

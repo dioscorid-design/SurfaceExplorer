@@ -6165,6 +6165,48 @@ void ScenarioTest::runSceneObjectScenarios()
                   QStringLiteral("X = 3 poi Esc: torna 0 (campo dopo Esc \"%1\"), uscendo resta 0, nessun segno")
                       .arg(afterEsc));
         }
+        // LA SCALA NEL DOCK (richiesta dell'utente, 2026-11-25: non si leggeva
+        // da nessuna parte): mostra quella dell'oggetto, segue la rotella,
+        // scritta si applica, vuota vale 1; sull'ambiente e' spenta.
+        {
+            QDoubleSpinBox *sc = m_mw->m_objectScale;
+            const float scale0 = gl->objectScale();
+            check(sc && sc->isEnabled() && std::abs(sc->value() - scale0) < 1e-3,
+                  QStringLiteral("campo Scale acceso, mostra la scala dell'oggetto (%1, oggetto %2)")
+                      .arg(sc ? sc->value() : -1.0).arg(scale0));
+            if (sc) {
+                gl->zoomCamera(1.0f);   // la rotella sull'oggetto
+                wait(100);
+                check(gl->objectScale() > scale0 && std::abs(sc->value() - gl->objectScale()) < 1e-3,
+                      QStringLiteral("rotella: la scala cresce (%1) e il campo la segue (%2)")
+                          .arg(gl->objectScale()).arg(sc->value()));
+                if (focusForTyping(sc)) {
+                    sc->selectAll();
+                    keys(QStringLiteral("2"));
+                    key(Qt::Key_Return);
+                    wait(100);
+                    check(std::abs(gl->objectScale() - 2.0f) < 1e-4 && m_mw->hasUnsavedWork(),
+                          QStringLiteral("Scale = 2 + Invio: l'oggetto ha scala %1, scena da salvare").arg(gl->objectScale()));
+                }
+                if (focusForTyping(sc)) {
+                    sc->selectAll();
+                    key(Qt::Key_Backspace);
+                    m_mw->m_objectPos[1]->setFocus();
+                    wait(100);
+                    check(std::abs(gl->objectScale() - 1.0f) < 1e-4 && std::abs(sc->value() - 1.0) < 1e-9,
+                          QStringLiteral("Scale svuotato e lasciato: vale 1 (oggetto %1)").arg(gl->objectScale()));
+                }
+                gl->setObjectScale(scale0);
+                m_mw->showObjectScale();
+                const int obj = gl->selectedObject();
+                m_mw->selectSceneObject(0);
+                wait(100);
+                check(!sc->isEnabled(), QStringLiteral("ambiente selezionato: Scale spento"));
+                m_mw->selectSceneObject(obj);
+                wait(100);
+            }
+        }
+
         x->setValue(1.2);
         m_mw->m_dockObjects->close();
     }
