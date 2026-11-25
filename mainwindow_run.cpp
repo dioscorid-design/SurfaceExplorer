@@ -254,6 +254,9 @@ void MainWindow::onStartClicked()
         runScene(RunOrigin::DockRun, static_cast<QPushButton *>(from));
     else if (from && from == m_btnStart) {
         const bool start = m_btnStart->text().toUpper() == "START";
+        // I campi del path dell'oggetto selezionato, scritti o svuotati e non
+        // confermati: lo START parte da li', come coi path della camera.
+        if (start && !commitSelectedObjectPathDrafts()) return;
         runScene(RunOrigin::MasterButton);
         // In una scena lo START vale per tutti: l'oggetto selezionato l'ha
         // rilanciato runScene; gli altri ripartono senza ricompilare, e le

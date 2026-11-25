@@ -2056,12 +2056,19 @@ void MainWindow::setSelectedObjectPathSpeed(int kind, int speed)
 // INVIO su un campo del path: la regola dei path dell'ambiente, col path
 // FERMO che aspetta il suo Departure (richiesta dell'utente, 2026-10-24: prima
 // ogni Invio, e ogni uscita dal campo, applicava e avviava anche un path scritto
-// a meta'). In corsa la modifica entra subito; svuotati tutti i campi il path
-// si toglie, e con lui il moto.
+// a meta'). In corsa la modifica entra subito. Svuotati tutti i campi il path
+// si toglie, in corsa o FERMO: a path fermo l'Invio non faceva nulla e
+// Departure, coi campi vuoti, e' spento, quindi un path fermo non si toglieva
+// in nessun modo. L'oggetto restava spostato dal path e il master lo faceva
+// ripartire, riscrivendo i campi (segnalato dall'utente, 2026-11-25).
 void MainWindow::applyObjectPathFromDock(int kind)
 {
     GLWidget *gl = ui->glWidget;
-    if (!gl->isObjectPathRunning(gl->selectedObject(), kind)) return;
+    const int selected = gl->selectedObject();
+    bool cleared = true;
+    for (const QString &text : m_objectPathText[kind])
+        if (!text.trimmed().isEmpty()) cleared = false;
+    if (!gl->isObjectPathRunning(selected, kind) && !(cleared && gl->objectHasPath(selected, kind))) return;
     if (commitObjectPathFields(kind)) {
         updateMasterButtonState();
         refreshSceneTime();
@@ -2117,6 +2124,17 @@ bool MainWindow::commitObjectPathFields(int kind)
     if (!ok) return false;   // il testo resta, per correggerlo; il path e' quello di prima
     m_sceneObjectsChanged = true;
     refreshPathControls();
+    return true;
+}
+
+// Prima dello START: dopo, forEachOtherObject riseleziona gli oggetti e
+// loadObjectPathText rimette nei campi i path applicati, e il testo scritto
+// andava perso (i campi svuotati si riempivano di nuovo e il path ripartiva).
+bool MainWindow::commitSelectedObjectPathDrafts()
+{
+    if (!pathFieldsShowObject()) return true;
+    for (int kind = 0; kind < 2; ++kind)
+        if (!commitObjectPathFields(kind)) return false;
     return true;
 }
 

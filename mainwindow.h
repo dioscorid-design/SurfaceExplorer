@@ -2160,14 +2160,19 @@ private:
     void clampHyperbolicObjectScales();
     bool m_applyingObjectPath = false;
     // Come i path dell'ambiente, ma il path FERMO aspetta il suo Departure:
-    // l'Invio su un campo applica la modifica solo a path in corsa (svuotati
-    // tutti, il path si toglie). Departure applica i campi e lo avvia, a meta'
-    // corsa lo ferma.
+    // l'Invio su un campo applica la modifica solo a path in corsa. Svuotati
+    // tutti i campi, l'Invio toglie il path, in corsa o fermo. Departure
+    // applica i campi e lo avvia, a meta' corsa lo ferma.
     void applyObjectPathFromDock(int kind);
     void onObjectPathGoClicked(int kind);
     // I campi scritti nel dock al selezionato: false = formula rifiutata
     // (popup), resta il path di prima.
     bool commitObjectPathFields(int kind);
+    // Il master START parte da cio' che c'e' nei campi del selezionato, come
+    // per i path della camera: i due path (3D e 4D) scritti e non confermati
+    // si applicano, svuotati si tolgono. false = una formula rifiutata (popup):
+    // lo START non parte, e il testo resta da correggere.
+    bool commitSelectedObjectPathDrafts();
     // I tasti Departure dicono il moto di cio' che e' selezionato; con un oggetto
     // anche la loro accensione, R e il dock 4D (scena 4D, o un path da togliere).
     void refreshPathControls();
