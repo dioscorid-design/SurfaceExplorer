@@ -21,7 +21,7 @@
 <hr>
 <p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_geodesic.html">&larr; Geodesic Flow &amp; Non-Euclidean Geometries</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_rendering.html">Rendering &amp; Textures &rarr;</a></p>
 <hr>
-<p>In addition to parametric surfaces, Surface Explorer 4D supports <strong>Implicit Surfaces</strong> defined by mathematical equations in the form of <code>f(x, y, z) = 0</code> (e.g., <code>x^2 + y^2 + z^2 = 1</code>). These are rendered using an advanced graphics technique called <strong>Ray Marching</strong>.</p>
+<p>In addition to parametric surfaces, Surface Explorer supports <strong>Implicit Surfaces</strong> defined by mathematical equations in the form of <code>f(x, y, z) = 0</code> (e.g., <code>x^2 + y^2 + z^2 = 1</code>). They are rendered with <strong>Ray Marching</strong>: rays from the camera look for the points where the equation is zero.</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>The two sub-tabs: 3D and Cross Section</b></p></td></tr></table>
             <p>The Implicit tab holds two sub-tabs, each with its own equation editor:</p>
@@ -38,12 +38,7 @@
                 <li><strong>P+ / P&minus;</strong> (4D dock) &mdash; move the plane along the fourth coordinate, changing its <em>height</em> rather than its tilt. This is what lets you scan the hypersurface from one end to the other and watch the section appear, grow, split and vanish. Without it you would only ever see the central slice.</li>
             </ul>
             <p>The <strong>4D camera path</strong> works here too, so the slicing plane can be flown along a trajectory instead of moved by hand.</p>
-            <div class="note">
-                <p style="margin: 0;"><strong>Why the fourth variable is optional:</strong> the two sub-tabs keep separate equations on purpose. An equation in <code>x, y, z</code> alone behaves in <em>Cross Section</em> exactly as it does in <em>3D</em> &mdash; no slicing happens because nothing depends on <code>p</code>. The variable <code>p</code> exists only in this sub-tab's editor, so an equation written for the 3D one can never accidentally refer to it.</p>
-            </div>
 
-            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>How it Works</b></p></td></tr></table>
-            <p>Instead of generating a grid of polygons (vertices and faces) on the CPU, the Ray Marching engine shoots rays from the virtual camera into the 3D space to find the exact point where the mathematical formula equals zero. This allows for mathematically perfect curves, infinite repeating structures, and complex boolean operations (additions, subtractions, and intersections of shapes) that would be impossible with standard geometry.</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Key Settings</b></p></td></tr></table>
             <ul>
@@ -57,7 +52,7 @@
                 <li><strong>Shell Thickness:</strong> the wall thickness in Shell mode, in scene units &mdash; the same real length for every equation.</li>
             </ul>
 
-            <p><strong>Where a cut surface gets its lid.</strong> When the spatial limits cut through the object, the flat disc that closes the cut is not part of your equation: it is the face of the cutting box, drawn where the box passes through the surface. What the marcher renders is the boundary of the intersection between the two, and that boundary has two pieces &mdash; the curved part of your surface inside the box, and the part of the box inside your surface. This is why a cut sphere looks capped rather than open, and why, if you move the camera inside it, you find the cap from behind and the shell hollow: there was never any material in between, only the skin and the lid.</p>
+            <p><strong>Cut surfaces.</strong> Where the spatial limits cut the object, the cut is closed by the face of the cutting box: a cut sphere looks capped, and from inside it is hollow.</p>
 
             <h3 id="rm-artifacts">Troubleshooting Visual Artifacts</h3>
             <p>When exploring arbitrary implicit equations, you might encounter visual artifacts such as infinite "blades", floating planes, or holes in the geometry. This happens because some mathematical functions grow too fast, causing the ray to "overshoot" and completely jump past the surface.</p>
@@ -77,9 +72,8 @@
                 <li><strong>Fast</strong> &mdash; sphere tracing, the method every surface has always used. It estimates how far the surface is from the value of the equation and jumps ahead by that much. Quick, and right almost everywhere.</li>
                 <li><strong>Precise</strong> &mdash; finds the surface by where the equation <em>changes sign</em>, then narrows it down by bisection. It cannot report a hit in empty space, because the equation has to actually cross zero.</li>
             </ul>
-            <p>The symptom that calls for <strong>Precise</strong> is a false <strong>weld</strong>: a blob of surface joining parts that should be separate, or a thick spur growing out of the object. It appears because the distance estimate <em>Fast</em> relies on becomes unreliable where the equation's gradient nearly vanishes, and the ray stops short of the surface &mdash; in mid-air. A good way to confirm it is to lower the transparency slider a little: the weld disappears at once, because transparency uses a different method. If it does, <em>Precise</em> will remove it on the opaque surface too.</p>
-            <p>Precise costs roughly 70% more work on the surfaces that need it. Fast stays the default because on a few 3D surfaces Precise can nibble the odd pixel along grazing edges; Cross Section surfaces open on Precise.</p>
-            <p>The <strong>Ray Steps</strong> and <strong>Step Relax</strong> sliders still matter with <em>Precise</em>. Before the sign-change search begins, the ray approaches the surface with the same steps <em>Fast</em> uses, and that approach decides two things: where the search starts, and which rays are treated as background. If a long step jumps clean over a thin part of the surface, the search starts beyond it, or the ray is discarded as background, and that part shows up as a hole. If <em>Precise</em> leaves holes or missing pieces, try a lower <strong>Step Relax</strong> first.</p>
+            <p>The symptom that calls for <strong>Precise</strong> is a false <strong>weld</strong>: a blob of surface joining parts that should be separate, or a thick spur growing out of the object. A good way to confirm it is to lower the transparency slider a little: the weld disappears at once, because transparency uses a different method. If it does, <em>Precise</em> will remove it on the opaque surface too.</p>
+            <p>Precise costs roughly 70% more work; Cross Section surfaces open on Precise. If <em>Precise</em> leaves holes or missing pieces, try a lower <strong>Step Relax</strong> first.</p>
 
 <hr>
 <p style="font-size: 15px; margin-top: 30px;"><a href="doc_geodesic.html">&larr; Geodesic Flow &amp; Non-Euclidean Geometries</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_rendering.html">Rendering &amp; Textures &rarr;</a></p>
