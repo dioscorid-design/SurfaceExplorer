@@ -202,6 +202,8 @@ qt_add_executable(SurfaceExplorer
     inputhandler.h
     gamepad.cpp
     gamepad.h
+    controlswindow.cpp
+    controlswindow.h
 
     # --- NUOVO MANAGER UNIFICATO ---
     librarymanager.cpp

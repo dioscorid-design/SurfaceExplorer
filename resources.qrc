@@ -528,6 +528,8 @@
         <file>docs/doc_quickstart.html</file>
         <file>docs/doc_interface.html</file>
         <file>docs/doc_interaction.html</file>
+        <file>docs/controls_mouse.html</file>
+        <file>docs/controls_controller.html</file>
         <file>docs/doc_projection.html</file>
         <file>docs/doc_dimensions.html</file>
         <file>docs/doc_equations.html</file>
