@@ -168,6 +168,8 @@ qt_add_executable(SurfaceExplorer
     camerapaths.h
     cameradrive.cpp
     cameradrive.h
+    drivecollision.cpp
+    drivecollision.h
     pathreshape.cpp
     pathreshape.h
     texturecode.cpp
@@ -188,6 +190,7 @@ qt_add_executable(SurfaceExplorer
     # --- RENDERING & GL ---
     glwidget.cpp
     glwidget_object.cpp
+    glwidget_drive.cpp
     glwidget.h
     surfaceobject.h
     geometrybuilder.cpp

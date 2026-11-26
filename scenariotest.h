@@ -345,6 +345,8 @@ private:
     void runDriveTouchScenarios();
     void runDrivePadScenarios();
     void runDriveControlsWindowScenarios();   // le finestre Help con la guida libera
+    void runDriveCollisionScenarios();        // gli urti con le superfici (anche da soli: drive-collision)
+    void runDriveCollisionAuditScenarios();   // la sonda degli urti su tutta la libreria (drive-collision-audit)
     // 2.0: la traiettoria del path della camera modellata col mouse (rotazione,
     // Maiuscole verso W, spostamento, rotella, RESET, REC, oggetto
     // selezionato). Da sola: --scenario-only path-reshape.

@@ -2299,6 +2299,16 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("drive-collision")) {
+        runDriveCollisionScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("drive-collision-audit")) {
+        runDriveCollisionAuditScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-reset")) {
         runSceneResetScenarios();
         finish();

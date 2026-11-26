@@ -25,6 +25,8 @@
 
 class InputHandler;
 struct DriveControls;
+struct DriveProbe;
+struct DrivePlacedCollider;
 class Gamepad;
 class SurfaceEngine;
 
@@ -1352,6 +1354,13 @@ public:
     bool driveActive() const { return m_driveControls && m_driveGate && m_driveGate(); }
     DriveControls *driveControls() const { return m_driveControls; }
     void requestDriveExit() { emit driveExitRequested(); }
+    // GLI URTI DELLA GUIDA (glwidget_drive.cpp, drivecollision.h): dove arriva la
+    // camera, sfera di raggio `radius`, che da `from` vuole spostarsi di `move`,
+    // scivolando sulle superfici lette dalla sonda; *contact = ha toccato. E la
+    // distanza della superficie piu' vicina (scenari).
+    QVector3D slideDriveCamera(const QVector3D &from, const QVector3D &move, float radius,
+                               bool *contact = nullptr) const;
+    float driveSurfaceDistance(const QVector3D &p) const;
     // I TASTINI A TOCCO della guida sulla vista (CameraDrive::touchButtonRect):
     // quanti ce ne sono (0 = nessuno, 2 su e giu', 4 anche W). Li disegna
     // MainWindow; il tocco li trova qui (InputHandler), perche' su iOS un widget
@@ -2547,6 +2556,15 @@ private:
     std::function<bool()> m_driveGate;
     bool m_driveCamera = false;
     int m_driveTouchButtons = 0;
+    // La sonda degli urti (glwidget_drive.cpp): accesa con la camera della guida
+    // e gli urti; nel render, dopo runObjectCompute; liberata con l'oggetto.
+    bool driveCollisionsOn() const;
+    QRhiResourceUpdateBatch *runDriveProbe(SurfaceObject &o, QRhiCommandBuffer *cb,
+                                           QRhiResourceUpdateBatch *resourceUpdates);
+    bool buildDriveProbePipeline(SurfaceObject &o, DriveProbe &probe);
+    void setDriveProbeBindings(SurfaceObject &o, DriveProbe &probe);
+    void releaseDriveProbe(SurfaceObject &o);
+    std::vector<DrivePlacedCollider> driveColliders() const;   // quelli delle superfici in scena, letti dal vertex di adesso
     // Un riferimento della camera (cameraPlacement) come camera di H3, col
     // raggio di adesso, entro la distanza massima dal centro.
     H3::Matrix hyperbolicCameraFromPlacement(const QMatrix4x4 &placement) const;

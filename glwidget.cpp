@@ -2488,6 +2488,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         if (!resourceUpdates) resourceUpdates = rhi()->nextResourceUpdateBatch();
         prepareObjectGeometry(o, resourceUpdates);
         resourceUpdates = runObjectCompute(o, cb, resourceUpdates);
+        resourceUpdates = runDriveProbe(o, cb, resourceUpdates);   // gli urti della guida (2.1)
     }
 
     // IL RETICOLO DELLA SCENA (H3 o R3): cella della camera, istanze e
@@ -2651,6 +2652,7 @@ void GLWidget::releaseObjectResources(SurfaceObject &o)
 {
     releaseTubeFramePipeline(o);
     releaseSharedEdgePipeline(o);
+    releaseDriveProbe(o);
     if (o.sharedEdgeTex) {
         o.sharedEdgeTex->destroy();
         delete o.sharedEdgeTex;
@@ -10728,6 +10730,8 @@ void GLWidget::buildPipeline(SurfaceObject &o) {
         o.borderProbeWatch = false;
         ++o.borderProbeSerial;
     }
+    // La sonda degli urti della guida (2.1): lo stesso vertex, tubi e mesh custom compresi.
+    if (QString s = QString(vsSource).remove(kBorderDefineLine); s != o.driveVertexSource) o.driveVertexSource = s;
 
     QRhiGraphicsPipeline::TargetBlend blend;
     blend.enable   = true;

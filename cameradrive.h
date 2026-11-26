@@ -119,14 +119,21 @@ struct DriveControls {
     {
         speedScale = std::clamp(up ? speedScale * 2.0f : speedScale * 0.5f, kMinSpeedScale, kMaxSpeedScale);
     }
+    // GLI URTI (tasto C): la camera non attraversa le superfici, ci scivola
+    // sopra (drivecollision.h). Come la scala, non e' un tasto tenuto: resta
+    // quando i comandi si rilasciano, e vale anche nei passi senza comandi
+    // (REC e cursore oltre la fine del volo). MainWindow lo ricorda fra le sessioni.
+    bool collisions = true;
 
     // Qualche comando in uso: dentro la traccia, il pilota prende il posto del volo registrato.
     bool any() const;
     void releaseAll()
     {
         const float scale = speedScale;
+        const bool collide = collisions;
         *this = DriveControls();
         speedScale = scale;
+        collisions = collide;
     }
 };
 
@@ -138,6 +145,12 @@ public:
     // Il passo fisso della fisica (s) e il raggio della cloche (pixel).
     static constexpr float kStep = 1.0f / 60.0f;
     static constexpr float kStickRadius = 200.0f;
+    // IL RAGGIO DELLA CAMERA negli urti (unita' della scena): la sfera che non
+    // entra nelle superfici. Tre volte il piano near piu' lontano della guida
+    // (0.01, GLWidget::render): la piramide della vista fino al near ci sta
+    // dentro anche col campo visivo largo, e toccando la superficie non la si
+    // vede tagliata.
+    static constexpr float kCollisionRadius = 0.03f;
     // GLI STICK E I TASTINI A TOCCO: il raggio di uno stick (punti, piu' corto
     // della cloche: e' il pollice) e i tastini in colonna sul bordo destro,
     // centrati in altezza: su, giu', e nel 4D W+ e W-. Le stesse misure per chi
@@ -201,6 +214,8 @@ public:
     bool replaying() const;
     // Lo stato a cui e' la camera (l'ultimo applicato): velocita' e W per l'indicatore.
     const State &current() const { return m_current; }
+    // L'ultimo passo di fisica ha toccato una superficie (scivolando).
+    bool contact() const { return m_contact; }
 
     // IL VOLO NEL FILE (record e scene, chiave "driveFlight" del record
     // dell'ambiente). Si scrivono le sole POSE, sfoltite: un campione resta se
@@ -273,6 +288,7 @@ private:
     bool m_trackHyperbolic = false;   // lo spazio della traccia
     bool m_owns = false;
     bool m_droveSinceStart = false;
+    bool m_contact = false;
     // La scala delle velocita' dell'ultimo passo coi comandi: cambiandola la
     // crociera cambia con lei.
     float m_appliedScale = 1.0f;

@@ -371,10 +371,26 @@ void CameraDrive::appendStep(const DriveControls &c)
     // IL MOTO, nel riferimento della camera: prima gira, poi avanza.
     const float turnRate = s.turn.length();
     const float angle = turnRate * h;
+    m_contact = false;
     if (!m_trackHyperbolic) {
         if (angle > 1e-9f)
             s.rot = (s.rot * QQuaternion::fromAxisAndAngle(s.turn / turnRate, qRadiansToDegrees(angle))).normalized();
-        s.pos += s.rot.rotatedVector(QVector3D(0.0f, s.lift, -s.speed)) * h;
+        const QVector3D move = s.rot.rotatedVector(QVector3D(0.0f, s.lift, -s.speed)) * h;
+        if (m_controls.collisions && !move.isNull()) {
+            // GLI URTI: la camera scivola sulle superfici invece di attraversarle
+            // (GLWidget::slideDriveCamera). L'urto toglie al veicolo la velocita'
+            // contro la superficie: restano quelle del moto vero, in avanti e in
+            // su (di lato il veicolo non va; quel tratto lo ha gia' fatto).
+            const QVector3D to = m_view->slideDriveCamera(s.pos, move, kCollisionRadius, &m_contact);
+            if (m_contact) {
+                const QVector3D v = s.rot.conjugated().rotatedVector(to - s.pos) / h;
+                s.speed = -v.z();
+                s.lift = v.y();
+            }
+            s.pos = to;
+        } else {
+            s.pos += move;
+        }
     } else {
         const double k = 1.0 / m_view->hyperbolicCurvatureRadius();
         H3::Matrix turned = s.h3;

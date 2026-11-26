@@ -142,6 +142,13 @@ const std::map<QString, Painter> &drivePictograms()
               textMark(p, QRectF(0, 4, 64, 28), QStringLiteral("×2"), kAccent, 22);
               textMark(p, QRectF(0, 32, 64, 28), QStringLiteral("÷2"), kAccent, 22);
           } },
+        { QStringLiteral("drive-collide"), [](QPainter &p) {
+              // Gli urti: contro la parete il veicolo non passa, ci scivola lungo.
+              p.setPen(strokePen(kHot, 4.0));
+              p.drawLine(QPointF(54, 6), QPointF(54, 58));
+              vehicle(p, QPointF(22, 42), 1.4, 35);
+              arrow(p, QPointF(42, 46), QPointF(42, 10));
+          } },
         { QStringLiteral("drive-stop"), [](QPainter &p) {
               vehicle(p, QPointF(22, 32), 1.5, 0);
               p.setPen(Qt::NoPen);
@@ -169,6 +176,7 @@ const std::map<QString, Painter> &drivePictograms()
         { QStringLiteral("key-space"), [](QPainter &p) { wideKey(p, QStringLiteral("space")); } },
         { QStringLiteral("key-shift"), [](QPainter &p) { wideKey(p, QStringLiteral("shift")); } },
         { QStringLiteral("key-esc"), [](QPainter &p) { wideKey(p, QStringLiteral("esc")); } },
+        { QStringLiteral("key-c"), [](QPainter &p) { keycap(p, QRectF(19, 18, 26, 28), QStringLiteral("C")); } },
         { QStringLiteral("mouse-left-v"), [](QPainter &p) {
               mouse(p, QRectF(14, 12, 26, 40), MouseHot::Left);
               arrow(p, QPointF(52, 8), QPointF(52, 56), kAccent, true);

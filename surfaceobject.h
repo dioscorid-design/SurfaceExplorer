@@ -31,6 +31,7 @@
 #include <vector>
 
 class QTimer;
+struct DriveProbe;
 
 struct SurfaceObject
 {
@@ -428,6 +429,12 @@ struct SurfaceObject
     QRhiReadbackResult sharedEdgeFlagsResult;
     QRhiReadbackResult sharedEdgeSamplesResult;
     int sharedEdgeReadbacks = 0;
+
+    // La sonda degli urti della guida libera (2.1, drivecollision.h), e il
+    // vertex da cui nasce: quello della superficie senza il bordo (anche per i
+    // tubi e le mesh custom, a differenza di sharedEdgeSource).
+    std::shared_ptr<DriveProbe> driveProbe;
+    QString driveVertexSource;
 
     // ==========================================================
     // BORDO: SONDA (vedi GLWidget::borderAvailability)

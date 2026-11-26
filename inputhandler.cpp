@@ -430,6 +430,10 @@ bool InputHandler::handleKey(QKeyEvent* event, bool pressed)
     case Qt::Key_Escape:
         if (pressed && !event->isAutoRepeat()) m_glWidget->requestDriveExit();
         return true;
+    // C: gli urti con le superfici accesi o spenti (DriveControls::collisions).
+    case Qt::Key_C:
+        if (pressed && !event->isAutoRepeat()) c->collisions = !c->collisions;
+        return true;
     // + e -: tutte le velocita' per due o a meta' (anche = per il + senza
     // Maiuscole delle tastiere americane, e il tastierino).
     case Qt::Key_Plus:

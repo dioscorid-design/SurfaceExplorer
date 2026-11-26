@@ -98,6 +98,8 @@ void MainWindow::setupDrive()
     // li' il passo e' quello del recorder, senza comandi, e il mouse non deve
     // tornare a girare la scena dentro il video.
     ui->glWidget->setDriveControls(&m_drive->controls(), [this] { return driveRunning(); });
+    // Gli urti (tasto C) come li si e' lasciati l'ultima volta; li salva stopDrive.
+    m_drive->controls().collisions = QSettings().value(QStringLiteral("drive/collisions"), true).toBool();
     connect(ui->glWidget, &GLWidget::driveExitRequested, this, [this] {
         if (driveRunning()) stopDrive();
     });
@@ -111,6 +113,7 @@ void MainWindow::setupDrive()
             "A / D or Left / Right: turn; Up / Down: nose up / down; Q / E: roll.\n"
             "R / F: up / down; Z / X: toward W (4D). Shift: faster.\n"
             "+ / -: double or halve all the speeds (for large or small scenes).\n"
+            "C: collisions on / off (on, the camera slides along the surfaces instead of passing through).\n"
             "Mouse: drag as a stick to steer, right-drag to roll, wheel for speed.\n"
             "Touch: the left thumb sets speed and turns, the right thumb pitches and rolls; "
             "double tap to brake; the buttons on the right go up and down (and toward W).\n"
@@ -180,6 +183,7 @@ void MainWindow::stopDrive()
 {
     if (!driveRunning()) return;
     m_drive->stop();
+    QSettings().setValue(QStringLiteral("drive/collisions"), m_drive->controls().collisions);
     // Fermata dall'utente, come lo Stop di un path: un Invio su un campo non la riaccende.
     m_userStoppedCameraMotion = true;
     updateViewButtonsEnabled();
@@ -258,6 +262,7 @@ void MainWindow::refreshDriveHud()
                                : QStringLiteral("   scale 1/%1").arg(double(1.0f / scale));
     if (driveMovesW())
         status += QStringLiteral("   W %1").arg(double(gl->cutsSection() ? s.sectionP : s.observerW), 0, 'f', 2);
+    if (!m_drive->controls().collisions) status += QStringLiteral("   collisions off");
     if (m_drive->replaying()) status += QStringLiteral("   REPLAY: touch a control to take over");
     QString keys;
     if (m_gamepad && m_gamepad->isConnected()) {
@@ -272,7 +277,7 @@ void MainWindow::refreshDriveHud()
     } else {
         keys = QStringLiteral("W/S speed  A/D turn  Up/Down pitch  Q/E roll  R/F up/down");
         if (driveMovesW()) keys += QStringLiteral("  Z/X toward W");
-        keys += QStringLiteral("  Space brake  Shift faster  +/- scale  Esc stop");
+        keys += QStringLiteral("  Space brake  Shift faster  +/- scale  C collisions  Esc stop");
     }
     const QString text = status + QLatin1Char('\n') + keys;
     // Su una riga se ci sta; altrimenti a capo entro la vista (un telefono),

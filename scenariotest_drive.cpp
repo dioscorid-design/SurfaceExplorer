@@ -8,12 +8,16 @@
 #include "ui_mainwindow.h"
 #include "glwidget.h"
 #include "cameradrive.h"
+#include "drivecollision.h"
 #include "controlswindow.h"
 #include "gamepad.h"
 #include "librarymanager.h"
 #include "presetserializer.h"
 
 #include <QFile>
+#include <QFileInfo>
+#include <QDir>
+#include <QDirIterator>
 #include <QJsonArray>
 #include <QJsonDocument>
 
@@ -368,6 +372,493 @@ void ScenarioTest::runDriveScenarios()
     runDriveTouchScenarios();
     runDrivePadScenarios();
     runDriveControlsWindowScenarios();
+    runDriveCollisionScenarios();
+}
+
+// GLI URTI DELLA GUIDA (drivecollision.h). Prima la geometria, sulla CPU, con
+// una griglia piana: la sfera della camera si ferma a un raggio dal foglio,
+// dalle due parti, ci scivola sopra, si allontana libera, prende gli spigoli,
+// non salta il foglio con un passo lungo, segue la posa (posizione e scala).
+// Poi la sonda della GPU sulla sfera unitaria: i nodi letti stanno sulla
+// sfera; volando contro, la camera si ferma a un raggio e ci scivola; il tasto
+// C spegne gli urti (la si attraversa) e li riaccende (da dentro, la parete
+// ferma la camera); il cursore T rifa' le pose dell'urto. In una scena conta
+// la posa dell'oggetto: una sfera spostata e rimpicciolita.
+void ScenarioTest::runDriveCollisionScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Guida libera (2.1): urti con le superfici, la camera ci scivola sopra =="));
+    const float r = CameraDrive::kCollisionRadius;
+    const float tol = 0.002f;
+
+    // --- LA GEOMETRIA: il foglio z = 0, da -1 a 1, 10 x 10 celle ---------------
+    {
+        DriveCollider plane;
+        DriveColliderPart part;
+        part.nu = part.nv = 10;
+        for (int i = 0; i <= 10; ++i) {
+            for (int j = 0; j <= 10; ++j) {
+                part.points.emplace_back(-1.0f + 0.2f * float(i), -1.0f + 0.2f * float(j), 0.0f);
+                part.valid.push_back(1);
+            }
+        }
+        plane.parts.push_back(std::move(part));
+        plane.finalize();
+        const std::vector<DrivePlacedCollider> world{ { &plane, QMatrix4x4() } };
+        bool cHead = false, cOblique = false, cAway = true, cBeside = true, cEdge = false;
+        const QVector3D head = driveSlide(world, QVector3D(0.1f, 0.1f, 0.5f), QVector3D(0.0f, 0.0f, -1.0f), r, &cHead);
+        const QVector3D oblique = driveSlide(world, QVector3D(0.1f, 0.1f, 0.5f), QVector3D(0.5f, 0.0f, -1.0f), r, &cOblique);
+        const QVector3D below = driveSlide(world, QVector3D(0.1f, 0.1f, -0.5f), QVector3D(0.0f, 0.0f, 1.0f), r);
+        const QVector3D away = driveSlide(world, QVector3D(0.1f, 0.1f, 0.01f), QVector3D(0.0f, 0.0f, 0.5f), r, &cAway);
+        const QVector3D beside = driveSlide(world, QVector3D(1.5f, 0.1f, 0.5f), QVector3D(0.0f, 0.0f, -1.0f), r, &cBeside);
+        const QVector3D fast = driveSlide(world, QVector3D(0.1f, 0.1f, 5.0f), QVector3D(0.0f, 0.0f, -10.0f), r);
+        // Il centro passa a 0.02 dallo spigolo x = 1: lo tocca e gli gira attorno.
+        const QVector3D edge = driveSlide(world, QVector3D(1.02f, 0.1f, 0.5f), QVector3D(0.0f, 0.0f, -1.0f), r, &cEdge);
+        const float edgeDist = plane.distance(edge);
+        // Il foglio spostato a z = 1 e ingrandito due volte.
+        QMatrix4x4 m;
+        m.translate(0.0f, 0.0f, 1.0f);
+        m.scale(2.0f);
+        const std::vector<DrivePlacedCollider> placed{ { &plane, m } };
+        const QVector3D scaled = driveSlide(placed, QVector3D(0.2f, 0.2f, 2.0f), QVector3D(0.0f, 0.0f, -2.0f), r);
+        const float scaledDist = driveDistance(placed, scaled);
+        // IL TAGLIO: la cella x, y in [0, 0.2] senza i suoi due triangoli; la
+        // sfera (raggio 0.03) passa dal buco, accanto no.
+        plane.parts[0].cut.assign(100, 0);
+        plane.parts[0].cut[5 * 10 + 5] = 3;
+        bool cHole = true;
+        const QVector3D hole = driveSlide(world, QVector3D(0.1f, 0.1f, 0.5f), QVector3D(0.0f, 0.0f, -1.0f), r, &cHole);
+        const QVector3D besideHole = driveSlide(world, QVector3D(0.3f, 0.1f, 0.5f), QVector3D(0.0f, 0.0f, -1.0f), r);
+        check(!cHole && std::abs(hole.z() + 0.5f) < 1e-5f && std::abs(besideHole.z() - r) < tol,
+              QStringLiteral("taglio: dal buco di una cella la camera passa (z %1), accanto si ferma (z %2)")
+                  .arg(double(hole.z())).arg(double(besideHole.z())));
+        plane.parts[0].cut.clear();
+        check(cHead && std::abs(head.z() - r) < tol && cOblique && std::abs(oblique.x() - 0.6f) < tol
+                  && std::abs(oblique.z() - r) < tol && std::abs(below.z() + r) < tol && !cAway
+                  && std::abs(away.z() - 0.51f) < 1e-5f && !cBeside && std::abs(beside.z() + 0.5f) < 1e-5f
+                  && std::abs(fast.z() - r) < tol && cEdge && edgeDist > r - tol && edge.z() < 0.03f
+                  && std::abs(scaled.z() - 1.0f - r) < tol && std::abs(scaledDist - r) < tol,
+              QStringLiteral("geometria su un foglio piano: contro si ferma a un raggio (z %1), di sbieco ci scivola "
+                             "(x %2, z %3), da sotto anche (z %4), a contatto allontanandosi e' libera (z %5), di "
+                             "fianco passa (z %6), un passo di 10 non lo salta (z %7), lo spigolo lo aggira (distanza "
+                             "%8, z %9), il foglio spostato e ingrandito (z %10, distanza %11)")
+                  .arg(double(head.z())).arg(double(oblique.x())).arg(double(oblique.z())).arg(double(below.z()))
+                  .arg(double(away.z())).arg(double(beside.z())).arg(double(fast.z())).arg(double(edgeDist))
+                  .arg(double(edge.z())).arg(double(scaled.z())).arg(double(scaledDist)));
+    }
+
+    // --- LA SONDA DELLA GPU: la sfera unitaria --------------------------------
+    const QString kSphere = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
+    CameraDrive *drive = m_mw->m_drive;
+    DriveControls &c = drive->controls();
+    const float dt = 1.0f / 60.0f;
+    auto camPos = [&]() { return gl->cameraPlacement().column(3).toVector3D(); };
+    auto camFront = [&]() { return -gl->cameraPlacement().column(2).toVector3D().normalized(); };
+    auto sendKey = [&](QEvent::Type type, int key) {
+        QKeyEvent e(type, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(gl, &e);
+    };
+    // La lettura della sonda arriva qualche frame dopo il disegno.
+    auto waitProbe = [&](const SurfaceObject &o, int before) {
+        for (int k = 0; k < 60; ++k) {
+            if (o.driveProbe && o.driveProbe->arrived > before && !o.driveProbe->reading) return true;
+            gl->update();
+            wait(50);
+        }
+        return false;
+    };
+    if (!loadSurface(kSphere)) return;
+    c.collisions = true;
+    const SurfaceObject &sphere = *gl->m_objects.front();
+    // A guida spenta la sonda non legge (l'oggetto puo' averne una dalle
+    // superfici di prima, con la guida accesa); il suo collider non vale per
+    // la sfera: niente urti finche' non rilegge.
+    const int arrivedBefore = sphere.driveProbe ? sphere.driveProbe->arrived : 0;
+    gl->update();
+    wait(200);
+    const bool noProbeBefore = (sphere.driveProbe ? sphere.driveProbe->arrived : 0) == arrivedBefore
+                               && !(sphere.driveProbe && sphere.driveProbe->reading)
+                               && gl->driveSurfaceDistance(QVector3D(0.0f, 0.0f, 1.0f)) > 1e30f;
+    m_mw->m_btnDrive->click();
+    const bool arrived = waitProbe(sphere, arrivedBefore);
+    bool nodes = false;
+    float worst = 0.0f;
+    if (arrived) {
+        const DriveCollider &col = sphere.driveProbe->collider;
+        const MeshPart &mp = sphere.engine->getMeshParts().front();
+        nodes = col.parts.size() == 1 && col.parts[0].nu == mp.numU && col.parts[0].nv == mp.numV;
+        for (size_t k = 0; nodes && k < col.parts[0].points.size(); ++k)
+            if (col.parts[0].valid[k]) worst = std::max(worst, std::abs(col.parts[0].points[k].length() - 1.0f));
+    }
+    check(noProbeBefore && arrived && nodes && worst < 1e-4f,
+          QStringLiteral("sonda: a guida spenta non legge, e la superficie di prima non urta; accesa, i nodi della "
+                         "griglia disegnata (%1 x %2) arrivano dalla GPU e stanno sulla sfera (scarto %3)")
+              .arg(arrived ? sphere.driveProbe->collider.parts.front().nu : 0)
+              .arg(arrived ? sphere.driveProbe->collider.parts.front().nv : 0)
+              .arg(double(worst)));
+
+    // Contro la sfera, a tutta: la camera si ferma a un raggio dalla superficie.
+    const bool aimed = QVector3D::dotProduct(camFront(), -camPos().normalized()) > 0.999f;
+    c.throttleUp = true;
+    c.boost = true;
+    float minR = camPos().length();
+    for (int i = 0; i < 360; ++i) {
+        drive->advance(dt, true);
+        minR = std::min(minR, camPos().length());
+    }
+    const float stopR = camPos().length();
+    const bool touching = drive->contact();
+    const float pressedSpeed = drive->current().speed;
+    const float tStop = gl->sceneTime();
+    const QVector3D pStop = camPos();
+    check(aimed && minR > 1.0f + r - tol && stopR < 1.0f + r + 0.005f && touching && pressedSpeed < 0.2f,
+          QStringLiteral("contro la sfera a tutta (W e Maiuscole, 6 s): la camera si ferma a %1 dal centro (raggio "
+                         "della camera %2, minimo %3), a contatto, e l'urto le toglie la velocita' (%4)")
+              .arg(double(stopR)).arg(double(r)).arg(double(minR)).arg(double(pressedSpeed)));
+
+    // Virando tenendo W: scivola sulla sfera senza entrarci.
+    c.yawLeft = true;
+    int slidSteps = 0;
+    for (int i = 0; i < 120; ++i) {
+        const QVector3D before = camPos();
+        drive->advance(dt, true);
+        minR = std::min(minR, camPos().length());
+        if (drive->contact() && (camPos() - before).length() > 1e-4f) ++slidSteps;
+    }
+    c.yawLeft = false;
+    const float slid = (camPos() - pStop).length();
+    check(slidSteps > 20 && slid > 0.05f && minR > 1.0f + r - tol,
+          QStringLiteral("virando con W tenuto la camera scivola sulla sfera: %1 passi a contatto in moto, %2 di "
+                         "strada, mai dentro (minimo %3)")
+              .arg(slidSteps).arg(double(slid)).arg(double(minR)));
+
+    // C spegne gli urti: la sfera si attraversa. Riaccesi da dentro, la parete
+    // ferma la camera dall'altra parte del foglio.
+    c.yawLeft = false;
+    c.boost = false;
+    c.throttleUp = false;
+    c.brake = true;
+    for (int i = 0; i < 60; ++i) drive->advance(dt, true);
+    c.brake = false;
+    // Di nuovo verso il centro.
+    for (int i = 0; i < 360 && QVector3D::dotProduct(camFront(), -camPos().normalized()) < 0.999f; ++i) {
+        c.yawRight = true;
+        drive->advance(dt, true);
+    }
+    c.yawRight = false;
+    sendKey(QEvent::KeyPress, Qt::Key_C);
+    sendKey(QEvent::KeyRelease, Qt::Key_C);
+    const bool off = !c.collisions;
+    c.throttleUp = true;
+    float insideR = camPos().length();
+    for (int i = 0; i < 120; ++i) {
+        drive->advance(dt, true);
+        insideR = std::min(insideR, camPos().length());
+    }
+    const bool hudOff = m_mw->m_driveHud && m_mw->m_driveHud->text().contains(QLatin1String("collisions off"));
+    sendKey(QEvent::KeyPress, Qt::Key_C);
+    sendKey(QEvent::KeyRelease, Qt::Key_C);
+    const bool on = c.collisions;
+    float maxInside = 0.0f;
+    for (int i = 0; i < 240; ++i) {
+        drive->advance(dt, true);
+        maxInside = std::max(maxInside, camPos().length());
+    }
+    c.throttleUp = false;
+    const bool hudOn = !m_mw->m_driveHud->text().contains(QLatin1String("collisions off"));
+    check(off && hudOff && insideR < 0.9f && on && hudOn && maxInside < 1.0f - r + tol,
+          QStringLiteral("C: urti spenti (indicatore \"collisions off\"), la camera entra nella sfera (%1 dal "
+                         "centro); riaccesi, da dentro la parete la ferma (al massimo %2)")
+              .arg(double(insideR)).arg(double(maxInside)));
+
+    // Il volo registrato rifa' le pose dell'urto.
+    m_mw->seekSceneTime(tStop);
+    const float replayErr = (camPos() - pStop).length();
+    check(replayErr < 1e-3f, QStringLiteral("il cursore T rifa' l'urto: al T del contatto la camera e' dove si era "
+                                            "fermata (scarto %1)").arg(double(replayErr)));
+    m_mw->stopDrive();
+
+    // --- 4D: verso W la proiezione cambia, e la sonda la rilegge -------------
+    // Clifford's Torus e' uno script: la sonda nasce anche dal suo vertex.
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/S3/Clifford's Torus.json"))) {
+        const SurfaceObject &torus = *gl->m_objects.front();
+        const int before4D = torus.driveProbe ? torus.driveProbe->arrived : 0;
+        m_mw->m_btnDrive->click();
+        const bool first = waitProbe(torus, before4D);
+        const int afterFirst = first ? torus.driveProbe->arrived : 0;
+        const size_t k = first ? torus.driveProbe->collider.parts.front().points.size() / 3 : 0;
+        const QVector3D node = first ? torus.driveProbe->collider.parts.front().points[k] : QVector3D();
+        const bool movesW = m_mw->driveMovesW();
+        c.wPlus = true;
+        for (int i = 0; i < 60; ++i) drive->advance(dt, true);
+        c.wPlus = false;
+        for (int i = 0; i < 30; ++i) drive->advance(dt, true);
+        const bool again = waitProbe(torus, afterFirst);
+        const float moved = again ? (torus.driveProbe->collider.parts.front().points[k] - node).length() : 0.0f;
+        check(first && movesW && again && moved > 1e-3f,
+              QStringLiteral("4D (Clifford's Torus, uno script): la sonda legge la proiezione; verso W (X) la "
+                             "proiezione cambia e la sonda la rilegge (un nodo si sposta di %1)")
+                  .arg(double(moved)));
+        m_mw->stopDrive();
+    }
+
+    // LA CAMERA CONTRO UN PUNTO della superficie (mondo), lungo `dir`: parte a
+    // 0.8 da lui, tutta avanti per 4 s. La distanza dalla superficie piu'
+    // vicina non scende mai sotto il raggio, e alla fine la tocca.
+    struct Approach {
+        bool aimed = false, contact = false;
+        float minDist = 1e30f, endDist = 1e30f;
+    };
+    auto approach = [&](const QVector3D &target, const QVector3D &dir) {
+        Approach a;
+        const QVector3D d = dir.normalized();
+        const QVector3D up = std::abs(d.y()) < 0.9f ? QVector3D(0.0f, 1.0f, 0.0f) : QVector3D(1.0f, 0.0f, 0.0f);
+        c.releaseAll();
+        c.brake = true;
+        for (int i = 0; i < 60; ++i) drive->advance(dt, true);
+        c.brake = false;
+        QMatrix4x4 m;
+        m.translate(target - d * 0.8f);
+        m.rotate(QQuaternion::fromDirection(-d, up));
+        gl->setEuclideanCameraPlacement(m);
+        a.aimed = QVector3D::dotProduct(camFront(), d) > 0.999f;
+        c.throttleUp = c.boost = true;
+        for (int i = 0; i < 240; ++i) {
+            drive->advance(dt, true);
+            a.minDist = std::min(a.minDist, gl->driveSurfaceDistance(camPos()));
+        }
+        c.throttleUp = c.boost = false;
+        a.endDist = gl->driveSurfaceDistance(camPos());
+        a.contact = drive->contact();
+        return a;
+    };
+    auto approachText = [](const Approach &a) {
+        return QStringLiteral("distanza minima %1, alla fine %2, a contatto %3")
+            .arg(double(a.minDist)).arg(double(a.endDist)).arg(a.contact ? 1 : 0);
+    };
+    auto approachOk = [&](const Approach &a) {
+        return a.aimed && a.contact && a.minDist > r - tol && a.endDist < r + 0.01f;
+    };
+
+    // --- I TUBI ATTORNO A UNA CURVA (Solid Curves): il tubo intero, anelli del
+    // raggio del tubo di ogni parte; con piu' tubi, ciascuno col suo blocco.
+    for (const QString &rel : { QStringLiteral("surfaces/Parametric/Solid Curves/Single Curves/Trefoil Knot.json"),
+                                QStringLiteral("surfaces/Parametric/Solid Curves/Multi Curves/Borromean Rings.json") }) {
+        if (!loadSurface(rel)) continue;
+        const SurfaceObject &tube = *gl->m_objects.front();
+        const int before = tube.driveProbe ? tube.driveProbe->arrived : 0;
+        m_mw->m_btnDrive->click();
+        const bool arrivedTube = waitProbe(tube, before);
+        bool rings = false;
+        float ringErr = 1e30f;
+        QStringList radii;
+        Approach a;
+        const std::vector<MeshPart> &mps = tube.engine->getMeshParts();
+        if (arrivedTube && tube.driveProbe->kind == DriveProbe::Tube
+            && tube.driveProbe->collider.parts.size() == mps.size()) {
+            ringErr = 0.0f;
+            rings = true;
+            for (size_t k = 0; k < mps.size(); ++k) {
+                const DriveColliderPart &part = tube.driveProbe->collider.parts[k];
+                const float radius = tube.tubeRadius * (mps[k].tubeThickness >= 0.0f ? mps[k].tubeThickness : 1.0f);
+                radii << QString::number(double(radius));
+                const auto ringCenter = [&](int i) {
+                    QVector3D s;
+                    for (int j = 0; j < part.nv; ++j) s += part.points[size_t(i * (part.nv + 1) + j)];
+                    return s / float(part.nv);
+                };
+                float err = 0.0f;
+                for (int i = 0; i <= part.nu; i += std::max(1, part.nu / 16)) {
+                    const QVector3D centre = ringCenter(i);
+                    for (int j = 0; j <= part.nv; ++j)
+                        err = std::max(err, std::abs((part.points[size_t(i * (part.nv + 1) + j)] - centre).length() - radius));
+                }
+                ringErr = std::max(ringErr, err / radius);
+                rings = rings && part.nv > 2;
+                if (k == 0) {
+                    // Dal di fuori, lungo la normale di un anello.
+                    const int i = part.nu / 3;
+                    const QVector3D node = tube.model.map(part.points[size_t(i * (part.nv + 1))]);
+                    a = approach(node, tube.model.map(ringCenter(i)) - node);
+                }
+            }
+            rings = rings && ringErr < 0.02f;
+        }
+        check(arrivedTube && rings && approachOk(a),
+              QStringLiteral("tubo (%1, %2 parti): la sonda legge il tubo, anelli di raggio %3 attorno alla curva "
+                             "(scarto relativo %4); contro il tubo la camera si ferma sulla parete (%5)")
+                  .arg(QFileInfo(rel).baseName()).arg(mps.size()).arg(radii.join(QStringLiteral(", ")))
+                  .arg(double(ringErr)).arg(approachText(a)));
+        m_mw->stopDrive();
+    }
+
+    // --- IL TAGLIO SULLA GPU: Hopf Tori con A = 2 taglia le mesh oltre la seconda
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Multi Meshes/Hopf Tori.json"))) {
+        m_mw->ui->aSlider->setValue(200);
+        wait(300);
+        const SurfaceObject &hopf = *gl->m_objects.front();
+        const int before = hopf.driveProbe ? hopf.driveProbe->arrived : 0;
+        m_mw->m_btnDrive->click();
+        const bool arrivedHopf = waitProbe(hopf, before);
+        int whole = 0, none = 0, mixed = 0;
+        QStringList parts;
+        bool expected = arrivedHopf && hopf.driveProbe->cutCompiled;
+        if (arrivedHopf) {
+            const DriveCollider &col = hopf.driveProbe->collider;
+            const std::vector<MeshPart> &mps = hopf.engine->getMeshParts();
+            for (size_t k = 0; k < col.parts.size() && k < mps.size(); ++k) {
+                const std::vector<unsigned char> &cut = col.parts[k].cut;
+                const size_t n = size_t(std::count(cut.begin(), cut.end(), (unsigned char)3));
+                const bool all = !cut.empty() && n == cut.size();
+                const bool zero = !cut.empty() && std::count(cut.begin(), cut.end(), (unsigned char)0) == qsizetype(cut.size());
+                all ? ++whole : zero ? ++none : ++mixed;
+                parts << QStringLiteral("%1:%2").arg(mps[k].meshIndex).arg(all ? "tagliata" : zero ? "intera" : "a pezzi");
+                expected = expected && (mps[k].meshIndex >= 2 ? all : zero);
+            }
+        }
+        check(expected && whole > 0 && none == 2 && mixed == 0,
+              QStringLiteral("taglio (Hopf Tori, A = 2): la sonda valuta cutHere e i triangoli delle mesh tagliate non "
+                             "urtano (%1)").arg(parts.join(QStringLiteral(", "))));
+        m_mw->stopDrive();
+    }
+
+    // --- UN FLUSSO GEODETICO: la mesh custom coi suoi triangoli ---------------
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Geodesic Flows/R3/Tangent Developable of a Helix.json"))) {
+        const SurfaceObject &flow = *gl->m_objects.front();
+        const int before = flow.driveProbe ? flow.driveProbe->arrived : 0;
+        m_mw->m_btnDrive->click();
+        const bool arrivedFlow = waitProbe(flow, before);
+        bool same = false;
+        float nodeErr = 1e30f;
+        size_t triangles = 0;
+        Approach a;
+        if (arrivedFlow && flow.driveProbe->kind == DriveProbe::Custom && flow.driveProbe->collider.parts.size() == 1) {
+            const DriveColliderPart &part = flow.driveProbe->collider.parts.front();
+            const std::vector<Vertex> &verts = flow.engine->getVertices();
+            const std::vector<unsigned int> &idx = flow.engine->getIndices();
+            triangles = part.indices.size() / 3;
+            // In R3 (w = 0, nessuna rotazione 4D) la proiezione lascia i punti dove sono.
+            float maxW = 0.0f;
+            nodeErr = 0.0f;
+            for (size_t k = 0; k < verts.size() && k < part.points.size(); ++k) {
+                maxW = std::max(maxW, std::abs(verts[k].position.w()));
+                nodeErr = std::max(nodeErr, (part.points[k] - verts[k].position.toVector3D()).length());
+            }
+            same = part.points.size() == verts.size() && part.indices == idx && maxW < 1e-6f && nodeErr < 1e-4f;
+            // Contro il triangolo di mezzo, lungo la sua normale.
+            const size_t t = triangles / 2;
+            const QVector3D p0 = flow.model.map(part.points[part.indices[3 * t]]);
+            const QVector3D p1 = flow.model.map(part.points[part.indices[3 * t + 1]]);
+            const QVector3D p2 = flow.model.map(part.points[part.indices[3 * t + 2]]);
+            const QVector3D n = QVector3D::crossProduct(p1 - p0, p2 - p0).normalized();
+            a = approach((p0 + p1 + p2) / 3.0f, -n);
+        }
+        check(arrivedFlow && same && approachOk(a),
+              QStringLiteral("flusso geodetico (Tangent Developable of a Helix): la sonda legge i vertici della mesh "
+                             "custom (scarto %1) coi suoi %2 triangoli; contro la mesh la camera si ferma (%3)")
+                  .arg(double(nodeErr)).arg(triangles).arg(approachText(a)));
+        m_mw->stopDrive();
+    }
+
+    // --- IN UNA SCENA: una sfera spostata (1.5, 0, 0) e rimpicciolita a meta' -
+    if (!buildScene(false, { kSphere })) return;
+    const int index = gl->selectedObject();
+    gl->setObjectPosition(QVector3D(1.5f, 0.0f, 0.0f));
+    gl->setObjectScale(0.5f);
+    m_mw->selectSceneObject(0);
+    gl->setCameraPos(QVector3D(1.5f, 0.0f, 4.0f));
+    gl->setCameraYaw(0.0f);
+    gl->setCameraPitch(0.0f);
+    gl->setCameraRoll(0.0f);
+    wait(100);
+    const SurfaceObject &small = *gl->m_objects[size_t(index)];
+    const int smallBefore = small.driveProbe ? small.driveProbe->arrived : 0;
+    m_mw->m_btnDrive->click();
+    const bool sceneArrived = waitProbe(small, smallBefore);
+    const QVector3D center(1.5f, 0.0f, 0.0f);
+    const bool sceneAimed = (camPos() - QVector3D(1.5f, 0.0f, 4.0f)).length() < 1e-3f
+                            && QVector3D::dotProduct(camFront(), QVector3D(0.0f, 0.0f, -1.0f)) > 0.999f;
+    c.throttleUp = true;
+    c.boost = true;
+    float sceneMin = (camPos() - center).length();
+    for (int i = 0; i < 360; ++i) {
+        drive->advance(dt, true);
+        sceneMin = std::min(sceneMin, (camPos() - center).length());
+    }
+    c.throttleUp = c.boost = false;
+    const float sceneStop = (camPos() - center).length();
+    check(sceneArrived && sceneAimed && sceneMin > 0.5f + r - tol && sceneStop < 0.5f + r + 0.005f,
+          QStringLiteral("scena: contro la sfera spostata e rimpicciolita la camera si ferma a %1 dal suo centro "
+                         "(raggio 0.5 + %2, minimo %3)")
+              .arg(double(sceneStop)).arg(double(r)).arg(double(sceneMin)));
+    m_mw->stopDrive();
+    pressNew();
+}
+
+// LA SONDA SU TUTTA LA LIBRERIA (sezione a parte, drive-collision-audit, fuori
+// dalla suite: qualche minuto). Ogni superficie parametrica, a guida accesa:
+// la sonda compila, il taglio con lei se il preset ne ha uno, la lettura
+// arriva e porta nodi validi. Una sonda che non compila non si vede: quella
+// superficie non fermerebbe la camera e basta.
+void ScenarioTest::runDriveCollisionAuditScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Guida libera (2.1): la sonda degli urti su tutte le superfici parametriche =="));
+    QStringList files;
+    QDirIterator it(m_root + QStringLiteral("/surfaces/Parametric"), { QStringLiteral("*.json") }, QDir::Files,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) files << QDir(m_root).relativeFilePath(it.next());
+    files.sort();
+    m_mw->m_drive->controls().collisions = true;
+    QStringList problems;
+    int read = 0, tubes = 0, customs = 0, cuts = 0;
+    for (const QString &rel : std::as_const(files)) {
+        if (!loadSurface(rel)) {
+            problems << rel + QStringLiteral(": non si carica");
+            continue;
+        }
+        const SurfaceObject &o = *gl->m_objects.front();
+        const int before = o.driveProbe ? o.driveProbe->arrived : 0;
+        m_mw->m_btnDrive->click();
+        bool arrived = false;
+        for (int k = 0; k < 80 && !arrived; ++k) {
+            arrived = o.driveProbe && o.driveProbe->arrived > before && !o.driveProbe->reading;
+            if (!arrived) {
+                gl->update();
+                wait(50);
+            }
+        }
+        const bool hasCut = o.engine && !o.engine->getCutoutCodeGLSL().trimmed().isEmpty();
+        if (!arrived) {
+            problems << rel + QStringLiteral(": nessuna lettura (%1)")
+                                  .arg(!o.driveProbe ? QStringLiteral("nessuna sonda")
+                                       : o.driveProbe->failed ? QStringLiteral("non compilata")
+                                                              : QStringLiteral("in attesa"));
+        } else {
+            ++read;
+            const DriveProbe &p = *o.driveProbe;
+            if (p.kind == DriveProbe::Tube) ++tubes;
+            if (p.kind == DriveProbe::Custom) ++customs;
+            if (hasCut && p.kind != DriveProbe::Custom) {
+                if (p.cutCompiled) ++cuts;
+                else problems << rel + QStringLiteral(": il taglio non compila nella sonda");
+            }
+            size_t valid = 0, nodes = 0;
+            for (const DriveColliderPart &part : p.collider.parts) {
+                nodes += part.valid.size();
+                valid += size_t(std::count(part.valid.begin(), part.valid.end(), (unsigned char)1));
+            }
+            if (valid == 0) problems << rel + QStringLiteral(": nessun nodo valido (%1 nodi)").arg(nodes);
+        }
+        m_mw->stopDrive();
+    }
+    check(problems.isEmpty() && read > 0,
+          QStringLiteral("%1 superfici parametriche: la sonda legge %2 (tubi %3, mesh custom %4, col taglio %5)%6")
+              .arg(files.size()).arg(read).arg(tubes).arg(customs).arg(cuts)
+              .arg(problems.isEmpty() ? QString() : QStringLiteral("; problemi: ") + problems.join(QStringLiteral("; "))));
+    pressNew();
 }
 
 // LE FINESTRE DEI COMANDI NELLA 2.1 (Help, ControlsWindow): tutte e due hanno
