@@ -101,9 +101,10 @@ bool InputHandler::dragView(bool left, bool right, float dx, float dy, bool towa
     // =========================================================
     // Il mouse sulla TRAIETTORIA del path della camera (tasto MOUSE: PATH, vedi
     // GLWidget::setPathReshapeGate), in corsa o fermo. Sinistro: rotazione,
-    // con Maiuscole (Shift) verso W; destro: spostamento. Nessuna deadzone:
-    // anche i primi pixel muovono. Non conta come vista mossa: la traiettoria
-    // si scrive nei campi del path.
+    // con Maiuscole (Shift) verso W; destro: spostamento. Le dita passano di
+    // qui: un dito come il sinistro, il punto medio di due come il destro
+    // (handleTouch). Nessuna deadzone: anche i primi pixel muovono. Non conta
+    // come vista mossa: la traiettoria si scrive nei campi del path.
     if (m_glWidget->pathReshapeActive()) {
         if (dx != 0 || dy != 0) {
             if (left) {
@@ -196,7 +197,7 @@ bool InputHandler::handleTouch(QEvent* e)
     // 3. MOVIMENTO (TouchUpdate)
     // =========================================================
 
-    // --- UN DITO: ROTAZIONE CONTINUA ---
+    // --- UN DITO: COME IL TASTO SINISTRO ---
     if (pointCount == 1) {
         QPointF currentPos = points[0].position();
         float dx = currentPos.x() - m_lastTouchPos.x();
@@ -207,32 +208,17 @@ bool InputHandler::handleTouch(QEvent* e)
             m_isClickCandidate = false;
         }
 
-        if (m_glWidget->isFlatView()) {
-            // Modalità 2D: Trascinamento = ROTAZIONE CONTINUA
-            if (!m_isClickCandidate) {
-                float sensitivity = 0.5f;
-                // Usa lo spostamento orizzontale (dx) per ruotare, come fa il click sinistro del mouse
-                m_glWidget->addFlatRotation(dx * sensitivity);
-                m_touchMovedView = true;
-            }
-        } else if (!m_glWidget->isPathAnimating()) {
-            // Modalità 3D/4D: Rotazione standard dell'oggetto (bloccata durante un path)
-            float rotSens = 0.3f;
-            if (m_glWidget->dragOrbitsHyperbolicCamera()) {
-                // Scena in H3: gira il mondo attorno al centro, cielo compreso.
-                m_glWidget->orbitHyperbolicCamera(dx * rotSens, dy * rotSens);
-            } else {
-                m_glWidget->markUserRotated();
-                m_glWidget->addObjectRotation(dx * rotSens, dy * rotSens, 0.0f);
-            }
-            // Oltre la deadzone e' un trascinamento vero, non un tap: la vista
-            // e' stata mossa dall'utente.
-            if (!m_isClickCandidate) m_touchMovedView = true;
-        }
+        // IL GESTO DEL SINISTRO (dragView), con le sue regole: in 2D la
+        // texture gira oltre la deadzone; in 3D/4D la superficie, l'oggetto o
+        // la scena, bloccati a path in corsa; con MOUSE: PATH (e sempre a path
+        // in corsa, ambiente selezionato) GIRA LA TRAIETTORIA del path della
+        // camera (richiesta dell'utente, 2026-11-26: prima le dita non la
+        // modellavano). Senza Maiuscole: verso W solo col mouse.
+        if (dragView(true, false, dx, dy, false, m_isClickCandidate)) m_touchMovedView = true;
         m_lastTouchPos = currentPos;
     }
 
-    // --- DUE DITA: ZOOM, E SPOSTAMENTO (OGGETTO SELEZIONATO, SCENA, TEXTURE 2D) ---
+    // --- DUE DITA: IL PINCH COME LA ROTELLA, IL PUNTO MEDIO COME IL DESTRO ---
     else if (pointCount == 2) {
         QPointF p1 = points[0].position();
         QPointF p2 = points[1].position();
@@ -250,14 +236,11 @@ bool InputHandler::handleTouch(QEvent* e)
         const QPointF centre = (p1 + p2) / 2.0;
         const QPointF moved = centre - m_lastPinchCentre;
         m_lastPinchCentre = centre;
-        if (!moved.isNull()) {
-            const float mx = float(moved.x()), my = float(moved.y());
-            bool panned = false;
-            if (m_glWidget->isFlatView())              panned = m_glWidget->panFlatOnScreen(mx, my);
-            else if (m_glWidget->objectDragActive())   panned = m_glWidget->dragObjectOnScreen(mx, my);
-            else if (m_glWidget->sceneDragActive())    panned = m_glWidget->dragSceneOnScreen(mx, my);
-            if (panned) m_touchMovedView = true;
-        }
+        // Il gesto del destro (dragView): anche lo SPOSTAMENTO DELLA
+        // TRAIETTORIA, alle condizioni del mouse (richiesta dell'utente,
+        // 2026-11-26), che viene prima dell'oggetto e della scena.
+        if (!moved.isNull() && dragView(false, true, float(moved.x()), float(moved.y()), false, false))
+            m_touchMovedView = true;
 
         if (std::abs(deltaDist) > 0.5f) {
             if (m_glWidget->isFlatView()) {
@@ -267,6 +250,14 @@ bool InputHandler::handleTouch(QEvent* e)
                 float zoomFactor = 1.0f + (deltaDist * 0.005f);
                 m_glWidget->setFlatZoom(currentZoom * zoomFactor);
                 m_touchMovedView = true;
+            } else if (m_glWidget->pathReshapeActive()) {
+                // La TRAIETTORIA si stringe o si allarga, come con la rotella
+                // (wheelView): dita che si allontanano = piu' vicino = piu'
+                // stretta. Un pixel di pinch vale 5 unita' di rotella, lo
+                // stesso rapporto dello zoom della camera qui sotto (0.05
+                // contro 0.01). Come il trascinamento, non conta come vista
+                // mossa: la traiettoria si scrive nei campi del path.
+                m_glWidget->requestPathReshape(GLWidget::ReshapeScale, 0.0f, deltaDist * 5.0f);
             } else if (m_glWidget->objectZoomActive() || !m_glWidget->isPathAnimating()) {
                 // Modalità 3D: ZOOM della camera (bloccato durante un path) o,
                 // con un oggetto della scena selezionato, la sua scala.
