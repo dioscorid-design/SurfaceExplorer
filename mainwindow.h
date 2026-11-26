@@ -2048,7 +2048,7 @@ private:
     // Fisso: l'oggetto selezionato come parte dell'ambiente (SurfaceObject::fixed).
     QCheckBox *m_objectFixed = nullptr;
     // Il riferimento del path 3D della camera (GLWidget::cameraPathFrame):
-    // Environment o un oggetto fisso.
+    // Environment o un oggetto, fisso o mobile.
     QComboBox *m_pathFrameCombo = nullptr;
     // Il riferimento dell'oggetto selezionato (SurfaceObject::frame).
     QComboBox *m_objectFrameCombo = nullptr;
@@ -2225,6 +2225,9 @@ private:
     void setupObjectsDock();
     // Allinea elenco, posizione, tasti e selettore agli oggetti della scena.
     void refreshObjectsUi();
+    // Il tooltip di Camera path around com'e' ORA (scritto alla sua comparsa:
+    // dipende dai campi del path 3D dell'ambiente, che cambiano per molte vie).
+    QString pathFrameToolTip() const;
     // Selezione dall'interfaccia (elenco, selettore): l'oggetto e il suo
     // messaggio; l'ambiente mostra il messaggio composto della scena.
     void selectSceneObjectFromUi(int index);

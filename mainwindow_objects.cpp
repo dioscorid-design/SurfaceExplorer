@@ -1329,6 +1329,34 @@ void MainWindow::showSelectedObject()
 // DOCK OBJECTS E SELETTORE
 // ==========================================================
 
+// Il tooltip di Placed around, la parte fissa: refreshObjectsUi ci aggiunge
+// perche' la casella e' spenta o quali oggetti non offre.
+static QString placedAroundTip()
+{
+    return QStringLiteral("Where the position X, Y, Z and the path of the selected object are read from: the centre of "
+                          "the scene, or the centre of another object, turned as that object is, also while it moves. "
+                          "A moon placed around a planet follows the planet along its path; objects that would go "
+                          "round each other in a circle are not offered.");
+}
+
+// Il tooltip di Camera path around (richiesta dell'utente, 2026-11-26: in
+// Parallel Universe_frame, scena senza path della camera, qualunque scelta
+// sembrava non fare niente). Il riferimento vale solo per il path 3D della
+// camera, e a path fermo la camera ci entra alla partenza: setCameraPathFrame
+// non la sposta, la riprende il render solo a path in corsa
+// (GLWidget::refreshFramedCamera).
+QString MainWindow::pathFrameToolTip() const
+{
+    QString tip = QStringLiteral("Where the 3D camera path X(t), Y(t), Z(t) is read from: the centre of the scene, or "
+                                 "the centre of an object, turned as the object is, also while it moves. A circle around "
+                                 "a torus then stays inside its tube wherever the torus is or goes. With the path "
+                                 "stopped, the camera moves into the new frame at START.");
+    if (!hasPath3DInput() && !pathRunning(CameraPaths::Path3D))
+        tip += QStringLiteral("\n\nThis scene has no 3D camera path: the choice applies when the environment has one "
+                              "(the 3D path fields, with the environment selected).");
+    return tip;
+}
+
 // I CAMPI NUMERICI DEL DOCK (X, Y, Z, In, Out), su tutte le piattaforme:
 // - le cifre non applicano (richiesta dell'utente, 2026-10-24: scrivendo 12
 //   l'oggetto passava da 1); si applica con l'Invio o USCENDO DAL CAMPO.
@@ -1520,10 +1548,21 @@ void MainWindow::setupObjectsDock()
     auto *frameRow = new QHBoxLayout();
     frameRow->addWidget(rowLabel(QStringLiteral("Camera path around")));
     m_pathFrameCombo = new QComboBox(w);
-    m_pathFrameCombo->setToolTip(QStringLiteral("Where the camera path X(t), Y(t), Z(t) is read from: the centre of the "
-                                                "scene, or the centre of an object, turned as the object is, also while it "
-                                                "moves. A circle around a torus then stays inside its tube wherever the "
-                                                "torus is or goes."));
+    // Il tooltip si riscrive quando compare (pathFrameToolTip): dice se la
+    // scena non ha un path 3D della camera, e i campi del path cambiano per
+    // troppe vie per tenerlo aggiornato a ogni modifica.
+    class TipOnShow : public QObject {
+    public:
+        TipOnShow(QWidget *widget, std::function<QString()> text) : QObject(widget), m_text(std::move(text)) {}
+        bool eventFilter(QObject *o, QEvent *e) override {
+            if (e->type() == QEvent::ToolTip) static_cast<QWidget *>(o)->setToolTip(m_text());
+            return false;   // poi il widget lo mostra, gia' aggiornato
+        }
+    private:
+        std::function<QString()> m_text;
+    };
+    m_pathFrameCombo->setToolTip(pathFrameToolTip());
+    m_pathFrameCombo->installEventFilter(new TipOnShow(m_pathFrameCombo, [this] { return pathFrameToolTip(); }));
     frameRow->addWidget(m_pathFrameCombo, 1);
     lay->addLayout(frameRow);
     connect(m_pathFrameCombo, QOverload<int>::of(&QComboBox::activated), this, [this](int row) {
@@ -1536,11 +1575,7 @@ void MainWindow::setupObjectsDock()
     auto *objFrameRow = new QHBoxLayout();
     objFrameRow->addWidget(rowLabel(QStringLiteral("Placed around")));
     m_objectFrameCombo = new QComboBox(w);
-    m_objectFrameCombo->setToolTip(QStringLiteral("Where the position X, Y, Z and the path of the selected object are read "
-                                                  "from: the centre of the scene, or the centre of another object, turned as "
-                                                  "that object is, also while it moves. A moon placed around a planet follows "
-                                                  "the planet along its path; objects that would go round each other in a "
-                                                  "circle are not offered."));
+    m_objectFrameCombo->setToolTip(placedAroundTip());
     objFrameRow->addWidget(m_objectFrameCombo, 1);
     lay->addLayout(objFrameRow);
     connect(m_objectFrameCombo, QOverload<int>::of(&QComboBox::activated), this, [this](int row) {
@@ -2027,6 +2062,29 @@ void MainWindow::refreshObjectsUi()
             if (k != selected && gl->objectFrameAllowed(selected, k)) m_objectFrameCombo->addItem(nameOf(k), k);
         m_objectFrameCombo->setCurrentIndex(std::max(0, m_objectFrameCombo->findData(gl->objectFrame(selected))));
         m_objectFrameCombo->setEnabled(selected > 0 && !fixed && m_objectFrameCombo->count() > 1);
+        // IL PERCHE' NEL TOOLTIP (richiesta dell'utente, 2026-11-26: in
+        // Parallel Universe_frame, col toro selezionato, la casella era spenta
+        // senza dire che la sfera gli gira gia' attorno). Spenta: il motivo;
+        // accesa: gli oggetti che non offre, se ce ne sono.
+        QStringList excluded;
+        if (selected > 0)
+            for (int k = 1; k < n; ++k)
+                if (k != selected && !gl->objectFrameAllowed(selected, k)) excluded << nameOf(k);
+        QString why;
+        if (selected == 0) {
+            why = QStringLiteral("The environment is the centre of the scene: it is not placed around anything.");
+        } else if (fixed) {
+            why = QStringLiteral("A fixed object has its place locked: uncheck Fixed to place it around another object.");
+        } else if (n <= 2) {
+            why = QStringLiteral("There is no other object in the scene to place it around.");
+        } else if (!excluded.isEmpty()) {
+            why = QStringLiteral("Not offered: %1, already placed around %2 (directly or through other objects), so "
+                                 "%2 cannot be placed around %3.")
+                      .arg(excluded.join(QStringLiteral(", ")), nameOf(selected),
+                           excluded.size() == 1 ? QStringLiteral("it") : QStringLiteral("them"));
+        }
+        m_objectFrameCombo->setToolTip(why.isEmpty() ? placedAroundTip()
+                                                     : placedAroundTip() + QStringLiteral("\n\n") + why);
     }
     m_btnObjectDuplicate->setEnabled(selected > 0);
     m_btnObjectRemove->setEnabled(selected > 0 && !fixed);

@@ -42,6 +42,7 @@
 #include <QImageWriter>
 #include <QComboBox>
 #include <QTimer>
+#include <QToolTip>
 #include <sys/resource.h>
 #include <QSlider>
 #include <QLineEdit>
@@ -10391,7 +10392,22 @@ void ScenarioTest::runPathFrameScenarios()
               && gl->cameraPathFrame() == 0,
           QStringLiteral("casella Path around: Environment e il toro, riferimento il centro della scena"));
     if (!m_mw->m_pathFrameCombo) return;
+    // Il tooltip, scritto alla comparsa (MainWindow::pathFrameToolTip): senza
+    // path 3D della camera lo dice, col path no.
+    const auto shownPathFrameTip = [this]() {
+        QComboBox *combo = m_mw->m_pathFrameCombo;
+        const QPoint at = combo->rect().center();
+        QHelpEvent help(QEvent::ToolTip, at, combo->mapToGlobal(at));
+        QCoreApplication::sendEvent(combo, &help);
+        QToolTip::hideText();
+        return combo->toolTip();
+    };
+    const QString tipWithoutPath = shownPathFrameTip();
     cameraPathCircle();
+    const QString tipWithPath = shownPathFrameTip();
+    check(tipWithoutPath.contains(QStringLiteral("no 3D camera path")) && !tipWithPath.contains(QStringLiteral("no 3D camera path"))
+              && tipWithPath.contains(QStringLiteral("at START")),
+          QStringLiteral("tooltip di Camera path around: senza path lo dice, col path no"));
     check(isNear(gl->getCameraPos(), QVector3D(1.0f, 0.0f, 0.0f)),
           QStringLiteral("dal centro della scena, t = 0: camera in %1").arg(text(gl->getCameraPos())));
     m_mw->m_pathFrameCombo->setCurrentIndex(1);
@@ -10718,8 +10734,17 @@ void ScenarioTest::runMovingFrameScenarios()
     m_mw->selectSceneObject(3);
     wait(100);
     const int offeredSatellite = m_mw->m_objectFrameCombo->count();
+    const QString satelliteTip = m_mw->m_objectFrameCombo->toolTip();
     m_mw->selectSceneObject(1);
     wait(100);
+    // Il tooltip dice perche': sul pianeta, spento, nomina la luna e il
+    // satellite che gli girano gia' attorno; sul satellite non esclude nessuno.
+    const QString planetTip = m_mw->m_objectFrameCombo->toolTip();
+    const int notOffered = planetTip.indexOf(QStringLiteral("Not offered: "));
+    check(notOffered >= 0 && planetTip.contains(QStringLiteral("cannot be placed around them"))
+              && !satelliteTip.contains(QStringLiteral("Not offered")),
+          QStringLiteral("tooltip di Placed around: sul pianeta \"%1\"; sul satellite senza esclusi")
+              .arg(planetTip.mid(std::max(0, notOffered))));
     check(offeredSatellite == 3 && m_mw->m_objectFrameCombo->count() == 1 && !m_mw->m_objectFrameCombo->isEnabled()
               && m_mw->m_pathFrameCombo->count() == 4,
           QStringLiteral("Placed around: sul satellite Environment, pianeta e luna (%1 voci), sul pianeta il solo "
