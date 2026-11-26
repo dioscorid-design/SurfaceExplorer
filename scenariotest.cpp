@@ -17643,6 +17643,81 @@ void ScenarioTest::runPathReshapeScenarios()
           QStringLiteral("rotella indietro dello stesso -> di nuovo i campi originali (X = \"%1\")")
               .arg(m_mw->m_scene.path.x3D));
 
+    // IL TOCCO (iPad, iPhone; richiesta dell'utente, 2026-11-26): un dito
+    // gira la traiettoria come il sinistro, il punto medio di due dita la
+    // sposta come il destro, il pinch la stringe e l'allarga come la rotella.
+    {
+        const QPointF mid(gl->width() / 2.0, gl->height() / 2.0);
+        const auto sendTouch = [&](QEvent::Type type, QEventPoint::State state, const QList<QPointF> &at) {
+            QList<QEventPoint> points;
+            for (int i = 0; i < at.size(); ++i) {
+                QEventPoint pt(i + 1, state, at[i], gl->mapToGlobal(at[i]));
+                QMutableEventPoint::setPosition(pt, at[i]);   // il costruttore non scrive position()
+                points << pt;
+            }
+            QTouchEvent te(type, nullptr, Qt::NoModifier, points);
+            QCoreApplication::sendEvent(gl, &te);
+        };
+        // Un dito dal centro della vista, spostato di delta in 6 passi.
+        const auto touch1 = [&](const QPointF &delta) {
+            sendTouch(QEvent::TouchBegin, QEventPoint::Pressed, { mid });
+            for (int i = 1; i <= 6; ++i) {
+                sendTouch(QEvent::TouchUpdate, QEventPoint::Updated, { mid + delta * (i / 6.0) });
+                wait(20);
+            }
+            sendTouch(QEvent::TouchEnd, QEventPoint::Released, { mid + delta });
+            wait(150);
+        };
+        // Due dita a 80 pixel attorno al centro: il punto medio si sposta di
+        // delta, la distanza cresce di spread.
+        const auto touch2 = [&](const QPointF &delta, double spread) {
+            const QPointF side(40.0, 0.0), more(spread / 2.0, 0.0);
+            sendTouch(QEvent::TouchBegin, QEventPoint::Pressed, { mid - side, mid + side });
+            for (int i = 1; i <= 6; ++i) {
+                const double f = i / 6.0;
+                sendTouch(QEvent::TouchUpdate, QEventPoint::Updated,
+                          { mid - side - more * f + delta * f, mid + side + more * f + delta * f });
+                wait(20);
+            }
+            sendTouch(QEvent::TouchEnd, QEventPoint::Released, { mid - side - more + delta, mid + side + more + delta });
+            wait(150);
+        };
+        b = before();
+        touch1(QPointF(60.0, 0.0));
+        d = now3D(b.t) - old3D(b.t);
+        check(fields3D() != orig3D && normsScaled(1.0f) && QVector3D::dotProduct(d, b.right) < -0.3f && reset3D->isEnabled(),
+              QStringLiteral("tocco, un dito a destra -> la traiettoria gira come col sinistro (lungo il lato %1), "
+                             "RESET acceso")
+                  .arg(QVector3D::dotProduct(d, b.right), 0, 'f', 3));
+        reset3D->click();
+        wait(200);
+        b = before();
+        touch2(QPointF(60.0, 0.0), 0.0);
+        d = now3D(b.t) - old3D(b.t);
+        const float rigid = std::abs((now3D(0.0f) - now3D(2.0f)).length() - (old3D(0.0f) - old3D(2.0f)).length());
+        const float pixel = 2.0f * old3D(b.t).length() * std::tan(qDegreesToRadians(gl->cameraFov()) * 0.5f)
+                            / float(gl->height());
+        check(rigid < 2e-3f && QVector3D::dotProduct(d, b.right) < 0.0f
+                  && std::abs(d.length() - 60.0f * pixel) < 0.05f * 60.0f * pixel,
+              QStringLiteral("tocco, due dita a destra -> traiettoria spostata a sinistra di %1 (atteso %2), "
+                             "come col destro")
+                  .arg(d.length(), 0, 'f', 3).arg(60.0f * pixel, 0, 'f', 3));
+        reset3D->click();
+        wait(200);
+        // 24 pixel di pinch valgono uno scatto di rotella (120).
+        touch2(QPointF(), 24.0);
+        check(normsScaled(float(std::exp(-0.06))),
+              QStringLiteral("tocco, pinch che allarga le dita -> traiettoria stretta come la rotella avanti: "
+                             "distanza %1 (attesa %2)")
+                  .arg(now3D(0.0f).length(), 0, 'f', 4).arg(old3D(0.0f).length() * std::exp(-0.06), 0, 'f', 4));
+        touch2(QPointF(), -24.0);
+        check(normsScaled(1.0f) && fields3D() == orig3D,
+              QStringLiteral("tocco, pinch che stringe dello stesso -> di nuovo i campi originali (X = \"%1\")")
+                  .arg(m_mw->m_scene.path.x3D));
+        reset3D->click();
+        wait(200);
+    }
+
     // GESTI IN FILA: si ricompone sempre dagli originali (nessun annidamento).
     for (int i = 0; i < 5; ++i) drag(Qt::LeftButton, QPointF(30.0, 15.0), Qt::NoModifier);
     wheel(240);
