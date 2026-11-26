@@ -8,6 +8,7 @@
 #include "ui_mainwindow.h"
 #include "glwidget.h"
 #include "cameradrive.h"
+#include "controlswindow.h"
 #include "gamepad.h"
 #include "librarymanager.h"
 #include "presetserializer.h"
@@ -23,6 +24,7 @@
 #include <QTouchEvent>
 #include <QWindow>
 #include <QScopeGuard>
+#include <QTextBrowser>
 #include <QtGui/private/qeventpoint_p.h>
 #include <cmath>
 
@@ -365,6 +367,40 @@ void ScenarioTest::runDriveScenarios()
     runDriveFlightFileScenarios();
     runDriveTouchScenarios();
     runDrivePadScenarios();
+    runDriveControlsWindowScenarios();
+}
+
+// LE FINESTRE DEI COMANDI NELLA 2.1 (Help, ControlsWindow): tutte e due hanno
+// la sezione della guida libera, con le sue figure (controlswindow_drive.inc);
+// nel Game Controller il triangolo accende DRIVE invece della proiezione. Che
+// ogni figura delle pagine si disegni lo controlla gia' la sezione comune
+// controls-windows.
+void ScenarioTest::runDriveControlsWindowScenarios()
+{
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Guida libera nelle finestre dei comandi (Help) =="));
+    for (const auto kind : { ControlsWindow::MouseTouch, ControlsWindow::GameController }) {
+        ControlsWindow *w = ControlsWindow::open(m_mw, kind);
+        wait(300);
+        const QString text = w->browser()->toPlainText();
+        const QString html = w->browser()->toHtml();
+        const QStringList drivePicts = { QStringLiteral("pict:drive-throttle@"), QStringLiteral("pict:drive-stop@") };
+        bool hasPicts = true;
+        for (const QString &pict : drivePicts) hasPicts = hasPicts && html.contains(pict);
+        check(text.contains(QStringLiteral("Free flight (DRIVE)")) && hasPicts && w->missingPictograms().isEmpty(),
+              QStringLiteral("%1: sezione della guida libera, figure del volo disegnate (mancanti: %2)")
+                  .arg(ControlsWindow::title(kind), w->missingPictograms().join(QStringLiteral(", "))));
+        if (kind == ControlsWindow::GameController) {
+            check(text.contains(QStringLiteral("DRIVE on / off")) && !text.contains(QStringLiteral("Perspective / Orthographic")),
+                  QStringLiteral("Game Controller: il triangolo accende e spegne DRIVE, non cambia la proiezione"));
+        } else {
+            check(html.contains(QStringLiteral("pict:key-ws@")) && html.contains(QStringLiteral("pict:thumb-right-h@")),
+                  QStringLiteral("Mouse & Touch: tastiera, mouse e dita della guida libera"));
+        }
+        w->close();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        wait(150);
+    }
 }
 
 // IL TOCCO (iPhone, iPad): gli stick che nascono sotto il dito, i tastini sulla

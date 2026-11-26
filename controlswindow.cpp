@@ -418,6 +418,8 @@ void cube(QPainter &p, const QRectF &front, const QPointF &back, qreal shrink)
 
 using Painter = std::function<void(QPainter &)>;
 
+#include "controlswindow_drive.inc"   // 2.1: le figure della guida libera (drivePictograms)
+
 const std::map<QString, Painter> &pictograms()
 {
     static const std::map<QString, Painter> table = {
@@ -711,6 +713,8 @@ QImage paintControlsPictogram(const QString &name, const QSize &size, qreal dpr)
     QSizeF canvas(64, 64);
     if (const auto it = pictograms().find(name); it != pictograms().end()) {
         paint = it->second;
+    } else if (const auto drive = drivePictograms().find(name); drive != drivePictograms().end()) {   // 2.1
+        paint = drive->second;
     } else if (const auto wide = wideDiagrams().find(name); wide != wideDiagrams().end()) {
         paint = wide->second.paint;
         canvas = wide->second.canvas;
