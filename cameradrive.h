@@ -151,6 +151,15 @@ public:
     // dentro anche col campo visivo largo, e toccando la superficie non la si
     // vede tagliata.
     static constexpr float kCollisionRadius = 0.03f;
+    // LE IMPLICITE (ray marching) fermano la camera piu' lontano: il marcher
+    // comincia a cercare la superficie a questa distanza dalla camera lungo il
+    // raggio, nello spazio dell'oggetto (`float tNear = 0.3` in
+    // raymarch_template.txt, da tenere uguale). Una parete piu' vicina non si
+    // disegna: la camera vi si fermava a kCollisionRadius e si vedeva fuori,
+    // come se l'avesse attraversata (segnalato dall'utente il 2026-11-26, dentro
+    // la sfera di default). Il raggio davanti a un'implicita e' questo per la
+    // scala dell'oggetto, piu' kCollisionRadius (GLWidget::driveColliders).
+    static constexpr float kMarcherNear = 0.3f;
     // GLI STICK E I TASTINI A TOCCO: il raggio di uno stick (punti, piu' corto
     // della cloche: e' il pollice) e i tastini in colonna sul bordo destro,
     // centrati in altezza: su, giu', e nel 4D W+ e W-. Le stesse misure per chi

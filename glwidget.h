@@ -2561,6 +2561,8 @@ private:
     bool driveCollisionsOn() const;
     QRhiResourceUpdateBatch *runDriveProbe(SurfaceObject &o, QRhiCommandBuffer *cb,
                                            QRhiResourceUpdateBatch *resourceUpdates);
+    QRhiResourceUpdateBatch *runDriveFieldProbe(SurfaceObject &o, QRhiCommandBuffer *cb,
+                                                QRhiResourceUpdateBatch *resourceUpdates);   // le implicite
     bool buildDriveProbePipeline(SurfaceObject &o, DriveProbe &probe);
     void setDriveProbeBindings(SurfaceObject &o, DriveProbe &probe);
     void releaseDriveProbe(SurfaceObject &o);

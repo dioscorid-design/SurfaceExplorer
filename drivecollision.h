@@ -57,10 +57,31 @@ struct DriveColliderPart {
     QVector3D lo, hi;
 };
 
+// UNA SUPERFICIE IMPLICITA (ray marching): il campo che il marcher disegna
+// (map, o il campo grezzo per il guscio), campionato su una griglia di n x n x
+// n nodi in un cubo attorno alla camera, nello spazio dell'oggetto. Il cubo di
+// taglio dei preset e' quasi sempre enorme (lato 2000): una griglia su tutto
+// non vedrebbe niente, questa segue la camera (GLWidget::runDriveProbe). La
+// superficie e' lo zero del campo: i triangoli si ricavano, a tetraedri, solo
+// nelle celle che il moto della sfera tocca. Fuori dal cubo non si sa: niente urti.
+struct DriveFieldGrid {
+    QVector3D center;
+    float half = 0.0f;                 // meta' lato del cubo
+    int n = 0;                         // nodi per lato
+    std::vector<float> values;         // indice (i * n + j) * n + k, i lungo x; >= 1e29 = fuori (nessuna superficie)
+    bool empty() const { return values.empty() || n < 2; }
+    float cell() const { return 2.0f * half / float(n - 1); }
+    QVector3D node(int i, int j, int k) const
+    {
+        return center + QVector3D(float(i), float(j), float(k)) * cell() - QVector3D(half, half, half);
+    }
+};
+
 struct DriveCollider {
     std::vector<DriveColliderPart> parts;
+    DriveFieldGrid field;   // le implicite: al posto delle parti
     QVector3D lo, hi;   // l'ingombro di tutte le parti
-    bool empty() const { return parts.empty(); }
+    bool empty() const { return parts.empty() && field.empty(); }
     // Dopo aver riempito punti e validi: i blocchi e gli ingombri.
     void finalize();
 
@@ -74,10 +95,15 @@ struct DriveCollider {
     float distance(const QVector3D &p) const;
 };
 
-// Un collider al suo posto nel mondo: la posa dell'oggetto.
+// Un collider al suo posto nel mondo: la posa dell'oggetto, e il raggio minimo
+// della camera davanti a lui (unita' del mondo; 0 = quello della guida). Le
+// implicite lo vogliono piu' grande: il ray marcher comincia a cercare la
+// superficie a 0.3 dalla camera, e una parete piu' vicina non si vede (si vedeva
+// fuori, come se la si fosse attraversata).
 struct DrivePlacedCollider {
     const DriveCollider *collider = nullptr;
     QMatrix4x4 model;
+    float minRadius = 0.0f;
 };
 
 // LO SCIVOLAMENTO: dove arriva la camera (centro di una sfera di raggio
@@ -94,10 +120,12 @@ float driveDistance(const std::vector<DrivePlacedCollider> &colliders, const QVe
 // GLWidget::releaseDriveProbe con quelle dell'oggetto.
 struct DriveProbe {
     // Che cosa disegna il vertex: superficie (u, v), tubo attorno a una curva,
-    // mesh custom (i vertici sono posizioni).
-    enum Kind { Surface, Tube, Custom };
+    // mesh custom (i vertici sono posizioni); o il ray marcher (implicita).
+    enum Kind { Surface, Tube, Custom, Implicit };
     Kind kind = Surface;
-    QString source;                   // il vertex da cui e' nata la pipeline
+    QString source;                   // il vertex (o il campo del ray marcher) da cui e' nata la pipeline
+    int implicitGen = -1;             // implicita: la generazione della pipeline del marcher (implicitPipelineGen)
+    DriveFieldGrid pendingGrid;       // implicita: centro, lato e nodi della lettura in corso (senza valori)
     QString cutout;                   // e il corpo del taglio (cutHere), compilato con lei
     bool cutCompiled = false;         // la pipeline valuta il taglio (se no, i suoi buchi urtano)
     int serial = 0;                   // cresce a ogni vertex nuovo: una lettura del vertex di prima si scarta

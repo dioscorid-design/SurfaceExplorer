@@ -200,6 +200,77 @@ inline void grow(QVector3D &lo, QVector3D &hi, const QVector3D &x)
     hi = QVector3D(std::max(hi.x(), x.x()), std::max(hi.y(), x.y()), std::max(hi.z(), x.z()));
 }
 
+// I SEI TETRAEDRI DI UNA CELLA (Kuhn, lungo la diagonale 0-7; vertice c =
+// x + 2y + 4z): gli stessi in tutte le celle, quindi le facce delle celle
+// vicine si dividono allo stesso modo e i triangoli combaciano.
+constexpr int kTets[6][4] = { { 0, 1, 3, 7 }, { 0, 1, 5, 7 }, { 0, 2, 3, 7 },
+                              { 0, 2, 6, 7 }, { 0, 4, 5, 7 }, { 0, 4, 6, 7 } };
+
+// Lo zero del campo dentro un tetraedro: un triangolo (un vertice da una
+// parte, tre dall'altra) o due (due e due), coi punti dove il campo,
+// interpolato lungo gli spigoli, si annulla.
+template <typename F>
+void polygonizeTet(const QVector3D *p, const float *v, const int *t, F &f)
+{
+    int in[4], out[4];
+    int ni = 0, no = 0;
+    for (int a = 0; a < 4; ++a) {
+        if (v[t[a]] < 0.0f) in[ni++] = t[a];
+        else out[no++] = t[a];
+    }
+    if (ni == 0 || ni == 4) return;
+    const auto zero = [&](int a, int b) { return p[a] + (p[b] - p[a]) * (v[a] / (v[a] - v[b])); };
+    if (ni == 1) {
+        f(zero(in[0], out[0]), zero(in[0], out[1]), zero(in[0], out[2]));
+    } else if (ni == 3) {
+        f(zero(out[0], in[0]), zero(out[0], in[1]), zero(out[0], in[2]));
+    } else {
+        const QVector3D q00 = zero(in[0], out[0]), q01 = zero(in[0], out[1]);
+        const QVector3D q11 = zero(in[1], out[1]), q10 = zero(in[1], out[0]);
+        f(q00, q01, q11);
+        f(q00, q11, q10);
+    }
+}
+
+// I triangoli dello zero del campo nelle celle della griglia che toccano
+// l'ingombro dato. Le celle con un nodo fuori (>= 1e29) non ne hanno.
+template <typename F>
+void forFieldTriangles(const DriveFieldGrid &g, const QVector3D &lo, const QVector3D &hi, F &&f)
+{
+    if (g.empty()) return;
+    const float h = g.cell();
+    const QVector3D base = g.center - QVector3D(g.half, g.half, g.half);
+    const auto range = [&](float a, float b, float origin, int &i0, int &i1) {
+        i0 = std::max(0, int(std::floor((a - origin) / h)));
+        i1 = std::min(g.n - 2, int(std::floor((b - origin) / h)));
+    };
+    int i0, i1, j0, j1, k0, k1;
+    range(lo.x(), hi.x(), base.x(), i0, i1);
+    range(lo.y(), hi.y(), base.y(), j0, j1);
+    range(lo.z(), hi.z(), base.z(), k0, k1);
+    const int n = g.n;
+    for (int i = i0; i <= i1; ++i) {
+        for (int j = j0; j <= j1; ++j) {
+            for (int k = k0; k <= k1; ++k) {
+                float v[8];
+                int neg = 0;
+                bool outside = false;
+                for (int c = 0; c < 8; ++c) {
+                    const int idx = ((i + (c & 1)) * n + (j + ((c >> 1) & 1))) * n + (k + ((c >> 2) & 1));
+                    v[c] = g.values[size_t(idx)];
+                    if (!(v[c] < 1e29f)) outside = true;   // anche NaN
+                    if (v[c] < 0.0f) ++neg;
+                }
+                if (outside || neg == 0 || neg == 8) continue;
+                QVector3D p[8];
+                for (int c = 0; c < 8; ++c)
+                    p[c] = base + QVector3D(float(i + (c & 1)), float(j + ((c >> 1) & 1)), float(k + ((c >> 2) & 1))) * h;
+                for (const auto &t : kTets) polygonizeTet(p, v, t, f);
+            }
+        }
+    }
+}
+
 constexpr float kHuge = std::numeric_limits<float>::max();
 
 // La scala piu' piccola della posa (le colonne del 3x3): la sfera nello spazio
@@ -219,21 +290,21 @@ void DriveCollider::finalize()
     // indici della mesh custom vanno per righe della griglia: sono vicini).
     constexpr int kTile = 8;
     constexpr int kListTile = 64;
-    const QVector3D far(kHuge, kHuge, kHuge);
-    lo = far;
-    hi = -far;
+    const QVector3D farBox(kHuge, kHuge, kHuge);
+    lo = farBox;
+    hi = -farBox;
     for (DriveColliderPart &part : parts) {
         part.tiles.clear();
-        part.lo = far;
-        part.hi = -far;
+        part.lo = farBox;
+        part.hi = -farBox;
         if (!part.indices.empty()) {
             const int triangles = int(part.indices.size() / 3);
             for (int t0 = 0; t0 < triangles; t0 += kListTile) {
                 DriveColliderPart::Tile tile;
                 tile.i0 = t0;
                 tile.i1 = std::min(t0 + kListTile, triangles);
-                tile.lo = far;
-                tile.hi = -far;
+                tile.lo = farBox;
+                tile.hi = -farBox;
                 bool any = false;
                 for (int k = 3 * tile.i0; k < 3 * tile.i1; ++k) {
                     const unsigned int v = part.indices[k];
@@ -255,8 +326,8 @@ void DriveCollider::finalize()
                     tile.i1 = std::min(ti + kTile, part.nu);
                     tile.j0 = tj;
                     tile.j1 = std::min(tj + kTile, part.nv);
-                    tile.lo = far;
-                    tile.hi = -far;
+                    tile.lo = farBox;
+                    tile.hi = -farBox;
                     bool any = false;
                     for (int i = tile.i0; i <= tile.i1; ++i) {
                         for (int j = tile.j0; j <= tile.j1; ++j) {
@@ -277,6 +348,11 @@ void DriveCollider::finalize()
         grow(lo, hi, part.lo);
         grow(lo, hi, part.hi);
     }
+    if (!field.empty()) {
+        const QVector3D h(field.half, field.half, field.half);
+        grow(lo, hi, field.center - h);
+        grow(lo, hi, field.center + h);
+    }
 }
 
 bool DriveCollider::sweep(const QVector3D &p, const QVector3D &d, float r, float *t, QVector3D *n) const
@@ -291,11 +367,11 @@ bool DriveCollider::sweep(const QVector3D &p, const QVector3D &d, float r, float
     double best = 1.0;
     V normal;
     bool hit = false;
-    for (const DriveColliderPart &part : parts) {
-        forTriangles(part, slo, shi, [&](const QVector3D &a, const QVector3D &b, const QVector3D &c) {
-            if (sweepTriangle(pp, dd, double(r), vec(a), vec(b), vec(c), &best, &normal)) hit = true;
-        });
-    }
+    const auto test = [&](const QVector3D &a, const QVector3D &b, const QVector3D &c) {
+        if (sweepTriangle(pp, dd, double(r), vec(a), vec(b), vec(c), &best, &normal)) hit = true;
+    };
+    for (const DriveColliderPart &part : parts) forTriangles(part, slo, shi, test);
+    forFieldTriangles(field, slo, shi, test);
     if (!hit) return false;
     *t = float(best);
     *n = qvec(normal);
@@ -306,12 +382,14 @@ float DriveCollider::distance(const QVector3D &p) const
 {
     double best = kHuge;
     const V pp = vec(p);
-    const QVector3D far(kHuge, kHuge, kHuge);
-    for (const DriveColliderPart &part : parts) {
-        forTriangles(part, -far, far, [&](const QVector3D &a, const QVector3D &b, const QVector3D &c) {
-            best = std::min(best, norm(pp - closestOnTriangle(pp, vec(a), vec(b), vec(c))));
-        });
-    }
+    const QVector3D farBox(kHuge, kHuge, kHuge);
+    const auto test = [&](const QVector3D &a, const QVector3D &b, const QVector3D &c) {
+        best = std::min(best, norm(pp - closestOnTriangle(pp, vec(a), vec(b), vec(c))));
+    };
+    for (const DriveColliderPart &part : parts) forTriangles(part, -farBox, farBox, test);
+    // Il campo: le celle entro mezza unita' (le distanze che contano sono quelle vicine).
+    const QVector3D nearBox(0.5f, 0.5f, 0.5f);
+    forFieldTriangles(field, p - nearBox, p + nearBox, test);
     return float(best);
 }
 
@@ -339,7 +417,8 @@ QVector3D driveSlide(const std::vector<DrivePlacedCollider> &colliders, const QV
             if (!invertible || scale < 1e-12f) continue;
             float t = 1.0f;
             QVector3D n;
-            if (!pc.collider->sweep(inv.map(pos), inv.mapVector(rem), radius / scale, &t, &n) || t > bestT) continue;
+            const float r = std::max(radius, pc.minRadius);
+            if (!pc.collider->sweep(inv.map(pos), inv.mapVector(rem), r / scale, &t, &n) || t > bestT) continue;
             // La normale torna nel mondo con l'inversa trasposta della posa.
             const QVector3D nw = inv.transposed().mapVector(n).normalized();
             if (nw.isNull()) continue;

@@ -9,6 +9,7 @@
 #include "tubecurvesampler.h"
 
 #include <QDebug>
+#include <QRegularExpression>
 #include <QVarLengthArray>
 #include <algorithm>
 #include <cmath>
@@ -147,12 +148,83 @@ bool ensureStorage(QRhi *rhi, QRhiBuffer *&buffer, quint32 &capacity, quint32 ne
     return buffer->create();
 }
 
+// LE IMPLICITE: la griglia del campo, nodi per lato e meta' lato in unita'
+// della scena (per la scala delle velocita' della guida: scene piu' grandi,
+// cubo piu' grande). Cella ~0.034, poco piu' del raggio della camera.
+constexpr int kFieldNodes = 48;
+constexpr float kFieldHalf = 0.8f;
+
+// IL MAIN DELLA SONDA DELLE IMPLICITE, in coda alla parte del ray marcher che
+// calcola il campo (rawField, map): un nodo per invocazione, nello spazio
+// dell'oggetto, col campo che il marcher disegna. Pieno: map(), il solido
+// tagliato dal cubo. Guscio: lo zero del campo grezzo dentro il cubo (il
+// guscio, spesso un centesimo, la griglia non lo vedrebbe; la camera e' piu'
+// grossa di lui), fuori dal cubo 1e30, nessuna superficie.
+QString fieldProbeMain()
+{
+    return QStringLiteral(R"(
+layout(local_size_x = 64) in;
+// (centro, meta' lato) e (nodi per lato, 0, 0, 0)
+layout(std430, binding = %1) readonly buffer DriveProbeGrid { vec4 g[]; } probeGrid;
+layout(std430, binding = %2) writeonly buffer DriveProbeField { float f[]; } probeField;
+
+void main() {
+    vec4 c = probeGrid.g[0];
+    int n = int(probeGrid.g[1].x + 0.5);
+    int id = int(gl_GlobalInvocationID.x);
+    if (id >= n * n * n) return;
+    int i = id / (n * n);
+    int rest = id - i * n * n;
+    int j = rest / n;
+    int k = rest - j * n;
+    vec3 pos = c.xyz + (vec3(float(i), float(j), float(k)) * (2.0 / float(n - 1)) - 1.0) * c.w;
+    float value;
+    if (ubuf.u_renderMode == 1) {
+        vec3 bMin = vec3(ubuf.x_min, ubuf.y_min, ubuf.z_min);
+        vec3 bMax = vec3(ubuf.x_max, ubuf.y_max, ubuf.z_max);
+        vec3 q = abs(pos - (bMax + bMin) * 0.5) - (bMax - bMin) * 0.5;
+        value = (max(q.x, max(q.y, q.z)) > 0.0) ? 1.0e30 : rawField(pos);
+    } else {
+        value = map(pos);
+    }
+    probeField.f[id] = value;
+}
+)").arg(kBindParts).arg(kBindPoints);
+}
+
+// La parte del fragment del ray marcher che calcola il campo: tutto cio' che
+// precede le normali (dichiarazioni, rawField, map, mapInner), con ingressi e
+// uscite del fragment ridotti a variabili globali. Il resto (marcia, luci,
+// texture, main) usa cio' che un compute non ha.
+QString fieldLibrary(const QString &fragment)
+{
+    const int cut = fragment.indexOf(QLatin1String("vec3 calcNormal(vec3 pos)"));
+    if (cut < 0) return QString();
+    QString src = fragment.left(cut);
+    static const QRegularExpression ioRe(QStringLiteral(R"(layout\s*\(\s*location\s*=\s*\d+\s*\)\s*(in|out)\s+)"));
+    src.remove(ioRe);
+    return src;
+}
+
 // La lettura e' arrivata: i nodi nelle parti del collider.
 void finishProbe(DriveProbe &p, int serial)
 {
     p.reading = false;
     if (serial != p.serial) return;   // il vertex e' cambiato nel frattempo: nodi di un'altra superficie
     const QByteArray &data = p.result.data;
+    if (p.kind == DriveProbe::Implicit) {
+        // Il campo nella griglia della lettura.
+        DriveCollider collider;
+        collider.field = p.pendingGrid;
+        const size_t count = size_t(p.pendingGrid.n) * size_t(p.pendingGrid.n) * size_t(p.pendingGrid.n);
+        if (size_t(data.size()) / sizeof(float) < count) return;
+        const auto *values = reinterpret_cast<const float *>(data.constData());
+        collider.field.values.assign(values, values + count);
+        collider.finalize();
+        p.collider = std::move(collider);
+        ++p.arrived;
+        return;
+    }
     const auto *nodes = reinterpret_cast<const QVector4D *>(data.constData());
     const size_t available = size_t(data.size()) / sizeof(QVector4D);
     DriveCollider collider;
@@ -196,25 +268,35 @@ bool GLWidget::driveCollisionsOn() const
 
 bool GLWidget::buildDriveProbePipeline(SurfaceObject &o, DriveProbe &probe)
 {
-    const QString lib = vertexAsComputeLibrary(probe.source, QStringLiteral("DRIVE_PROBE_COMPUTE"),
-                                               QStringLiteral("surfaceVertexMain"), QStringLiteral("g_driveProbePosition"));
-    if (lib.isEmpty()) return false;
-
-    // Il taglio con la pipeline; se non compilasse nel compute, la sonda va
-    // senza (i buchi restano pieni per gli urti, la superficie urta comunque).
     QShader shader;
     QString error;
     probe.cutCompiled = false;
-    if (probe.kind != DriveProbe::Custom && !probe.cutout.trimmed().isEmpty()) {
-        const QString src = lib + QStringLiteral("\nbool cutHere(float u, float v) {\n") + generateGlslHelperVars(probe.cutout)
-                            + probe.cutout + QStringLiteral("\n}\n") + probeMain(probe.kind, true);
-        probe.cutCompiled = TubeCurveSampler::bakeCompute(rhi(), src, &shader, &error);
-        if (!probe.cutCompiled)
-            qWarning() << "DRIVE: il taglio non compila nella sonda degli urti, i suoi buchi urtano:" << error;
+    if (probe.kind == DriveProbe::Implicit) {
+        const QString lib = fieldLibrary(probe.source);
+        if (lib.isEmpty() || !TubeCurveSampler::bakeCompute(rhi(), lib + fieldProbeMain(), &shader, &error)) {
+            qWarning() << "DRIVE: sonda degli urti del ray marching non compilata, la superficie non ferma la camera:"
+                       << error;
+            return false;
+        }
     }
-    if (!probe.cutCompiled && !TubeCurveSampler::bakeCompute(rhi(), lib + probeMain(probe.kind, false), &shader, &error)) {
-        qWarning() << "DRIVE: sonda degli urti non compilata, la superficie non ferma la camera:" << error;
-        return false;
+    if (probe.kind != DriveProbe::Implicit) {
+        const QString lib = vertexAsComputeLibrary(probe.source, QStringLiteral("DRIVE_PROBE_COMPUTE"),
+                                                   QStringLiteral("surfaceVertexMain"), QStringLiteral("g_driveProbePosition"));
+        if (lib.isEmpty()) return false;
+        // Il taglio con la pipeline; se non compilasse nel compute, la sonda va
+        // senza (i buchi restano pieni per gli urti, la superficie urta comunque).
+        if (probe.kind != DriveProbe::Custom && !probe.cutout.trimmed().isEmpty()) {
+            const QString src = lib + QStringLiteral("\nbool cutHere(float u, float v) {\n")
+                                + generateGlslHelperVars(probe.cutout) + probe.cutout + QStringLiteral("\n}\n")
+                                + probeMain(probe.kind, true);
+            probe.cutCompiled = TubeCurveSampler::bakeCompute(rhi(), src, &shader, &error);
+            if (!probe.cutCompiled)
+                qWarning() << "DRIVE: il taglio non compila nella sonda degli urti, i suoi buchi urtano:" << error;
+        }
+        if (!probe.cutCompiled && !TubeCurveSampler::bakeCompute(rhi(), lib + probeMain(probe.kind, false), &shader, &error)) {
+            qWarning() << "DRIVE: sonda degli urti non compilata, la superficie non ferma la camera:" << error;
+            return false;
+        }
     }
     if (!ensureStorage(rhi(), probe.parts, probe.partsCapacity, 64)
         || !ensureStorage(rhi(), probe.points, probe.pointsCapacity, 4096)
@@ -242,6 +324,14 @@ void GLWidget::setDriveProbeBindings(SurfaceObject &o, DriveProbe &probe)
     // Il blocco della parte, quello dei disegni (o.ubo, che puo' essere
     // rifatto piu' grande: si riaggancia a ogni passata).
     b.append(B::uniformBufferWithDynamicOffset(0, B::ComputeStage, o.ubo, sizeof(UboData)));
+    if (probe.kind == DriveProbe::Implicit) {
+        // Il campo puo' leggere la texture della superficie (i rilievi): la sua, come il marcher.
+        b.append(B::sampledTexture(1, B::ComputeStage, o.surfaceTexture ? o.surfaceTexture : m_dummyTexture, m_sampler));
+        b.append(B::bufferLoad(kBindParts, B::ComputeStage, probe.parts));
+        b.append(B::bufferStore(kBindPoints, B::ComputeStage, probe.points));
+        probe.srb->setBindings(b.cbegin(), b.cend());
+        return;
+    }
     if (probe.kind == DriveProbe::Tube)
         b.append(B::sampledTexture(2, B::ComputeStage, o.tubeFrameTex ? o.tubeFrameTex : m_dummyTexture,
                                    o.tubeFrameSampler ? o.tubeFrameSampler : m_sampler));
@@ -255,8 +345,8 @@ QRhiResourceUpdateBatch *GLWidget::runDriveProbe(SurfaceObject &o, QRhiCommandBu
                                                  QRhiResourceUpdateBatch *resourceUpdates)
 {
     if (!driveCollisionsOn()) return resourceUpdates;
-    // Le superfici del vertex parametrico: equazioni, script, tubi, mesh
-    // custom. Il ray marching (implicite) non ha nodi da leggere.
+    if (o.engineMode == ModeImplicit) return runDriveFieldProbe(o, cb, resourceUpdates);
+    // Le superfici del vertex parametrico: equazioni, script, tubi, mesh custom.
     const bool probeable = o.engineMode == ModeParametric && o.engine && o.ubo && !o.driveVertexSource.isEmpty()
                            && !o.engine->getMeshParts().empty() && rhi()->isFeatureSupported(QRhi::Compute);
     if (!probeable) {
@@ -412,6 +502,111 @@ QRhiResourceUpdateBatch *GLWidget::runDriveProbe(SurfaceObject &o, QRhiCommandBu
     return nullptr;
 }
 
+// LA SONDA DELLE IMPLICITE: il campo del ray marcher su una griglia attorno
+// alla camera (DriveFieldGrid), nello spazio dell'oggetto. Si rilegge quando
+// cambia il campo (costanti, tempo, sezione 4D, cubo di taglio, pieno o
+// guscio) o quando la camera esce dal terzo centrale del cubo: il cubo nuovo
+// le sta attorno, e finche' non arriva vale quello di prima.
+QRhiResourceUpdateBatch *GLWidget::runDriveFieldProbe(SurfaceObject &o, QRhiCommandBuffer *cb,
+                                                      QRhiResourceUpdateBatch *resourceUpdates)
+{
+    if (!o.ubo || !rhi()->isFeatureSupported(QRhi::Compute)) return resourceUpdates;
+    if (!o.driveProbe) o.driveProbe = std::make_shared<DriveProbe>();
+    DriveProbe &probe = *o.driveProbe;
+    // UNA PIPELINE NUOVA DEL MARCHER (equazione, script, rilievi, sezione):
+    // la sonda nasce dal suo sorgente, e il campo di prima non vale piu'.
+    if (probe.kind != DriveProbe::Implicit || probe.implicitGen != o.implicitPipelineGen) {
+        releaseProbePipeline(probe);
+        probe.kind = DriveProbe::Implicit;
+        probe.implicitGen = o.implicitPipelineGen;
+        probe.source = createImplicitFragmentShader(o, 0);
+        probe.cutout.clear();
+        probe.failed = false;
+        probe.key.clear();
+        probe.collider = DriveCollider();
+        ++probe.serial;
+    }
+    if (probe.failed) return resourceUpdates;
+    if (probe.reading) {
+        update();
+        return resourceUpdates;
+    }
+
+    // IL CUBO attorno alla camera, nello spazio dell'oggetto.
+    bool invertible = false;
+    const QMatrix4x4 inv = o.model.inverted(&invertible);
+    const float scale = std::min({ o.model.column(0).toVector3D().length(), o.model.column(1).toVector3D().length(),
+                                   o.model.column(2).toVector3D().length() });
+    if (!invertible || scale < 1e-12f) return resourceUpdates;
+    const float half = kFieldHalf * std::max(1.0f, m_driveControls ? m_driveControls->speedScale : 1.0f) / scale;
+    const QVector3D cam = inv.map(m_view.inverted().column(3).toVector3D());
+    const DriveFieldGrid &current = probe.collider.field;
+    const QVector3D off = cam - current.center;
+    const bool recentre = current.empty() || std::abs(current.half - half) > 1e-4f * half
+                          || std::max({ std::abs(off.x()), std::abs(off.y()), std::abs(off.z()) }) > half / 3.0f;
+    const QVector3D center = recentre ? cam : current.center;
+
+    // GLI INGRESSI DEL CAMPO, oltre alla pipeline: il cubo, costanti, tempo,
+    // rotazioni 4D e quota della sezione, gli orologi dei rilievi, pieno o
+    // guscio, il cubo di taglio.
+    const std::vector<QVector4D> table{ QVector4D(center, half), QVector4D(float(kFieldNodes), 0.0f, 0.0f, 0.0f) };
+    QByteArray key(reinterpret_cast<const char *>(table.data()), int(table.size() * sizeof(QVector4D)));
+    const auto add = [&key](const void *field, size_t bytes) {
+        key.append(reinterpret_cast<const char *>(field), qsizetype(bytes));
+    };
+    add(&m_uboData.mathParams, sizeof(QVector4D));
+    add(&m_uboData.mathParams2, 3 * sizeof(float));
+    add(&m_uboData.time, sizeof(float));
+    add(&m_uboData.omega, 3 * sizeof(float));
+    add(&m_uboData.dummyZero, sizeof(QVector4D));
+    add(&m_uboData.renderMode, sizeof(int));
+    add(&m_uboData.x_min, 6 * sizeof(float));   // x_min .. z_max
+    if (key == probe.key) return resourceUpdates;
+
+    if (!probe.pipeline && !buildDriveProbePipeline(o, probe)) {
+        probe.failed = true;
+        return resourceUpdates;
+    }
+    const quint32 nodes = quint32(kFieldNodes) * quint32(kFieldNodes) * quint32(kFieldNodes);
+    if (!ensureStorage(rhi(), probe.parts, probe.partsCapacity, quint32(table.size()))
+        || !ensureStorage(rhi(), probe.points, probe.pointsCapacity, (nodes + 3) / 4)) {
+        releaseProbePipeline(probe);
+        probe.failed = true;
+        return resourceUpdates;
+    }
+    setDriveProbeBindings(o, probe);
+    probe.srb->updateResources();
+
+    if (!resourceUpdates) resourceUpdates = rhi()->nextResourceUpdateBatch();
+    resourceUpdates->uploadStaticBuffer(probe.parts, 0, quint32(table.size() * sizeof(QVector4D)), table.data());
+    cb->beginComputePass(resourceUpdates);
+    cb->setComputePipeline(probe.pipeline);
+    const QRhiCommandBuffer::DynamicOffset dyn(0, 0);
+    cb->setShaderResources(probe.srb, 1, &dyn);
+    cb->dispatch(int((nodes + 63) / 64), 1, 1);
+    cb->endComputePass();
+
+    QRhiResourceUpdateBatch *rb = rhi()->nextResourceUpdateBatch();
+    probe.result = {};
+    const int serial = probe.serial;
+    probe.result.completed = [this, keep = o.driveProbe, serial] {
+        QMetaObject::invokeMethod(this, [keep, serial] {
+            keep->result.completed = nullptr;
+            finishProbe(*keep, serial);
+        }, Qt::QueuedConnection);
+    };
+    rb->readBackBuffer(probe.points, 0, nodes * 4u, &probe.result);
+    cb->resourceUpdate(rb);
+    probe.reading = true;
+    probe.key = key;
+    probe.pendingGrid = DriveFieldGrid();
+    probe.pendingGrid.center = center;
+    probe.pendingGrid.half = half;
+    probe.pendingGrid.n = kFieldNodes;
+    update();
+    return nullptr;
+}
+
 void GLWidget::releaseDriveProbe(SurfaceObject &o)
 {
     if (!o.driveProbe) return;
@@ -428,8 +623,21 @@ std::vector<DrivePlacedCollider> GLWidget::driveColliders() const
         if (!o.driveProbe || o.driveProbe->collider.empty() || !isOnStage(o)) continue;
         // Il collider di un vertex di prima (un'altra superficie caricata a
         // guida spenta) non vale: finche' la sonda non rilegge, niente urti.
-        if (o.driveProbe->source.constData() != o.driveVertexSource.constData()) continue;
-        colliders.push_back({ &o.driveProbe->collider, o.model });
+        const bool stale = o.engineMode == ModeImplicit
+                               ? o.driveProbe->kind != DriveProbe::Implicit || o.driveProbe->implicitGen != o.implicitPipelineGen
+                               : o.driveProbe->source.constData() != o.driveVertexSource.constData();
+        if (stale) continue;
+        // Le implicite: la camera resta dove il ray marcher le disegna ancora
+        // (CameraDrive::kMarcherNear davanti a lei, nello spazio dell'oggetto),
+        // piu' il suo raggio.
+        float minRadius = 0.0f;
+        if (o.engineMode == ModeImplicit) {
+            const float scale = std::min({ o.model.column(0).toVector3D().length(),
+                                           o.model.column(1).toVector3D().length(),
+                                           o.model.column(2).toVector3D().length() });
+            minRadius = CameraDrive::kMarcherNear * scale + CameraDrive::kCollisionRadius;
+        }
+        colliders.push_back({ &o.driveProbe->collider, o.model, minRadius });
     }
     return colliders;
 }
