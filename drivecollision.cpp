@@ -393,12 +393,72 @@ float DriveCollider::distance(const QVector3D &p) const
     return float(best);
 }
 
+bool DriveCollider::pushOut(QVector3D &p, float r) const
+{
+    const QVector3D rr(r, r, r);
+    const QVector3D lo = p - rr, hi = p + rr;
+    if (empty() || !overlaps(lo, hi, this->lo, this->hi)) return false;
+    V pp = vec(p);
+    bool moved = false;
+    const auto test = [&](const QVector3D &a, const QVector3D &b, const QVector3D &c) {
+        const V q = closestOnTriangle(pp, vec(a), vec(b), vec(c));
+        const V off = pp - q;
+        const double d = norm(off);
+        // Il centro proprio sulla superficie: da che parte, non si sa.
+        if (d >= double(r) || d < 1e-9) return;
+        pp = q + off * (double(r) * 1.001 / d);
+        moved = true;
+    };
+    for (const DriveColliderPart &part : parts) forTriangles(part, lo, hi, test);
+    forFieldTriangles(field, lo, hi, test);
+    if (moved) p = qvec(pp);
+    return moved;
+}
+
+void DriveCollider::forEachTriangle(const QVector3D &lo, const QVector3D &hi,
+                                    const std::function<void(const QVector3D &, const QVector3D &, const QVector3D &)> &f) const
+{
+    if (empty() || !overlaps(lo, hi, this->lo, this->hi)) return;
+    for (const DriveColliderPart &part : parts) forTriangles(part, lo, hi, f);
+    forFieldTriangles(field, lo, hi, f);
+}
+
+QVector3D drivePushOut(const std::vector<DrivePlacedCollider> &colliders, const QVector3D &from, float radius,
+                       bool *pushed)
+{
+    QVector3D pos = from;
+    bool any = false;
+    // Qualche giro: uscendo da una superficie si puo' entrare in un'altra vicina (una piega).
+    for (int pass = 0; pass < 3; ++pass) {
+        bool moved = false;
+        for (const DrivePlacedCollider &pc : colliders) {
+            if (!pc.collider || pc.collider->empty()) continue;
+            bool invertible = false;
+            const QMatrix4x4 inv = pc.model.inverted(&invertible);
+            const float scale = minScale(pc.model);
+            if (!invertible || scale < 1e-12f) continue;
+            QVector3D p = inv.map(pos);
+            if (!pc.collider->pushOut(p, std::max(radius, pc.minRadius) / scale)) continue;
+            pos = pc.model.map(p);
+            moved = true;
+        }
+        if (!moved) break;
+        any = true;
+    }
+    if (pushed) *pushed = any;
+    return pos;
+}
+
 QVector3D driveSlide(const std::vector<DrivePlacedCollider> &colliders, const QVector3D &from, const QVector3D &move,
                      float radius, bool *contact)
 {
-    QVector3D pos = from;
-    QVector3D rem = move;
+    // LE SUPERFICI CHE SI MUOVONO (un toro sul suo path, segnalato dall'utente
+    // il 2026-11-26): una parete che avanza entra nella sfera della camera fra
+    // un passo e l'altro. Prima del moto la camera torna a un raggio, dalla
+    // parte in cui sta: la parete la spinge, anche ferma.
     bool touched = false;
+    QVector3D pos = drivePushOut(colliders, from, radius, &touched);
+    QVector3D rem = move;
     // Qualche rimbalzo: in una piega o contro uno spigolo il moto che resta
     // dopo il primo contatto ne incontra un altro.
     constexpr int kBounces = 4;
@@ -440,7 +500,10 @@ QVector3D driveSlide(const std::vector<DrivePlacedCollider> &colliders, const QV
         rem *= 1.0f - bestT;
         rem -= bestN * QVector3D::dotProduct(rem, bestN);
     }
-    if (contact) *contact = touched;
+    // E dopo: lo scivolamento finisce sempre a un raggio da tutto.
+    bool pushedAfter = false;
+    pos = drivePushOut(colliders, pos, radius, &pushedAfter);
+    if (contact) *contact = touched || pushedAfter;
     return pos;
 }
 

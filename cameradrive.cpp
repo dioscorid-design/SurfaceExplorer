@@ -376,11 +376,12 @@ void CameraDrive::appendStep(const DriveControls &c)
         if (angle > 1e-9f)
             s.rot = (s.rot * QQuaternion::fromAxisAndAngle(s.turn / turnRate, qRadiansToDegrees(angle))).normalized();
         const QVector3D move = s.rot.rotatedVector(QVector3D(0.0f, s.lift, -s.speed)) * h;
-        if (m_controls.collisions && !move.isNull()) {
+        if (m_controls.collisions) {
             // GLI URTI: la camera scivola sulle superfici invece di attraversarle
-            // (GLWidget::slideDriveCamera). L'urto toglie al veicolo la velocita'
-            // contro la superficie: restano quelle del moto vero, in avanti e in
-            // su (di lato il veicolo non va; quel tratto lo ha gia' fatto).
+            // (GLWidget::slideDriveCamera), e una superficie in moto la spinge,
+            // anche ferma. L'urto toglie al veicolo la velocita' contro la
+            // superficie: restano quelle del moto vero, in avanti e in su (di
+            // lato il veicolo non va; quel tratto lo ha gia' fatto).
             const QVector3D to = m_view->slideDriveCamera(s.pos, move, kCollisionRadius, &m_contact);
             if (m_contact) {
                 const QVector3D v = s.rot.conjugated().rotatedVector(to - s.pos) / h;
@@ -398,8 +399,19 @@ void CameraDrive::appendStep(const DriveControls &c)
             const QVector3D a = s.turn / turnRate;
             turned = H3::renormalized(turned * H3::rotation({a.x(), a.y(), a.z()}, double(angle)));
         }
-        const H3::Matrix moved = H3::renormalized(
-            turned * H3::translation({0.0, double(s.lift) * h * k, -double(s.speed) * h * k}));
+        // Lo spostamento nel riferimento della camera, in raggi di curvatura.
+        QVector3D step(0.0f, float(double(s.lift) * h * k), float(-double(s.speed) * h * k));
+        if (m_controls.collisions) {
+            // GLI URTI IN H3: lo scivolamento nella carta di Klein della camera
+            // (GLWidget::slideDriveCameraH3); come in R3, l'urto lascia al
+            // veicolo la sola velocita' del moto vero.
+            step = m_view->slideDriveCameraH3(turned, step, &m_contact);
+            if (m_contact) {
+                s.speed = float(-double(step.z()) / (h * k));
+                s.lift = float(double(step.y()) / (h * k));
+            }
+        }
+        const H3::Matrix moved = H3::renormalized(turned * H3::translation({ step.x(), step.y(), step.z() }));
         const double before = H3::distance(H3::origin(), turned * H3::origin());
         const double after = H3::distance(H3::origin(), moved * H3::origin());
         if (after > GLWidget::maxHyperbolicCameraDistance() && after > before) {

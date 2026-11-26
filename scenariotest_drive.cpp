@@ -393,6 +393,20 @@ void ScenarioTest::runDriveCollisionScenarios()
     m_lines.append(QStringLiteral("== Guida libera (2.1): urti con le superfici, la camera ci scivola sopra =="));
     const float r = CameraDrive::kCollisionRadius;
     const float tol = 0.002f;
+    // UN PAD VERO COLLEGATO (un DualSense in Bluetooth) scrive i suoi assi nei
+    // comandi della guida quando l'app e' in primo piano: uno stick che deriva,
+    // o toccato, fa virare la camera a meta' di un volo di prova (2026-11-26,
+    // fallimenti a caso). Qui un pad finto a riposo.
+    Gamepad *realPad = m_mw->m_gamepad;
+    if (realPad) {
+        GamepadState rest;
+        rest.connected = true;
+        rest.name = QStringLiteral("Test pad");
+        realPad->setTestState(rest);
+    }
+    auto restorePad = qScopeGuard([realPad] {
+        if (realPad) realPad->setTestState(std::nullopt);
+    });
 
     // --- LA GEOMETRIA: il foglio z = 0, da -1 a 1, 10 x 10 celle ---------------
     {
@@ -436,13 +450,40 @@ void ScenarioTest::runDriveCollisionScenarios()
               QStringLiteral("taglio: dal buco di una cella la camera passa (z %1), accanto si ferma (z %2)")
                   .arg(double(hole.z())).arg(double(besideHole.z())));
         plane.parts[0].cut.clear();
+        // LA PARETE CHE SI MUOVE (Moving Torus Ride, 2026-11-26): il foglio sale
+        // di 0.01 a passo verso la camera ferma, sopra di lui; poi scende. La
+        // camera ne e' spinta e resta a un raggio; scendendo il foglio non la tira.
+        QVector3D still(0.1f, 0.1f, 0.05f);
+        float worstGap = 1e30f;
+        bool pushedUp = false;
+        QMatrix4x4 lift;
+        for (int i = 1; i <= 30; ++i) {
+            lift.setToIdentity();
+            lift.translate(0.0f, 0.0f, 0.01f * float(i));
+            const std::vector<DrivePlacedCollider> moving{ { &plane, lift } };
+            bool pushed = false;
+            still = driveSlide(moving, still, QVector3D(), r, &pushed);
+            pushedUp = pushedUp || pushed;
+            worstGap = std::min(worstGap, still.z() - 0.01f * float(i));
+        }
+        const float topZ = still.z();
+        for (int i = 29; i >= 0; --i) {
+            lift.setToIdentity();
+            lift.translate(0.0f, 0.0f, 0.01f * float(i));
+            still = driveSlide({ { &plane, lift } }, still, QVector3D(), r);
+        }
+        check(pushedUp && worstGap > r - tol && std::abs(topZ - 0.3f - r) < tol && std::abs(still.z() - topZ) < 1e-6f,
+              QStringLiteral("parete in moto: il foglio sale contro la camera ferma e la spinge (sempre a %1 o piu', in "
+                             "cima a z %2); scendendo non la tira (z %3)")
+                  .arg(double(worstGap)).arg(double(topZ)).arg(double(still.z())));
         check(cHead && std::abs(head.z() - r) < tol && cOblique && std::abs(oblique.x() - 0.6f) < tol
-                  && std::abs(oblique.z() - r) < tol && std::abs(below.z() + r) < tol && !cAway
-                  && std::abs(away.z() - 0.51f) < 1e-5f && !cBeside && std::abs(beside.z() + 0.5f) < 1e-5f
+                  && std::abs(oblique.z() - r) < tol && std::abs(below.z() + r) < tol && cAway
+                  && std::abs(away.z() - 0.5f - r) < tol && !cBeside && std::abs(beside.z() + 0.5f) < 1e-5f
                   && std::abs(fast.z() - r) < tol && cEdge && edgeDist > r - tol && edge.z() < 0.03f
                   && std::abs(scaled.z() - 1.0f - r) < tol && std::abs(scaledDist - r) < tol,
               QStringLiteral("geometria su un foglio piano: contro si ferma a un raggio (z %1), di sbieco ci scivola "
-                             "(x %2, z %3), da sotto anche (z %4), a contatto allontanandosi e' libera (z %5), di "
+                             "(x %2, z %3), da sotto anche (z %4), dentro il raggio torna a un raggio e poi "
+                             "si allontana (z %5), di "
                              "fianco passa (z %6), un passo di 10 non lo salta (z %7), lo spigolo lo aggira (distanza "
                              "%8, z %9), il foglio spostato e ingrandito (z %10, distanza %11)")
                   .arg(double(head.z())).arg(double(oblique.x())).arg(double(oblique.z())).arg(double(below.z()))
@@ -955,6 +996,139 @@ void ScenarioTest::runDriveCollisionScenarios()
         check(first && movesW && again && changed > 1e-4f,
               QStringLiteral("sezione 4D (Duocylinder): verso W (X) la sezione cambia e la sonda la rilegge (il campo "
                              "nei nodi cambia fino a %1)").arg(double(changed)));
+        m_mw->stopDrive();
+    }
+
+    // --- IN H3: la sfera (mesh, poi implicita) nel centro della scena ---------
+    // La camera sull'asse z a 2 raggi dal centro, che guarda verso di lui; tutta
+    // avanti. Si ferma a una distanza IPERBOLICA dal centro pari al raggio della
+    // sfera (sigma = scala * raggi per unita': la mappa esponenziale conserva le
+    // distanze dal centro) piu' il raggio della camera -- per l'implicita, piu'
+    // i kMarcherNear del ray marcher.
+    for (const QString &rel : { kSphere, QStringLiteral("surfaces/Implicit/3D/Sphere.json") }) {
+        pressNew();
+        m_discardOnPrompt = true;
+        m_mw->startScene(MainWindow::SceneSpace::SpaceH3);
+        wait(300);
+        m_discardOnPrompt = false;
+        m_mw->addShapeToScene(shapePath(rel));
+        wait(800);
+        if (!gl->hyperbolicSpace() || gl->objectCount() != 2) {
+            check(false, QStringLiteral("H3: la scena con %1 non parte").arg(rel));
+            continue;
+        }
+        const int index = gl->selectedObject();
+        gl->setObjectPosition(QVector3D(0.0f, 0.0f, 0.0f));
+        gl->setObjectScale(1.0f);
+        gl->setSpinSpeed(0.0f);
+        wait(200);
+        const SurfaceObject &ball = *gl->m_objects[size_t(index)];
+        const bool implicit = ball.engineMode == SurfaceObject::ModeImplicit;
+        const double rpu = 1.0 / gl->hyperbolicCurvatureRadius();
+        const double sigma = double(ball.scale) * rpu;
+        const double rho = gl->driveH3Radius();
+        const double expected = sigma + rho + (implicit ? CameraDrive::kMarcherNear * sigma : 0.0);
+        const int before = ball.driveProbe ? ball.driveProbe->arrived : 0;
+        m_mw->m_btnDrive->click();
+        gl->setDriveHyperbolicCamera(H3::translation({ 0.0, 0.0, 2.0 }));
+        const bool arrivedH3 = waitProbe(ball, before);
+        const auto centreDistance = [&] { return H3::distance(H3::origin(), gl->hyperbolicCamera() * H3::origin()); };
+        const double start = centreDistance();
+        double minD = start;
+        c.throttleUp = c.boost = true;
+        flyRendered(300, [&] { minD = std::min(minD, centreDistance()); });
+        c.throttleUp = c.boost = false;
+        const double endD = centreDistance();
+        const bool touching = drive->contact();
+        const float surfaceDist = gl->driveSurfaceDistanceH3();
+        check(arrivedH3 && std::abs(start - 2.0) < 1e-3 && minD > expected - 0.003 && endD < expected + 0.01 && touching,
+              QStringLiteral("H3, %1: dalla camera a %2 raggi dal centro, tutta avanti, si ferma a %3 raggi (attesi "
+                             "%4: sfera %5 + camera %6%7; minimo %8), a contatto; distanza dalla superficie %9 unita'")
+                  .arg(implicit ? QStringLiteral("sfera implicita") : QStringLiteral("sfera"))
+                  .arg(start).arg(endD).arg(expected).arg(sigma).arg(rho)
+                  .arg(implicit ? QStringLiteral(" + marcher %1").arg(CameraDrive::kMarcherNear * sigma) : QString())
+                  .arg(minD).arg(double(surfaceDist)));
+        m_mw->stopDrive();
+    }
+
+    // --- MOVING TORUS RIDE (scena H3, segnalata dall'utente il 2026-11-26) ----
+    // Il toro si muove su un path; sfera, nodo e perlina hanno lui per
+    // riferimento. Con DRIVE si entrava e usciva dal toro.
+    {
+        pressNew();
+        m_discardOnPrompt = true;
+        const bool loaded = m_mw->loadSceneFile(m_root + QStringLiteral("/scenes/Moving Torus Ride.json"));
+        wait(1500);
+        m_discardOnPrompt = false;
+        m_mw->m_btnDrive->click();
+        for (int k = 0; k < 40; ++k) {
+            gl->update();
+            wait(50);
+        }
+        QStringList objects;
+        for (size_t k = 0; k < gl->m_objects.size(); ++k) {
+            const SurfaceObject &o = *gl->m_objects[k];
+            objects << QStringLiteral("%1: sonda %2, letture %3, tipo %4, nodi %5, usabile %6")
+                           .arg(k)
+                           .arg(o.driveProbe ? 1 : 0)
+                           .arg(o.driveProbe ? o.driveProbe->arrived : 0)
+                           .arg(o.driveProbe ? int(o.driveProbe->kind) : -1)
+                           .arg(o.driveProbe && !o.driveProbe->collider.parts.empty()
+                                    ? o.driveProbe->collider.parts.front().points.size() : 0)
+                           .arg(gl->driveColliderUsable(o) ? 1 : 0);
+        }
+        float minDist = 1e30f;
+        int contacts = 0;
+        c.throttleUp = true;
+        flyRendered(360, [&] {
+            minDist = std::min(minDist, gl->driveSurfaceDistanceH3());
+            if (drive->contact()) ++contacts;
+        });
+        c.throttleUp = false;
+        // Mai dentro piu' di meta' raggio: la perlina corre sul suo path a ~3
+        // unita' al secondo, quasi un raggio della camera a frame, e fra un
+        // passo e l'altro entra nella sfera della camera prima che la spinta la
+        // riporti fuori (il limite di drivePushOut).
+        const float rhoForward = float(gl->driveH3Radius() * gl->hyperbolicCurvatureRadius());
+        check(loaded && gl->hyperbolicSpace() && minDist > 0.5f * rhoForward,
+              QStringLiteral("Moving Torus Ride (H3): avanti 6 s fra gli oggetti in moto, mai dentro una superficie "
+                             "piu' di meta' raggio (distanza minima %1, raggio %2, %3 passi a contatto) [%4]")
+                  .arg(double(minDist)).arg(double(rhoForward)).arg(contacts).arg(objects.join(QStringLiteral("; "))));
+        // CONTRO IL TUBO DEL TORO, da fuori: la camera a 0.6 (unita' del modello)
+        // dall'equatore esterno, che lo guarda lungo la normale; tutta avanti.
+        // Il toro intanto si muove sul suo path.
+        int torus = -1;
+        for (size_t k = 1; k < gl->m_objects.size(); ++k)
+            if (gl->m_objects[k]->engine && gl->m_objects[k]->engine->getMeshParts().size() == 1
+                && gl->m_objects[k]->scale > 2.0f)
+                torus = int(k);
+        if (torus > 0) {
+            const SurfaceObject &t = *gl->m_objects[size_t(torus)];
+            const double rpu = 1.0 / gl->hyperbolicCurvatureRadius();
+            const double sigma = double(t.scale) * rpu;
+            const double outer = double(t.mathParams.x() + t.mathParams.y());
+            const H3::Matrix P = gl->hyperbolicObjectPlacement(torus);
+            const H3::Vec4 target = P * H3::expAtOrigin({ outer * sigma, 0.0, 0.0 });
+            const H3::Vec4 from = P * H3::expAtOrigin({ (outer + 0.6) * sigma, 0.0, 0.0 });
+            gl->setDriveHyperbolicCamera(H3::frameTowards(from, target) * H3::rotation({ 0.0, 1.0, 0.0 }, M_PI));
+            const float rhoScene = float(gl->driveH3Radius() * gl->hyperbolicCurvatureRadius());
+            const float startDist = gl->driveSurfaceDistanceH3();
+            float minTube = 1e30f;
+            int tubeContacts = 0;
+            c.throttleUp = c.boost = true;
+            flyRendered(240, [&] {
+                minTube = std::min(minTube, gl->driveSurfaceDistanceH3());
+                if (drive->contact()) ++tubeContacts;
+            });
+            c.throttleUp = c.boost = false;
+            check(tubeContacts > 10 && minTube > rhoScene - tol,
+                  QStringLiteral("Moving Torus Ride (H3): contro il tubo del toro che si muove, la camera si ferma sulla "
+                                 "parete (distanza dalla superficie: all'inizio %1, minima %2, raggio della camera %3; "
+                                 "%4 passi a contatto)")
+                      .arg(double(startDist)).arg(double(minTube)).arg(double(rhoScene)).arg(tubeContacts));
+        } else {
+            check(false, QStringLiteral("Moving Torus Ride: il toro non c'e'"));
+        }
         m_mw->stopDrive();
     }
 

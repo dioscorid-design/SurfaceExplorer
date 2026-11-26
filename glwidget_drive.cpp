@@ -263,7 +263,7 @@ void finishProbe(DriveProbe &p, int serial)
 
 bool GLWidget::driveCollisionsOn() const
 {
-    return m_driveCamera && m_driveControls && m_driveControls->collisions && !m_hyperbolic && !m_isFlatView;
+    return m_driveCamera && m_driveControls && m_driveControls->collisions && !m_isFlatView;
 }
 
 bool GLWidget::buildDriveProbePipeline(SurfaceObject &o, DriveProbe &probe)
@@ -533,13 +533,10 @@ QRhiResourceUpdateBatch *GLWidget::runDriveFieldProbe(SurfaceObject &o, QRhiComm
     }
 
     // IL CUBO attorno alla camera, nello spazio dell'oggetto.
-    bool invertible = false;
-    const QMatrix4x4 inv = o.model.inverted(&invertible);
-    const float scale = std::min({ o.model.column(0).toVector3D().length(), o.model.column(1).toVector3D().length(),
-                                   o.model.column(2).toVector3D().length() });
-    if (!invertible || scale < 1e-12f) return resourceUpdates;
+    QVector3D cam;
+    float scale = 1.0f;
+    if (!driveCameraInModel(o, &cam, &scale)) return resourceUpdates;
     const float half = kFieldHalf * std::max(1.0f, m_driveControls ? m_driveControls->speedScale : 1.0f) / scale;
-    const QVector3D cam = inv.map(m_view.inverted().column(3).toVector3D());
     const DriveFieldGrid &current = probe.collider.field;
     const QVector3D off = cam - current.center;
     const bool recentre = current.empty() || std::abs(current.half - half) > 1e-4f * half
@@ -615,18 +612,48 @@ void GLWidget::releaseDriveProbe(SurfaceObject &o)
     o.driveProbe->failed = false;
 }
 
+bool GLWidget::driveColliderUsable(const SurfaceObject &o) const
+{
+    if (!o.driveProbe || o.driveProbe->collider.empty() || !isOnStage(o)) return false;
+    // Il collider di un vertex di prima (un'altra superficie caricata a guida
+    // spenta) non vale: finche' la sonda non rilegge, niente urti.
+    return o.engineMode == ModeImplicit
+               ? o.driveProbe->kind == DriveProbe::Implicit && o.driveProbe->implicitGen == o.implicitPipelineGen
+               : o.driveProbe->source.constData() == o.driveVertexSource.constData();
+}
+
+bool GLWidget::driveCameraInModel(SurfaceObject &o, QVector3D *cam, float *unit)
+{
+    if (m_hyperbolic) {
+        // In H3 il punto p del modello sta in P exp(sigma p) (P la posa
+        // dell'oggetto, hyperbolicObjectPlacement; sigma i raggi per unita' del
+        // modello): la camera, all'indietro.
+        int index = -1;
+        for (size_t k = 0; k < m_objects.size(); ++k)
+            if (m_objects[k].get() == &o) index = int(k);
+        const double sigma = double(o.scale) * m_h3RadiiPerSceneUnit;
+        if (index < 0 || sigma < 1e-12) return false;
+        const H3::Vec3 v = H3::logAtOrigin(H3::inverse(hyperbolicObjectPlacement(index)) * (m_h3Camera * H3::origin()));
+        *cam = QVector3D(float(v.x / sigma), float(v.y / sigma), float(v.z / sigma));
+        *unit = o.scale;
+        return true;
+    }
+    bool invertible = false;
+    const QMatrix4x4 inv = o.model.inverted(&invertible);
+    const float scale = std::min({ o.model.column(0).toVector3D().length(), o.model.column(1).toVector3D().length(),
+                                   o.model.column(2).toVector3D().length() });
+    if (!invertible || scale < 1e-12f) return false;
+    *cam = inv.map(m_view.inverted().column(3).toVector3D());
+    *unit = scale;
+    return true;
+}
+
 std::vector<DrivePlacedCollider> GLWidget::driveColliders() const
 {
     std::vector<DrivePlacedCollider> colliders;
     for (const auto &obj : m_objects) {
         const SurfaceObject &o = *obj;
-        if (!o.driveProbe || o.driveProbe->collider.empty() || !isOnStage(o)) continue;
-        // Il collider di un vertex di prima (un'altra superficie caricata a
-        // guida spenta) non vale: finche' la sonda non rilegge, niente urti.
-        const bool stale = o.engineMode == ModeImplicit
-                               ? o.driveProbe->kind != DriveProbe::Implicit || o.driveProbe->implicitGen != o.implicitPipelineGen
-                               : o.driveProbe->source.constData() != o.driveVertexSource.constData();
-        if (stale) continue;
+        if (!driveColliderUsable(o)) continue;
         // Le implicite: la camera resta dove il ray marcher le disegna ancora
         // (CameraDrive::kMarcherNear davanti a lei, nello spazio dell'oggetto),
         // piu' il suo raggio.
@@ -650,4 +677,102 @@ QVector3D GLWidget::slideDriveCamera(const QVector3D &from, const QVector3D &mov
 float GLWidget::driveSurfaceDistance(const QVector3D &p) const
 {
     return driveDistance(driveColliders(), p);
+}
+
+// =============================================================================
+// GLI URTI IN H3
+// =============================================================================
+// LA CARTA DI KLEIN DELLA CAMERA. Il vertex porta il punto p dell'oggetto in
+// P exp(sigma p) e disegna triangoli GEODETICI (sullo schermo la carta di
+// Klein, dove le geodetiche sono rette). Nella carta di Klein centrata sulla
+// camera quei triangoli sono triangoli piatti, e una palla iperbolica attorno
+// alla camera e' una palla vera, di raggio tanh: la distanza dalla camera alla
+// superficie e' esatta. Il passo della guida e' corto (centesimi di raggio):
+// lungo di lui la carta e' quella del punto di partenza a meno di un soffio.
+// Cosi' urto e scivolamento sono quelli euclidei (driveSlide), sui soli
+// triangoli vicini alla camera, portati nella carta a ogni passo.
+
+float GLWidget::driveH3Radius() const
+{
+    // Il raggio della camera in raggi di curvatura; almeno kCollisionRadius
+    // raggi, tre volte il near della guida in H3 (0.01 nella carta di Klein).
+    return std::max(CameraDrive::kCollisionRadius * float(m_h3RadiiPerSceneUnit), CameraDrive::kCollisionRadius);
+}
+
+std::vector<DrivePlacedCollider> GLWidget::driveKleinColliders(const H3::Matrix &camera, float reach,
+                                                               std::vector<DriveCollider> &store)
+{
+    std::vector<DrivePlacedCollider> placed;
+    store.clear();
+    store.reserve(m_objects.size());
+    const float rho = driveH3Radius();
+    const H3::Matrix cameraInv = H3::inverse(camera);
+    const H3::Vec4 cameraPoint = camera * H3::origin();
+    for (size_t index = 0; index < m_objects.size(); ++index) {
+        SurfaceObject &o = *m_objects[index];
+        if (!driveColliderUsable(o)) continue;
+        const double sigma = double(o.scale) * m_h3RadiiPerSceneUnit;
+        if (sigma < 1e-12) continue;
+        const H3::Matrix place = hyperbolicObjectPlacement(int(index));
+        const H3::Matrix toCamera = cameraInv * place;
+        // La camera nello spazio del modello: i triangoli entro la sua portata
+        // (il logaritmo non allunga le distanze, quindi la scatola li prende tutti).
+        const H3::Vec3 vc = H3::logAtOrigin(H3::inverse(place) * cameraPoint);
+        const QVector3D pc(float(vc.x / sigma), float(vc.y / sigma), float(vc.z / sigma));
+        // Le implicite: la camera resta dove il ray marcher le disegna ancora
+        // (kMarcherNear unita' del modello lungo il raggio, piu' il suo raggio).
+        const float minR = o.engineMode == ModeImplicit ? CameraDrive::kMarcherNear * float(sigma) + rho : rho;
+        const float half = (std::max(reach, minR + reach - rho)) / float(sigma);
+        const QVector3D box(half, half, half);
+        DriveCollider klein;
+        DriveColliderPart part;
+        const auto toKlein = [&](const QVector3D &p) {
+            const H3::Vec4 x = toCamera * H3::expAtOrigin({ p.x() * sigma, p.y() * sigma, p.z() * sigma });
+            return QVector3D(float(x.x / x.w), float(x.y / x.w), float(x.z / x.w));
+        };
+        o.driveProbe->collider.forEachTriangle(pc - box, pc + box,
+                                               [&](const QVector3D &a, const QVector3D &b, const QVector3D &c) {
+            const unsigned int first = unsigned(part.points.size());
+            part.points.push_back(toKlein(a));
+            part.points.push_back(toKlein(b));
+            part.points.push_back(toKlein(c));
+            part.indices.insert(part.indices.end(), { first, first + 1, first + 2 });
+        });
+        if (part.indices.empty()) continue;
+        part.valid.assign(part.points.size(), 1);
+        klein.parts.push_back(std::move(part));
+        klein.finalize();
+        store.push_back(std::move(klein));
+        placed.push_back({ &store.back(), QMatrix4x4(), std::tanh(minR) });
+    }
+    return placed;
+}
+
+QVector3D GLWidget::slideDriveCameraH3(const H3::Matrix &camera, const QVector3D &step, bool *contact)
+{
+    if (contact) *contact = false;
+    const float len = step.length();
+    const float rho = driveH3Radius();
+    std::vector<DriveCollider> store;
+    // Anche fermi: una superficie in moto spinge la camera (drivePushOut, in driveSlide).
+    const std::vector<DrivePlacedCollider> placed = driveKleinColliders(camera, rho + len, store);
+    if (placed.empty()) return step;
+    // Il passo nella carta: dalla camera (l'origine) al punto a distanza len.
+    const QVector3D end = len > 1e-9f ? step * (std::tanh(len) / len) : QVector3D();
+    const QVector3D k = driveSlide(placed, QVector3D(), end, std::tanh(rho), contact);
+    const float kl = k.length();
+    if (kl < 1e-9f) return QVector3D();
+    return k * (float(std::atanh(std::min(double(kl), 0.999999))) / kl);
+}
+
+float GLWidget::driveSurfaceDistanceH3()
+{
+    // La distanza iperbolica dalla camera alla superficie piu' vicina (entro un
+    // raggio di curvatura), in unita' della scena.
+    std::vector<DriveCollider> store;
+    const std::vector<DrivePlacedCollider> placed = driveKleinColliders(m_h3Camera, 1.0f, store);
+    float best = 1e30f;
+    for (const DrivePlacedCollider &pc : placed) best = std::min(best, pc.collider->distance(QVector3D()));
+    if (best >= 1.0f) return 1e30f;
+    return float(std::atanh(double(best)) / m_h3RadiiPerSceneUnit);
 }

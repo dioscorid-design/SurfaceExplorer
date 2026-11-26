@@ -20,9 +20,11 @@
 //
 // LO SCIVOLAMENTO (driveSlide): al contatto la camera si ferma un soffio prima,
 // la parte del moto contro la superficie si toglie e il resto prosegue lungo
-// di lei, per qualche rimbalzo (spigoli, pieghe). Il moto della superficie non
-// spinge la camera: una superficie che la investe la attraversa, la camera e'
-// bloccata solo nel suo moto verso la superficie.
+// di lei, per qualche rimbalzo (spigoli, pieghe). Una superficie che si muove
+// (un oggetto sul suo path) spinge la camera: prima e dopo il moto la camera
+// torna a un raggio da cio' in cui e' entrata, dalla parte in cui sta
+// (drivePushOut), anche ferma. Regge finche' in un passo la superficie avanza
+// meno del raggio; oltre, la camera resta dalla parte in cui l'ha lasciata.
 #pragma once
 
 #include <rhi/qrhi.h>
@@ -30,6 +32,7 @@
 #include <QMatrix4x4>
 #include <QString>
 #include <QVector3D>
+#include <functional>
 #include <utility>
 #include <vector>
 
@@ -93,6 +96,14 @@ struct DriveCollider {
     bool sweep(const QVector3D &p, const QVector3D &d, float r, float *t, QVector3D *n) const;
     // La distanza del punto dalla superficie (i triangoli validi); molto grande se vuota.
     float distance(const QVector3D &p) const;
+    // Il centro della sfera di raggio r riportato a un raggio dai triangoli in
+    // cui e' entrata, dalla parte in cui sta. Vero se l'ha spostato.
+    bool pushOut(QVector3D &p, float r) const;
+    // I triangoli (spazio dell'oggetto) dei blocchi e delle celle che toccano
+    // l'ingombro [lo, hi]: H3 li porta nella carta di Klein della camera
+    // (GLWidget::slideDriveCameraH3).
+    void forEachTriangle(const QVector3D &lo, const QVector3D &hi,
+                         const std::function<void(const QVector3D &, const QVector3D &, const QVector3D &)> &f) const;
 };
 
 // Un collider al suo posto nel mondo: la posa dell'oggetto, e il raggio minimo
@@ -113,6 +124,10 @@ QVector3D driveSlide(const std::vector<DrivePlacedCollider> &colliders, const QV
                      const QVector3D &move, float radius, bool *contact = nullptr);
 // La distanza del punto dalla superficie piu' vicina fra i collider.
 float driveDistance(const std::vector<DrivePlacedCollider> &colliders, const QVector3D &p);
+// La camera fuori dalle superfici in cui e' entrata (una superficie in moto):
+// a un raggio, dalla parte in cui sta. driveSlide lo fa prima e dopo il moto.
+QVector3D drivePushOut(const std::vector<DrivePlacedCollider> &colliders, const QVector3D &from, float radius,
+                       bool *pushed = nullptr);
 
 // LA SONDA DELLA GPU di un oggetto (GLWidget::runDriveProbe): la pipeline nata
 // dal suo vertex, i buffer, la lettura in corso e l'ultimo collider arrivato.

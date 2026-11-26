@@ -27,6 +27,7 @@ class InputHandler;
 struct DriveControls;
 struct DriveProbe;
 struct DrivePlacedCollider;
+struct DriveCollider;
 class Gamepad;
 class SurfaceEngine;
 
@@ -1361,6 +1362,11 @@ public:
     QVector3D slideDriveCamera(const QVector3D &from, const QVector3D &move, float radius,
                                bool *contact = nullptr) const;
     float driveSurfaceDistance(const QVector3D &p) const;
+    // In H3: lo spostamento della camera `camera` nel suo riferimento (raggi di
+    // curvatura), scivolando sulle superfici; e la distanza della superficie piu'
+    // vicina dalla camera di adesso, in unita' della scena (scenari).
+    QVector3D slideDriveCameraH3(const H3::Matrix &camera, const QVector3D &step, bool *contact = nullptr);
+    float driveSurfaceDistanceH3();
     // I TASTINI A TOCCO della guida sulla vista (CameraDrive::touchButtonRect):
     // quanti ce ne sono (0 = nessuno, 2 su e giu', 4 anche W). Li disegna
     // MainWindow; il tocco li trova qui (InputHandler), perche' su iOS un widget
@@ -2567,6 +2573,13 @@ private:
     void setDriveProbeBindings(SurfaceObject &o, DriveProbe &probe);
     void releaseDriveProbe(SurfaceObject &o);
     std::vector<DrivePlacedCollider> driveColliders() const;   // quelli delle superfici in scena, letti dal vertex di adesso
+    bool driveColliderUsable(const SurfaceObject &o) const;
+    // La camera nello spazio del modello dell'oggetto, e quante unita' della
+    // scena vale un'unita' del modello (R3 e H3).
+    bool driveCameraInModel(SurfaceObject &o, QVector3D *cam, float *unit);
+    float driveH3Radius() const;
+    std::vector<DrivePlacedCollider> driveKleinColliders(const H3::Matrix &camera, float reach,
+                                                         std::vector<DriveCollider> &store);
     // Un riferimento della camera (cameraPlacement) come camera di H3, col
     // raggio di adesso, entro la distanza massima dal centro.
     H3::Matrix hyperbolicCameraFromPlacement(const QMatrix4x4 &placement) const;
