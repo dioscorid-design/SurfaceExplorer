@@ -2,6 +2,7 @@
 
 #include "mainwindow.h"
 #include "videorecorder.h"
+#include "controlswindow.h"
 #include <QFileDialog>
 #include <QCheckBox>
 #include <QSpinBox>
@@ -69,6 +70,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPainter>
+#include <QTextDocument>
 #include <rhi/qrhi.h>
 #include <QPlainTextEdit>
 #include <QWindow>
@@ -2282,6 +2284,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("controls-windows")) {
+        runControlsWindowScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("scene-seek")) {
         runSceneSeekScenarios();
         finish();
@@ -4170,6 +4177,7 @@ void ScenarioTest::run()
     runObjectDragScenarios();
     runScenePanScenarios();
     runGamepadScenarios();
+    runControlsWindowScenarios();
     runVideoFrameScenarios();
     runImageCaptureScenarios();
     runAnimatedLoadScenarios();
@@ -18778,6 +18786,84 @@ void ScenarioTest::runScenePanScenarios()
         wait(300);
     }
     m_discardOnPrompt = false;
+}
+
+void ScenarioTest::runControlsWindowScenarios()
+{
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Finestre dei comandi (Help): apertura, una per tipo, figure, immagine =="));
+    // Le due finestre aperte insieme sono due finestre diverse.
+    m_mw->m_actionMouseControls->trigger();
+    if (m_mw->m_actionControllerControls) m_mw->m_actionControllerControls->trigger();
+    wait(300);
+    check(ControlsWindow::current(ControlsWindow::MouseTouch)
+              && ControlsWindow::current(ControlsWindow::GameController)
+              && ControlsWindow::current(ControlsWindow::MouseTouch) != ControlsWindow::current(ControlsWindow::GameController),
+          QStringLiteral("Mouse & Touch e Game Controller aperte insieme, una per tipo"));
+    for (ControlsWindow *open : { ControlsWindow::current(ControlsWindow::MouseTouch),
+                                  ControlsWindow::current(ControlsWindow::GameController) })
+        if (open) open->close();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    wait(200);
+    for (const int kind : { int(ControlsWindow::MouseTouch), int(ControlsWindow::GameController) }) {
+        const auto k = ControlsWindow::Kind(kind);
+        QAction *action = kind == ControlsWindow::MouseTouch ? m_mw->m_actionMouseControls
+                                                             : m_mw->m_actionControllerControls;
+        check(action && m_mw->ui->menuHelp->actions().contains(action),
+              QStringLiteral("%1: voce nel menu Help").arg(ControlsWindow::title(k)));
+        if (!action) continue;
+        action->trigger();
+        wait(400);
+        ControlsWindow *w = ControlsWindow::current(k);
+        check(w && w->isVisible() && !w->isModal(), QStringLiteral("%1: aperta, non modale").arg(ControlsWindow::title(k)));
+        if (!w) continue;
+        action->trigger();   // di nuovo: la stessa finestra in primo piano
+        wait(200);
+        check(ControlsWindow::current(k) == w, QStringLiteral("%1: una sola finestra").arg(ControlsWindow::title(k)));
+        // Ogni figura che la pagina chiede esiste.
+        const QString html = w->browser()->toHtml();
+        QStringList names;
+        static const QRegularExpression pict(QStringLiteral("pict:([a-z0-9-]+)@"));
+        for (auto it = pict.globalMatch(html); it.hasNext();) {
+            const QString n = it.next().captured(1);
+            if (!names.contains(n)) names << n;
+        }
+        QStringList blank;
+        for (const QString &n : names) {
+            const QImage img = paintControlsPictogram(n, 48, 2.0);
+            bool painted = false;
+            for (int y = 0; !img.isNull() && y < img.height() && !painted; ++y)
+                for (int x = 0; x < img.width() && !painted; ++x) painted = qAlpha(img.pixel(x, y)) > 0;
+            if (!painted) blank << n;
+        }
+        check(!names.isEmpty() && blank.isEmpty() && w->missingPictograms().isEmpty(),
+              QStringLiteral("%1: %2 figure, tutte disegnate (vuote: %3; mancanti: %4)")
+                  .arg(ControlsWindow::title(k)).arg(names.size())
+                  .arg(blank.join(QStringLiteral(", ")), w->missingPictograms().join(QStringLiteral(", "))));
+        const QString shot = m_outDir + (kind == ControlsWindow::MouseTouch ? QStringLiteral("/controls_mouse.png")
+                                                                            : QStringLiteral("/controls_controller.png"));
+        w->grab().save(shot);
+        // La pagina intera, anche la parte fuori dalla finestra.
+        {
+            QTextDocument *doc = w->browser()->document();
+            const qreal dpr = w->devicePixelRatioF();
+            QImage page((doc->size() * dpr).toSize(), QImage::Format_ARGB32_Premultiplied);
+            page.setDevicePixelRatio(dpr);
+            page.fill(QColor(30, 30, 30));
+            QPainter painter(&page);
+            doc->drawContents(&painter);
+            painter.end();
+            page.save(QString(shot).replace(QStringLiteral(".png"), QStringLiteral("_page.png")));
+        }
+        check(w->browser()->horizontalScrollBar()->maximum() == 0,
+              QStringLiteral("%1: niente scorrimento orizzontale (%2 px in piu')")
+                  .arg(ControlsWindow::title(k)).arg(w->browser()->horizontalScrollBar()->maximum()));
+        m_lines.append(QStringLiteral("   immagine: %1").arg(shot));
+        w->close();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        wait(200);
+        check(!ControlsWindow::current(k), QStringLiteral("%1: chiusa").arg(ControlsWindow::title(k)));
+    }
 }
 
 void ScenarioTest::runGamepadScenarios()

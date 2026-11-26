@@ -378,6 +378,11 @@ private:
     // scollegato (niente), il path in corsa (lo stick modella la traiettoria).
     // Da sola: --scenario-only gamepad.
     void runGamepadScenarios();
+    // LE FINESTRE DEI COMANDI (Help > Mouse & Touch, ControlsWindow): si
+    // aprono dal menu, una sola per tipo, ogni figura della pagina esiste e
+    // si disegna; l'immagine della finestra va in controls_<tipo>.png
+    // nella cartella d'uscita. Da sola: --scenario-only controls-windows.
+    void runControlsWindowScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
     // accesi i comandi del dock RENDERER. Il Run lo sganciava solo per le

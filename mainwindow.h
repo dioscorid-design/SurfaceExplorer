@@ -1646,6 +1646,11 @@ private:
     void setupStyling();
     void setupDockLayout();
     void setupActionsAndMenus();
+    // Le finestre dei comandi (ControlsWindow), voci del menu Help e, su iPad,
+    // iPhone e Android, del menu del tasto in alto a sinistra.
+    QAction *m_actionMouseControls = nullptr;
+    QAction *m_actionControllerControls = nullptr;   // solo dove c'e' il pad (Apple)
+    void openControlsWindow(int kind);
     void setupStatusBar();
     void setupEquationsDock();
     void setupRendererDock();

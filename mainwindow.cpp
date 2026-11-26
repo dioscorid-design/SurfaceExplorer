@@ -3,6 +3,7 @@
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
 #include "docsearch.h"
+#include "controlswindow.h"
 #include "gamepad.h"
 #include <QScreen>
 
@@ -1157,6 +1158,22 @@ void MainWindow::setupActionsAndMenus()
                            "<i>Exploring the beauty of four-dimensional geometry.</i>");
     });
 
+    // LE FINESTRE DEI COMANDI (richiesta dell'utente, 2026-11-26), accanto
+    // alla documentazione: figure al posto della descrizione nella guida.
+    m_actionMouseControls = new QAction(ControlsWindow::title(ControlsWindow::MouseTouch), this);
+    m_actionMouseControls->setMenuRole(QAction::NoRole);
+    ui->menuHelp->insertAction(ui->actionQuit, m_actionMouseControls);
+    connect(m_actionMouseControls, &QAction::triggered, this, [this] { openControlsWindow(ControlsWindow::MouseTouch); });
+#if defined(Q_OS_APPLE)
+    // Il pad c'e' solo su Mac, iPad e iPhone (gamepad_backend.mm): altrove la
+    // voce non compare.
+    m_actionControllerControls = new QAction(ControlsWindow::title(ControlsWindow::GameController), this);
+    m_actionControllerControls->setMenuRole(QAction::NoRole);
+    ui->menuHelp->insertAction(ui->actionQuit, m_actionControllerControls);
+    connect(m_actionControllerControls, &QAction::triggered, this,
+            [this] { openControlsWindow(ControlsWindow::GameController); });
+#endif
+
     ui->actionDocumentation->setMenuRole(QAction::NoRole);
     connect(ui->actionDocumentation, &QAction::triggered, this, [this](){
 
@@ -1450,6 +1467,27 @@ void MainWindow::setupActionsAndMenus()
         });
 #endif
     });
+}
+
+void MainWindow::openControlsWindow(int kind)
+{
+    const bool wasOpen = ControlsWindow::current(ControlsWindow::Kind(kind)) != nullptr;
+    ControlsWindow *w = ControlsWindow::open(this, ControlsWindow::Kind(kind));
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    // A tutto schermo copre il tasto del menu: chiusa la finestra torna su,
+    // come dopo la documentazione.
+    if (!wasOpen) connect(w, &QObject::destroyed, this, [this]() {
+        QTimer::singleShot(50, this, [this]() {
+            if (QPushButton *btn = findChild<QPushButton *>("mobileMenuBtn")) {
+                btn->raise();
+                btn->show();
+            }
+        });
+    });
+#else
+    Q_UNUSED(w);
+    Q_UNUSED(wasOpen);
+#endif
 }
 
 // Barra di stato e comandi in basso (master START/STOP). Parte del costruttore, nell'ordine in cui la chiama.
@@ -2156,6 +2194,8 @@ void MainWindow::finishStartup()
 
     QMenu* overflowMenu = new QMenu(this);
     overflowMenu->addAction(ui->actionDocumentation);
+    if (m_actionMouseControls) overflowMenu->addAction(m_actionMouseControls);
+    if (m_actionControllerControls) overflowMenu->addAction(m_actionControllerControls);
     overflowMenu->addAction(ui->actionAbout);
     // Solo nella build Debug per iPad e iPhone: il pad disegnato sullo schermo,
     // per provare il pad senza averlo (Gamepad::virtualControllerAvailable).
