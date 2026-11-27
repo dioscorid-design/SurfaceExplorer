@@ -1058,6 +1058,30 @@ void ScenarioTest::runDriveCollisionScenarios()
         pressNew();
         m_discardOnPrompt = true;
         const bool loaded = m_mw->loadSceneFile(m_root + QStringLiteral("/scenes/Moving Torus Ride.json"));
+        // IL TEMPO A MANO, come nel loop del REC: fermi gli orologi dal vivo
+        // (i path degli oggetti), le rotazioni e il tick della guida; a ogni
+        // passo tutto avanza dello stesso dt (flyVirtual). Dal vivo il toro
+        // correva col tempo vero e la camera a passi fissi, piu' il tick: dove
+        // fosse il toro all'arrivo dipendeva dal carico della macchina, e i
+        // passi a contatto col tubo andavano da 10 a 30 (2026-11-27).
+        gl->setExternalClockActive(true);
+        gl->setClocksDrivenByRecorder(true);
+        auto liveClocks = qScopeGuard([gl] {
+            gl->setClocksDrivenByRecorder(false);
+            gl->setExternalClockActive(false);
+        });
+        const QSignalBlocker noDriveTick(drive->m_timer);
+        const auto flyVirtual = [&](int steps, const std::function<void()> &each) {
+            for (int i = 0; i < steps; ++i) {
+                gl->advanceClocksBy(dt);
+                if (gl->anyObjectRotating()) gl->advanceRotationsBy(dt);
+                m_mw->advanceGeodesicObjectsBy(dt);
+                drive->advance(dt, true);
+                each();
+                gl->update();
+                wait(17);
+            }
+        };
         wait(1500);
         m_discardOnPrompt = false;
         m_mw->m_btnDrive->click();
@@ -1080,7 +1104,7 @@ void ScenarioTest::runDriveCollisionScenarios()
         float minDist = 1e30f;
         int contacts = 0;
         c.throttleUp = true;
-        flyRendered(360, [&] {
+        flyVirtual(360, [&] {
             minDist = std::min(minDist, gl->driveSurfaceDistanceH3());
             if (drive->contact()) ++contacts;
         });
@@ -1115,17 +1139,22 @@ void ScenarioTest::runDriveCollisionScenarios()
             const float startDist = gl->driveSurfaceDistanceH3();
             float minTube = 1e30f;
             int tubeContacts = 0;
+            const H3::Vec4 torusFrom = gl->hyperbolicObjectPlacement(torus) * H3::origin();
             c.throttleUp = c.boost = true;
-            flyRendered(240, [&] {
+            flyVirtual(240, [&] {
                 minTube = std::min(minTube, gl->driveSurfaceDistanceH3());
                 if (drive->contact()) ++tubeContacts;
             });
             c.throttleUp = c.boost = false;
-            check(tubeContacts > 10 && minTube > rhoScene - tol,
-                  QStringLiteral("Moving Torus Ride (H3): contro il tubo del toro che si muove, la camera si ferma sulla "
-                                 "parete (distanza dalla superficie: all'inizio %1, minima %2, raggio della camera %3; "
-                                 "%4 passi a contatto)")
-                      .arg(double(startDist)).arg(double(minTube)).arg(double(rhoScene)).arg(tubeContacts));
+            // Il toro si e' mosso davvero (gli orologi a mano lo portano sul suo path).
+            const double torusMoved = H3::distance(torusFrom, gl->hyperbolicObjectPlacement(torus) * H3::origin())
+                                      * gl->hyperbolicCurvatureRadius();
+            check(tubeContacts > 10 && minTube > rhoScene - tol && torusMoved > 0.1,
+                  QStringLiteral("Moving Torus Ride (H3): contro il tubo del toro che si muove (di %5 in 4 s), la camera "
+                                 "si ferma sulla parete (distanza dalla superficie: all'inizio %1, minima %2, raggio "
+                                 "della camera %3; %4 passi a contatto)")
+                      .arg(double(startDist)).arg(double(minTube)).arg(double(rhoScene)).arg(tubeContacts)
+                      .arg(torusMoved));
         } else {
             check(false, QStringLiteral("Moving Torus Ride: il toro non c'e'"));
         }
