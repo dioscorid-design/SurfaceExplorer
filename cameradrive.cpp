@@ -117,11 +117,15 @@ void DriveControls::setPad(const GamepadState &state)
 
 QRectF CameraDrive::touchButtonRect(int button, const QSizeF &view)
 {
-    constexpr qreal kSize = 52.0, kGap = 10.0, kMargin = 14.0;
-    // Sempre quattro posti: i tastini di W, quando ci sono, non spostano gli altri.
-    const qreal column = TouchButtonCount * kSize + (TouchButtonCount - 1) * kGap;
+    constexpr qreal kMaxSize = 52.0, kMinSize = 36.0, kGap = 10.0, kMargin = 14.0;
+    // Sempre tutti i posti: i tastini di W, quando ci sono, non spostano gli
+    // altri. In una vista bassa (un iPhone in orizzontale) si rimpiccioliscono
+    // per starci, fino a kMinSize.
+    const qreal fit = (view.height() - 2.0 * kMargin - (TouchButtonCount - 1) * kGap) / TouchButtonCount;
+    const qreal size = std::clamp(fit, kMinSize, kMaxSize);
+    const qreal column = TouchButtonCount * size + (TouchButtonCount - 1) * kGap;
     const qreal top = std::max(kMargin, (view.height() - column) / 2.0);
-    return QRectF(view.width() - kMargin - kSize, top + button * (kSize + kGap), kSize, kSize);
+    return QRectF(view.width() - kMargin - size, top + button * (size + kGap), size, size);
 }
 
 int CameraDrive::touchButtonAt(const QPointF &pos, const QSizeF &view, int count)

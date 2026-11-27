@@ -1329,9 +1329,9 @@ void ScenarioTest::runDriveTouchScenarios()
     // i comandi del pad, che vincono sul tocco (refreshDriveHud): e' voluto.
     const bool padConnected = m_mw->m_gamepad && m_mw->m_gamepad->isConnected();
     const QString legend = padConnected ? QStringLiteral("Left stick") : QStringLiteral("Left thumb");
-    check(m_mw->driveRunning() && gl->driveTouchButtons() == 4 && overlay && overlay->isVisible()
-              && m_mw->m_driveHud->text().contains(legend),
-          QStringLiteral("DRIVE coi comandi a tocco: stick e quattro tastini (su, giu', W+, W-) disegnati sulla "
+    check(m_mw->driveRunning() && gl->driveTouchButtons() == CameraDrive::TouchButtonCount && overlay
+              && overlay->isVisible() && m_mw->m_driveHud->text().contains(legend),
+          QStringLiteral("DRIVE coi comandi a tocco: stick e cinque tastini (urti, su, giu', W+, W-) disegnati sulla "
                          "vista, l'indicatore dice i comandi %1 (guida %2, tastini %3, pannello %4)")
               .arg(padConnected ? QStringLiteral("del pad collegato") : QStringLiteral("a tocco"))
               .arg(m_mw->driveRunning() ? 1 : 0).arg(gl->driveTouchButtons())
@@ -1398,6 +1398,70 @@ void ScenarioTest::runDriveTouchScenarios()
         check(held && !c.liftUp && rose > 0.1f,
               QStringLiteral("tastino su: tenuto (%1) la camera sale di %2 lungo il suo alto; lasciato, si rilascia")
                   .arg(held).arg(double(rose)));
+    }
+
+    // Il tastino in cima: un tocco spegne gli urti, uno li riaccende. E' un
+    // interruttore: non tiene nulla, non e' uno stick, due tocchi non frenano.
+    {
+        fly(90);
+        const QPointF button = CameraDrive::touchButtonRect(CameraDrive::TouchCollisions, gl->size()).center();
+        const bool before = c.collisions;
+        const float cruise0 = drive->current().cruise;
+        touch(QEvent::TouchBegin, { { 6, QEventPoint::Pressed, button } });
+        const bool offWhilePressed = !c.collisions;
+        const bool noStick = !c.touchLeft && !c.touchRight && !c.any();
+        touch(QEvent::TouchEnd, { { 6, QEventPoint::Released, button } });
+        fly(1);
+        const bool off = !c.collisions;
+        const bool hudOff = m_mw->m_driveHud->text().contains(QLatin1String("collisions off"));
+        // I tastini su un fondo scuro, come sulla scena (le immagini restano nel report).
+        const auto columnShot = [&]() {
+            const qreal dpr = overlay->devicePixelRatioF();
+            QImage img((overlay->size() * dpr), QImage::Format_ARGB32_Premultiplied);
+            img.setDevicePixelRatio(dpr);
+            img.fill(QColor(40, 48, 60));
+            overlay->render(&img);
+            return img;
+        };
+        const QImage shot = columnShot();
+        touch(QEvent::TouchBegin, { { 7, QEventPoint::Pressed, button + QPointF(3.0, 3.0) } });
+        touch(QEvent::TouchEnd, { { 7, QEventPoint::Released, button + QPointF(3.0, 3.0) } });
+        fly(1);
+        const bool onAgain = c.collisions;
+        const QImage shotOn = columnShot();
+        // La sbarra (rossa) si vede solo a urti spenti.
+        const auto reddish = [&](const QImage &img) {
+            const QRectF r = CameraDrive::touchButtonRect(CameraDrive::TouchCollisions, gl->size());
+            const qreal dpr = img.devicePixelRatio();
+            int n = 0;
+            for (int y = int(r.top() * dpr); y < int(r.bottom() * dpr); ++y)
+                for (int x = int(r.left() * dpr); x < int(r.right() * dpr); ++x) {
+                    const QColor px = img.pixelColor(x, y);
+                    if (px.red() > 200 && px.green() < 160 && px.blue() < 140) ++n;
+                }
+            return n;
+        };
+        const int redOff = reddish(shot), redOn = reddish(shotOn);
+        check(before && offWhilePressed && noStick && off && hudOff && onAgain && !c.brakeTap
+                  && drive->current().cruise == cruise0 && redOff > 20 && redOn == 0,
+              QStringLiteral("tastino degli urti: un tocco li spegne (indicatore \"collisions off\", tastino sbarrato: "
+                             "%1 pixel rossi), un altro li riaccende (%2); niente stick, niente freno")
+                  .arg(redOff).arg(redOn));
+        shot.save(m_outDir + QStringLiteral("/drive_touch_collisions_off.png"));
+        shotOn.save(m_outDir + QStringLiteral("/drive_touch_collisions_on.png"));
+    }
+
+    // La colonna sta anche in una vista bassa (un iPhone in orizzontale): i
+    // tastini si rimpiccioliscono, e in una vista alta restano di 52 punti.
+    {
+        const QSizeF lowView(700.0, 300.0), tallView(1000.0, 800.0);
+        const QRectF last = CameraDrive::touchButtonRect(CameraDrive::TouchButtonCount - 1, lowView);
+        const QRectF first = CameraDrive::touchButtonRect(0, lowView);
+        const QRectF tall = CameraDrive::touchButtonRect(0, tallView);
+        check(first.top() >= 14.0 && last.bottom() <= lowView.height() - 14.0 + 1e-6 && first.width() >= 36.0
+                  && tall.width() == 52.0,
+              QStringLiteral("tastini in una vista alta 300: dal punto %1 al %2, larghi %3 (in una alta 800: %4)")
+                  .arg(first.top()).arg(last.bottom()).arg(first.width()).arg(tall.width()));
     }
 
     m_mw->stopDrive();
@@ -1663,6 +1727,24 @@ void ScenarioTest::runDrivePadScenarios()
         check(doubled == 2.0f && halved == 0.5f && c.speedScale == 1.0f,
               QStringLiteral("croce \u2191 \u2193: le velocita' per due (%1) e a meta' (%2), come + e -")
                   .arg(double(doubled)).arg(double(halved)));
+        // Il quadrato: gli urti spenti e riaccesi, come il tasto C. In DRIVE non
+        // e' il Reset View di fuori: la camera resta dov'e'.
+        halt();
+        const bool before = c.collisions;
+        const QVector3D p0 = camPos();
+        pressButton(GamepadButton::Square);
+        fly(1);
+        const bool toggled = c.collisions != before;
+        const bool hudOff = m_mw->m_driveHud->text().contains(QLatin1String("collisions off"));
+        const bool legend = m_mw->m_driveHud->text().contains(QStringLiteral("\u25a1 collisions"));
+        pressButton(GamepadButton::Square);
+        fly(1);
+        check(before && toggled && hudOff && legend && c.collisions
+                  && !m_mw->m_driveHud->text().contains(QLatin1String("collisions off"))
+                  && (camPos() - p0).length() < 1e-4f && m_mw->driveRunning(),
+              QStringLiteral("\u25a1: gli urti spenti (indicatore \"collisions off\", legenda del pad %1) e riaccesi, "
+                             "come C; la camera non torna all'inquadratura (spostata di %2)")
+                  .arg(legend).arg(double((camPos() - p0).length())));
     }
 
     // Lo stick sinistro a destra vira a destra; il destro in su alza il muso,

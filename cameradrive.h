@@ -77,7 +77,8 @@ struct DriveControls {
     // rollio. Assi -1..1 in frazioni di CameraDrive::kTouchStickRadius, come
     // la cloche; l'origine serve a disegnarli. Un doppio tocco frena
     // (brakeTap, consumato al passo). I tastini sulla vista
-    // (CameraDrive::touchButtonRect) tengono liftUp/liftDown e wPlus/wMinus.
+    // (CameraDrive::touchButtonRect) tengono liftUp/liftDown e wPlus/wMinus;
+    // quello in cima accende e spegne gli urti (toggleCollisions).
     bool touchLeft = false, touchRight = false;
     float touchLeftX = 0.0f, touchLeftY = 0.0f, touchRightX = 0.0f, touchRightY = 0.0f;
     QPointF touchLeftOrigin, touchRightOrigin;
@@ -97,7 +98,7 @@ struct DriveControls {
     // freno, L1 e R1 verso W- e W+, L3 tutto piu' veloce (come Spazio, Z/X,
     // Maiuscole). Campi propri: il pad scrive a ogni passo e non deve
     // cancellare un tasto tenuto sulla tastiera. Quelli a scatto (Circle,
-    // Triangle, la croce) li fa MainWindow::handleDrivePadButton.
+    // Triangle, Square, la croce) li fa MainWindow::handleDrivePadButton.
     bool padBrake = false, padWPlus = false, padWMinus = false, padBoost = false;
     void releasePad()
     {
@@ -119,11 +120,14 @@ struct DriveControls {
     {
         speedScale = std::clamp(up ? speedScale * 2.0f : speedScale * 0.5f, kMinSpeedScale, kMaxSpeedScale);
     }
-    // GLI URTI (tasto C): la camera non attraversa le superfici, ci scivola
-    // sopra (drivecollision.h). Come la scala, non e' un tasto tenuto: resta
-    // quando i comandi si rilasciano, e vale anche nei passi senza comandi
-    // (REC e cursore oltre la fine del volo). MainWindow lo ricorda fra le sessioni.
+    // GLI URTI: la camera non attraversa le superfici, ci scivola sopra
+    // (drivecollision.h). Come la scala, non e' un tasto tenuto: resta quando i
+    // comandi si rilasciano, e vale anche nei passi senza comandi (REC e
+    // cursore oltre la fine del volo). MainWindow lo ricorda fra le sessioni.
     bool collisions = true;
+    // Accesi o spenti: il tasto C, il quadrato del pad (scelta dell'utente,
+    // 2026-11-27), il tastino in cima alla colonna a tocco.
+    void toggleCollisions() { collisions = !collisions; }
 
     // Qualche comando in uso: dentro la traccia, il pilota prende il posto del volo registrato.
     bool any() const;
@@ -162,10 +166,12 @@ public:
     static constexpr float kMarcherNear = 0.3f;
     // GLI STICK E I TASTINI A TOCCO: il raggio di uno stick (punti, piu' corto
     // della cloche: e' il pollice) e i tastini in colonna sul bordo destro,
-    // centrati in altezza: su, giu', e nel 4D W+ e W-. Le stesse misure per chi
-    // li disegna (MainWindow) e per chi li tocca (InputHandler).
+    // centrati in altezza: in cima gli urti (un interruttore, non si tiene),
+    // poi su, giu', e nel 4D W+ e W- (tenuti). Le stesse misure per chi li
+    // disegna (MainWindow) e per chi li tocca (InputHandler). Se ne mostrano i
+    // primi `count` (MainWindow::refreshDriveHud): senza W, fino a TouchWPlus.
     static constexpr float kTouchStickRadius = 70.0f;
-    enum TouchButton { TouchLiftUp, TouchLiftDown, TouchWPlus, TouchWMinus, TouchButtonCount };
+    enum TouchButton { TouchCollisions, TouchLiftUp, TouchLiftDown, TouchWPlus, TouchWMinus, TouchButtonCount };
     static QRectF touchButtonRect(int button, const QSizeF &view);
     // Il tastino sotto il punto, fra i primi `count`; -1 se nessuno.
     static int touchButtonAt(const QPointF &pos, const QSizeF &view, int count);

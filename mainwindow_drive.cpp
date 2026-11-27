@@ -33,9 +33,9 @@ protected:
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
         const DriveControls &c = *m_controls;
-        // I tastini: su, giu', e nel 4D W+ e W-. Piu' scuri mentre si tengono.
-        static const char *const kLabels[CameraDrive::TouchButtonCount] = { "\u25B2", "\u25BC", "W+", "W\u2212" };
-        const bool held[CameraDrive::TouchButtonCount] = { c.liftUp, c.liftDown, c.wPlus, c.wMinus };
+        // I tastini: gli urti, su, giu', e nel 4D W+ e W-. Piu' scuri mentre si tengono.
+        static const char *const kLabels[CameraDrive::TouchButtonCount] = { "", "\u25B2", "\u25BC", "W+", "W\u2212" };
+        const bool held[CameraDrive::TouchButtonCount] = { false, c.liftUp, c.liftDown, c.wPlus, c.wMinus };
         QFont font = p.font();
         font.setBold(true);
         font.setPixelSize(17);
@@ -45,6 +45,10 @@ protected:
             p.setPen(QPen(QColor(255, 255, 255, 150), 1.5));
             p.setBrush(QColor(0, 0, 0, held[b] ? 210 : 110));
             p.drawEllipse(r);
+            if (b == CameraDrive::TouchCollisions) {
+                paintCollisionsGlyph(p, r, c.collisions);
+                continue;
+            }
             p.setPen(Qt::white);
             p.drawText(r, Qt::AlignCenter, QString::fromUtf8(kLabels[b]));
         }
@@ -64,6 +68,31 @@ protected:
     }
 
 private:
+    // Il tastino degli urti: una parete e la camera (una pallina) che la tocca;
+    // sbarrato quando gli urti sono spenti e la parete si attraversa.
+    static void paintCollisionsGlyph(QPainter &p, const QRectF &r, bool on)
+    {
+        const qreal s = r.width();
+        const QPointF o = r.topLeft();
+        // Spenti, la figura si attenua sotto la sbarra.
+        const QColor ink = on ? QColor(Qt::white) : QColor(255, 255, 255, 150);
+        p.save();
+        p.setPen(QPen(ink, std::max(2.0, s * 0.07), Qt::SolidLine, Qt::RoundCap));
+        p.drawLine(o + QPointF(0.68 * s, 0.22 * s), o + QPointF(0.68 * s, 0.78 * s));
+        p.setPen(Qt::NoPen);
+        p.setBrush(ink);
+        p.drawEllipse(o + QPointF(0.46 * s, 0.5 * s), 0.15 * s, 0.15 * s);
+        if (!on) {
+            // La sbarra, sottile e con un bordo scuro per staccarla dalla figura.
+            const QPointF a = o + QPointF(0.25 * s, 0.75 * s), b = o + QPointF(0.75 * s, 0.25 * s);
+            p.setPen(QPen(QColor(0, 0, 0, 190), s * 0.10, Qt::SolidLine, Qt::RoundCap));
+            p.drawLine(a, b);
+            p.setPen(QPen(QColor(255, 110, 90), s * 0.055, Qt::SolidLine, Qt::RoundCap));
+            p.drawLine(a, b);
+        }
+        p.restore();
+    }
+
     GLWidget *m_view;
     const DriveControls *m_controls;
 };
@@ -116,10 +145,12 @@ void MainWindow::setupDrive()
             "C: collisions on / off (on, the camera slides along the surfaces instead of passing through).\n"
             "Mouse: drag as a stick to steer, right-drag to roll, wheel for speed.\n"
             "Touch: the left thumb sets speed and turns, the right thumb pitches and rolls; "
-            "double tap to brake; the buttons on the right go up and down (and toward W).\n"
+            "double tap to brake; the buttons on the right go up and down (and toward W), "
+            "the top one turns the collisions on and off.\n"
             "Game controller: the left stick sets speed and turns, the right stick pitches and rolls; "
             "R2 / L2 go up and down; \u2715 brakes, L1 / R1 go toward W, L3 makes everything faster, "
-            "up / down on the D-pad double or halve the speeds, \u25CB stops, \u25B3 turns DRIVE on and off.\n"
+            "up / down on the D-pad double or halve the speeds, \u25A1 turns the collisions on and off, "
+            "\u25CB stops, \u25B3 turns DRIVE on and off.\n"
             "Esc or DRIVE again: stop. The flight is recorded on the scene time T: "
             "RESET goes back to its start, and the T slider and REC play it again."));
         connect(m_btnDrive, &QPushButton::clicked, this, &MainWindow::onDriveClicked);
@@ -172,6 +203,7 @@ bool MainWindow::handleDrivePadButton(GamepadButton button)
     if (!driveRunning()) return false;
     switch (button) {
     case GamepadButton::Circle: stopDrive(); break;
+    case GamepadButton::Square: m_drive->controls().toggleCollisions(); break;   // come il tasto C
     case GamepadButton::Up:     m_drive->controls().scaleSpeeds(true); break;
     case GamepadButton::Down:   m_drive->controls().scaleSpeeds(false); break;
     default: break;
@@ -223,9 +255,9 @@ void MainWindow::refreshDriveHud()
         gl->setDriveTouchButtons(0);
         return;
     }
-    // I comandi a tocco: tastini su e giu', e W dove si va verso W.
+    // I comandi a tocco: tastini degli urti, su e giu', e W dove si va verso W.
     const bool touch = driveTouchUi();
-    gl->setDriveTouchButtons(!touch ? 0 : driveMovesW() ? 4 : 2);
+    gl->setDriveTouchButtons(!touch ? 0 : driveMovesW() ? CameraDrive::TouchButtonCount : CameraDrive::TouchWPlus);
     if (touch) {
         if (!m_driveTouchOverlay) m_driveTouchOverlay = new DriveTouchOverlay(gl, &m_drive->controls());
         if (m_driveTouchOverlay->geometry() != gl->rect()) m_driveTouchOverlay->setGeometry(gl->rect());
@@ -268,11 +300,11 @@ void MainWindow::refreshDriveHud()
     if (m_gamepad && m_gamepad->isConnected()) {
         // Il pad: assi e pulsanti (handleDrivePadButton, DriveControls::setPad).
         keys = QStringLiteral("Left stick: speed and turn   Right stick: pitch and roll   R2 / L2: up / down   "
-                              "\u2715 brake   L3 faster   \u2191 \u2193 scale   \u25CB stop");
+                              "\u2715 brake   L3 faster   \u2191 \u2193 scale   \u25A1 collisions   \u25CB stop");
         if (driveMovesW()) keys += QStringLiteral("   L1 / R1 toward W");
     } else if (touch) {
         keys = QStringLiteral("Left thumb: speed and turn   Right thumb: pitch and roll   Double tap: brake   "
-                              "\u25B2 \u25BC up / down");
+                              "Top button: collisions   \u25B2 \u25BC up / down");
         if (driveMovesW()) keys += QStringLiteral("   W+ W\u2212 toward W");
     } else {
         keys = QStringLiteral("W/S speed  A/D turn  Up/Down pitch  Q/E roll  R/F up/down");

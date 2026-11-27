@@ -34,7 +34,8 @@ float stickAxis(qreal pixels, float radius = CameraDrive::kStickRadius)
     return std::clamp(v, -1.0f, 1.0f);
 }
 
-// Il comando tenuto da un tastino a tocco.
+// Il comando tenuto da un tastino a tocco (nessuno per quello degli urti, che
+// non si tiene: lo scatta il tocco, handleDriveTouch).
 bool *touchButtonControl(DriveControls *c, int button)
 {
     switch (button) {
@@ -432,7 +433,7 @@ bool InputHandler::handleKey(QKeyEvent* event, bool pressed)
         return true;
     // C: gli urti con le superfici accesi o spenti (DriveControls::collisions).
     case Qt::Key_C:
-        if (pressed && !event->isAutoRepeat()) c->collisions = !c->collisions;
+        if (pressed && !event->isAutoRepeat()) c->toggleCollisions();
         return true;
     // + e -: tutte le velocita' per due o a meta' (anche = per il + senza
     // Maiuscole delle tastiere americane, e il tastierino).
@@ -485,6 +486,7 @@ void InputHandler::handleDriveTouch(QTouchEvent* event, DriveControls* c)
             if (button >= 0) {
                 t.role = kDriveButton + button;
                 if (bool* held = touchButtonControl(c, button)) *held = true;
+                if (button == CameraDrive::TouchCollisions) c->toggleCollisions();
             } else if (!taken && pos.x() < view.width() / 2.0) {
                 t.role = kDriveLeft;
                 c->touchLeft = true;

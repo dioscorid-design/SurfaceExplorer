@@ -77,6 +77,29 @@ void touchButtons(QPainter &p, const QString &upper, const QString &lower)
     textMark(p, QRectF(37, 35, 18, 18), lower, QColor(30, 30, 30), 11);
 }
 
+// Il tastino degli urti, in cima alla colonna a tocco (DriveTouchOverlay):
+// una parete e la camera che la tocca, come sullo schermo; sotto, spenti, i
+// tastini che lo seguono.
+void touchCollideButton(QPainter &p)
+{
+    p.save();
+    p.setPen(strokePen(kDim, 1.8));
+    p.setBrush(QColor(40, 40, 46));
+    p.drawRoundedRect(QRectF(3, 6, 58, 52), 6, 6);
+    p.setPen(strokePen(kDim, 1.2));
+    p.setBrush(Qt::NoBrush);
+    p.drawEllipse(QPointF(46, 46), 7.0, 7.0);
+    p.setPen(strokePen(QColor(30, 30, 30), 1.2));
+    p.setBrush(kHot);
+    p.drawEllipse(QPointF(46, 22), 12.0, 12.0);
+    p.setPen(strokePen(QColor(30, 30, 30), 2.2));
+    p.drawLine(QPointF(50, 15), QPointF(50, 29));
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(30, 30, 30));
+    p.drawEllipse(QPointF(43.5, 22), 3.6, 3.6);
+    p.restore();
+}
+
 // Uno stick del pad con le frecce del gesto, in verticale o di lato.
 void padStick(QPainter &p, const QString &letter, bool vertical)
 {
@@ -187,6 +210,7 @@ const std::map<QString, Painter> &drivePictograms()
         { QStringLiteral("thumb-right-h"), [](QPainter &p) { thumbZone(p, true, false); } },
         { QStringLiteral("touch-lift"), [](QPainter &p) { touchButtons(p, QStringLiteral("▲"), QStringLiteral("▼")); } },
         { QStringLiteral("touch-w"), [](QPainter &p) { touchButtons(p, QStringLiteral("W+"), QStringLiteral("W−")); } },
+        { QStringLiteral("touch-collide"), [](QPainter &p) { touchCollideButton(p); } },
         { QStringLiteral("double-tap"), [](QPainter &p) {
               touch(p, QPointF(26, 34));
               QColor ring = kHot;
