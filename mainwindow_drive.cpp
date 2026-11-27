@@ -138,17 +138,18 @@ void MainWindow::setupDrive()
     if (m_btnDrive) {
         m_btnDrive->setToolTip(QStringLiteral(
             "Fly the camera freely through the scene. While it is on:\n"
-            "W / S: faster / slower (below zero, backwards); Space: brake.\n"
+            "W / S: speed up / down; the speed stays when you let go (below zero, backwards); Space: brake.\n"
             "A / D or Left / Right: turn; Up / Down: nose up / down; Q / E: roll.\n"
-            "R / F: up / down; Z / X: toward W (4D). Shift: faster.\n"
+            "R / F: rise / sink; Z / X: toward W (4D: from outside it looks like a zoom). Shift: faster.\n"
             "+ / -: double or halve all the speeds (for large or small scenes).\n"
             "C: collisions on / off (on, the camera slides along the surfaces instead of passing through).\n"
             "Mouse: drag as a stick to steer, right-drag to roll, wheel for speed.\n"
             "Touch: the left thumb sets speed and turns, the right thumb pitches and rolls; "
             "double tap to brake; the buttons on the right go up and down (and toward W), "
             "the top one turns the collisions on and off.\n"
-            "Game controller: the left stick sets speed and turns, the right stick pitches and rolls; "
-            "R2 / L2 go up and down; \u2715 brakes, L1 / R1 go toward W, L3 makes everything faster, "
+            "Game controller: R2 / L2 change the speed (like the wheel; it stays when you let go); "
+            "the left stick up / down rises and sinks, sideways it turns; the right stick pitches and rolls; "
+            "\u2715 brakes, L1 / R1 go toward W, L3 (pressing the left stick) makes everything faster, "
             "up / down on the D-pad double or halve the speeds, \u25A1 turns the collisions on and off, "
             "\u25CB stops, \u25B3 turns DRIVE on and off.\n"
             "Esc or DRIVE again: stop. The flight is recorded on the scene time T: "
@@ -299,7 +300,7 @@ void MainWindow::refreshDriveHud()
     QString keys;
     if (m_gamepad && m_gamepad->isConnected()) {
         // Il pad: assi e pulsanti (handleDrivePadButton, DriveControls::setPad).
-        keys = QStringLiteral("Left stick: speed and turn   Right stick: pitch and roll   R2 / L2: up / down   "
+        keys = QStringLiteral("R2 / L2: speed   Left stick: rise / sink and turn   Right stick: pitch and roll   "
                               "\u2715 brake   L3 faster   \u2191 \u2193 scale   \u25A1 collisions   \u25CB stop");
         if (driveMovesW()) keys += QStringLiteral("   L1 / R1 toward W");
     } else if (touch) {

@@ -105,10 +105,10 @@ void DriveControls::setPad(const GamepadState &state)
 {
     pad = state.active();
     padLeftX = float(state.leftStick.x());
-    padLeftY = float(state.leftStick.y());
+    padLift = float(state.leftStick.y());
     padRightX = float(state.rightStick.x());
     padRightY = float(state.rightStick.y());
-    padLift = state.rightTrigger - state.leftTrigger;
+    padThrottle = state.rightTrigger - state.leftTrigger;
     padBrake = state.held(GamepadButton::Cross);
     padWMinus = state.held(GamepadButton::L1);
     padWPlus = state.held(GamepadButton::R1);
@@ -343,9 +343,9 @@ void CameraDrive::appendStep(const DriveControls &c)
 
     // I COMANDI -> gli obiettivi, poi l'inerzia.
     // Lo stick sinistro a tocco come W e S, a meta' o del tutto (in su = piu' veloce);
-    // lo stick sinistro del pad lo stesso.
+    // i grilletti del pad lo stesso (R2 piu' veloce, L2 piu' lento).
     const float throttle = axis(c.throttleUp, c.throttleDown) + (c.touchLeft ? -c.touchLeftY : 0.0f)
-                           + (c.pad ? c.padLeftY : 0.0f);
+                           + (c.pad ? c.padThrottle : 0.0f);
     s.cruise = std::clamp(s.cruise + (c.wheelSteps * kWheelStep + throttle * kThrottleRate * h) * scale,
                           -kMaxCruise * scale, kMaxCruise * scale);
     if (brake || c.brakeTap) s.cruise = 0.0f;
@@ -366,7 +366,7 @@ void CameraDrive::appendStep(const DriveControls &c)
             - (c.touchRight ? stickCurve(c.touchRightX) * kRollRate : 0.0f)
             - (c.pad ? c.padRightX * kRollRate : 0.0f));
     s.turn = approach(s.turn, turnTarget, kTurnTau, h);
-    // Su e giu': R e F, o i grilletti del pad (R2 su, L2 giu', a meta' o del tutto).
+    // Su e giu': R e F, o lo stick sinistro del pad su e giu' (a meta' o del tutto).
     const float liftInput = std::clamp(axis(c.liftUp, c.liftDown) + (c.pad ? c.padLift : 0.0f), -1.0f, 1.0f);
     s.lift = approach(s.lift, liftInput * kLiftRate * boost * scale, kLiftTau, h);
     const bool w = m_movesW && m_movesW();

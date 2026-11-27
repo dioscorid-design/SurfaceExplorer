@@ -115,9 +115,28 @@ const std::map<QString, Painter> &drivePictograms()
     static const std::map<QString, Painter> table = {
         // --- COSA FA IL VEICOLO ---
         { QStringLiteral("drive-throttle"), [](QPainter &p) {
-              vehicle(p, QPointF(30, 32), 1.6, 0);
-              arrow(p, QPointF(46, 32), QPointF(61, 32));
-              arrow(p, QPointF(14, 32), QPointF(3, 32));
+              // La velocita' (l'acceleratore: W/S, la rotella, lo stick
+              // sinistro su e giu'): un tachimetro, meno a sinistra, piu' a destra.
+              const QPointF c(32, 38);
+              const qreal r = 24.0;
+              p.save();
+              p.setPen(strokePen(kLine, 3.0));
+              p.setBrush(Qt::NoBrush);
+              p.drawArc(QRectF(c.x() - r, c.y() - r, 2 * r, 2 * r), 200 * 16, -220 * 16);
+              p.setPen(strokePen(kLine, 2.0));
+              for (const qreal deg : { 200.0, 145.0, 90.0, 35.0, -20.0 }) {
+                  const QPointF d(std::cos(qDegreesToRadians(deg)), -std::sin(qDegreesToRadians(deg)));
+                  p.drawLine(c + d * (r - 6.0), c + d * (r - 2.0));
+              }
+              const QPointF needle(std::cos(qDegreesToRadians(55.0)), -std::sin(qDegreesToRadians(55.0)));
+              p.setPen(strokePen(kHot, 3.2));
+              p.drawLine(c, c + needle * (r - 5.0));
+              p.setPen(Qt::NoPen);
+              p.setBrush(kHot);
+              p.drawEllipse(c, 4.0, 4.0);
+              p.restore();
+              textMark(p, QRectF(0, 46, 18, 18), QStringLiteral("−"), kAccent, 18);
+              textMark(p, QRectF(46, 46, 18, 18), QStringLiteral("+"), kAccent, 18);
           } },
         { QStringLiteral("drive-yaw"), [](QPainter &p) {
               vehicle(p, QPointF(32, 36), 1.6, 90);

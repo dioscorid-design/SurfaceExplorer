@@ -84,16 +84,19 @@ struct DriveControls {
     QPointF touchLeftOrigin, touchRightOrigin;
     bool brakeTap = false;
     // IL PAD (gamepad.h; li scrive InputHandler::handleGamepad a ogni passo del
-    // pad): la disposizione degli stick a tocco. Lo stick SINISTRO su e giu' la
-    // crociera, come W e S a meta' o del tutto, destra e sinistra la virata; il
-    // DESTRO su e giu' il beccheggio (in su = muso in su), destra e sinistra il
-    // rollio; i GRILLETTI su (R2) e giu' (L2), come R e F. Assi -1..1, y del
-    // pad verso l'alto, gia' ripuliti da Gamepad::shaped (zona morta, e al
-    // quadrato come stickCurve: qui non si curvano di nuovo). `pad`: qualche
-    // asse fuori dalla zona morta -- la deriva di uno stick lasciato andare non
-    // e' un comando e non prende il posto del volo registrato.
+    // pad), come un drone: lo stick SINISTRO su e giu' sale e scende (padLift,
+    // come R e F), destra e sinistra la virata; il DESTRO su e giu' il
+    // beccheggio (in su = muso in su), destra e sinistra il rollio; i GRILLETTI
+    // la crociera (padThrottle: R2 piu' veloce, L2 piu' lento, come W e S a
+    // meta' o del tutto). La crociera non sta su uno stick (scelta dell'utente,
+    // 2026-11-27): resta lasciato il comando, e una virata storta la sporcava
+    // per sempre; la salita no, finisce col comando. Assi -1..1, y del pad
+    // verso l'alto, gia' ripuliti da Gamepad::shaped (zona morta, e al quadrato
+    // come stickCurve: qui non si curvano di nuovo). `pad`: qualche asse fuori
+    // dalla zona morta -- la deriva di uno stick lasciato andare non e' un
+    // comando e non prende il posto del volo registrato.
     bool pad = false;
-    float padLeftX = 0.0f, padLeftY = 0.0f, padRightX = 0.0f, padRightY = 0.0f, padLift = 0.0f;
+    float padLeftX = 0.0f, padLift = 0.0f, padRightX = 0.0f, padRightY = 0.0f, padThrottle = 0.0f;
     // I PULSANTI TENUTI del pad (scelta dell'utente, 2026-11-23): Cross il
     // freno, L1 e R1 verso W- e W+, L3 tutto piu' veloce (come Spazio, Z/X,
     // Maiuscole). Campi propri: il pad scrive a ogni passo e non deve
@@ -103,7 +106,7 @@ struct DriveControls {
     void releasePad()
     {
         pad = padBrake = padWPlus = padWMinus = padBoost = false;
-        padLeftX = padLeftY = padRightX = padRightY = padLift = 0.0f;
+        padLeftX = padLift = padRightX = padRightY = padThrottle = 0.0f;
     }
     // Un passo del pad (InputHandler::handleGamepad, a guida accesa): i suoi
     // assi nei comandi. La vista mossa la segnala la guida (userDrove), come
